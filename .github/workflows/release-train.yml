@@ -1,8 +1,16 @@
 # Release train — the single trigger surface for cutting a platform release candidate.
 # Both humans and AI use this one workflow_dispatch (AI via the GitHub App / MCP).
-# SKELETON: gate jobs are placeholders to be wired to each component repo's reusable
-# (workflow_call) gates and the certification/e2e harnesses. Promote is a separate,
-# environment-gated workflow (promote.yml). AI proposes; this pipeline disposes.
+#
+# State: the gates that are REAL today are wired as reusable (workflow_call) jobs — they run the
+# same code as their per-PR CI, so there is no drift between "what CI checks" and "what the train
+# checks." The gates whose real implementation lives in component repos (build/test, contract,
+# conformance, security) or in later phases (observability, docs, upgrade) remain honest TODO
+# placeholders, clearly marked, so the train's shape is complete while the work lands.
+#
+# Honesty (AGENTS.md): a gate that can't fail is worse than no gate. The wired gates can fail. On a
+# real cut (dry_run=false) the artifact-consumption gate runs `strict` and e2e runs `require_real`,
+# so a BLOCKED/unpublished artifact is a real red instead of a tolerated bootstrap state.
+# AI proposes; this pipeline disposes.
 
 name: release-train
 run-name: "release-train ${{ inputs.platform_label }} (dry_run=${{ inputs.dry_run }})"
@@ -20,11 +28,38 @@ concurrency:
 permissions:
   contents: read
   id-token: write               # OIDC for keyless signing / cloud auth (no static creds)
+  packages: read                # pull staging images / OCI charts in the artifact-consume gate
 
 jobs:
   freeze:                       # snapshot main of every component -> candidate manifest
     runs-on: ubuntu-latest
     steps: [{ run: 'echo "TODO: snapshot component SHAs -> candidate platform-manifest.yaml" ' }]
+
+  # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
+
+  gate_manifest:               # Phase 0 source-of-truth: validate manifest + matrix, enforce drift
+    needs: freeze
+    uses: ./.github/workflows/manifest-validate.yml
+    # A train cut is a fresh full snapshot, not a diff, so no drift baseline is passed here
+    # (structure + coherence still run, and fail on an incoherent pinned set).
+
+  gate_artifact_consume:       # d) install/consume published artifacts (closes sdk-js#310, iac#81, grpc#45)
+    needs: freeze
+    uses: ./.github/workflows/gate-artifact-consume.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      # dry-run cut tolerates not-yet-published artifacts (bootstrap); a real cut demands them (strict).
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit            # passes RELEASE_GH_TOKEN for the LOCAL-build fallback / staging auth
+
+  gate_e2e:                    # cross-component seam scenarios on local-docker (Phase A; #7)
+    needs: [gate_manifest, gate_artifact_consume]
+    uses: ./.github/workflows/e2e-local-docker.yml
+    with:
+      # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
+      require_real: ${{ !inputs.dry_run }}
+
+  # ── TODO gates: real implementations live in component repos / later phases ──────────────────
 
   gate_build_test:             # a) full per-repo test suites (no silent skips); reuse component workflow_call gates
     needs: freeze
@@ -34,47 +69,150 @@ jobs:
   gate_contract:               # b) proto/REST/SDK breaking-change (buf incl. deletion; closes grpc#44/#45)
     needs: freeze
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff"' }]
+    steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff (issue #2)"' }]
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
     needs: [gate_build_test, gate_contract]
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: certification/ + version-contract-drift against candidate"' }]
-
-  gate_artifact_consume:       # d) install/consume published artifacts (closes sdk-js#310, iac#81, grpc#45)
-    needs: gate_build_test
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: npm/nuget/pip install; terraform init tarball; helm install; docker run /healthz; codegen"' }]
+    steps: [{ run: 'echo "TODO: certification/ + version-contract-drift against candidate (issue #3)"' }]
 
   gate_security:               # e) SCA, secret, SAST, container, IaC, license
     needs: freeze
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: trivy/codeql/checkov/deps/license"' }]
-
-  gate_e2e:                    # cross-component + cross-cloud parity (AWS-first); consumes latest nightly green
-    needs: [gate_conformance, gate_artifact_consume]
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: e2e/ scenarios on local-docker + AWS targets; deploy-target parity"' }]
+    steps: [{ run: 'echo "TODO: trivy/codeql/checkov/deps/license (Phase 3)"' }]
 
   gate_observability:          # g) SLO incl. GeoServices in-band error metric (closes server#2243/iac#82/devops#113/helm#31)
     needs: gate_e2e
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: deploy to staging, validate error budget incl honua_geoservices_error_total"' }]
+    steps: [{ run: 'echo "TODO: deploy to staging, validate error budget incl honua_geoservices_error_total (issue #5)"' }]
 
   gate_docs:                   # h) docs build + advertised-vs-actual + release notes
     needs: gate_conformance
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: docs build/link-check; every capability claim maps to a passing test"' }]
+    steps: [{ run: 'echo "TODO: docs build/link-check; every capability claim maps to a passing test (Phase 3)"' }]
 
   gate_upgrade:                # i) prior-release -> candidate upgrade (migrations fwd+rollback, old clients)
     needs: gate_e2e
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: seed prior release, apply candidate, assert zero-downtime + data intact"' }]
+    steps: [{ run: 'echo "TODO: seed prior release, apply candidate, assert zero-downtime + data intact (Phase 2)"' }]
 
-  report:                      # machine-readable gate-report.json for AI/MCP to parse (never scrape logs)
-    needs: [gate_security, gate_observability, gate_docs, gate_upgrade]
+  # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
+
+  report:                      # never scrape logs — parse this (plan §15)
+    needs:
+      - gate_manifest
+      - gate_artifact_consume
+      - gate_e2e
+      - gate_build_test
+      - gate_contract
+      - gate_conformance
+      - gate_security
+      - gate_observability
+      - gate_docs
+      - gate_upgrade
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TODO: assemble gate-report.json {gate,status,why,evidence_url}; tag RC if all green and not dry_run"
-      - run: echo "Promotion to the platform label is a separate, environment-gated workflow (promote.yml)."
+      - name: Collect sub-gate reports (best-effort)
+        uses: actions/download-artifact@v4
+        with:
+          # the wired gates upload their own machine-readable reports; pull whatever exists.
+          pattern: "*gate-report*"
+          path: subreports
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Assemble platform gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Each gate's job result (success | failure | skipped | cancelled). TODO gates are echo =>
+          # success; wired gates carry the real verdict. A `wired` flag marks which can actually gate.
+          R_MANIFEST: ${{ needs.gate_manifest.result }}
+          R_ARTIFACT: ${{ needs.gate_artifact_consume.result }}
+          R_E2E: ${{ needs.gate_e2e.result }}
+          R_BUILD: ${{ needs.gate_build_test.result }}
+          R_CONTRACT: ${{ needs.gate_contract.result }}
+          R_CONFORMANCE: ${{ needs.gate_conformance.result }}
+          R_SECURITY: ${{ needs.gate_security.result }}
+          R_OBS: ${{ needs.gate_observability.result }}
+          R_DOCS: ${{ needs.gate_docs.result }}
+          R_UPGRADE: ${{ needs.gate_upgrade.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # gate rows: id | job-result | wired(1/0). `wired` gates are real and can fail the train;
+          # `0` gates are honest TODO placeholders (echo) that report `todo`, never green-washing.
+          rows=$(cat <<EOF
+          manifest|$R_MANIFEST|1
+          artifact-consume|$R_ARTIFACT|1
+          e2e|$R_E2E|1
+          build-test|$R_BUILD|0
+          contract|$R_CONTRACT|0
+          conformance|$R_CONFORMANCE|0
+          security|$R_SECURITY|0
+          observability|$R_OBS|0
+          docs|$R_DOCS|0
+          upgrade|$R_UPGRADE|0
+          EOF
+          )
+          echo "$rows" | jq -R 'split("|") | {gate:.[0], jobResult:.[1], wired:(.[2]=="1")}
+            | .status = (
+                if .wired then
+                  (if .jobResult=="success" then "pass"
+                   elif .jobResult=="skipped" or .jobResult=="cancelled" then "blocked"
+                   else "fail" end)
+                else "todo" end)' \
+            | jq -s \
+              --arg label "$PLATFORM_LABEL" \
+              --arg dry "$DRY_RUN" \
+              --arg ts "$(date -u +%FT%TZ)" \
+              --arg run "$RUN_URL" '
+              {
+                platform_label: $label,
+                dry_run: ($dry=="true"),
+                generatedAt: $ts,
+                evidence_url: $run,
+                gates: .,
+                summary: {
+                  pass: ([.[]|select(.status=="pass")]|length),
+                  fail: ([.[]|select(.status=="fail")]|length),
+                  blocked: ([.[]|select(.status=="blocked")]|length),
+                  todo: ([.[]|select(.status=="todo")]|length)
+                },
+                overallStatus: (
+                  if   any(.[]; .wired and .status=="fail")    then "fail"
+                  elif any(.[]; .wired and .status=="blocked") then "blocked"
+                  else "pass" end)
+              }' > out/gate-report.json
+          cat out/gate-report.json
+          echo "overall=$(jq -r .overallStatus out/gate-report.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "## release-train $PLATFORM_LABEL — $(jq -r .overallStatus out/gate-report.json)";
+            echo "";
+            echo "| gate | status | wired |";
+            echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.status) | \(if .wired then "yes" else "todo" end) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload platform gate-report.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-gate-report
+          path: out/gate-report.json
+
+      - name: Enforce + (TODO) tag RC
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall }}'
+          echo "overall train status: $OVERALL (dry_run=${{ inputs.dry_run }})"
+          if [ "$OVERALL" = "fail" ]; then
+            echo "::error::release-train: a wired gate failed — candidate is NOT certifiable"; exit 1
+          fi
+          if [ "$OVERALL" = "blocked" ]; then
+            echo "::warning::release-train: a wired gate is blocked (unpublished artifacts / placeholder pins). Not certifiable for a real cut."
+          fi
+          echo "TODO: when all gates are wired + green and not dry_run, tag the RC here."
+          echo "Promotion to the platform label is a separate, environment-gated workflow (promote.yml)."
