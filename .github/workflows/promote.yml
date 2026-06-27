@@ -1,24 +1,114 @@
-# Promote a passed release candidate to a platform label. This is the human/AI approval boundary:
-# the `production` environment carries required reviewers + optional wait timer, enforced by GHA —
-# the AI (or a human) cannot skip it. SKELETON.
+# Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
+#
+# This is the human/AI approval boundary: the `production` environment carries required reviewers +
+# an optional wait timer, enforced by GHA — the AI (or a human) cannot skip it. Within the gate it
+# FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
+# gate-report is all-green, so a red/blocked candidate can never be tagged (AGENTS.md). Tagging,
+# signing, and release creation are done by THIS workflow's OIDC identity — the AI never holds keys.
+#
+# What it does on success:
+#   1. pull the candidate's platform-gate-report from the certified train run
+#   2. verify it is all-green for this label, finalize the manifest (status: released), generate notes
+#   3. OIDC keyless-sign the finalized manifest (Sigstore/cosign)
+#   4. create the `honua-<label>` git tag + GitHub Release with the manifest + matrix + notes +
+#      signature + certificate attached
 
 name: promote
-run-name: "promote ${{ inputs.platform_label }}"
+run-name: "promote ${{ inputs.platform_label }} (from run ${{ inputs.train_run_id }})"
 
 on:
   workflow_dispatch:
     inputs:
-      platform_label: { description: "RC to promote, e.g. 2026.1-rc.3", required: true, type: string }
+      platform_label:
+        description: "Platform label to release, e.g. 2026.1"
+        required: true
+        type: string
+      train_run_id:
+        description: "release-train run id that certified this candidate (its platform-gate-report)"
+        required: true
+        type: string
 
 permissions:
-  contents: write     # tag the platform release
-  id-token: write     # sign artifacts/manifest (keyless, OIDC)
+  contents: write     # create the tag + GitHub Release
+  id-token: write     # OIDC keyless signing of the manifest (no static keys)
+  actions: read       # download the candidate gate-report artifact from the train run
+
+concurrency:
+  group: promote-${{ inputs.platform_label }}
+  cancel-in-progress: false
 
 jobs:
   promote:
     runs-on: ubuntu-latest
-    environment: production    # <-- required reviewers / wait timer configured in repo settings
+    environment: production    # required reviewers / wait timer configured in repo settings
     steps:
-      - run: echo "TODO: verify candidate gate-report is all-green for ${{ inputs.platform_label }}"
-      - run: echo "TODO: finalize platform-manifest.yaml (status: released), tag, publish, sign, attach SBOM"
-      - run: echo "TODO: publish the compatibility-matrix + release notes for the label"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+
+      - name: Fetch the candidate gate-report from the train run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          gh run download "${{ inputs.train_run_id }}" --repo "${{ github.repository }}" \
+            --name platform-gate-report --dir candidate
+          echo "gate-report:"; cat candidate/gate-report.json
+
+      - name: Finalize (fail closed unless all-green) + generate notes
+        id: finalize
+        run: |
+          set -euo pipefail
+          LABEL="${{ inputs.platform_label }}"
+          BASE="${LABEL%%-rc*}"
+          TAG="honua-${BASE}"
+          echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
+          # label — that aborts the job BEFORE any tag/release is created.
+          python tools/finalize_release.py \
+            --label "$LABEL" \
+            --gate-report candidate/gate-report.json \
+            --released-at "$(date -u +%FT%TZ)" \
+            --out-manifest finalized-manifest.yaml \
+            --out-notes release-notes.md
+
+      - name: Sign the finalized manifest (Sigstore keyless / OIDC)
+        uses: sigstore/cosign-installer@v3
+      - name: cosign sign-blob
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes finalized-manifest.yaml \
+            --output-signature finalized-manifest.yaml.sig \
+            --output-certificate finalized-manifest.yaml.pem
+          echo "Signed. Verify with:"
+          echo "  cosign verify-blob finalized-manifest.yaml \\"
+          echo "    --signature finalized-manifest.yaml.sig --certificate finalized-manifest.yaml.pem \\"
+          echo "    --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/promote.yml@.*' \\"
+          echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+
+      - name: Create the platform release (tag + GitHub Release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.finalize.outputs.tag }}"
+          BASE="${{ steps.finalize.outputs.base }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::release $TAG already exists — refusing to overwrite a published platform release"
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Honua ${BASE}" \
+            --notes-file release-notes.md \
+            finalized-manifest.yaml \
+            compatibility-matrix.yaml \
+            finalized-manifest.yaml.sig \
+            finalized-manifest.yaml.pem
+          echo "Released Honua ${BASE} as tag ${TAG}."
