@@ -57,12 +57,17 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Install runner deps
-        run: python -m pip install -r e2e/requirements.txt
+        run: python -m pip install -r e2e/requirements.txt pytest
 
       # Static gates — always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)
         working-directory: e2e
         run: make check
+
+      # Unit-test the runner's verdict logic + parsers — an untested gate can stop gating silently.
+      - name: Unit-test the runner
+        working-directory: e2e
+        run: make test
 
       # Run the seam scenarios. Docker is preinstalled on ubuntu-latest runners.
       - name: Run seam scenarios
