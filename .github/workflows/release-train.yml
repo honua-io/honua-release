@@ -84,17 +84,20 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_security:               # e) Trivy image + repo scan (vuln/secret/license/IaC). Phase 3.
+    needs: freeze
+    uses: ./.github/workflows/gate-security.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
+
   # ── TODO gates: real implementations live in component repos / later phases ──────────────────
 
   gate_contract:               # b) proto/REST/SDK breaking-change (buf incl. deletion; closes grpc#44/#45)
     needs: freeze
     runs-on: ubuntu-latest
     steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff (issue #2)"' }]
-
-  gate_security:               # e) SCA, secret, SAST, container, IaC, license
-    needs: freeze
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: trivy/codeql/checkov/deps/license (Phase 3)"' }]
 
   gate_observability:          # g) SLO incl. GeoServices in-band error metric (closes server#2243/iac#82/devops#113/helm#31)
     needs: gate_e2e
@@ -170,7 +173,7 @@ jobs:
           build-test|$R_BUILD|1
           contract|$R_CONTRACT|0
           conformance|$R_CONFORMANCE|1
-          security|$R_SECURITY|0
+          security|$R_SECURITY|1
           observability|$R_OBS|0
           docs|$R_DOCS|0
           upgrade|$R_UPGRADE|0

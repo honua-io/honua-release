@@ -1,0 +1,237 @@
+# Release gate (e) — security review. Scans the platform artifacts the release repo can reach and
+# fails the gate on real findings (AGENTS.md: a gate that can't fail is worse than no gate).
+#
+#   image-scan  Trivy vulnerability scan of the manifest-pinned server image (CVEs in OS + app deps)
+#   repo-scan   Trivy filesystem scan of this repo: secrets, vulnerable deps, license, IaC misconfig
+#
+# Component-level SAST (CodeQL) + each repo's own dep/secret scans live in the component repos; this
+# gate covers the platform-level artifacts (the shipped server image) + the release repo itself.
+#
+# Trigger scope: workflow_dispatch / workflow_call (the train) / nightly — NOT per-PR, because a CVE
+# in the upstream server image is not an individual honua-release PR's fault (same rationale as the
+# build-test gate). enforcement: bootstrap tolerates an unpullable image (blocked) but a real CRITICAL
+# finding always fails; strict fails on any non-pass.
+#
+# Emits gate-report via the shared gate-fragment action (sec- prefixed so it can run alongside other
+# gates in one train run).
+
+name: gate-security
+run-name: "gate-security ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "RC being scanned", required: false, type: string, default: "dev-local" }
+      enforcement:
+        description: "bootstrap = tolerate unpullable image (blocked); strict = any non-pass fails"
+        required: false
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+      severity:
+        description: "Severity floor that fails the gate"
+        required: false
+        type: string
+        default: "CRITICAL"
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+      severity:       { required: false, type: string, default: "CRITICAL" }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.report.outputs.overall_status }}
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: gate-security-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+env:
+  SEVERITY: ${{ inputs.severity || 'CRITICAL' }}
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # image-scan — Trivy on the manifest-pinned server image.
+  # ───────────────────────────────────────────────────────────────────────────
+  image-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+
+      - name: Resolve pinned server image
+        id: img
+        run: |
+          set -euo pipefail
+          IMG="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "resolved server image: ${IMG:-<none>}"
+
+      - name: Pull image (blocked if unreachable)
+        id: pull
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          IMG='${{ steps.img.outputs.image }}'
+          echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
+          if [ -n "$IMG" ] && docker pull "$IMG" >/tmp/pull.log 2>&1; then
+            echo "pulled=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "pulled=0" >> "$GITHUB_OUTPUT"; echo "image unpullable (expected if private/not built):"; tail -n 3 /tmp/pull.log || true
+          fi
+
+      - name: Trivy scan
+        id: trivy
+        if: steps.pull.outputs.pulled == '1'
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true     # we translate the outcome into a gate verdict ourselves
+        with:
+          image-ref: ${{ steps.img.outputs.image }}
+          scan-type: image
+          severity: ${{ env.SEVERITY }}
+          ignore-unfixed: true
+          exit-code: "1"            # non-zero when a finding at/above SEVERITY exists
+          format: table
+
+      - name: Decide verdict
+        id: verdict
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.pull.outputs.pulled }}" != "1" ]; then
+            S=blocked; W="server image not pullable (${{ steps.img.outputs.image }})"
+          elif [ "${{ steps.trivy.outcome }}" = "success" ]; then
+            S=pass; W="no ${SEVERITY} vulnerabilities in ${{ steps.img.outputs.image }}"
+          else
+            S=fail; W="Trivy found ${SEVERITY} vulnerabilities in ${{ steps.img.outputs.image }}"
+          fi
+          { echo "status=$S"; echo "why=$W"; echo "source=image"; } >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: security-image
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'image' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: sec-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # repo-scan — Trivy filesystem scan of this repo (secrets, deps, license, IaC misconfig).
+  # ───────────────────────────────────────────────────────────────────────────
+  repo-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy fs scan
+        id: trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          scan-type: fs
+          scan-ref: "."
+          scanners: "vuln,secret,misconfig,license"
+          severity: ${{ env.SEVERITY }}
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Decide verdict
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.trivy.outcome }}" = "success" ]; then
+            S=pass; W="no ${SEVERITY} secret/vuln/license/misconfig findings in the release repo"
+          else
+            S=fail; W="Trivy fs found ${SEVERITY} findings (secret/vuln/license/misconfig)"
+          fi
+          { echo "status=$S"; echo "why=$W"; echo "source=repo"; } >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: security-repo
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'repo' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: sec-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # report — aggregate the sec- fragments; fail per enforcement (same logic as the other gates).
+  # ───────────────────────────────────────────────────────────────────────────
+  report:
+    needs: [image-scan, repo-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sec-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s \
+            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | { gate:"security", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:$g,
+                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          blocked:([$g[]|select(.decided=="blocked")]|length),
+                          fail:([$g[]|select(.decided=="fail")]|length) },
+                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+            fragments/*.json > out/gate-report.json
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Security gate — $OVERALL";
+            echo "| scan | status | why |"; echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-gate-report
+          path: out/gate-report.json
+
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "security gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          [ "$OVERALL" = "fail" ] && { echo "::error::security gate FAILED"; exit 1; } || echo "not red"
