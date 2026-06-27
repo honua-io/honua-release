@@ -1,0 +1,80 @@
+# Release train — the single trigger surface for cutting a platform release candidate.
+# Both humans and AI use this one workflow_dispatch (AI via the GitHub App / MCP).
+# SKELETON: gate jobs are placeholders to be wired to each component repo's reusable
+# (workflow_call) gates and the certification/e2e harnesses. Promote is a separate,
+# environment-gated workflow (promote.yml). AI proposes; this pipeline disposes.
+
+name: release-train
+run-name: "release-train ${{ inputs.platform_label }} (dry_run=${{ inputs.dry_run }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
+      dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+
+concurrency:
+  group: release-train          # never two cuts at once
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write               # OIDC for keyless signing / cloud auth (no static creds)
+
+jobs:
+  freeze:                       # snapshot main of every component -> candidate manifest
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: snapshot component SHAs -> candidate platform-manifest.yaml" ' }]
+
+  gate_build_test:             # a) full per-repo test suites (no silent skips); reuse component workflow_call gates
+    needs: freeze
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: fan out to component gate-build-test.yml (changed-only + cached)"' }]
+
+  gate_contract:               # b) proto/REST/SDK breaking-change (buf incl. deletion; closes grpc#44/#45)
+    needs: freeze
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff"' }]
+
+  gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
+    needs: [gate_build_test, gate_contract]
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: certification/ + version-contract-drift against candidate"' }]
+
+  gate_artifact_consume:       # d) install/consume published artifacts (closes sdk-js#310, iac#81, grpc#45)
+    needs: gate_build_test
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: npm/nuget/pip install; terraform init tarball; helm install; docker run /healthz; codegen"' }]
+
+  gate_security:               # e) SCA, secret, SAST, container, IaC, license
+    needs: freeze
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: trivy/codeql/checkov/deps/license"' }]
+
+  gate_e2e:                    # cross-component + cross-cloud parity (AWS-first); consumes latest nightly green
+    needs: [gate_conformance, gate_artifact_consume]
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: e2e/ scenarios on local-docker + AWS targets; deploy-target parity"' }]
+
+  gate_observability:          # g) SLO incl. GeoServices in-band error metric (closes server#2243/iac#82/devops#113/helm#31)
+    needs: gate_e2e
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: deploy to staging, validate error budget incl honua_geoservices_error_total"' }]
+
+  gate_docs:                   # h) docs build + advertised-vs-actual + release notes
+    needs: gate_conformance
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: docs build/link-check; every capability claim maps to a passing test"' }]
+
+  gate_upgrade:                # i) prior-release -> candidate upgrade (migrations fwd+rollback, old clients)
+    needs: gate_e2e
+    runs-on: ubuntu-latest
+    steps: [{ run: 'echo "TODO: seed prior release, apply candidate, assert zero-downtime + data intact"' }]
+
+  report:                      # machine-readable gate-report.json for AI/MCP to parse (never scrape logs)
+    needs: [gate_security, gate_observability, gate_docs, gate_upgrade]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO: assemble gate-report.json {gate,status,why,evidence_url}; tag RC if all green and not dry_run"
+      - run: echo "Promotion to the platform label is a separate, environment-gated workflow (promote.yml)."

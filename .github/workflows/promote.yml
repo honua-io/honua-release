@@ -1,0 +1,24 @@
+# Promote a passed release candidate to a platform label. This is the human/AI approval boundary:
+# the `production` environment carries required reviewers + optional wait timer, enforced by GHA —
+# the AI (or a human) cannot skip it. SKELETON.
+
+name: promote
+run-name: "promote ${{ inputs.platform_label }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "RC to promote, e.g. 2026.1-rc.3", required: true, type: string }
+
+permissions:
+  contents: write     # tag the platform release
+  id-token: write     # sign artifacts/manifest (keyless, OIDC)
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: production    # <-- required reviewers / wait timer configured in repo settings
+    steps:
+      - run: echo "TODO: verify candidate gate-report is all-green for ${{ inputs.platform_label }}"
+      - run: echo "TODO: finalize platform-manifest.yaml (status: released), tag, publish, sign, attach SBOM"
+      - run: echo "TODO: publish the compatibility-matrix + release notes for the label"

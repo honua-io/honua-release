@@ -1,0 +1,26 @@
+# Platform manifest — the pinned, certified set of component versions for a platform release.
+# A "Honua YYYY.N" release IS this file at a given tag. The release train writes/validates it;
+# customers consume it to deploy/upgrade a coherent set. Versions below are PLACEHOLDERS to be
+# populated by the train (Phase 0/2) from each component's actual release.
+
+platformRelease: "2026.1-rc.0"        # calendar label; -rc.N until promoted
+status: draft                          # draft | rc | released
+
+components:
+  honua-server:        { version: "TBD", sha: "TBD", image: "ghcr.io/honua-io/honua-server:TBD", contractVersions: { geoservices: v?, ogc: v?, stac: v?, admin: v? }, dbSchema: "TBD" }
+  honua-console:       { version: "TBD", sha: "TBD", image: "ghcr.io/honua-io/honua-console:TBD" }
+  honua-sdk-dotnet:    { version: "TBD", sha: "TBD", artifact: "nuget:Honua.Sdk" }
+  honua-sdk-js:        { version: "TBD", sha: "TBD", artifact: "npm:@honua-io/sdk-js" }
+  honua-sdk-python:    { version: "TBD", sha: "TBD", artifact: "pypi:honua-sdk" }
+  honua-mobile:        { version: "TBD", sha: "TBD" }
+  honua-collect:       { version: "TBD", sha: "TBD" }
+  geospatial-grpc:     { version: "TBD", sha: "TBD", contractVersions: { grpc: v1 } }
+  geospatial-mcp:      { version: "TBD", sha: "TBD" }
+  honua-iac:           { version: "TBD", sha: "TBD", artifact: "terraform-registry:honua" }
+  honua-helm:          { version: "TBD", sha: "TBD", artifact: "oci-chart:honua" }
+
+# Filled at promote: aggregated SBOM digest, provenance attestation, release-notes ref.
+artifacts:
+  sbom: "TBD"
+  provenance: "TBD"
+  releaseNotes: "TBD"

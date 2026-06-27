@@ -1,0 +1,34 @@
+# Compatibility matrix — the interop rules. The product differentiator: "keeping track of version
+# compatibility, iac<->server<->sdk." Enforced at build (drift tests), deploy (iac/helm preflight),
+# runtime (server advertises contractVersion; SDK checks), and upgrade (preflight). Ranges are
+# PLACEHOLDERS to encode once real versions exist (Phase 0).
+
+# Each rule: a contract surface at a version, and the component version ranges that satisfy it.
+contracts:
+  geoservices:
+    version: v?        # server-advertised GeoServices REST contract version
+    clients:
+      honua-sdk-js:     ">=TBD <NEXT_MAJOR"
+      honua-sdk-dotnet: ">=TBD <NEXT_MAJOR"
+      honua-sdk-python: ">=TBD <NEXT_MAJOR"
+  grpc:
+    version: v1
+    clients:
+      honua-sdk-dotnet: ">=TBD"
+      honua-sdk-js:     ">=TBD"
+  admin:               # console <-> server admin/control-plane API
+    version: v?
+    clients:
+      honua-console:    ">=TBD"
+
+# Deploy/runtime coupling
+deploy:
+  honua-iac:   { deploysServerImage: ">=TBD <NEXT_MAJOR" }
+  honua-helm:  { appVersion: ">=TBD <NEXT_MAJOR" }
+data:
+  honua-server: { requiresDbSchema: ">=TBD" }   # server refuses to start below this
+
+# Support window policy: server supports clients within N-2 minor of its contract version.
+supportWindow:
+  clientMinorsBack: 2
+  deprecationReleases: 2     # deprecated surfaces carried >= 2 platform releases before removal
