@@ -1,26 +1,100 @@
 # Platform manifest — the pinned, certified set of component versions for a platform release.
 # A "Honua YYYY.N" release IS this file at a given tag. The release train writes/validates it;
-# customers consume it to deploy/upgrade a coherent set. Versions below are PLACEHOLDERS to be
-# populated by the train (Phase 0/2) from each component's actual release.
+# customers consume it to deploy/upgrade a coherent set.
+#
+# Phase 0 snapshot: populated with REAL data observed on 2026-06-26 (latest GitHub release/tag
+# per repo + current default-branch HEAD sha). This is a pre-train hand snapshot, NOT yet a
+# certified RC — the release train (Phase 2) will regenerate and validate this file.
+#
+# Conventions:
+#   - version: the latest GitHub *release* tag's semver if one exists; otherwise (no releases AND
+#     no tags) the literal "pre-release" sentinel — the component is identified by its `sha`.
+#     "Do not invent versions": a repo with no release is pinned by sha, not a guessed number.
+#   - sha: default-branch HEAD at snapshot time (the branch name is noted where it isn't `trunk`).
+#   - Source-declared (but un-released) versions from Chart.yaml/package.json are kept in comments
+#     so signal isn't lost, but they are NOT promoted to `version` until a release/tag exists.
 
 platformRelease: "2026.1-rc.0"        # calendar label; -rc.N until promoted
 status: draft                          # draft | rc | released
+snapshotDate: "2026-06-26"             # when the versions/shas below were observed
+snapshotKind: pre-train-hand-snapshot  # replaced by train-generated manifest in Phase 2
 
 components:
-  honua-server:        { version: "TBD", sha: "TBD", image: "ghcr.io/honua-io/honua-server:TBD", contractVersions: { geoservices: v?, ogc: v?, stac: v?, admin: v? }, dbSchema: "TBD" }
-  honua-console:       { version: "TBD", sha: "TBD", image: "ghcr.io/honua-io/honua-console:TBD" }
-  honua-sdk-dotnet:    { version: "TBD", sha: "TBD", artifact: "nuget:Honua.Sdk" }
-  honua-sdk-js:        { version: "TBD", sha: "TBD", artifact: "npm:@honua-io/sdk-js" }
-  honua-sdk-python:    { version: "TBD", sha: "TBD", artifact: "pypi:honua-sdk" }
-  honua-mobile:        { version: "TBD", sha: "TBD" }
-  honua-collect:       { version: "TBD", sha: "TBD" }
-  geospatial-grpc:     { version: "TBD", sha: "TBD", contractVersions: { grpc: v1 } }
-  geospatial-mcp:      { version: "TBD", sha: "TBD" }
-  honua-iac:           { version: "TBD", sha: "TBD", artifact: "terraform-registry:honua" }
-  honua-helm:          { version: "TBD", sha: "TBD", artifact: "oci-chart:honua" }
+  honua-server:
+    version: "pre-release"             # no GitHub releases or tags; pinned by sha
+    sha: "fd89ac51500b192fdefc58267308f3c368537518"   # branch: trunk
+    image: "ghcr.io/honua-io/honua-server:nightly-aot"  # :latest only moves on v* releases; trunk == nightly-aot
+    contractVersions:
+      # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
+      # (src/Honua.Server/Features/Admin/AdminInfoEndpoints.cs: AdminApiMajorNumber=1, AdminApiMajor="v1").
+      admin: v1
+      # metadata schema advertised in the same capabilities envelope (MetadataV2Constants.ApiVersion).
+      metadata: v1
+      # TODO(contract-wire): GeoServices/OGC/STAC surfaces do NOT advertise a single wire-contract
+      # version constant today (and deliberately do not emit ArcGIS `currentVersion` — Honua is not
+      # ArcGIS Server). Per-feature contract tags exist (e.g. tiles contractVersion=1,
+      # honua.package_review.v1, Reporting ContractVersionV1) but no rolled-up surface version.
+      # Wire a GeoServicesContract.Version / OgcContract.Version / StacContract.Version constant and
+      # advertise it in the service-info / capabilities response, then replace the v0 placeholders.
+      geoservices: v0   # TODO: not yet advertised — see note above
+      ogc: v0           # TODO: not yet advertised
+      stac: v0          # TODO: not yet advertised
+    # TODO(db-schema): no single numbered DB-schema-version constant surfaced. Logical metadata
+    # schema is v1 (MetadataV2Constants). Wire the physical migration floor (max applied migration
+    # number) into the manifest from the migrations runner. Recorded as the logical schema for now.
+    dbSchema: "metadata-v1"
+
+  honua-console:
+    version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
+    sha: "0f942510cad4f044ef02379fdb812415370a0119"   # branch: trunk
+    image: "ghcr.io/honua-io/honua-console:nightly"
+
+  honua-sdk-dotnet:
+    version: "1.3.0"                   # release tag dotnet-sdk-v1.3.0 (2026-06-24)
+    sha: "f7b50df50268a599bcef2de8294bfec4b411b9e0"   # branch: trunk
+    artifact: "nuget:Honua.Sdk"
+
+  honua-sdk-js:
+    version: "0.0.14-alpha.0"          # release tag js-sdk-v0.0.14-alpha.0 (2026-06-10)
+    sha: "50771b725ed06761d11879cd5154f82f8550a32a"   # branch: trunk
+    artifact: "npm:@honua-io/sdk-js"
+
+  honua-sdk-python:
+    version: "0.1.4"                   # release tag python-sdk-v0.1.4 (2026-06-10)
+    sha: "417db1b3413890ffff03edb89a58affda4a5a474"   # branch: trunk
+    artifact: "pypi:honua-sdk"
+    # companion package python-admin also at v0.1.4 (tag python-admin-v0.1.4).
+
+  honua-mobile:
+    version: "pre-release"             # no releases/tags (.NET MAUI app); pinned by sha
+    sha: "f25a8f2d0b3c7b700ed9d5b05abd75470cc1208b"   # branch: trunk
+
+  honua-collect:
+    version: "pre-release"             # no releases/tags (.NET); pinned by sha
+    sha: "d0a54f54af79443c4ae16306e0da9aa07ec42170"   # branch: main (note: not trunk)
+
+  geospatial-grpc:
+    version: "0.1.0-alpha.2"           # release tag v0.1.0-alpha.2 (2026-06-02)
+    sha: "64114747bf942a2e5a4dd2b89638ca3b3c3e9240"   # branch: trunk
+    contractVersions:
+      grpc: v1                         # proto package geospatial.v1 (VERSIONING.md)
+
+  geospatial-mcp:
+    version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha
+    sha: "b15c9c8e07efe9eaacc5bbef72ab4f6683547c17"   # branch: trunk
+
+  honua-iac:
+    version: "pre-release"             # no releases/tags; pinned by sha
+    sha: "1a7ca06f8494bba6db133f8d5f187fc70fa61e90"   # branch: trunk
+    artifact: "terraform-registry:honua"
+
+  honua-helm:
+    version: "pre-release"             # no releases/tags; Chart.yaml declares chart 0.4.0 / appVersion "0.0.0" (un-released)
+    sha: "bb83a1f2ad7efffd4086385d4d4ce365e38afa37"   # branch: trunk
+    artifact: "oci-chart:honua"
 
 # Filled at promote: aggregated SBOM digest, provenance attestation, release-notes ref.
 artifacts:
-  sbom: "TBD"
-  provenance: "TBD"
-  releaseNotes: "TBD"
+  sbom: "TBD"                          # TODO(Phase 3): aggregated CycloneDX/SPDX digest
+  provenance: "TBD"                    # TODO(Phase 3): SLSA attestation
+  releaseNotes: "TBD"                  # TODO(Phase 2/3): generated release-notes ref
