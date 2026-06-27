@@ -59,6 +59,14 @@ jobs:
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
 
+  gate_cloud_parity:           # cross-cloud integration/parity (Phase B; AWS serverless). TEST-STRATEGY.
+    needs: gate_e2e
+    uses: ./.github/workflows/e2e-cloud-aws.yml
+    with:
+      # a real cut promotes BLOCKED (infra not wired) / parity divergence to FAIL. Phase 2 switches
+      # this to consuming the latest nightly green instead of deploying synchronously at cut time.
+      require_real: ${{ !inputs.dry_run }}
+
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
     needs: [gate_build_test, gate_contract]
     uses: ./.github/workflows/certification.yml
@@ -107,6 +115,7 @@ jobs:
       - gate_manifest
       - gate_artifact_consume
       - gate_e2e
+      - gate_cloud_parity
       - gate_build_test
       - gate_contract
       - gate_conformance
@@ -137,6 +146,7 @@ jobs:
           R_MANIFEST: ${{ needs.gate_manifest.result }}
           R_ARTIFACT: ${{ needs.gate_artifact_consume.result }}
           R_E2E: ${{ needs.gate_e2e.result }}
+          R_CLOUD: ${{ needs.gate_cloud_parity.result }}
           R_BUILD: ${{ needs.gate_build_test.result }}
           R_CONTRACT: ${{ needs.gate_contract.result }}
           R_CONFORMANCE: ${{ needs.gate_conformance.result }}
@@ -153,6 +163,7 @@ jobs:
           manifest|$R_MANIFEST|1
           artifact-consume|$R_ARTIFACT|1
           e2e|$R_E2E|1
+          cloud-parity|$R_CLOUD|1
           build-test|$R_BUILD|0
           contract|$R_CONTRACT|0
           conformance|$R_CONFORMANCE|1

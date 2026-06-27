@@ -47,6 +47,40 @@ make e2e-strict   # E2E_REQUIRE_REAL=1: BLOCKED/SKIPPED => FAIL (the real releas
 CI: `.github/workflows/e2e-local-docker.yml` runs on PRs touching `e2e/`/manifest, on `workflow_dispatch`,
 and is `workflow_call`-able by the release train's `gate_e2e`.
 
+## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
+
+The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual
+honua-iac, run the **canonical (slim) parity set** against its public endpoint, and assert it behaves
+identically to the reference (local docker). Per `docs/TEST-STRATEGY.md`, this does NOT re-run the full
+SDK × scenario matrix per target — it runs the small, data-independent canonical set and compares.
+
+```
+e2e/
+  canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog) — HTTP-level, no SDK/Prom
+  parity.py               # compare(reference, other): identical verdicts across targets, else FAIL
+  run_cloud.py            # provision target -> run canonical -> teardown -> parity -> gate-report-cloud.json
+  targets/
+    base.py               # DeployTarget contract (availability / provision / teardown)
+    aws_serverless.py     # terraform-drives honua-iac examples/aws-serverless; reads honua_url; destroys (reaper)
+  test_cloud.py           # unit tests: parity comparator, canonical normalisation, BLOCKED-without-infra
+```
+
+```bash
+make cloud-aws     # run the AWS serverless parity cell (reports BLOCKED until AWS infra is wired)
+```
+
+CI: `.github/workflows/e2e-cloud-aws.yml` runs **nightly** + on `workflow_dispatch`, and is
+`workflow_call`-able by the release train's `gate_cloud_parity`. OIDC into AWS (no static creds);
+every apply is ephemeral + run-scoped and `teardown()` + a backstop reaper always run.
+
+### A gate that can FAIL — and is honestly BLOCKED until infra exists
+`aws-serverless` reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
+dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable **Lambda-AOT image in ECR**
+(`HONUA_LAMBDA_IMAGE_URI` — the serverless module wants ECR, not the ghcr image the manifest pins), and
+the honua-iac terraform tree (`HONUA_IAC_DIR`). `--require-real` (the train on a real cut / a real
+nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is unit-tested
+(`make test`) so the gate is trustworthy with zero cloud.
+
 ### Probe exit-code contract (every language probe)
 
 `0` = PASS (expected behaviour, e.g. the SDK raised on a 200+`{error}`) · `1` = FAIL (the bug: success
