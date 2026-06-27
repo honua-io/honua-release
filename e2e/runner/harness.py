@@ -109,6 +109,23 @@ def _wait_for_health(server_url: str, timeout_s: int) -> None:
 # --------------------------------------------------------------------------------------------------
 # Prometheus metric scrape (stdlib only) — ties the observability gate (server#2243)
 # --------------------------------------------------------------------------------------------------
+def parse_metric_total(body: str, name: str) -> float | None:
+    """Sum every sample (across label sets) of a Prometheus counter in an exposition `body`.
+
+    Pure + side-effect free so it is unit-testable without a live server (see test_runner.py).
+    Returns None when the metric is absent entirely — see scrape_metric for why that is meaningful.
+    """
+    total = None
+    pat = re.compile(rf"^{re.escape(name)}(\{{[^}}]*\}})?\s+([0-9eE+.\-]+)\s*$")
+    for line in body.splitlines():
+        if line.startswith("#"):
+            continue
+        m = pat.match(line.strip())
+        if m:
+            total = (total or 0.0) + float(m.group(2))
+    return total
+
+
 def scrape_metric(metrics_url: str, name: str) -> float | None:
     """Sum all samples of a Prometheus counter. Returns None if the metric is absent.
 
@@ -121,15 +138,7 @@ def scrape_metric(metrics_url: str, name: str) -> float | None:
             body = r.read().decode("utf-8", "replace")
     except (urllib.error.URLError, OSError):
         return None
-    total = None
-    pat = re.compile(rf"^{re.escape(name)}(\{{[^}}]*\}})?\s+([0-9eE+.\-]+)\s*$")
-    for line in body.splitlines():
-        if line.startswith("#"):
-            continue
-        m = pat.match(line.strip())
-        if m:
-            total = (total or 0.0) + float(m.group(2))
-    return total
+    return parse_metric_total(body, name)
 
 
 # --------------------------------------------------------------------------------------------------
