@@ -1,0 +1,63 @@
+# Advertised platform capabilities — the machine-checkable source for "advertised-vs-actual" (PLAN §7).
+#
+# The audit's recurring credibility risk was capabilities claimed in docs/READMEs with no backing
+# (e.g. a fabricated AR example citing a non-existent SDK). This file makes every claim accountable:
+#
+#   status: shipped  -> MUST cite `evidence` that resolves to something real in this repo:
+#       kind: canonical-check   ref: a check name in e2e/canonical_checks.py
+#       kind: gate              ref: a wired release-train gate id (from release-train.yml)
+#       kind: test              ref: a test file path that exists
+#   status: roadmap  -> explicitly labelled as not-yet-shipped; needs no evidence (but is honest).
+#
+# tools/check_capabilities.py fails the docs gate if a `shipped` claim has missing/unresolvable
+# evidence, or an unknown status — so a capability cannot be advertised without an actual test/gate.
+
+capabilities:
+  - id: geoservices-error-surfacing
+    claim: "GeoServices errors delivered in-band (HTTP 200 + {error}) are surfaced as errors, not swallowed as data."
+    status: shipped
+    evidence: { kind: canonical-check, ref: geoservices-error }
+
+  - id: service-catalog
+    claim: "The server exposes a GeoServices service catalog at /rest/services."
+    status: shipped
+    evidence: { kind: canonical-check, ref: service-catalog }
+
+  - id: health-endpoint
+    claim: "Every deploy target exposes a health endpoint for readiness checks."
+    status: shipped
+    evidence: { kind: canonical-check, ref: health }
+
+  - id: cross-repo-conformance
+    claim: "The platform's cross-repo conformance (incl. the MCP manifest) is certified before release."
+    status: shipped
+    evidence: { kind: gate, ref: conformance }
+
+  - id: pinned-set-ci-green
+    claim: "Every component in a release has green CI on its exact pinned commit."
+    status: shipped
+    evidence: { kind: gate, ref: build-test }
+
+  - id: artifact-consumption
+    claim: "Every published artifact (npm/nuget/pip/terraform/helm/docker) is proven to install before release."
+    status: shipped
+    evidence: { kind: gate, ref: artifact-consume }
+
+  - id: supply-chain-bom
+    claim: "Each release ships a signed CycloneDX platform bill of materials."
+    status: shipped
+    evidence: { kind: test, ref: tools/test_generate_bom.py }
+
+  - id: cross-cloud-parity
+    claim: "The platform behaves identically across deploy targets (cross-cloud parity)."
+    status: shipped
+    evidence: { kind: gate, ref: cloud-parity }
+
+  # --- roadmap (honestly labelled; not yet shipped) -------------------------------------------------
+  - id: slo-observability
+    claim: "Releases are gated on a live SLO/error-budget including the GeoServices in-band error metric."
+    status: roadmap
+
+  - id: upgrade-preflight
+    claim: "A customer-runnable preflight validates current->target upgrades (DB migrations, config) before applying."
+    status: roadmap

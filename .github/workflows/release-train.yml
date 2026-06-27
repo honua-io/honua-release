@@ -104,10 +104,9 @@ jobs:
     runs-on: ubuntu-latest
     steps: [{ run: 'echo "TODO: deploy to staging, validate error budget incl honua_geoservices_error_total (issue #5)"' }]
 
-  gate_docs:                   # h) docs build + advertised-vs-actual + release notes
+  gate_docs:                   # h) advertised-vs-actual: every shipped capability is backed. Phase 3.
     needs: gate_conformance
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: docs build/link-check; every capability claim maps to a passing test (Phase 3)"' }]
+    uses: ./.github/workflows/gate-docs.yml
 
   gate_upgrade:                # i) prior-release -> candidate upgrade (migrations fwd+rollback, old clients)
     needs: gate_e2e
@@ -175,7 +174,7 @@ jobs:
           conformance|$R_CONFORMANCE|1
           security|$R_SECURITY|1
           observability|$R_OBS|0
-          docs|$R_DOCS|0
+          docs|$R_DOCS|1
           upgrade|$R_UPGRADE|0
           EOF
           )

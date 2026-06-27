@@ -1,0 +1,44 @@
+# Release gate (h) — documentation: advertised-vs-actual.
+#
+# Every capability advertised as `shipped` in docs/capabilities.yaml must be backed by a real
+# test/gate/canonical-check; a `roadmap` claim is honestly labelled. tools/check_capabilities.py
+# fails the gate on a fabricated claim (the audit's recurring credibility risk). Unlike the
+# build-test/security gates, this DOES run per-PR — the claims live in this repo, so a PR that adds an
+# unbacked capability must fail.
+
+name: gate-docs
+
+on:
+  pull_request:
+    paths:
+      - "docs/capabilities.yaml"
+      - "tools/check_capabilities.py"
+      - "tools/test_check_capabilities.py"
+      - ".github/workflows/gate-docs.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advertised-vs-actual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      # Prove the checker can FAIL (fabricated claim rejected) before trusting its verdict.
+      - name: Self-test the docs gate
+        run: python -m pytest tools/test_check_capabilities.py -q
+
+      # The real advertised-vs-actual check: every shipped claim resolves, or the gate is red.
+      - name: Advertised-vs-actual
+        run: python tools/check_capabilities.py
