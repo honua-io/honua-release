@@ -43,6 +43,14 @@ jobs:
     # A train cut is a fresh full snapshot, not a diff, so no drift baseline is passed here
     # (structure + coherence still run, and fail on an incoherent pinned set).
 
+  gate_build_test:             # a) per-repo full suites — confirm each pinned SHA's CI is green (consume continuous-green)
+    needs: freeze
+    uses: ./.github/workflows/gate-build-test.yml
+    with:
+      # dry-run tolerates a not-yet-built (blocked) pin; a real cut demands every component green.
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
+
   gate_artifact_consume:       # d) install/consume published artifacts (closes sdk-js#310, iac#81, grpc#45)
     needs: freeze
     uses: ./.github/workflows/gate-artifact-consume.yml
@@ -77,11 +85,6 @@ jobs:
     secrets: inherit
 
   # ── TODO gates: real implementations live in component repos / later phases ──────────────────
-
-  gate_build_test:             # a) full per-repo test suites (no silent skips); reuse component workflow_call gates
-    needs: freeze
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: fan out to component gate-build-test.yml (changed-only + cached)"' }]
 
   gate_contract:               # b) proto/REST/SDK breaking-change (buf incl. deletion; closes grpc#44/#45)
     needs: freeze
@@ -164,7 +167,7 @@ jobs:
           artifact-consume|$R_ARTIFACT|1
           e2e|$R_E2E|1
           cloud-parity|$R_CLOUD|1
-          build-test|$R_BUILD|0
+          build-test|$R_BUILD|1
           contract|$R_CONTRACT|0
           conformance|$R_CONFORMANCE|1
           security|$R_SECURITY|0
