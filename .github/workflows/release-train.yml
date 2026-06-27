@@ -59,6 +59,15 @@ jobs:
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
 
+  gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
+    needs: [gate_build_test, gate_contract]
+    uses: ./.github/workflows/certification.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      # dry-run tolerates no-candidate-server BLOCKED; a real cut demands a pass (strict).
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
+
   # ── TODO gates: real implementations live in component repos / later phases ──────────────────
 
   gate_build_test:             # a) full per-repo test suites (no silent skips); reuse component workflow_call gates
@@ -70,11 +79,6 @@ jobs:
     needs: freeze
     runs-on: ubuntu-latest
     steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff (issue #2)"' }]
-
-  gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
-    needs: [gate_build_test, gate_contract]
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: certification/ + version-contract-drift against candidate (issue #3)"' }]
 
   gate_security:               # e) SCA, secret, SAST, container, IaC, license
     needs: freeze
@@ -151,7 +155,7 @@ jobs:
           e2e|$R_E2E|1
           build-test|$R_BUILD|0
           contract|$R_CONTRACT|0
-          conformance|$R_CONFORMANCE|0
+          conformance|$R_CONFORMANCE|1
           security|$R_SECURITY|0
           observability|$R_OBS|0
           docs|$R_DOCS|0
