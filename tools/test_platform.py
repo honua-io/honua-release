@@ -1,0 +1,169 @@
+"""Tests for the Phase 0 source-of-truth gate.
+
+Two duties:
+  1. Lock the SemVer range semantics the matrix relies on.
+  2. PROVE the gate can FAIL — every validate() rule is exercised with a real violation that must
+     produce an error. A gate that only ever goes green is the exact anti-pattern AGENTS.md forbids.
+
+The real repo files (platform-manifest.yaml + compatibility-matrix.yaml) must pass structure +
+coherence as committed; that is asserted too, so a bad edit to either file reddens here.
+
+Run: python -m pytest tools/test_platform.py    (or: python tools/test_platform.py)
+"""
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+
+import semver
+import validate_platform as vp
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+# ---- SemVer ---------------------------------------------------------------------------------------
+def test_semver_ordering_prerelease_below_release():
+    assert semver.parse("1.0.0-alpha") < semver.parse("1.0.0")
+    assert semver.parse("1.0.0-alpha.1") < semver.parse("1.0.0-alpha.2")
+    assert semver.parse("1.0.0-alpha.1") < semver.parse("1.0.0-alpha.beta")  # numeric < alphanumeric
+    assert semver.parse("0.0.14-alpha.0") < semver.parse("0.1.0")
+    assert semver.parse("2.0.0") > semver.parse("1.9.9")
+
+
+def test_semver_satisfies_matrix_style_ranges():
+    assert semver.satisfies("1.3.0", ">=1.3.0 <2.0.0")
+    assert not semver.satisfies("2.0.0", ">=1.3.0 <2.0.0")
+    assert semver.satisfies("0.0.14-alpha.0", ">=0.0.14-alpha.0 <0.1.0")
+    assert not semver.satisfies("0.1.4", ">=0.0.14-alpha.0 <0.1.0")
+    assert semver.satisfies("0.1.4", ">=0.1.4")  # open ceiling
+
+
+def test_range_floor_ceiling():
+    r = semver.parse_range(">=1.3.0 <2.0.0")
+    assert str(r.floor) == "1.3.0" and str(r.ceiling) == "2.0.0"
+    assert semver.parse_range(">=0.1.4").ceiling is None
+
+
+# ---- the real repo files pass ---------------------------------------------------------------------
+def _real_files():
+    return (
+        vp._load_yaml(REPO_ROOT / "platform-manifest.yaml"),
+        vp._load_yaml(REPO_ROOT / "compatibility-matrix.yaml"),
+    )
+
+
+def test_committed_manifest_and_matrix_are_valid():
+    manifest, matrix = _real_files()
+    f = vp.validate(manifest, matrix, baseline_matrix=None)
+    assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
+
+
+# ---- structure rules can fail ---------------------------------------------------------------------
+def test_structure_rejects_unknown_client():
+    manifest, matrix = _real_files()
+    matrix = copy.deepcopy(matrix)
+    matrix["contracts"]["geoservices"]["clients"]["honua-sdk-ruby"] = ">=1.0.0"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("unknown client 'honua-sdk-ruby'" in e for e in f.errors)
+
+
+def test_structure_rejects_bad_range():
+    manifest, matrix = _real_files()
+    matrix = copy.deepcopy(matrix)
+    matrix["contracts"]["geoservices"]["clients"]["honua-sdk-js"] = ">=not.a.version"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("bad range" in e for e in f.errors)
+
+
+def test_structure_rejects_component_with_no_valid_pin():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-sdk-js"] = {"version": "not-semver"}  # no sha either
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("neither a valid semver" in e for e in f.errors)
+
+
+# ---- coherence rules can fail ---------------------------------------------------------------------
+def test_coherence_pin_out_of_range_fails():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    # Bump python past the geoservices ceiling (<0.2.0) without widening the matrix.
+    manifest["components"]["honua-sdk-python"]["version"] = "0.2.0"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("does NOT satisfy" in e and "honua-sdk-python" in e for e in f.errors)
+
+
+def test_coherence_server_sha_mismatch_fails():
+    manifest, matrix = _real_files()
+    matrix = copy.deepcopy(matrix)
+    matrix["deploy"]["honua-iac"]["deploysServerImage"] = "sha:deadbeef"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("pins server sha deadbeef" in e for e in f.errors)
+
+
+def test_coherence_db_schema_mismatch_fails():
+    manifest, matrix = _real_files()
+    matrix = copy.deepcopy(matrix)
+    matrix["data"]["honua-server"]["requiresDbSchema"] = "metadata-v2"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("requiresDbSchema" in e for e in f.errors)
+
+
+# ---- drift rules can fail -------------------------------------------------------------------------
+def test_drift_narrowing_without_contract_bump_fails():
+    manifest, matrix = _real_files()
+    baseline = copy.deepcopy(matrix)
+    current = copy.deepcopy(matrix)
+    # Raise the js floor (drop support for the previously-supported alpha) without bumping version.
+    current["contracts"]["geoservices"]["clients"]["honua-sdk-js"] = ">=0.0.20 <0.1.0"
+    f = vp.validate(manifest, current, baseline_matrix=baseline)
+    assert not f.ok and any("narrowed its support window" in e for e in f.errors)
+
+
+def test_drift_narrowing_with_contract_bump_is_allowed():
+    manifest, matrix = _real_files()
+    baseline = copy.deepcopy(matrix)
+    current = copy.deepcopy(matrix)
+    current["contracts"]["geoservices"]["version"] = "v1"  # contract bumped -> narrowing allowed
+    current["contracts"]["geoservices"]["clients"]["honua-sdk-js"] = ">=0.0.20 <0.1.0"
+    # Keep the manifest pin coherent with the new floor so only drift is under test.
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-sdk-js"]["version"] = "0.0.20"
+    f = vp.validate(manifest, current, baseline_matrix=baseline)
+    assert f.ok, f"narrowing with a contract bump should pass, got: {f.errors}"
+
+
+def test_drift_widening_is_always_allowed():
+    manifest, matrix = _real_files()
+    baseline = copy.deepcopy(matrix)
+    current = copy.deepcopy(matrix)
+    current["contracts"]["geoservices"]["clients"]["honua-sdk-dotnet"] = ">=1.0.0 <2.0.0"  # widened floor down
+    f = vp.validate(manifest, current, baseline_matrix=baseline)
+    assert f.ok, f"widening must always pass, got: {f.errors}"
+
+
+def test_drift_dropping_a_client_without_bump_fails():
+    manifest, matrix = _real_files()
+    baseline = copy.deepcopy(matrix)
+    current = copy.deepcopy(matrix)
+    del current["contracts"]["grpc"]["clients"]["honua-sdk-js"]
+    f = vp.validate(manifest, current, baseline_matrix=baseline)
+    assert not f.ok and any("was dropped from contract" in e for e in f.errors)
+
+
+if __name__ == "__main__":
+    import sys
+    import traceback
+
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn()
+                print(f"PASS {name}")
+            except Exception:  # noqa: BLE001
+                failures += 1
+                print(f"FAIL {name}")
+                traceback.print_exc()
+    print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
+    sys.exit(1 if failures else 0)

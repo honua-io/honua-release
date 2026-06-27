@@ -1,0 +1,81 @@
+# Phase 0 source-of-truth gate (issue #1). Validates platform-manifest.yaml +
+# compatibility-matrix.yaml and enforces compatibility drift, so the "source of truth for
+# iac<->server<->sdk<->db compatibility" is actually checked and can FAIL.
+#
+# What it can fail on (see tools/validate_platform.py + tools/test_platform.py):
+#   - a malformed manifest/matrix, an unknown client, or a bad version range (STRUCTURE)
+#   - a pinned version that doesn't satisfy its matrix range, or a sha/db coupling that
+#     disagrees between the two files (COHERENCE)
+#   - a matrix range narrowed (support dropped) without a contract-version bump (DRIFT) — the
+#     manifest/matrix half of "a breaking change without a MAJOR bump fails CI"
+#
+# Runs per-PR (drift vs the PR base) and is callable by the release train as a reusable gate.
+
+name: manifest-validate
+
+on:
+  pull_request:
+    paths:
+      - "platform-manifest.yaml"
+      - "compatibility-matrix.yaml"
+      - "tools/**"
+      - ".github/workflows/manifest-validate.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      baseline_ref:
+        description: "git ref to enforce drift against (empty = skip drift)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manifest-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need the base ref present for `git show <base>:matrix` drift
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install "pyyaml>=6.0" pytest
+
+      # The gate's own tests must pass — they prove every validate() rule can redden.
+      - name: Self-test the gate
+        run: python -m pytest tools/test_platform.py -q
+
+      - name: Resolve drift baseline
+        id: baseline
+        env:
+          PR_BASE: ${{ github.base_ref }}
+          DISPATCH_BASE: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_BASE" ]; then
+            echo "ref=origin/$PR_BASE" >> "$GITHUB_OUTPUT"   # PR: drift vs the merge target
+          elif [ -n "${DISPATCH_BASE:-}" ]; then
+            echo "ref=$DISPATCH_BASE" >> "$GITHUB_OUTPUT"      # train/dispatch: caller-supplied
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"                    # no baseline -> structure+coherence only
+          fi
+
+      - name: Validate manifest + matrix
+        run: |
+          set -euo pipefail
+          REF='${{ steps.baseline.outputs.ref }}'
+          if [ -n "$REF" ]; then
+            python tools/validate_platform.py --baseline "$REF"
+          else
+            python tools/validate_platform.py
+          fi
