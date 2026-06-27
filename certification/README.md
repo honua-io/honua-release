@@ -15,7 +15,7 @@ result into a verdict that can FAIL — and refuses to manufacture a green (AGEN
 
 | job | kind | what it does |
 |---|---|---|
-| `conformance-mcp` | **real** | clones the manifest-pinned `geospatial-mcp`, runs its `conformance/check_manifest.py --strict`, and parses the verdict with `parse_conformance.py`. **Fails** on any manifest `FAIL`, on a reference impl that is not `FULL` (the exact `geospatial-mcp#25` overstatement), or on **no verdict at all** (vacuous / no evidence). The parser is self-tested in-job before it is trusted. |
+| `conformance-mcp` | **real** | clones `geospatial-mcp` **trunk** (the maintained suite that carries the `geospatial-mcp#25` resource-coverage fix — the Phase 0 manifest still pins a pre-fix sha, recorded for traceability), runs its `conformance/check_manifest.py` (`--strict`, with a coverage-only fallback), and parses the verdict with `parse_conformance.py`. **Fails** on any manifest `FAIL`, on a reference impl that is not `FULL` (the exact `geospatial-mcp#25` overstatement), or on **no verdict at all** (vacuous / no evidence). The parser is self-tested in-job before it is trusted. |
 | `conformance-esri-geoservices` | blocked | the `honua-esri-compat` lanes need a live candidate server **and** a licensed Esri toolchain (arcpy / ArcGIS Maps SDK), which CI lacks. Reports `blocked` until `HONUA_SERVER_URL` + a licensed runner are provided. |
 | `conformance-ogc-stac` | blocked | OGC API (CITE TEAM Engine) + STAC conformance run against a deployed candidate (Phase B). |
 
