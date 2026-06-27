@@ -1,0 +1,306 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# certification — Release gate (c): cross-repo conformance with REAL assertions.
+#
+# Retires the audit's "false conformance" findings at the gate level:
+#   - geospatial-mcp#25     (conformance checker reported FULL while ignoring resource coverage)
+#   - honua-esri-compat#25  (image/tile cert false-passed any >100-byte body)
+# Both are now fixed upstream; this gate is the release-repo half that RUNS the suites against the
+# pinned candidate and turns their results into a verdict that can FAIL.
+#
+# Principle (AGENTS.md): a gate that can't fail is worse than no gate — and a *conformance* gate that
+# false-passes is the worst kind (it manufactures release confidence). So:
+#   - the mcp job runs the real checker against geospatial-mcp trunk (the maintained suite carrying
+#     the geospatial-mcp#25 fix; the Phase 0 manifest still pins a pre-fix sha) and parses it with
+#     certification/parse_conformance.py, which FAILS on any manifest FAIL, on a reference impl that
+#     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
+#     parser is self-tested in-job before it is trusted.
+#   - the Esri GeoServices lanes and OGC/STAC CITE suites need a live candidate server (+ a licensed
+#     Esri toolchain for arcpy lanes), which CI does not have, so they report BLOCKED honestly until
+#     a candidate endpoint is provided — never a fake green.
+#
+# enforcement (same contract as gate-artifact-consume):
+#   bootstrap (default) — a real conformance FAILURE fails the gate; a BLOCKED (no candidate server)
+#                         is tolerated so the train is runnable before staging infra exists.
+#   strict              — any non-pass (incl. blocked) fails the gate.
+#
+# Emits gate-report.json via the shared gate-fragment action; the release train's gate_conformance
+# consumes it and never scrapes logs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: certification
+run-name: "certification ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  pull_request:
+    paths:
+      - "certification/**"
+      - "platform-manifest.yaml"
+      - ".github/workflows/certification.yml"
+  workflow_dispatch:
+    inputs:
+      platform_label:
+        description: "Platform label / RC being certified, e.g. 2026.1-rc.1"
+        required: false
+        type: string
+        default: "dev-local"
+      enforcement:
+        description: "bootstrap = tolerate no-candidate-server BLOCKED; strict = any non-pass fails"
+        required: false
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+  workflow_call:
+    inputs:
+      platform_label:
+        required: false
+        type: string
+        default: "dev-local"
+      enforcement:
+        required: false
+        type: string
+        default: bootstrap
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked — aggregate of all conformance jobs"
+        value: ${{ jobs.report.outputs.overall_status }}
+
+concurrency:
+  group: certification-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # mcp — REAL: run geospatial-mcp's conformance checker against the pinned candidate.
+  # ───────────────────────────────────────────────────────────────────────────
+  conformance-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # honua-release: gate-fragment action + parser + manifest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install "pyyaml>=6.0" pytest
+
+      # The gate's own verdict parser must be trustworthy before we trust its result.
+      - name: Self-test the conformance parser
+        run: python -m pytest certification/test_conformance.py -q
+
+      - name: Run geospatial-mcp conformance
+        id: consume
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          GATE=conformance-mcp; SOURCE=blocked; STATUS=blocked; WHY=""
+          WORK="$RUNNER_TEMP/mcp"; mkdir -p "$WORK"
+
+          # Manifest-pinned sha is recorded for traceability. We certify against geospatial-mcp TRUNK
+          # (the maintained conformance suite that carries the geospatial-mcp#25 resource-coverage fix
+          # this gate exists to enforce); the Phase 0 manifest snapshot still pins a pre-fix sha, so
+          # certifying the pin would run the old, false-passing checker. Once the train regenerates the
+          # manifest to post-fix shas, point this at the pin.
+          SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('geospatial-mcp',{}) or {}).get('sha','') or '')")"
+          echo "manifest-pinned geospatial-mcp sha (traceability): ${SHA:-<none>}"
+
+          echo "::group::Clone geospatial-mcp trunk (public)"
+          if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-mcp.git" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
+            cd "$WORK/mcp"; SOURCE=trunk
+            HEAD_SHA="$(git rev-parse --short HEAD)"
+          else
+            STATUS=blocked; WHY="geospatial-mcp not cloneable"; tail -n 5 /tmp/mcp-clone.log || true
+          fi
+          echo "::endgroup::"
+
+          if [ "$SOURCE" != "blocked" ]; then
+            echo "::group::check_manifest.py"
+            python -m pip install -r conformance/requirements.txt >/tmp/mcp-deps.log 2>&1 || true
+            set +e
+            # Prefer --strict (adds JSON-schema validation); fall back to coverage-only on any checker
+            # that doesn't support the flag or is missing jsonschema (older shas treat --strict as a path).
+            OUT="$(python conformance/check_manifest.py --strict 2>&1)"; RC=$?
+            case "$OUT" in
+              *"--strict"*"No such file or directory"*|*"unrecognized arguments"*|*"requires the 'jsonschema'"*)
+                echo "note: --strict unavailable here; re-running coverage-only"
+                OUT="$(python conformance/check_manifest.py 2>&1)"; RC=$? ;;
+            esac
+            set -e
+            echo "$OUT"; echo "rc=$RC"
+            echo "::endgroup::"
+            # Turn the human output into a verdict that can FAIL (parser is self-tested above). The
+            # parser exits nonzero on a fail verdict; `|| true` stops that from aborting the step under
+            # `bash -e` — we read the verdict from its printed status= line, not its exit code.
+            VERDICT="$(printf '%s' "$OUT" | python "$GITHUB_WORKSPACE/certification/parse_conformance.py" --rc "$RC" || true)"
+            STATUS="$(printf '%s\n' "$VERDICT" | sed -n 's/^status=//p')"
+            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [source=trunk@${HEAD_SHA}; manifest pins ${SHA:0:12}]"
+            [ -n "$STATUS" ] || { STATUS=fail; WHY="parser produced no verdict"; }
+          fi
+
+          {
+            echo "gate=$GATE"
+            echo "source=$SOURCE"
+            echo "status=$STATUS"
+            echo "why=$WHY"
+          } >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: ${{ env.gate || 'conformance-mcp' }}
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'blocked' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: cert-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # esri-geoservices — BLOCKED: the honua-esri-compat lanes need a live candidate server AND a
+  # licensed Esri toolchain (arcpy / ArcGIS Maps SDK), which CI does not have. The false-pass that
+  # mattered (honua-esri-compat#25) is fixed upstream; this job runs the lanes once a candidate
+  # endpoint + toolchain are provided (HONUA_SERVER_URL), and reports BLOCKED until then.
+  # ───────────────────────────────────────────────────────────────────────────
+  conformance-esri-geoservices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Esri GeoServices conformance (blocked without candidate server)
+        run: |
+          set -uo pipefail
+          if [ -n "${HONUA_SERVER_URL:-}" ]; then
+            WHY="HONUA_SERVER_URL set but the esri-compat lane runner is not yet wired here (TODO #3 follow-up)"
+          else
+            WHY="no candidate server / Esri toolchain in CI — set HONUA_SERVER_URL and run on a licensed runner to certify the honua-esri-compat lanes"
+          fi
+          {
+            echo "status=blocked"
+            echo "source=blocked"
+            echo "why=$WHY"
+          } >> "$GITHUB_ENV"
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: conformance-esri-geoservices
+          status: ${{ env.status || 'blocked' }}
+          source: blocked
+          why: ${{ env.why || 'blocked' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: cert-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # ogc-stac — BLOCKED: OGC API (CITE TEAM Engine) + STAC conformance need a live candidate server.
+  # ───────────────────────────────────────────────────────────────────────────
+  conformance-ogc-stac:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: OGC/STAC conformance (blocked without candidate server)
+        run: |
+          set -uo pipefail
+          {
+            echo "status=blocked"
+            echo "source=blocked"
+            echo "why=no candidate server in CI — OGC API (CITE) + STAC conformance run against a deployed candidate (Phase B); set HONUA_SERVER_URL to enable"
+          } >> "$GITHUB_ENV"
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: conformance-ogc-stac
+          status: ${{ env.status || 'blocked' }}
+          source: blocked
+          why: ${{ env.why || 'blocked' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: cert-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # report — assemble gate-report.json from every fragment; fail per enforcement.
+  # (Identical decision logic to gate-artifact-consume so the train sees one report schema.)
+  # ───────────────────────────────────────────────────────────────────────────
+  report:
+    needs: [conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cert-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          GATES=$(find fragments -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+          echo "collected $GATES fragment(s)"
+          jq -s \
+            --arg label "$PLATFORM_LABEL" \
+            --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" \
+            --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | {
+                gate: "certification",
+                platform_label: $label,
+                enforcement: $enf,
+                generatedAt: $ts,
+                evidence_url: $run,
+                gates: $g,
+                summary: {
+                  pass:    ([$g[]|select(.decided=="pass")]|length),
+                  blocked: ([$g[]|select(.decided=="blocked")]|length),
+                  fail:    ([$g[]|select(.decided=="fail")]|length)
+                },
+                overallStatus: (
+                  if   any($g[]; .decided=="fail")    then "fail"
+                  elif any($g[]; .decided=="blocked") then "blocked"
+                  else "pass" end)
+              }' fragments/*.json > out/gate-report.json
+
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Cross-repo conformance gate — $OVERALL";
+            echo "";
+            echo "| gate | status | source | why |";
+            echo "|---|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.source) | \(.why) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate-report.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: certification-gate-report
+          path: out/gate-report.json
+
+      - name: Enforce gate result
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "overall conformance status: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          if [ "$OVERALL" = "fail" ]; then
+            echo "::error::cross-repo conformance gate FAILED"; exit 1
+          fi
+          echo "gate not red (overall=$OVERALL)"

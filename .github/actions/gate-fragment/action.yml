@@ -26,6 +26,13 @@ inputs:
     description: "bootstrap | strict (recorded for traceability)"
     required: false
     default: bootstrap
+  prefix:
+    description: >
+      Optional artifact-name prefix so two gate workflows invoked in the SAME run (e.g. the release
+      train calling gate-artifact-consume AND certification) don't cross-read each other's fragments.
+      Empty (default) keeps the original `gate-fragment-<gate>` name; e.g. `cert-` namespaces them.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -58,6 +65,6 @@ runs:
     - name: Upload fragment
       uses: actions/upload-artifact@v4
       with:
-        name: gate-fragment-${{ inputs.gate }}
+        name: ${{ inputs.prefix }}gate-fragment-${{ inputs.gate }}
         path: ${{ runner.temp }}/fragments/${{ inputs.gate }}.json
         if-no-files-found: error
