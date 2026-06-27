@@ -34,7 +34,21 @@ python -m pytest certification/test_conformance.py     # self-test the verdict p
 # the workflow: Actions ▸ certification ▸ Run workflow   (or per-PR on certification/** changes)
 ```
 
+## Per-repo build/test gate (consume continuous-green)
+
+`gate-build-test.yml` + `check_build_test.py` implement release gate (a) **without re-running every
+repo's suite at cut time** (docs/TEST-STRATEGY.md). For every component in `platform-manifest.yaml`,
+it confirms that component's **GitHub CI is green on its exact pinned SHA** (the `check-runs` of that
+commit). Per-component verdict: `pass` (a green run exists, all conclusions green) · `fail` (any red
+conclusion) · `blocked` (sha/repo unresolvable, no runs, or CI still in progress — never silently
+passed). `bootstrap` tolerates a not-yet-built (blocked) pin; `strict` (a real cut) fails on it; a red
+CI always fails. `check_build_test.py` is unit-tested (`test_build_test.py`, proving green-only passes).
+
+The live check runs in the train (`gate_build_test`), nightly, and on dispatch — **not** on unrelated
+honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run only the self-tests.
+
 ## Other certification gates (separate workflows)
-- **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2, component repos.)
+- **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
 - **Manifest/matrix integrity** — `manifest-validate.yml` (the pinned set satisfies the matrix). (#1.)
+- **Cross-cloud parity** — `e2e-cloud-aws.yml` (canonical set on each deploy target). (Phase B.)

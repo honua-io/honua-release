@@ -1,0 +1,99 @@
+# Release gate (a) — per-repo build/test fan-out.
+#
+# "Consume continuous-green" (docs/TEST-STRATEGY.md): the train does NOT re-run every repo's suite
+# synchronously at cut time. Each component keeps its suite green continuously (its own CI); this gate
+# confirms the *candidate's* pinned SHA is the commit that passed — for EVERY component in
+# platform-manifest.yaml. A red or never-built pin fails the gate (AGENTS.md: a gate that can't fail
+# is worse than no gate).
+#
+# Trigger scope:
+#   - pull_request (only the gate's own files): runs the SELF-TESTS that prove the verdict logic can
+#     fail. It does NOT run the live per-repo check on PRs — a stale manifest pin is not an individual
+#     PR's fault, so we don't redden unrelated honua-release PRs on it.
+#   - workflow_dispatch / workflow_call (the train) / nightly: runs the live check against the pinned
+#     SHAs and enforces it. bootstrap tolerates a not-yet-built (blocked) pin; strict fails on it; a
+#     genuine red CI always fails.
+
+name: gate-build-test
+
+on:
+  pull_request:
+    paths:
+      - "certification/check_build_test.py"
+      - "certification/test_build_test.py"
+      - ".github/workflows/gate-build-test.yml"
+  schedule:
+    - cron: "37 6 * * *"          # nightly drift check on the current pins
+  workflow_dispatch:
+    inputs:
+      enforcement:
+        description: "bootstrap = tolerate not-yet-built (blocked) pins; strict = any non-pass fails"
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+  workflow_call:
+    inputs:
+      enforcement:
+        type: string
+        default: bootstrap
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.build-test.outputs.overall_status }}
+
+permissions:
+  contents: read
+  checks: read                    # read each component's check-runs on its pinned sha
+
+concurrency:
+  group: gate-build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.live.outputs.overall_status }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: python -m pip install "pyyaml>=6.0" pytest
+
+      # Always: prove the verdict logic can FAIL (green-only passes; red/missing/incomplete don't).
+      - name: Self-test the gate logic
+        run: python -m pytest certification/test_build_test.py -q
+
+      # Live per-repo check — not on PRs (stale pins aren't a PR's fault); enforces in the train/nightly.
+      - name: Per-repo CI on pinned SHAs
+        id: live
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          ENFORCEMENT: ${{ inputs.enforcement || 'bootstrap' }}
+        run: |
+          set -uo pipefail
+          python certification/check_build_test.py --enforcement "$ENFORCEMENT"; RC=$?
+          OVERALL="$(python -c "import json;print(json.load(open('certification/gate-report-build-test.json'))['overallStatus'])")"
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Per-repo build/test — $OVERALL (enforcement=$ENFORCEMENT)";
+            echo "";
+            echo "| component | status | sha | why |";
+            echo "|---|---|---|---|";
+            python -c "import json;[print(f\"| {r['component']} | {r['decided']} | {r.get('sha','-')} | {r['why']} |\") for r in json.load(open('certification/gate-report-build-test.json'))['components']]";
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $RC
+
+      - name: Upload gate-report
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-gate-report
+          path: certification/gate-report-build-test.json
+          if-no-files-found: warn
