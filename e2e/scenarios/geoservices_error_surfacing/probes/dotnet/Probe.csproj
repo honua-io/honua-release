@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    TODO(#7): add the staged SDK reference once Honua.Sdk is published & version-pinned in
+    platform-manifest.yaml. The runner installs from the staging NuGet source (HONUA_NUGET_SOURCE):
+
+      <ItemGroup>
+        <PackageReference Include="Honua.Sdk" Version="$(HonuaSdkVersion)" />
+      </ItemGroup>
+
+    Until then Probe.cs reports SKIP (exit 2) rather than fabricating a pass.
+  -->
+
+</Project>

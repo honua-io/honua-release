@@ -1,0 +1,81 @@
+# Phase A — local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
+# Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
+# uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
+#
+# Honesty (AGENTS.md): the static gates (compose validity + scenario compile) ALWAYS run and can FAIL
+# on a broken edit even before real images exist. Server-dependent scenarios report BLOCKED (not PASS)
+# until platform-manifest.yaml carries real pins. A manual `require_real=true` run (or the release
+# train) promotes BLOCKED/SKIPPED to FAIL so the gate can genuinely fail. AI proposes; the pipeline
+# disposes.
+
+name: e2e-local-docker
+
+on:
+  pull_request:
+    paths:
+      - "e2e/**"
+      - "platform-manifest.yaml"
+      - "compatibility-matrix.yaml"
+      - ".github/workflows/e2e-local-docker.yml"
+  workflow_dispatch:
+    inputs:
+      require_real:
+        description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
+        type: boolean
+        default: false
+  # Callable by the release train (gate_e2e) as a reusable gate.
+  workflow_call:
+    inputs:
+      require_real:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-local-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seam:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Toolchains for the SDK probes. They are present so that, once the SDK pins are real, the
+      # probes actually install + run; while pins are placeholders the probes self-report SKIP.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install runner deps
+        run: python -m pip install -r e2e/requirements.txt
+
+      # Static gates — always run, can FAIL with no images (broken compose / scenario syntax).
+      - name: Static checks (compose + scenario compile)
+        working-directory: e2e
+        run: make check
+
+      # Run the seam scenarios. Docker is preinstalled on ubuntu-latest runners.
+      - name: Run seam scenarios
+        working-directory: e2e
+        env:
+          # require_real comes from the trigger; defaults to false for honest per-PR runs.
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real) && '1' || '' }}
+        run: python run.py
+
+      - name: Upload gate-report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-local-docker-gate-report
+          path: e2e/gate-report.json
+          if-no-files-found: warn

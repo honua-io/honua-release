@@ -1,0 +1,105 @@
+"""Canonical scenario: GeoServices error surfacing.
+
+Seeded from sdk-js#309, sdk-python#122, server#2243.
+
+Assert: when the server returns an HTTP 200 with a GeoServices `{error: ...}` body, EVERY SDK must
+RAISE (not return success), and the in-band error metric `honua_geoservices_error_total` must increment.
+This couples the SDK contract bug (clients trusting the 200 status line) to the telemetry gate (a server
+blind to its own error rate). NO mocks: each SDK probe hits the real composed server.
+
+Mechanics:
+  1. scrape honua_geoservices_error_total (before)
+  2. run each language probe; each forces a 200+{error} via the SDK and exits 0 only if the SDK raised
+  3. scrape the metric again (after) and assert it increased by at least the number of erroring calls
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from runner.harness import Ctx, run_probe, scrape_metric
+from runner.report import Result, Status
+
+META = {
+    "name": "geoservices-error-surfacing",
+    "seeded_from": "sdk-js#309, sdk-python#122, server#2243",
+    "requires_server": True,
+}
+
+ERROR_METRIC = "honua_geoservices_error_total"
+PROBES_DIR = Path(__file__).parent / "probes"
+PROBES = {
+    "python": PROBES_DIR / "probe.py",
+    "js": PROBES_DIR / "probe.mjs",
+    "dotnet": PROBES_DIR / "dotnet",  # project dir for `dotnet run`
+}
+
+
+def run(ctx: Ctx) -> Result:
+    evidence: dict = {"probes": {}, "metric": ERROR_METRIC}
+
+    before = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+    evidence["metric_before"] = before
+
+    erroring_calls = 0
+    any_real_assertion = False
+    failures: list[str] = []
+
+    for short, path in PROBES.items():
+        if not ctx.sdk_available(short):
+            evidence["probes"][short] = "skipped: toolchain unavailable"
+            continue
+        if not ctx.manifest.sdks[short].is_real:
+            # SDK pin is a placeholder — the probe would have nothing real to import.
+            evidence["probes"][short] = "blocked: SDK version is a placeholder (TBD)"
+            continue
+
+        pr = run_probe(short, path, ctx)
+        evidence["probes"][short] = {
+            "exit": pr.exit_code,
+            "stdout": pr.stdout.strip()[-500:],
+            "stderr": pr.stderr.strip()[-500:],
+        }
+        if pr.skipped:
+            continue
+        any_real_assertion = True
+        erroring_calls += 1
+        if pr.failed:
+            # The audit bug: SDK returned success on a 200+{error}.
+            failures.append(f"{short}: SDK did not raise on 200+{{error}}")
+
+    # If no probe could actually run against a real SDK, this is BLOCKED, not a pass — we refuse to
+    # manufacture a green (AGENTS.md: a gate that can't fail is worse than no gate).
+    if not any_real_assertion:
+        return Result(
+            scenario=META["name"], status=Status.BLOCKED, seeded_from=META["seeded_from"],
+            why="no SDK probe ran against a real staged SDK (placeholder pins / missing toolchains)",
+            evidence=evidence,
+        )
+
+    # Metric assertion (ties the observability gate).
+    after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+    evidence["metric_after"] = after
+    metric_ok = False
+    if before is None or after is None:
+        failures.append(
+            f"{ERROR_METRIC} not exposed (before={before}, after={after}) — in-band error metric "
+            "is not wired (server#2243)"
+        )
+    elif after - before < erroring_calls:
+        failures.append(
+            f"{ERROR_METRIC} only rose by {after - before}, expected >= {erroring_calls}"
+        )
+    else:
+        metric_ok = True
+    evidence["metric_incremented"] = metric_ok
+
+    if failures:
+        return Result(
+            scenario=META["name"], status=Status.FAIL, seeded_from=META["seeded_from"],
+            why="; ".join(failures), evidence=evidence,
+        )
+    return Result(
+        scenario=META["name"], status=Status.PASS, seeded_from=META["seeded_from"],
+        why=f"all {erroring_calls} SDK(s) raised; {ERROR_METRIC} incremented",
+        evidence=evidence,
+    )
