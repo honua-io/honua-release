@@ -1,0 +1,63 @@
+# Composite action: write one gate's machine-readable result fragment and upload it so the
+# `report` job can merge all fragments into gate-report.json. Keeping this in one place means
+# every consume job emits the same schema: {gate,status,source,why,evidence_url}.
+#
+# `status` here is the RAW per-job outcome (pass|fail|blocked|consuming/...); the report job
+# applies the enforcement policy to derive the `decided` status. We pass enforcement through
+# only for completeness in the fragment.
+
+name: gate-fragment
+description: "Emit and upload a single artifact-consumption gate result fragment"
+
+inputs:
+  gate:
+    description: "gate id, e.g. npm/nuget/pip/terraform/helm/docker/grpc-codegen"
+    required: true
+  status:
+    description: "raw outcome: pass | fail | blocked (anything not pass/blocked is treated as fail downstream)"
+    required: true
+  source:
+    description: "where the artifact came from: staging | local | blocked"
+    required: true
+  why:
+    description: "human-readable reason / evidence"
+    required: true
+  enforcement:
+    description: "bootstrap | strict (recorded for traceability)"
+    required: false
+    default: bootstrap
+
+runs:
+  using: composite
+  steps:
+    - name: Write fragment
+      shell: bash
+      env:
+        GATE: ${{ inputs.gate }}
+        STATUS: ${{ inputs.status }}
+        SOURCE: ${{ inputs.source }}
+        WHY: ${{ inputs.why }}
+        ENF: ${{ inputs.enforcement }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        # Normalise any transient internal state to a terminal status.
+        case "$STATUS" in pass|fail|blocked) : ;; *) STATUS=fail ;; esac
+        mkdir -p "$RUNNER_TEMP/fragments"
+        jq -n \
+          --arg gate "$GATE" \
+          --arg status "$STATUS" \
+          --arg source "$SOURCE" \
+          --arg why "$WHY" \
+          --arg enforcement "$ENF" \
+          --arg evidence "$RUN_URL" \
+          '{gate:$gate, status:$status, source:$source, why:$why, enforcement:$enforcement, evidence_url:$evidence}' \
+          > "$RUNNER_TEMP/fragments/$GATE.json"
+        cat "$RUNNER_TEMP/fragments/$GATE.json"
+
+    - name: Upload fragment
+      uses: actions/upload-artifact@v4
+      with:
+        name: gate-fragment-${{ inputs.gate }}
+        path: ${{ runner.temp }}/fragments/${{ inputs.gate }}.json
+        if-no-files-found: error
