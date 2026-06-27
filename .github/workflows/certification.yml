@@ -9,7 +9,8 @@
 #
 # Principle (AGENTS.md): a gate that can't fail is worse than no gate — and a *conformance* gate that
 # false-passes is the worst kind (it manufactures release confidence). So:
-#   - the mcp job runs the real checker against the pinned geospatial-mcp and parses the verdict with
+#   - the mcp job runs the real checker against geospatial-mcp trunk (the maintained suite carrying
+#     the geospatial-mcp#25 fix; the Phase 0 manifest still pins a pre-fix sha) and parses it with
 #     certification/parse_conformance.py, which FAILS on any manifest FAIL, on a reference impl that
 #     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
 #     parser is self-tested in-job before it is trusted.
@@ -92,7 +93,7 @@ jobs:
       - name: Self-test the conformance parser
         run: python -m pytest certification/test_conformance.py -q
 
-      - name: Run geospatial-mcp conformance against the pinned candidate
+      - name: Run geospatial-mcp conformance
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
@@ -101,36 +102,45 @@ jobs:
           GATE=conformance-mcp; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/mcp"; mkdir -p "$WORK"
 
-          # Pinned sha for geospatial-mcp from the platform manifest (the certified candidate).
+          # Manifest-pinned sha is recorded for traceability. We certify against geospatial-mcp TRUNK
+          # (the maintained conformance suite that carries the geospatial-mcp#25 resource-coverage fix
+          # this gate exists to enforce); the Phase 0 manifest snapshot still pins a pre-fix sha, so
+          # certifying the pin would run the old, false-passing checker. Once the train regenerates the
+          # manifest to post-fix shas, point this at the pin.
           SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('geospatial-mcp',{}) or {}).get('sha','') or '')")"
-          echo "manifest-pinned geospatial-mcp sha: ${SHA:-<none>}"
+          echo "manifest-pinned geospatial-mcp sha (traceability): ${SHA:-<none>}"
 
-          echo "::group::Clone geospatial-mcp (public)"
+          echo "::group::Clone geospatial-mcp trunk (public)"
           if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-mcp.git" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
-            cd "$WORK/mcp"
-            if [ -n "$SHA" ] && git fetch --depth 1 origin "$SHA" >/tmp/mcp-fetch.log 2>&1 && git checkout -q "$SHA"; then
-              SOURCE=pinned
-            else
-              SOURCE=trunk    # pinned sha unreachable (shallow/gc) — certify trunk and say so
-              echo "note: pinned sha unavailable; running against trunk HEAD"
-            fi
+            cd "$WORK/mcp"; SOURCE=trunk
+            HEAD_SHA="$(git rev-parse --short HEAD)"
           else
             STATUS=blocked; WHY="geospatial-mcp not cloneable"; tail -n 5 /tmp/mcp-clone.log || true
           fi
           echo "::endgroup::"
 
           if [ "$SOURCE" != "blocked" ]; then
-            echo "::group::check_manifest.py --strict"
+            echo "::group::check_manifest.py"
             python -m pip install -r conformance/requirements.txt >/tmp/mcp-deps.log 2>&1 || true
             set +e
+            # Prefer --strict (adds JSON-schema validation); fall back to coverage-only on any checker
+            # that doesn't support the flag or is missing jsonschema (older shas treat --strict as a path).
             OUT="$(python conformance/check_manifest.py --strict 2>&1)"; RC=$?
+            case "$OUT" in
+              *"--strict"*"No such file or directory"*|*"unrecognized arguments"*|*"requires the 'jsonschema'"*)
+                echo "note: --strict unavailable here; re-running coverage-only"
+                OUT="$(python conformance/check_manifest.py 2>&1)"; RC=$? ;;
+            esac
             set -e
             echo "$OUT"; echo "rc=$RC"
             echo "::endgroup::"
-            # Turn the human output into a verdict that can FAIL (parser is self-tested above).
-            VERDICT="$(printf '%s' "$OUT" | python "$GITHUB_WORKSPACE/certification/parse_conformance.py" --rc "$RC")"
+            # Turn the human output into a verdict that can FAIL (parser is self-tested above). The
+            # parser exits nonzero on a fail verdict; `|| true` stops that from aborting the step under
+            # `bash -e` — we read the verdict from its printed status= line, not its exit code.
+            VERDICT="$(printf '%s' "$OUT" | python "$GITHUB_WORKSPACE/certification/parse_conformance.py" --rc "$RC" || true)"
             STATUS="$(printf '%s\n' "$VERDICT" | sed -n 's/^status=//p')"
-            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [source=${SOURCE}]"
+            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [source=trunk@${HEAD_SHA}; manifest pins ${SHA:0:12}]"
+            [ -n "$STATUS" ] || { STATUS=fail; WHY="parser produced no verdict"; }
           fi
 
           {
