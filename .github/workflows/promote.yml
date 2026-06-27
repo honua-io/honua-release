@@ -70,24 +70,31 @@ jobs:
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
           # label — that aborts the job BEFORE any tag/release is created.
+          STAMP="$(date -u +%FT%TZ)"
           python tools/finalize_release.py \
             --label "$LABEL" \
             --gate-report candidate/gate-report.json \
-            --released-at "$(date -u +%FT%TZ)" \
+            --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md
+          # The platform BOM (CycloneDX) — the customer-facing bill of materials for this label.
+          python tools/generate_bom.py --label "$LABEL" --timestamp "$STAMP" --out bom.cdx.json
 
-      - name: Sign the finalized manifest (Sigstore keyless / OIDC)
+      - name: Install cosign (Sigstore)
         uses: sigstore/cosign-installer@v3
-      - name: cosign sign-blob
+      - name: Sign the manifest + BOM (keyless / OIDC)
         run: |
           set -euo pipefail
-          cosign sign-blob --yes finalized-manifest.yaml \
-            --output-signature finalized-manifest.yaml.sig \
-            --output-certificate finalized-manifest.yaml.pem
-          echo "Signed. Verify with:"
-          echo "  cosign verify-blob finalized-manifest.yaml \\"
-          echo "    --signature finalized-manifest.yaml.sig --certificate finalized-manifest.yaml.pem \\"
+          # Provenance: each release artifact is keyless-signed by THIS workflow's OIDC identity
+          # (Fulcio cert + Rekor transparency log) — no static keys, and the AI never holds them.
+          for f in finalized-manifest.yaml bom.cdx.json; do
+            cosign sign-blob --yes "$f" \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem"
+          done
+          echo "Signed manifest + BOM. Verify e.g.:"
+          echo "  cosign verify-blob bom.cdx.json \\"
+          echo "    --signature bom.cdx.json.sig --certificate bom.cdx.json.pem \\"
           echo "    --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/promote.yml@.*' \\"
           echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
 
@@ -109,6 +116,9 @@ jobs:
             --notes-file release-notes.md \
             finalized-manifest.yaml \
             compatibility-matrix.yaml \
+            bom.cdx.json \
             finalized-manifest.yaml.sig \
-            finalized-manifest.yaml.pem
+            finalized-manifest.yaml.pem \
+            bom.cdx.json.sig \
+            bom.cdx.json.pem
           echo "Released Honua ${BASE} as tag ${TAG}."
