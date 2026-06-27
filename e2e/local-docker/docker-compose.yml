@@ -1,0 +1,57 @@
+# Phase A — local-docker seam tier (docker-compose).
+# Brings up the REAL honua-server + its DB so cross-component scenarios run with NO mocks at the seam.
+# The server image/version is the PINNED set from ../../platform-manifest.yaml (the executable
+# compatibility matrix): the runner injects HONUA_SERVER_IMAGE from the manifest so we test the exact
+# certified pairing. While the manifest still carries placeholder (":TBD") pins, the runner reports the
+# server-dependent scenarios as BLOCKED (TODO) rather than fabricating a green — see runner/harness.py.
+#
+# Usage is via the runner (make -C e2e e2e), not by hand, so the image pin always comes from the manifest.
+
+name: honua-e2e-local
+
+services:
+  db:
+    # PostGIS is honua-server's datastore. Pinned here for the seam tier; the cloud tiers use the
+    # managed equivalent (RDS/Azure) via the real IaC. TODO(#7): confirm the exact engine+version
+    # honua-server certifies against and source it from the manifest dbSchema requirement.
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: honua
+      POSTGRES_PASSWORD: honua
+      POSTGRES_DB: honua
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    # No host port published: only the server talks to it (closer to prod; avoids host port clashes).
+    expose:
+      - "5432"
+
+  server:
+    # Injected by the runner from platform-manifest.yaml. Default is the manifest placeholder so a
+    # bare `docker compose config` still validates; a real run substitutes the pinned, digest-addressed
+    # image. NEVER hardcode a floating tag here — the manifest is the source of truth.
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # TODO(#7): align these with honua-server's actual config keys once the image is published.
+      HONUA_DB_HOST: db
+      HONUA_DB_PORT: "5432"
+      HONUA_DB_USER: honua
+      HONUA_DB_PASSWORD: honua
+      HONUA_DB_NAME: honua
+      # The observability gate (plan §4g) depends on the in-band GeoServices error metric
+      # (honua_geoservices_error_total, server#2243). Ensure metrics are exposed.
+      HONUA_METRICS_ENABLED: "true"
+    ports:
+      - "${HONUA_SERVER_PORT:-8080}:8080"     # GeoServices/OGC/admin HTTP
+      - "${HONUA_METRICS_PORT:-9090}:9090"    # Prometheus metrics scrape (TODO: confirm port)
+    healthcheck:
+      # TODO(#7): confirm honua-server's health endpoint path.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30

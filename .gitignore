@@ -1,0 +1,12 @@
+# e2e harness local artifacts
+e2e/gate-report.json
+e2e/local-docker/.env
+**/__pycache__/
+*.pyc
+
+# dotnet probe build output
+e2e/scenarios/**/probes/dotnet/bin/
+e2e/scenarios/**/probes/dotnet/obj/
+
+# node probe install
+e2e/scenarios/**/node_modules/
