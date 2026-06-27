@@ -1,6 +1,10 @@
 # e2e harness local artifacts
 e2e/gate-report.json
+e2e/gate-report-cloud.json
 e2e/local-docker/.env
+# terraform state pulled into the iac checkout / target workdir
+e2e/**/.terraform/
+e2e/**/*.tfstate*
 **/__pycache__/
 *.pyc
 

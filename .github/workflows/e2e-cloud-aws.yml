@@ -1,0 +1,115 @@
+# Cross-cloud parity tier — AWS serverless (docs/TEST-STRATEGY.md Phase B, AWS-first).
+#
+# Deploys a real honua-server via the honua-iac serverless example, runs the canonical (slim) parity
+# set against its endpoint, asserts parity with the reference (local docker) when provided, and tears
+# down (ephemeral + reaper). This is the "also runs cloud integration" layer of the release train.
+#
+# Honesty (AGENTS.md): until the AWS role + a deployable Lambda-AOT (ECR) image + the IaC are wired,
+# the run is BLOCKED, never a fake green. The nightly run defaults to NOT require_real (BLOCKED is
+# tolerated and surfaced); the release train and an explicit dispatch can set require_real so a
+# BLOCKED/parity-divergence is a hard red. OIDC into AWS — no static creds.
+#
+# To make it actually deploy, set the repo/org variable HONUA_AWS_ROLE_ARN (an OIDC role this repo may
+# assume) and HONUA_LAMBDA_IMAGE_URI (an ECR `*-lambda-aot` image); see the job env below.
+
+name: e2e-cloud-aws
+
+on:
+  schedule:
+    - cron: "17 7 * * *"          # nightly; the train consumes the latest green (Phase 2)
+  workflow_dispatch:
+    inputs:
+      require_real:
+        description: "Promote BLOCKED/parity-divergence to FAIL (run once AWS infra is wired)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      require_real:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write                 # OIDC -> AWS (no static creds)
+
+concurrency:
+  group: e2e-cloud-aws            # one ephemeral env at a time
+  cancel-in-progress: false
+
+jobs:
+  aws-serverless:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: "us-east-1"
+      # Set as a repo/org variable to enable a real deploy; empty => the run reports BLOCKED honestly.
+      HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout honua-iac (terraform tree)
+        uses: actions/checkout@v4
+        with:
+          repository: honua-io/honua-iac
+          path: _honua-iac
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => BLOCKED, not a crash
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install test deps
+        run: python -m pip install pytest
+
+      # The gate's own verdict + parity logic must be trustworthy before we trust a run.
+      - name: Self-test the cloud parity logic
+        run: python -m pytest e2e/test_cloud.py -q
+
+      # OIDC into AWS — only when a role is configured; otherwise the run reports BLOCKED.
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Run AWS serverless parity
+        env:
+          # Point the driver at the honua-iac checkout when it succeeded.
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+        run: |
+          set -euo pipefail
+          # Only expose HONUA_IAC_DIR if the checkout actually produced the terraform tree.
+          if [ ! -d "$HONUA_IAC_DIR/infrastructure/terraform/examples/aws-serverless" ]; then
+            unset HONUA_IAC_DIR
+          fi
+          REQUIRE=""
+          if [ "${{ inputs.require_real || false }}" = "true" ]; then REQUIRE="--require-real"; fi
+          python e2e/run_cloud.py --target aws-serverless $REQUIRE
+
+      - name: Teardown reaper (backstop)
+        if: always()
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+        run: |
+          # run_cloud already tears down; this is the belt-and-suspenders sweep so nothing lingers on
+          # credits even if the job was cancelled mid-apply.
+          ROOT="$HONUA_IAC_DIR/infrastructure/terraform/examples/aws-serverless"
+          if [ -d "$ROOT" ] && [ -n "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
+            terraform -chdir="$ROOT" destroy -auto-approve -no-color -input=false || true
+          else
+            echo "no real deploy was attempted (BLOCKED) — nothing to reap"
+          fi
+
+      - name: Upload cloud gate-report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cloud-aws-gate-report
+          path: e2e/gate-report-cloud.json
+          if-no-files-found: warn
