@@ -102,19 +102,23 @@ jobs:
 
   # ── TODO gates: real implementations live in component repos / later phases ──────────────────
 
-  gate_observability:          # g) SLO incl. GeoServices in-band error metric (closes server#2243/iac#82/devops#113/helm#31)
+  gate_observability:          # g) SLO incl. GeoServices in-band error metric (server#2243/devops#113). Issue #5.
     needs: gate_e2e
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: deploy to staging, validate error budget incl honua_geoservices_error_total (issue #5)"' }]
+    uses: ./.github/workflows/gate-observability.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_docs:                   # h) advertised-vs-actual: every shipped capability is backed. Phase 3.
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
 
-  gate_upgrade:                # i) prior-release -> candidate upgrade (migrations fwd+rollback, old clients)
+  gate_upgrade:                # i) prior-release -> candidate upgrade (old-client compat + db forward; migration test blocked)
     needs: gate_e2e
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: seed prior release, apply candidate, assert zero-downtime + data intact (Phase 2)"' }]
+    uses: ./.github/workflows/gate-upgrade.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -176,9 +180,9 @@ jobs:
           contract|$R_CONTRACT|1
           conformance|$R_CONFORMANCE|1
           security|$R_SECURITY|1
-          observability|$R_OBS|0
+          observability|$R_OBS|1
           docs|$R_DOCS|1
-          upgrade|$R_UPGRADE|0
+          upgrade|$R_UPGRADE|1
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], jobResult:.[1], wired:(.[2]=="1")}
