@@ -1,0 +1,28 @@
+id: cut-release-candidate
+intent: "Cut a platform release candidate: snapshot green mains, run the full gate stack, emit a gate-report."
+category: release-ops
+autonomy_tier: 1          # AI may cut an RC autonomously; promote to prod is a separate, gated step
+
+preconditions:
+  - "all component mains are green (per-repo CI on the snapshot SHAs)"
+  - "freeze flag is off"
+  - "no other release-train run in flight (concurrency group)"
+
+steps:
+  - "dispatch release-train.yml (workflow_dispatch) with the candidate label, dry_run=true"
+  - "fan out to the gate stack (manifest, build-test, artifact-consume, e2e, cloud-parity, conformance, security, contract, observability, docs, upgrade)"
+  - "assemble the machine-readable gate-report.json"
+
+verify:
+  - "every WIRED gate is green in the gate-report (overallStatus == pass)"
+  - "the candidate manifest is internally coherent (pins satisfy the matrix)"
+
+rollback:
+  procedure:
+    - "discard the candidate — do NOT promote; no tag/release is created on a dry-run cut"
+    - "if an RC tag was created, delete the RC tag"
+  verify:
+    - "no platform release/tag exists for the discarded candidate"
+    - "main is unchanged (the cut is read-only over the component repos)"
+
+integration_test: e2e/operational/release_ops.py
