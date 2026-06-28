@@ -17,7 +17,11 @@ sys.path.insert(0, str(E2E_DIR))
 import canonical_checks as cc  # noqa: E402
 import parity as par  # noqa: E402
 import run_cloud  # noqa: E402
-from targets.aws_serverless import AwsServerlessTarget  # noqa: E402
+from targets import REGISTRY  # noqa: E402
+from targets.terraform_target import ecs, serverless  # noqa: E402
+
+_AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
+            "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR")
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -86,23 +90,49 @@ def test_parity_fail_when_reference_itself_failing():
     assert par.compare(ref, oth).status == "fail"
 
 
-# ---- BLOCKED honesty: no AWS infra => not a green --------------------------------------------------
-def test_aws_serverless_blocked_without_infra(monkeypatch):
-    for var in ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
-                "HONUA_LAMBDA_IMAGE_URI", "HONUA_IAC_DIR"):
+# ---- BLOCKED honesty: no AWS infra => not a green (all 3 targets) ----------------------------------
+def test_all_three_aws_targets_registered():
+    assert set(REGISTRY) == {"aws-serverless", "aws-ecs", "aws-eks"}
+
+
+def test_serverless_blocked_without_infra(monkeypatch):
+    for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)
-    avail = AwsServerlessTarget().availability()
+    avail = serverless().availability()
     assert not avail.ok
     assert any("AWS credentials" in m for m in avail.missing)
     assert any("HONUA_LAMBDA_IMAGE_URI" in m for m in avail.missing)
 
 
-def test_run_cloud_unavailable_is_blocked_then_fail_under_require_real(monkeypatch):
-    for var in ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
-                "HONUA_LAMBDA_IMAGE_URI", "HONUA_IAC_DIR"):
+def test_ecs_blocked_without_infra(monkeypatch):
+    for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)
-    assert run_cloud.run("aws-serverless", require_real=False, reference_endpoint=None)["status"] == "blocked"
-    assert run_cloud.run("aws-serverless", require_real=True, reference_endpoint=None)["status"] == "fail"
+    avail = ecs().availability()
+    assert not avail.ok and any("HONUA_ECS_IMAGE" in m for m in avail.missing)
+
+
+def test_eks_needs_helm_chart_and_image(monkeypatch):
+    for var in _AWS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    avail = REGISTRY["aws-eks"]().availability()
+    assert not avail.ok
+    # EKS is the heavy cell: beyond AWS/iac it needs the helm chart + a k8s image (deterministic envs;
+    # CLI presence varies by machine so we don't assert on kubectl/helm being absent).
+    assert any("HONUA_HELM_DIR" in m for m in avail.missing)
+    assert any("HONUA_ECS_IMAGE" in m for m in avail.missing)
+
+
+def test_run_cloud_each_target_redis_axis_blocked_without_infra(monkeypatch):
+    for var in _AWS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    for target in ("aws-serverless", "aws-ecs", "aws-eks"):
+        for redis in (True, False):
+            r = run_cloud.run(target, require_real=False, reference_endpoint=None, redis_enabled=redis)
+            assert r["status"] == "blocked", (target, redis)
+            assert r["redis"] == ("redis-on" if redis else "redis-off")
+            # require_real escalates BLOCKED -> fail (the gate can genuinely fail once infra is wired).
+            r2 = run_cloud.run(target, require_real=True, reference_endpoint=None, redis_enabled=redis)
+            assert r2["status"] == "fail", (target, redis)
 
 
 def test_run_cloud_unknown_target_fails():

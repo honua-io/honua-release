@@ -54,32 +54,44 @@ honua-iac, run the **canonical (slim) parity set** against its public endpoint, 
 identically to the reference (local docker). Per `docs/TEST-STRATEGY.md`, this does NOT re-run the full
 SDK × scenario matrix per target — it runs the small, data-independent canonical set and compares.
 
+**Matrix: all 3 AWS targets × Redis on/off** — so the platform is proven to behave identically across
+deploy shapes and with/without its cache:
+
+| target | how | endpoint | Redis |
+|---|---|---|---|
+| `aws-serverless` | Lambda + API GW (`examples/aws-serverless`, ECR Lambda-AOT image) | `honua_url` output | `redis_enabled` |
+| `aws-ecs` | Fargate + ALB (`examples/aws`, container image) | `honua_url` output | `redis_enabled` |
+| `aws-eks` | k8s + Helm + LoadBalancer (`examples/aws-eks`) — heaviest, run least often | LB hostname (Helm) | Helm value |
+
 ```
 e2e/
   canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog) — HTTP-level, no SDK/Prom
   parity.py               # compare(reference, other): identical verdicts across targets, else FAIL
-  run_cloud.py            # provision target -> run canonical -> teardown -> parity -> gate-report-cloud.json
+  run_cloud.py            # provision(target, redis) -> canonical -> teardown -> parity -> gate-report-cloud.json
   targets/
-    base.py               # DeployTarget contract (availability / provision / teardown)
-    aws_serverless.py     # terraform-drives honua-iac examples/aws-serverless; reads honua_url; destroys (reaper)
-  test_cloud.py           # unit tests: parity comparator, canonical normalisation, BLOCKED-without-infra
+    base.py               # DeployTarget contract (availability / provision(redis_enabled) / teardown)
+    terraform_target.py   # config-driven terraform cells (serverless + ECS): apply image+redis var -> honua_url -> destroy
+    aws_eks.py            # the heavy EKS cell (cluster + Helm + LB); needs kubectl/helm + the chart
+  test_cloud.py           # unit tests: parity comparator, canonical normalisation, all 3 targets × redis BLOCKED-without-infra
 ```
 
 ```bash
-make cloud-aws     # run the AWS serverless parity cell (reports BLOCKED until AWS infra is wired)
+make cloud-aws                                  # aws-serverless / redis-off (BLOCKED until AWS infra is wired)
+python e2e/run_cloud.py --target aws-ecs --redis on
 ```
 
-CI: `.github/workflows/e2e-cloud-aws.yml` runs **nightly** + on `workflow_dispatch`, and is
-`workflow_call`-able by the release train's `gate_cloud_parity`. OIDC into AWS (no static creds);
-every apply is ephemeral + run-scoped and `teardown()` + a backstop reaper always run.
+CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6 cells, fail-fast off)
+**nightly** + on `workflow_dispatch`, and is `workflow_call`-able by the release train's
+`gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
+`teardown()` + a backstop reaper (sweeping every example root) always run.
 
 ### A gate that can FAIL — and is honestly BLOCKED until infra exists
-`aws-serverless` reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
-dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable **Lambda-AOT image in ECR**
-(`HONUA_LAMBDA_IMAGE_URI` — the serverless module wants ECR, not the ghcr image the manifest pins), and
-the honua-iac terraform tree (`HONUA_IAC_DIR`). `--require-real` (the train on a real cut / a real
-nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is unit-tested
-(`make test`) so the gate is trustworthy with zero cloud.
+Each cell reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
+dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable image (`HONUA_LAMBDA_IMAGE_URI`
+= ECR Lambda-AOT for serverless; `HONUA_ECS_IMAGE` for ECS/EKS), the honua-iac tree (`HONUA_IAC_DIR`), and
+for EKS also kubectl/helm + the chart (`HONUA_HELM_DIR`). `--require-real` (the train on a real cut / a
+real nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is
+unit-tested (`make test`) so the gate is trustworthy with zero cloud.
 
 ### Probe exit-code contract (every language probe)
 
