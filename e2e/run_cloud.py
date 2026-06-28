@@ -37,16 +37,20 @@ def _check_dicts(results) -> list[dict]:
             for r in results]
 
 
-def run(target_name: str, require_real: bool, reference_endpoint: str | None) -> dict:
+def run(target_name: str, require_real: bool, reference_endpoint: str | None,
+        redis_enabled: bool = False) -> dict:
     cls = REGISTRY.get(target_name)
     if cls is None:
         return {"gate": "cloud-parity", "target": target_name, "status": "fail",
                 "why": f"unknown target {target_name!r}; known: {sorted(REGISTRY)}"}
 
     target = cls(run_id=os.environ.get("GITHUB_RUN_ID", "local"))
+    redis_mode = "redis-on" if redis_enabled else "redis-off"
+    cell = f"{target_name}/{redis_mode}"
     avail = target.availability()
 
-    report: dict = {"gate": "cloud-parity", "target": target_name, "require_real": require_real,
+    report: dict = {"gate": "cloud-parity", "target": target_name, "redis": redis_mode, "cell": cell,
+                    "require_real": require_real,
                     "availability": {"ok": avail.ok, "reason": avail.reason, "missing": avail.missing}}
 
     if not avail.ok:
@@ -57,7 +61,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None) ->
     endpoint = None
     checks = []
     try:
-        endpoint = target.provision()
+        endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         checks = run_canonical(endpoint)
         report["checks"] = _check_dicts(checks)
@@ -73,11 +77,11 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None) ->
     blocked = [c.name for c in checks if c.status == "blocked"]
     if failed:
         report["status"] = "fail"
-        report["why"] = f"canonical checks failed on {target_name}: {failed}"
+        report["why"] = f"canonical checks failed on {cell}: {failed}"
         return report
     if blocked and require_real:
         report["status"] = "fail"
-        report["why"] = f"canonical checks blocked on {target_name} (require_real): {blocked}"
+        report["why"] = f"canonical checks blocked on {cell} (require_real): {blocked}"
         return report
 
     # Parity vs the reference target, when one was provided.
@@ -86,7 +90,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None) ->
         report["reference_checks"] = _check_dicts(ref_checks)
         verdict = compare(
             TargetRun("local-docker", provisioned=True, results=ref_checks),
-            TargetRun(target_name, provisioned=True, results=checks),
+            TargetRun(cell, provisioned=True, results=checks),
         )
         report["parity"] = {"status": verdict.status, "why": verdict.why, "diffs": verdict.diffs}
         if verdict.status == "fail":
@@ -95,7 +99,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None) ->
             return report
 
     report["status"] = "blocked" if (blocked and not require_real) else "pass"
-    report["why"] = report.get("why") or f"{target_name}: canonical set passed" + (
+    report["why"] = report.get("why") or f"{cell}: canonical set passed" + (
         " + parity ok" if reference_endpoint else " (parity skipped: no reference endpoint)")
     return report
 
@@ -103,16 +107,18 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None) ->
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
+    ap.add_argument("--redis", choices=["on", "off"], default="off",
+                    help="run the target with Redis enabled or disabled (parity must hold either way)")
     ap.add_argument("--require-real", action="store_true",
                     help="promote BLOCKED to FAIL (the train / a real nightly run)")
     ap.add_argument("--reference-endpoint", default=os.environ.get("HONUA_REFERENCE_ENDPOINT") or None,
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
 
-    report = run(args.target, args.require_real, args.reference_endpoint)
+    report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    print(f"== cloud-parity :: {report['target']} -> {report['status'].upper()} ==")
+    print(f"== cloud-parity :: {report['cell']} -> {report['status'].upper()} ==")
     print(f"   {report.get('why', '')}")
     for c in report.get("checks", []):
         print(f"   [{c['status'].upper():7}] {c['name']}: {c['why']}")
