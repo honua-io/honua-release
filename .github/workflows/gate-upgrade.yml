@@ -1,0 +1,86 @@
+# Release gate (i) — upgrade. Is upgrading from the previous platform release to the candidate safe?
+#
+# Real, decidable now (tools/check_upgrade.py, unit-tested): the candidate must not strand any client
+# the PRIOR release shipped (compat-matrix), and its DB schema must be forward-only. The full
+# seed -> apply -> migrate (forward+rollback) -> old-clients-still-work test needs a running server +
+# two releases, so the migration half stays BLOCKED until that infra exists — never a fake green.
+#
+# The prior release's manifest is read from the latest `honua-*` GitHub Release (created by promote);
+# until one exists, the gate reports BLOCKED.
+
+name: gate-upgrade
+run-name: "gate-upgrade ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.upgrade.outputs.status }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-upgrade-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.eval.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the upgrade logic
+        run: python -m pytest tools/test_slo_upgrade.py -q -k upgrade
+
+      - name: Fetch the previous platform release's manifest
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 \
+                  --json tagName --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
+          if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
+               --pattern 'finalized-manifest.yaml' --dir prior >/tmp/dl.log 2>&1; then
+            echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+            echo "found prior release: $PREV"
+          else
+            echo "prev=" >> "$GITHUB_OUTPUT"
+            echo "no prior platform release (honua-*) to upgrade from yet"
+          fi
+
+      - name: Evaluate upgrade compatibility
+        id: eval
+        run: |
+          set -uo pipefail
+          ENF='${{ inputs.enforcement }}'
+          if [ -z "${{ steps.prior.outputs.prev }}" ]; then
+            STATUS=blocked; WHY="no prior platform release to upgrade from (first release is the baseline)"
+            if [ "$ENF" = "strict" ]; then RC=1; else RC=0; fi
+          elif [ "$ENF" = "strict" ]; then
+            python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml --require-real; RC=$?
+            if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
+          else
+            python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml; RC=$?
+            if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
+          fi
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          { echo "## Upgrade — $STATUS"; echo ""; echo "$WHY (migration forward+rollback test is BLOCKED until a running candidate exists)"; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"

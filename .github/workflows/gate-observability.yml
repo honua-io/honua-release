@@ -1,0 +1,89 @@
+# Release gate (g) — observability / SLO. Evaluates the GeoServices in-band error rate against a
+# budget on a deployed candidate (PLAN §4g; retires server#2243/devops#113 at the gate level).
+#
+# The decision is mechanical (tools/check_slo.py, unit-tested) so it CANNOT green-light a failing
+# release the way the audited SLO gate did. Until the server emits honua_geoservices_error_total
+# (issue #5) and a candidate is deployed with a scrapeable metrics endpoint, it reports BLOCKED —
+# never a fake green. Set HONUA_METRICS_URL (repo var) to point at the candidate's /metrics.
+
+name: gate-observability
+run-name: "gate-observability ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "7 6 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.slo.outputs.status }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-observability-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  slo:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.eval.outputs.status }}
+    env:
+      HONUA_METRICS_URL: ${{ vars.HONUA_METRICS_URL }}
+      ERROR_METRIC: "honua_geoservices_error_total"
+      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_geoservices_requests_total' }}
+      MAX_ERROR_RATE: ${{ vars.HONUA_MAX_ERROR_RATE || '0.01' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+
+      - name: Self-test the SLO logic
+        run: python -m pytest tools/test_slo_upgrade.py -q -k slo
+
+      - name: Scrape the candidate metrics + evaluate the error budget
+        id: eval
+        run: |
+          set -uo pipefail
+          ENF='${{ inputs.enforcement }}'
+          # Reuse the e2e Prometheus parser; scrape the in-band error + request counters.
+          read -r ERR REQ < <(python - <<'PY'
+          import os, sys, urllib.request
+          sys.path.insert(0, "e2e")
+          from runner.harness import parse_metric_total
+          url = os.environ.get("HONUA_METRICS_URL", "").strip()
+          def scrape(name):
+              if not url: return ""
+              try:
+                  body = urllib.request.urlopen(url, timeout=15).read().decode("utf-8","replace")
+              except Exception:
+                  return ""
+              v = parse_metric_total(body, name)
+              return "" if v is None else repr(v)
+          print(scrape(os.environ["ERROR_METRIC"]), scrape(os.environ["REQUEST_METRIC"]) or '""')
+          PY
+          )
+          ERR="${ERR:-}"; REQ="${REQ:-}"
+          echo "scraped error_total=${ERR:-<absent>} request_total=${REQ:-<absent>} (url=${HONUA_METRICS_URL:-<unset>})"
+          if [ "$ENF" = "strict" ]; then
+            OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE" --require-real)"; RC=$?
+          else
+            OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE")"; RC=$?
+          fi
+          STATUS="$(printf '%s\n' "$OUT" | sed -n 's/^status=//p')"
+          WHY="$(printf '%s\n' "$OUT" | sed -n 's/^why=//p')"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          { echo "## Observability / SLO — ${STATUS:-unknown}"; echo ""; echo "$WHY"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "SLO: $STATUS — $WHY"
+          exit "$RC"
