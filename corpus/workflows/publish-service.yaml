@@ -1,0 +1,29 @@
+id: publish-service
+intent: "Publish a feature service to the live GeoServices catalog from a validated definition."
+category: data-ops
+autonomy_tier: 2          # prod, but behind a canary/SLO gate (the GeoServices error budget must hold)
+
+preconditions:
+  - "candidate server is healthy (/healthz 200)"
+  - "the service definition passed validation (schema + layer fields)"
+  - "no existing service with the same id (else this is an update, not a publish)"
+
+steps:
+  - "POST the service definition to the control-plane publish endpoint (/api/v1/admin/services)"
+  - "wait for the service to appear in GET /rest/services"
+  - "warm a query to confirm the layer is queryable"
+
+verify:
+  - "GET /rest/services lists the new service"
+  - "a query against layer 0 returns 200 with a featureset (not a 200+{error} envelope)"
+  - "honua_geoservices_error_total did not rise during publish"
+
+rollback:
+  procedure:
+    - "DELETE the published service via the control-plane (/api/v1/admin/services/{id})"
+    - "wait for it to disappear from GET /rest/services"
+  verify:
+    - "GET /rest/services no longer lists the service"
+    - "the catalog matches the pre-publish snapshot (no orphaned layers)"
+
+integration_test: e2e/operational/publish_rollback.py

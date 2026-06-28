@@ -1,0 +1,30 @@
+id: promote-release
+intent: "Promote an all-green release candidate to a platform label: finalize, SBOM, sign, tag + GitHub Release."
+category: release-ops
+autonomy_tier: 1          # the human/AI approval boundary — behind the production environment
+
+preconditions:
+  - "the candidate's gate-report has overallStatus == pass for this label"
+  - "the production environment's required reviewers approved (GHA-enforced; AI cannot skip)"
+  - "no platform release already exists for this label"
+
+steps:
+  - "dispatch promote.yml with the label + certified train_run_id"
+  - "finalize the manifest (status: released), generate aggregate release notes"
+  - "generate the CycloneDX platform BOM; cosign keyless-sign the manifest + BOM"
+  - "create the honua-<label> git tag + GitHub Release with manifest + matrix + notes + signatures"
+
+verify:
+  - "the GitHub Release exists with the signed manifest + BOM attached"
+  - "cosign verify-blob succeeds against the workflow's OIDC identity"
+  - "the published compatibility matrix matches the certified candidate"
+
+rollback:
+  procedure:
+    - "if a regression is found post-promote: rollback the platform label to the prior release (redeploy prior pinned manifest)"
+    - "mark the release as superseded; cut a patch RC for the fix"
+  verify:
+    - "running deployments are back on the prior certified release"
+    - "the prior release's signatures + BOM still verify (provenance intact)"
+
+integration_test: e2e/operational/release_ops.py

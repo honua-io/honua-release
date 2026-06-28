@@ -1,0 +1,30 @@
+id: gp-execute
+intent: "Execute a deployed geoprocessing tool with given inputs and collect the result."
+category: gp-ops
+autonomy_tier: 2          # prod, behind a canary/SLO gate
+
+preconditions:
+  - "the GP tool is deployed and present in the GP catalog"
+  - "inputs validated against the tool's parameter schema"
+  - "for a writing tool: the target dataset is snapshotted (so writes can be reverted)"
+
+steps:
+  - "submit a GP job with the validated inputs"
+  - "poll the job to completion (succeeded / failed)"
+  - "fetch the job result / output dataset"
+
+verify:
+  - "the job reaches status=succeeded (a failed job surfaces as an error, not silent success)"
+  - "the result matches the expected output shape"
+  - "honua_geoservices_error_total did not rise during execution"
+
+rollback:
+  procedure:
+    - "for a read-only tool: no-op (nothing was written)"
+    - "for a writing tool: revert the job's writes from the pre-execution snapshot"
+    - "delete the job's output artifacts"
+  verify:
+    - "the target dataset matches the pre-execution snapshot"
+    - "no orphaned output artifacts remain"
+
+integration_test: e2e/operational/gp_deploy_execute.py

@@ -1,0 +1,28 @@
+id: gp-deploy
+intent: "Deploy a geoprocessing (GP) tool/service so it is available for execution."
+category: gp-ops
+autonomy_tier: 2          # prod, behind a canary/SLO gate
+
+preconditions:
+  - "candidate server is healthy"
+  - "the GP tool definition validated (parameters, IO schema, runtime)"
+  - "no live GP tool already registered under the same id"
+
+steps:
+  - "register the GP tool via the control-plane GP endpoint"
+  - "wait for it to appear in the GP service catalog"
+  - "fetch its parameter/IO descriptor to confirm registration"
+
+verify:
+  - "the GP tool is listed in the GP catalog with the expected parameter schema"
+  - "a describe/metadata call returns 200 (not a 200+{error} envelope)"
+
+rollback:
+  procedure:
+    - "deregister the GP tool via the control-plane"
+    - "wait for it to disappear from the GP catalog"
+  verify:
+    - "the GP tool is no longer listed"
+    - "no orphaned runtime/registration artifacts remain"
+
+integration_test: e2e/operational/gp_deploy_execute.py
