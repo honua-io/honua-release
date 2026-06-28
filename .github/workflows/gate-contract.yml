@@ -1,0 +1,199 @@
+# Release gate (b) — contract / breaking-change. Confirms the candidate's wire surfaces did not break
+# backward-compat since the last release (AGENTS.md: a gate that can't fail is worse than no gate).
+#
+#   proto-breaking  REAL: clone the manifest-pinned geospatial-grpc and run `buf breaking` against the
+#                   last release tag — RPC/service deletion+rename and field/enum wire breaks fail it
+#                   (the gate that retired geospatial-grpc#44; verified to catch RPC deletion).
+#   rest-sdk-api    BLOCKED: REST/OpenAPI diff + SDK public-API diff need the server's published
+#                   OpenAPI spec and the SDKs' API baselines as artifacts; reports BLOCKED honestly
+#                   until those are published (never a fake green).
+#
+# Trigger: workflow_dispatch / workflow_call (the train) / nightly. bootstrap tolerates a missing
+# baseline (blocked); strict fails on it; a real wire break always fails.
+
+name: gate-contract
+run-name: "gate-contract ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "27 6 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "RC being checked", required: false, type: string, default: "dev-local" }
+      enforcement:
+        description: "bootstrap = tolerate missing baseline (blocked); strict = any non-pass fails"
+        required: false
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.report.outputs.overall_status }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-contract-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # proto-breaking — buf breaking the pinned geospatial-grpc against its last release.
+  # ───────────────────────────────────────────────────────────────────────────
+  proto-breaking:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: buf breaking vs last release
+        id: consume
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          GATE=contract-proto; SOURCE=blocked; STATUS=blocked; WHY=""
+          WORK="$RUNNER_TEMP/grpc"; mkdir -p "$WORK"
+          SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('geospatial-grpc',{}) or {}).get('sha','') or '')")"
+          echo "manifest-pinned geospatial-grpc sha: ${SHA:-<none>}"
+
+          echo "::group::Clone geospatial-grpc + checkout pinned sha"
+          if git clone "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-grpc.git" "$WORK/grpc" >/tmp/c.log 2>&1; then
+            cd "$WORK/grpc"; git fetch --tags --quiet origin || true
+            [ -n "$SHA" ] && git checkout -q "$SHA" 2>/dev/null || echo "note: pinned sha not checked out; using default branch"
+            PREV="$(git tag -l 'v*' --sort=-v:refname | head -n1)"
+            echo "baseline release tag: ${PREV:-<none>}"
+          else
+            STATUS=blocked; WHY="geospatial-grpc not cloneable"; tail -n 3 /tmp/c.log || true
+          fi
+          echo "::endgroup::"
+
+          if [ "$STATUS" != "blocked" ] || [ -d "$WORK/grpc" ]; then
+            cd "$WORK/grpc" 2>/dev/null || true
+            if [ -z "${PREV:-}" ]; then
+              STATUS=blocked; WHY="no prior release tag to break against (baseline missing)"
+            else
+              echo "::group::buf breaking --against .git#tag=$PREV"
+              if buf breaking --against ".git#tag=${PREV}" >/tmp/b.log 2>&1; then
+                STATUS=pass; WHY="proto is wire-compatible with ${PREV} (no breaking change)"
+              else
+                STATUS=fail; WHY="proto BREAKS the wire contract vs ${PREV}"; cat /tmp/b.log || true
+              fi
+              SOURCE=grpc
+              echo "::endgroup::"
+            fi
+          fi
+
+          { echo "gate=$GATE"; echo "source=$SOURCE"; echo "status=$STATUS"; echo "why=$WHY"; } >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: contract-proto
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'blocked' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: con-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # rest-sdk-api — BLOCKED: REST/OpenAPI + SDK public-API diff need published baselines.
+  # ───────────────────────────────────────────────────────────────────────────
+  rest-sdk-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: REST/OpenAPI + SDK public-API diff (blocked without baselines)
+        run: |
+          set -uo pipefail
+          {
+            echo "status=blocked"
+            echo "source=blocked"
+            echo "why=needs the server's published OpenAPI spec + the SDKs' public-API baselines to diff against the last release; publish those to enable"
+          } >> "$GITHUB_ENV"
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: contract-rest-sdk
+          status: ${{ env.status || 'blocked' }}
+          source: blocked
+          why: ${{ env.why || 'blocked' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: con-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # report — aggregate con- fragments; fail per enforcement.
+  # ───────────────────────────────────────────────────────────────────────────
+  report:
+    needs: [proto-breaking, rest-sdk-api]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: con-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s \
+            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | { gate:"contract", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:$g,
+                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          blocked:([$g[]|select(.decided=="blocked")]|length),
+                          fail:([$g[]|select(.decided=="fail")]|length) },
+                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+            fragments/*.json > out/gate-report.json
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Contract gate — $OVERALL";
+            echo "| check | status | why |"; echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload gate-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-gate-report
+          path: out/gate-report.json
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "contract gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          [ "$OVERALL" = "fail" ] && { echo "::error::contract gate FAILED"; exit 1; } || echo "not red"

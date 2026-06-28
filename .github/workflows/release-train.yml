@@ -92,12 +92,15 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
-  # ── TODO gates: real implementations live in component repos / later phases ──────────────────
-
-  gate_contract:               # b) proto/REST/SDK breaking-change (buf incl. deletion; closes grpc#44/#45)
+  gate_contract:               # b) proto breaking-change via buf (REST/SDK-API diff blocked). Phase 2.
     needs: freeze
-    runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: buf breaking + OpenAPI diff + SDK public-API diff (issue #2)"' }]
+    uses: ./.github/workflows/gate-contract.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
+
+  # ── TODO gates: real implementations live in component repos / later phases ──────────────────
 
   gate_observability:          # g) SLO incl. GeoServices in-band error metric (closes server#2243/iac#82/devops#113/helm#31)
     needs: gate_e2e
@@ -170,7 +173,7 @@ jobs:
           e2e|$R_E2E|1
           cloud-parity|$R_CLOUD|1
           build-test|$R_BUILD|1
-          contract|$R_CONTRACT|0
+          contract|$R_CONTRACT|1
           conformance|$R_CONFORMANCE|1
           security|$R_SECURITY|1
           observability|$R_OBS|0
