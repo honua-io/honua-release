@@ -59,6 +59,31 @@ def test_service_catalog():
     assert cc.check_service_catalog("http://x", _fetcher([("/rest/services", cc.HttpResponse(500, ""))])).status == "fail"
 
 
+def test_admin_capabilities():
+    ok = cc.HttpResponse(200, '{"contractVersions":{"admin":"v1"}}')
+    assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", ok)])).status == "pass"
+    assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", cc.HttpResponse(200, "no"))])).status == "fail"
+    assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", cc.HttpResponse(404, ""))])).status == "fail"
+    assert cc.check_admin_capabilities("http://x", _fetcher([])).status == "blocked"
+
+
+def test_geoprocessing_catalog():
+    gp = cc.HttpResponse(200, '{"services":[{"name":"Buffer","type":"GPServer"}]}')
+    assert cc.check_geoprocessing("http://x", _fetcher([("/rest/services", gp)])).status == "pass"
+    # catalog reachable but no GP advertised => blocked (honest), never a fake pass.
+    nogp = cc.HttpResponse(200, '{"services":[{"name":"roads","type":"FeatureServer"}]}')
+    assert cc.check_geoprocessing("http://x", _fetcher([("/rest/services", nogp)])).status == "blocked"
+    assert cc.check_geoprocessing("http://x", _fetcher([])).status == "blocked"
+
+
+def test_extended_scenarios_blocked_pending_harness_image():
+    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#35.
+    ext = cc.run_extended("http://x")
+    names = {r.name for r in ext}
+    assert names == {"mcp-handshake", "studio-authoring", "gp-execute", "top-demo"}
+    assert all(r.status == "blocked" and "honua-release#35" in r.why for r in ext)
+
+
 # ---- parity comparator ----------------------------------------------------------------------------
 def _results(statuses):
     return [cc.CheckResult(n, s) for n, s in statuses]
@@ -122,17 +147,33 @@ def test_eks_needs_helm_chart_and_image(monkeypatch):
     assert any("HONUA_ECS_IMAGE" in m for m in avail.missing)
 
 
-def test_run_cloud_each_target_redis_axis_blocked_without_infra(monkeypatch):
-    for var in _AWS_ENV:
+_CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID", "AWS_PROFILE",
+             "AWS_WEB_IDENTITY_TOKEN_FILE")
+
+
+def test_run_cloud_self_skips_without_cloud_creds(monkeypatch):
+    # No cloud/OIDC creds => SELF-SKIP (status: skipped, why: cloud-creds-unset), even under
+    # require_real — a no-cloud local cut must not be reddened by the cloud tier.
+    for var in set(_AWS_ENV) | set(_CRED_ENV):
         monkeypatch.delenv(var, raising=False)
     for target in ("aws-serverless", "aws-ecs", "aws-eks"):
         for redis in (True, False):
             r = run_cloud.run(target, require_real=False, reference_endpoint=None, redis_enabled=redis)
-            assert r["status"] == "blocked", (target, redis)
+            assert r["status"] == "skipped" and r["why"] == "cloud-creds-unset", (target, redis)
             assert r["redis"] == ("redis-on" if redis else "redis-off")
-            # require_real escalates BLOCKED -> fail (the gate can genuinely fail once infra is wired).
             r2 = run_cloud.run(target, require_real=True, reference_endpoint=None, redis_enabled=redis)
-            assert r2["status"] == "fail", (target, redis)
+            assert r2["status"] == "skipped", (target, redis)  # creds unset => cannot enforce, still skip
+
+
+def test_run_cloud_blocked_when_creds_present_but_infra_missing(monkeypatch):
+    # Creds present but image/IaC missing => BLOCKED (half-wired, surfaced), require_real => FAIL.
+    for var in _AWS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    r = run_cloud.run("aws-serverless", require_real=False, reference_endpoint=None, redis_enabled=False)
+    assert r["status"] == "blocked", r
+    r2 = run_cloud.run("aws-serverless", require_real=True, reference_endpoint=None, redis_enabled=False)
+    assert r2["status"] == "fail", r2
 
 
 def test_run_cloud_unknown_target_fails():
@@ -146,6 +187,10 @@ if __name__ == "__main__":
         def delenv(self, k, raising=True):
             import os
             os.environ.pop(k, None)
+
+        def setenv(self, k, v):
+            import os
+            os.environ[k] = v
 
     failures = 0
     for name, fn in sorted(globals().items()):

@@ -1,12 +1,20 @@
 # Release gate (i) — upgrade. Is upgrading from the previous platform release to the candidate safe?
 #
-# Real, decidable now (tools/check_upgrade.py, unit-tested): the candidate must not strand any client
-# the PRIOR release shipped (compat-matrix), and its DB schema must be forward-only. The full
-# seed -> apply -> migrate (forward+rollback) -> old-clients-still-work test needs a running server +
-# two releases, so the migration half stays BLOCKED until that infra exists — never a fake green.
+# Two layers:
+#   static-compat  Decidable now (tools/check_upgrade.py, unit-tested): the candidate must not strand any
+#                  client the PRIOR release shipped (compat-matrix), and its DB schema must be forward-only.
+#   kind-upgrade   The real seed -> apply -> migrate -> health smoke, reusing the honua-helm
+#                  install -> upgrade -> rollback pattern (honua-helm CI `install-upgrade-rollback-smoke`):
+#                  a kind cluster + PostGIS + Redis, `helm install` the PRIOR-release image (seeds the
+#                  prior schema via startup migrations), `helm upgrade` to the CANDIDATE (forward DB
+#                  migrations run; readiness gate `/healthz/ready` proves they completed), `helm test`,
+#                  then `helm rollback` (app rolls back cleanly; down-migration is noted where the DB
+#                  supports it — expand-contract means the schema is forward-compatible with the old app).
 #
-# The prior release's manifest is read from the latest `honua-*` GitHub Release (created by promote);
-# until one exists, the gate reports BLOCKED.
+# The prior release's manifest/image is read from the latest `honua-*` GitHub Release (created by
+# promote); until one exists the cross-release half is BLOCKED (never a fake green). The kind smoke
+# SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
+# no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
 
 name: gate-upgrade
 run-name: "gate-upgrade ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
@@ -22,23 +30,25 @@ on:
     inputs:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
     outputs:
       overall_status:
         description: "pass | fail | blocked"
-        value: ${{ jobs.upgrade.outputs.status }}
+        value: ${{ jobs.report.outputs.overall_status }}
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: gate-upgrade-${{ github.ref }}-${{ inputs.platform_label }}
   cancel-in-progress: true
 
 jobs:
-  upgrade:
+  # ── static: compat-matrix + forward-only schema (decidable now, unit-tested) ─────────────────────
+  static-compat:
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ steps.eval.outputs.status }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -72,8 +82,7 @@ jobs:
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
           if [ -z "${{ steps.prior.outputs.prev }}" ]; then
-            STATUS=blocked; WHY="no prior platform release to upgrade from (first release is the baseline)"
-            if [ "$ENF" = "strict" ]; then RC=1; else RC=0; fi
+            STATUS=blocked; WHY="no prior platform release to upgrade from (first release is the baseline)"; RC=0
           elif [ "$ENF" = "strict" ]; then
             python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml --require-real; RC=$?
             if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
@@ -81,6 +90,252 @@ jobs:
             python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml; RC=$?
             if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
           fi
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          { echo "## Upgrade — $STATUS"; echo ""; echo "$WHY (migration forward+rollback test is BLOCKED until a running candidate exists)"; } >> "$GITHUB_STEP_SUMMARY"
-          exit "$RC"
+          echo "status=$STATUS" >> "$GITHUB_ENV"
+          echo "why=$WHY"       >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: upgrade-static-compat
+          status: ${{ env.status || 'fail' }}
+          source: manifest
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: upg-
+
+  # ── kind smoke: seed prior schema -> helm upgrade to candidate -> health -> rollback ─────────────
+  kind-upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.4"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+
+      - name: Resolve candidate + prior server images
+        id: images
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          CAND="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          echo "candidate=$CAND" >> "$GITHUB_OUTPUT"
+          # Prior image from the latest promoted release manifest, if any; else fall back to candidate
+          # (still a real chart install->upgrade->rollback lifecycle smoke, just not cross-release).
+          PRIOR=""
+          PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
+                  --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
+          if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
+               --pattern 'finalized-manifest.yaml' --dir _prior >/dev/null 2>&1; then
+            PRIOR="$(python -c "import yaml;print((yaml.safe_load(open('_prior/finalized-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          fi
+          [ -n "$PRIOR" ] || PRIOR="$CAND"
+          echo "prior=$PRIOR" >> "$GITHUB_OUTPUT"
+          echo "candidate=$CAND prior=$PRIOR cross_release=$([ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
+
+      - name: Checkout honua-helm chart
+        id: chart
+        uses: actions/checkout@v4
+        with:
+          repository: honua-io/honua-helm
+          path: _honua-helm
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        continue-on-error: true
+
+      - name: Pre-pull images (separates infra-absence=blocked from real upgrade failure=fail)
+        id: pull
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
+          OK=1
+          for IMG in "${{ steps.images.outputs.prior }}" "${{ steps.images.outputs.candidate }}"; do
+            [ -n "$IMG" ] && docker pull "$IMG" >/tmp/pull.log 2>&1 || { OK=0; echo "cannot pull $IMG"; tail -n 3 /tmp/pull.log || true; }
+          done
+          echo "pullable=$OK" >> "$GITHUB_OUTPUT"
+
+      - name: Create kind cluster
+        if: steps.chart.outcome == 'success' && steps.pull.outputs.pullable == '1'
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: honua-upgrade
+
+      - name: Seed prior schema -> upgrade to candidate -> health -> rollback
+        id: smoke
+        if: always()
+        env:
+          PRIOR: ${{ steps.images.outputs.prior }}
+          CAND: ${{ steps.images.outputs.candidate }}
+        run: |
+          set -uo pipefail
+          STATUS=blocked; WHY=""
+          if [ "${{ steps.chart.outcome }}" != "success" ]; then
+            STATUS=blocked; WHY="honua-helm chart not reachable (no RELEASE_GH_TOKEN?) — kind smoke self-skipped"
+          elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
+            STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
+          else
+            CHART="$(dirname "$(find _honua-helm -name Chart.yaml | head -n1)")"
+            NS=honua-upgrade
+            kubectl create namespace "$NS" || true
+            # PostGIS + Redis (persistent backing so the schema seeded pre-upgrade survives the upgrade).
+            kubectl apply -n "$NS" -f - <<'YAML'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: { name: honua-postgis, labels: { app.kubernetes.io/name: honua-postgis } }
+          spec:
+            replicas: 1
+            selector: { matchLabels: { app.kubernetes.io/name: honua-postgis } }
+            template:
+              metadata: { labels: { app.kubernetes.io/name: honua-postgis } }
+              spec:
+                containers:
+                  - name: postgis
+                    image: postgis/postgis:16-3.4-alpine
+                    ports: [ { containerPort: 5432 } ]
+                    env:
+                      - { name: POSTGRES_USER, value: honua }
+                      - { name: POSTGRES_PASSWORD, value: ci-password }
+                      - { name: POSTGRES_DB, value: honua }
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata: { name: honua-postgis }
+          spec:
+            selector: { app.kubernetes.io/name: honua-postgis }
+            ports: [ { name: postgresql, port: 5432, targetPort: 5432 } ]
+          YAML
+            kubectl rollout status deployment/honua-postgis -n "$NS" --timeout=180s || true
+            helm dependency build "$CHART" || helm dependency update "$CHART" || true
+
+            # Load images into kind so the cluster doesn't need registry creds at pod-pull time.
+            kind load docker-image "$PRIOR" --name honua-upgrade || true
+            [ "$CAND" != "$PRIOR" ] && kind load docker-image "$CAND" --name honua-upgrade || true
+
+            COMMON=(--namespace "$NS" --wait --timeout 12m
+                    --set postgresql.enabled=false
+                    --set redis.enabled=false
+                    --set 'config.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=ci-password'
+                    --set image.pullPolicy=IfNotPresent)
+
+            set -x
+            # 1) INSTALL prior — startup migrations seed the PRIOR schema.
+            if helm install honua "$CHART" --set image.repository="${PRIOR%:*}" --set image.tag="${PRIOR##*:}" "${COMMON[@]}" >/tmp/install.log 2>&1; then
+              # 2) UPGRADE to candidate — forward DB migrations run; readiness /healthz/ready gates them.
+              if helm upgrade honua "$CHART" --set image.repository="${CAND%:*}" --set image.tag="${CAND##*:}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
+                helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
+                # 3) ROLLBACK — the app rolls back cleanly (expand-contract keeps the schema forward-safe).
+                if helm rollback honua 1 -n "$NS" --wait --timeout 12m >/tmp/rollback.log 2>&1; then
+                  if [ "$HT" = "ok" ]; then
+                    STATUS=pass; WHY="install(prior)->upgrade(candidate)->health(helm test)->rollback all green (down-migration noted: expand-contract keeps schema forward-safe)"
+                  else
+                    STATUS=fail; WHY="upgrade applied but helm test (health) failed"; tail -n 40 /tmp/test.log || true
+                  fi
+                else
+                  STATUS=fail; WHY="rollback to the prior revision failed"; tail -n 40 /tmp/rollback.log || true
+                fi
+              else
+                STATUS=fail; WHY="helm upgrade to the candidate failed (forward migration / readiness)"; tail -n 60 /tmp/upgrade.log || true
+              fi
+            else
+              STATUS=fail; WHY="helm install of the prior release failed (seed step)"; tail -n 60 /tmp/install.log || true
+            fi
+            set +x
+          fi
+          echo "status=$STATUS" >> "$GITHUB_ENV"
+          echo "why=$WHY"       >> "$GITHUB_ENV"
+          echo "$WHY"
+
+      - name: Capture evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/upg
+          helm history honua -n honua-upgrade > /tmp/upg/history.txt 2>&1 || true
+          kubectl get pods -n honua-upgrade -o wide > /tmp/upg/pods.txt 2>&1 || true
+          kubectl get events -n honua-upgrade --sort-by=.lastTimestamp > /tmp/upg/events.txt 2>&1 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-kind-evidence
+          path: /tmp/upg
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: upgrade-kind-smoke
+          status: ${{ env.status || 'fail' }}
+          source: kind
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: upg-
+
+  # ── report — aggregate the upg- fragments; fail per enforcement ──────────────────────────────────
+  report:
+    needs: [static-compat, kind-upgrade]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: upg-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s \
+            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | { gate:"upgrade", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:$g,
+                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          blocked:([$g[]|select(.decided=="blocked")]|length),
+                          fail:([$g[]|select(.decided=="fail")]|length) },
+                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+            fragments/*.json > out/gate-report.json
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Upgrade gate — $OVERALL";
+            echo "| layer | status | why |"; echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-gate-report
+          path: out/gate-report.json
+
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "upgrade gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          [ "$OVERALL" = "fail" ] && { echo "::error::upgrade gate FAILED"; exit 1; } || echo "not red"

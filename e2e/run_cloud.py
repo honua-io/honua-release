@@ -24,12 +24,22 @@ from pathlib import Path
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
-from canonical_checks import run_canonical  # noqa: E402
+from canonical_checks import run_canonical, run_extended  # noqa: E402
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 
 REPORT_PATH = E2E_DIR / "gate-report-cloud.json"
+
+# The cloud/OIDC secrets that gate whether this tier can run at all. When NONE are present the gate
+# SELF-SKIPS (status: skipped, why: cloud-creds-unset) so a no-cloud local cut is not failed by it —
+# it stays ready to enforce per-RC once an org wires the OIDC role for a labelled candidate.
+_CLOUD_CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID",
+                   "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE")
+
+
+def _cloud_creds_present() -> bool:
+    return any(os.environ.get(v) for v in _CLOUD_CRED_ENV)
 
 
 def _check_dicts(results) -> list[dict]:
@@ -54,6 +64,15 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     "availability": {"ok": avail.ok, "reason": avail.reason, "missing": avail.missing}}
 
     if not avail.ok:
+        # Cloud/OIDC creds unset => SELF-SKIP (not blocked, not fail), even under require_real: without
+        # creds this tier literally cannot run, and a local cut must not be reddened by it. Enforcement
+        # is per-RC: an org wires HONUA_AWS_ROLE_ARN for a candidate and the cell then runs for real.
+        if not _cloud_creds_present():
+            report["status"] = "skipped"
+            report["why"] = "cloud-creds-unset"
+            return report
+        # Creds present but infra half-wired (no image / no IaC tree) => BLOCKED, promoted to FAIL under
+        # require_real so a genuinely broken cloud path is a real red.
         report["status"] = "fail" if require_real else "blocked"
         report["why"] = avail.reason
         return report
@@ -72,16 +91,24 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     finally:
         target.teardown()
 
+    # Extended seam scenarios (MCP / Studio / GP-execute / top-demo). BLOCKED until the cloud harness
+    # image (honua-release#35) drives the real drivers here; require_real promotes that to FAIL so cloud
+    # MCP/Studio/GP/demo cert is genuinely gated for a per-RC cut, not assumed.
+    extended = run_extended(endpoint)
+    report["scenarioCoverage"] = _check_dicts(extended)
+
     # Verdict from the canonical set.
     failed = [c.name for c in checks if c.status == "fail"]
     blocked = [c.name for c in checks if c.status == "blocked"]
+    ext_blocked = [c.name for c in extended if c.status in ("blocked", "fail")]
     if failed:
         report["status"] = "fail"
         report["why"] = f"canonical checks failed on {cell}: {failed}"
         return report
-    if blocked and require_real:
+    if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
-        report["why"] = f"canonical checks blocked on {cell} (require_real): {blocked}"
+        report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
+                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
         return report
 
     # Parity vs the reference target, when one was provided.
@@ -116,12 +143,19 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"))
+    report.setdefault("evidence_url", os.environ.get("HONUA_RUN_URL", ""))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== cloud-parity :: {report['cell']} -> {report['status'].upper()} ==")
     print(f"   {report.get('why', '')}")
+    if report["status"] == "skipped":
+        # A clear, machine-greppable notice so the self-skip is obvious in the job log / summary.
+        print(f"::notice title=cloud-cert self-skipped::{report['cell']}: cloud-creds-unset "
+              "(set HONUA_AWS_ROLE_ARN to enforce this tier per-RC)")
     for c in report.get("checks", []):
         print(f"   [{c['status'].upper():7}] {c['name']}: {c['why']}")
+    for c in report.get("scenarioCoverage", []):
+        print(f"   scenario [{c['status'].upper():7}] {c['name']}: {c['why']}")
     if "parity" in report:
         print(f"   parity: {report['parity']['status']} — {report['parity']['why']}")
     print(f"   (written to {REPORT_PATH})")

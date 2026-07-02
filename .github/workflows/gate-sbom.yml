@@ -1,0 +1,249 @@
+# Release gate (f) — SBOM + provenance. Generate a bill of materials per candidate artifact AND an
+# aggregated platform SBOM, so a customer can scan exactly what a `Honua YYYY.N` release ships (PLAN §6).
+#
+#   platform-sbom  the aggregated platform CycloneDX BOM from the pinned platform-manifest.yaml
+#                  (tools/generate_bom.py — deterministic, unit-tested): every component with its
+#                  version + purl + pinned SHA + image + contract surfaces. Always producible.
+#   image-sbom     a per-artifact SBOM of the manifest-pinned server IMAGE via Syft, in BOTH CycloneDX
+#                  and SPDX. Blocked (honest) when the image can't be pulled — never a fake green.
+#
+# All BOMs land in bom/ and are uploaded as artifacts (promote signs the platform BOM). enforcement:
+# bootstrap tolerates an unpullable image (blocked); strict fails on any non-pass. The gate can FAIL:
+# a malformed manifest fails generate_bom; a Syft error on a pullable image fails image-sbom.
+#
+# Emits a machine-readable gate-report via the shared gate-fragment action (sbom- prefixed).
+
+name: gate-sbom
+run-name: "gate-sbom ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "RC being cut, e.g. 2026.1-rc.1", required: false, type: string, default: "dev-local" }
+      enforcement:
+        description: "bootstrap = tolerate unpullable image (blocked); strict = any non-pass fails"
+        required: false
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.report.outputs.overall_status }}
+
+permissions:
+  contents: read
+  packages: read          # pull the server image to SBOM it
+
+concurrency:
+  group: gate-sbom-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  # ── aggregated platform BOM (CycloneDX) from the pinned manifest ────────────────────────────────
+  platform-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the BOM builder
+        run: python -m pytest tools/test_generate_bom.py -q
+
+      - name: Generate aggregated platform BOM
+        id: gen
+        run: |
+          set -uo pipefail
+          GATE=sbom-platform; STATUS=fail; WHY=""
+          mkdir -p bom
+          LABEL='${{ inputs.platform_label }}'
+          OUT="bom/honua-platform-${LABEL}.cdx.json"
+          if python tools/generate_bom.py --label "$LABEL" --timestamp "$(date -u +%FT%TZ)" --out "$OUT" >/tmp/bom.log 2>&1; then
+            N="$(jq '.components|length' "$OUT")"
+            # A platform BOM with zero components is not a real BOM.
+            if [ "$N" -gt 0 ] 2>/dev/null; then
+              STATUS=pass; WHY="aggregated CycloneDX platform BOM: $N components -> $OUT"
+            else
+              STATUS=fail; WHY="platform BOM has no components"
+            fi
+          else
+            STATUS=fail; WHY="generate_bom.py failed"; tail -n 20 /tmp/bom.log || true
+          fi
+          echo "gate=$GATE"     >> "$GITHUB_ENV"
+          echo "status=$STATUS" >> "$GITHUB_ENV"
+          echo "why=$WHY"       >> "$GITHUB_ENV"
+
+      - name: Upload platform BOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-bom-platform
+          path: bom/
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: ${{ env.gate || 'sbom-platform' }}
+          status: ${{ env.status || 'fail' }}
+          source: manifest
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: sbom-
+
+  # ── per-artifact SBOM of the pinned server image (CycloneDX + SPDX) via Syft ─────────────────────
+  image-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+
+      - name: Resolve pinned server image
+        id: img
+        run: |
+          set -euo pipefail
+          IMG="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+          echo "resolved server image: ${IMG:-<none>}"
+
+      - name: Install Syft
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: SBOM the server image (CycloneDX + SPDX)
+        id: sbom
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          GATE=sbom-server-image; STATUS=blocked; WHY=""
+          mkdir -p bom
+          IMG='${{ steps.img.outputs.image }}'
+          echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
+          if [ -z "$IMG" ]; then
+            STATUS=blocked; WHY="no server image pinned in the manifest"
+          elif docker pull "$IMG" >/tmp/pull.log 2>&1; then
+            SAFE="$(echo "$IMG" | tr '/:@' '___')"
+            if syft "$IMG" -o "cyclonedx-json=bom/${SAFE}.cdx.json" -o "spdx-json=bom/${SAFE}.spdx.json" >/tmp/syft.log 2>&1; then
+              CN="$(jq '.components|length' "bom/${SAFE}.cdx.json" 2>/dev/null || echo 0)"
+              if [ "$CN" -gt 0 ] 2>/dev/null; then
+                STATUS=pass; WHY="Syft SBOM of $IMG: $CN packages (CycloneDX + SPDX)"
+              else
+                STATUS=fail; WHY="Syft produced an empty SBOM for $IMG"
+              fi
+            else
+              STATUS=fail; WHY="Syft failed on $IMG"; tail -n 20 /tmp/syft.log || true
+            fi
+          else
+            STATUS=blocked; WHY="server image not pullable ($IMG) — expected until publish/creds land"; tail -n 3 /tmp/pull.log || true
+          fi
+          echo "gate=$GATE"     >> "$GITHUB_ENV"
+          echo "status=$STATUS" >> "$GITHUB_ENV"
+          echo "why=$WHY"       >> "$GITHUB_ENV"
+
+      - name: Upload image SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-bom-server-image
+          path: bom/
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: ${{ env.gate || 'sbom-server-image' }}
+          status: ${{ env.status || 'fail' }}
+          source: image
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: sbom-
+
+  # ── report — aggregate the sbom- fragments; fail per enforcement (same logic as the other gates) ──
+  report:
+    needs: [platform-sbom, image-sbom]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sbom-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Collect the produced BOMs (bom/)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sbom-bom-*
+          path: bom
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s \
+            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | { gate:"sbom", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:$g,
+                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          blocked:([$g[]|select(.decided=="blocked")]|length),
+                          fail:([$g[]|select(.decided=="fail")]|length) },
+                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+            fragments/*.json > out/gate-report.json
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## SBOM gate — $OVERALL";
+            echo "| artifact | status | why |"; echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+            echo "";
+            echo "BOMs produced:"; (ls -1 bom/ 2>/dev/null || echo "(none)") | sed 's/^/- /';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate-report + aggregated bom/
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-gate-report
+          path: |
+            out/gate-report.json
+            bom/
+
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "sbom gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          [ "$OVERALL" = "fail" ] && { echo "::error::SBOM gate FAILED"; exit 1; } || echo "not red"

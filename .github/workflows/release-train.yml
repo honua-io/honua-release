@@ -1,15 +1,17 @@
 # Release train — the single trigger surface for cutting a platform release candidate.
 # Both humans and AI use this one workflow_dispatch (AI via the GitHub App / MCP).
 #
-# State: the gates that are REAL today are wired as reusable (workflow_call) jobs — they run the
+# State: EVERY gate (a-i) is wired as a reusable (workflow_call) job with a real, fail-able body — the
 # same code as their per-PR CI, so there is no drift between "what CI checks" and "what the train
-# checks." The gates whose real implementation lives in component repos (build/test, contract,
-# conformance, security) or in later phases (observability, docs, upgrade) remain honest TODO
-# placeholders, clearly marked, so the train's shape is complete while the work lands.
+# checks." Gates whose deeper cert needs infra/creds not present in a local cut (cloud cert, upgrade
+# kind-smoke, sbom image scan, security image scan) report `blocked`/`skipped` HONESTLY (never a fake
+# green) and are promoted to a hard FAIL on a real cut / once their secrets are wired.
 #
-# Honesty (AGENTS.md): a gate that can't fail is worse than no gate. The wired gates can fail. On a
-# real cut (dry_run=false) the artifact-consumption gate runs `strict` and e2e runs `require_real`,
-# so a BLOCKED/unpublished artifact is a real red instead of a tolerated bootstrap state.
+# Honesty (AGENTS.md): a gate that can't fail is worse than no gate. Every gate here can fail. On a real
+# cut (dry_run=false) the consume/sbom/security/upgrade gates run `strict` and e2e/cloud run
+# `require_real`, so a BLOCKED/unpublished artifact is a real red instead of a tolerated bootstrap state.
+# The cloud cert tier SELF-SKIPS (status: skipped, why: cloud-creds-unset) when OIDC creds are unset so a
+# no-cloud cut is not reddened; promote's allowed-skip list governs which skips may still be released.
 # AI proposes; this pipeline disposes.
 
 name: release-train
@@ -31,9 +33,31 @@ permissions:
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
 
 jobs:
-  freeze:                       # snapshot main of every component -> candidate manifest
+  freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
     runs-on: ubuntu-latest
-    steps: [{ run: 'echo "TODO: snapshot component SHAs -> candidate platform-manifest.yaml" ' }]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+      # A train cut freezes a candidate manifest. Phase 2 will regenerate it by snapshotting each
+      # component's current green main SHA; today (Phase 0/1) the committed platform-manifest.yaml IS
+      # the candidate snapshot, so freeze VALIDATES it (structure + coherence via validate_platform.py)
+      # and publishes it as the run's `candidate-manifest` artifact the downstream gates certify. This
+      # is a real, fail-able step (a malformed/incoherent manifest stops the train here), not an echo.
+      - name: Validate + publish the candidate manifest
+        run: |
+          set -euo pipefail
+          python tools/validate_platform.py
+          echo "candidate platform_label (input): ${{ inputs.platform_label }}"
+          echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-manifest
+          path: |
+            platform-manifest.yaml
+            compatibility-matrix.yaml
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -67,13 +91,15 @@ jobs:
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
 
-  gate_cloud_parity:           # cross-cloud integration/parity (Phase B; AWS serverless). TEST-STRATEGY.
-    needs: gate_e2e
+  gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
+    needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
     with:
-      # a real cut promotes BLOCKED (infra not wired) / parity divergence to FAIL. Phase 2 switches
-      # this to consuming the latest nightly green instead of deploying synchronously at cut time.
+      # a real cut promotes BLOCKED (infra half-wired) / parity divergence / not-certified scenarios to
+      # FAIL. When cloud/OIDC creds are unset the whole tier SELF-SKIPS (status: skipped) so a local cut
+      # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
       require_real: ${{ !inputs.dry_run }}
+    secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
     needs: [gate_build_test, gate_contract]
@@ -100,7 +126,15 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
-  # ── TODO gates: real implementations live in component repos / later phases ──────────────────
+  gate_sbom:                   # f) SBOM per candidate artifact + aggregated platform BOM (CycloneDX/SPDX). PLAN §6.
+    needs: freeze
+    uses: ./.github/workflows/gate-sbom.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
+
+  # ── later-phase gates (real bodies; blocked/skip honestly until their infra/creds land) ──────────
 
   gate_observability:          # g) SLO incl. GeoServices in-band error metric (server#2243/devops#113). Issue #5.
     needs: gate_e2e
@@ -113,12 +147,13 @@ jobs:
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
 
-  gate_upgrade:                # i) prior-release -> candidate upgrade (old-client compat + db forward; migration test blocked)
+  gate_upgrade:                # i) prior-release -> candidate: compat-matrix + forward-schema + kind install/upgrade/rollback smoke
     needs: gate_e2e
     uses: ./.github/workflows/gate-upgrade.yml
     with:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -132,6 +167,7 @@ jobs:
       - gate_contract
       - gate_conformance
       - gate_security
+      - gate_sbom
       - gate_observability
       - gate_docs
       - gate_upgrade
@@ -153,45 +189,51 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           DRY_RUN: ${{ inputs.dry_run }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Each gate's job result (success | failure | skipped | cancelled). TODO gates are echo =>
-          # success; wired gates carry the real verdict. A `wired` flag marks which can actually gate.
-          R_MANIFEST: ${{ needs.gate_manifest.result }}
-          R_ARTIFACT: ${{ needs.gate_artifact_consume.result }}
-          R_E2E: ${{ needs.gate_e2e.result }}
-          R_CLOUD: ${{ needs.gate_cloud_parity.result }}
-          R_BUILD: ${{ needs.gate_build_test.result }}
-          R_CONTRACT: ${{ needs.gate_contract.result }}
-          R_CONFORMANCE: ${{ needs.gate_conformance.result }}
-          R_SECURITY: ${{ needs.gate_security.result }}
-          R_OBS: ${{ needs.gate_observability.result }}
-          R_DOCS: ${{ needs.gate_docs.result }}
-          R_UPGRADE: ${{ needs.gate_upgrade.result }}
+          # Each gate contributes: its reusable-workflow `overall_status` output (already pass|fail|
+          # blocked|skipped) where the gate exposes one, else its raw job `result` (normalised below).
+          # Preferring the machine-readable output is what lets a self-SKIP (e.g. cloud-creds-unset) show
+          # as `skipped` instead of being green-washed to `pass` just because the job exited 0.
+          S_MANIFEST: ${{ needs.gate_manifest.result }}
+          S_ARTIFACT: ${{ needs.gate_artifact_consume.outputs.overall_status || needs.gate_artifact_consume.result }}
+          S_E2E: ${{ needs.gate_e2e.result }}
+          S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
+          S_BUILD: ${{ needs.gate_build_test.result }}
+          S_CONTRACT: ${{ needs.gate_contract.result }}
+          S_CONFORMANCE: ${{ needs.gate_conformance.result }}
+          S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
+          S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
+          S_OBS: ${{ needs.gate_observability.result }}
+          S_DOCS: ${{ needs.gate_docs.result }}
+          S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
         run: |
           set -euo pipefail
           mkdir -p out
-          # gate rows: id | job-result | wired(1/0). `wired` gates are real and can fail the train;
-          # `0` gates are honest TODO placeholders (echo) that report `todo`, never green-washing.
+          # rows: gate-id | status-signal. The signal is either a gate verdict (pass|fail|blocked|
+          # skipped) from the reusable workflow's output, or a raw job result normalised as:
+          #   success->pass  failure->fail  cancelled->blocked  skipped->skipped (job-level skip).
           rows=$(cat <<EOF
-          manifest|$R_MANIFEST|1
-          artifact-consume|$R_ARTIFACT|1
-          e2e|$R_E2E|1
-          cloud-parity|$R_CLOUD|1
-          build-test|$R_BUILD|1
-          contract|$R_CONTRACT|1
-          conformance|$R_CONFORMANCE|1
-          security|$R_SECURITY|1
-          observability|$R_OBS|1
-          docs|$R_DOCS|1
-          upgrade|$R_UPGRADE|1
+          manifest|$S_MANIFEST
+          artifact-consume|$S_ARTIFACT
+          e2e|$S_E2E
+          cloud-parity|$S_CLOUD
+          build-test|$S_BUILD
+          contract|$S_CONTRACT
+          conformance|$S_CONFORMANCE
+          security|$S_SECURITY
+          sbom|$S_SBOM
+          observability|$S_OBS
+          docs|$S_DOCS
+          upgrade|$S_UPGRADE
           EOF
           )
-          echo "$rows" | jq -R 'split("|") | {gate:.[0], jobResult:.[1], wired:(.[2]=="1")}
+          echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
             | .status = (
-                if .wired then
-                  (if .jobResult=="success" then "pass"
-                   elif .jobResult=="skipped" or .jobResult=="cancelled" then "blocked"
-                   else "fail" end)
-                else "todo" end)' \
+                if   (.signal|IN("pass","fail","blocked","skipped")) then .signal
+                elif .signal=="success"   then "pass"
+                elif .signal=="cancelled" then "blocked"
+                elif .signal=="skipped"   then "skipped"
+                else "fail" end)
+            | {gate, status, why:("job/gate signal: " + .signal), evidence_url:env.RUN_URL}' \
             | jq -s \
               --arg label "$PLATFORM_LABEL" \
               --arg dry "$DRY_RUN" \
@@ -204,24 +246,24 @@ jobs:
                 evidence_url: $run,
                 gates: .,
                 summary: {
-                  pass: ([.[]|select(.status=="pass")]|length),
-                  fail: ([.[]|select(.status=="fail")]|length),
+                  pass:    ([.[]|select(.status=="pass")]|length),
+                  fail:    ([.[]|select(.status=="fail")]|length),
                   blocked: ([.[]|select(.status=="blocked")]|length),
-                  todo: ([.[]|select(.status=="todo")]|length)
+                  skipped: ([.[]|select(.status=="skipped")]|length)
                 },
                 overallStatus: (
-                  if   any(.[]; .wired and .status=="fail")    then "fail"
-                  elif any(.[]; .wired and .status=="blocked") then "blocked"
-                  else "pass" end)
+                  if   any(.[]; .status=="fail")    then "fail"
+                  elif any(.[]; .status=="blocked") then "blocked"
+                  else "pass" end)     # a `skipped` gate does not reduce overall below pass
               }' > out/gate-report.json
           cat out/gate-report.json
           echo "overall=$(jq -r .overallStatus out/gate-report.json)" >> "$GITHUB_OUTPUT"
           {
             echo "## release-train $PLATFORM_LABEL — $(jq -r .overallStatus out/gate-report.json)";
             echo "";
-            echo "| gate | status | wired |";
-            echo "|---|---|---|";
-            jq -r '.gates[] | "| \(.gate) | \(.status) | \(if .wired then "yes" else "todo" end) |"' out/gate-report.json;
+            echo "| gate | status |";
+            echo "|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.status) |"' out/gate-report.json;
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload platform gate-report.json
