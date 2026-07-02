@@ -3,10 +3,10 @@
 # customers consume it to deploy/upgrade a coherent set.
 #
 # rc.0 snapshot: this is a CANDIDATE-manifest snapshot of current trunk (not train-generated, not
-# promoted). Each component is pinned to its repo's current origin/<default-branch> HEAD observed on
-# 2026-07-01. NO release train was dispatched to produce this. Release-gate PRs were merging through
-# the merge train AT snapshot time; components whose gate PR had NOT yet landed are marked
-# `# pending: re-pin after PR #<n> lands` and MUST be re-pinned once those PRs merge (see report).
+# promoted). Each component is pinned to its repo's current origin/<default-branch> HEAD. The
+# original 2026-07-01 snapshot marked components whose release-gate PR had NOT yet landed with
+# `# pending: re-pin after PR #<n> lands`; those PRs have now merged and every component is re-pinned
+# to its CURRENT trunk HEAD (re-observed 2026-07-02). NO release train was dispatched to produce this.
 #
 # Conventions:
 #   - version: the latest reachable release-tag semver if one exists; otherwise the literal
@@ -19,15 +19,14 @@
 
 platformRelease: "2026.1-rc.0"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-07-01"             # when the versions/shas below were observed
+snapshotDate: "2026-07-02"             # when the versions/shas below were observed (re-pinned to current trunk HEADs)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
-    sha: "264a7d3810a0ae0f8c9c60c6ce4695de286b2673"   # branch: trunk
-    # pending: re-pin after PRs #2336 / #2337 / #2338 land (release-gate, still open in merge train at snapshot)
+    sha: "238cc638392170c04de24541817017e49add5302"   # branch: trunk (verified GREEN)
     image: "ghcr.io/honua-io/honua-server:nightly-aot"  # :latest only moves on v* releases; trunk == nightly-aot
     # digest of the current :nightly-aot manifest (resolved from ghcr on 2026-07-01). The nightly image
     # is rebuilt on schedule, so it may lag trunk HEAD until the next nightly build / release publish.
@@ -59,8 +58,7 @@ components:
 
   honua-console:
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    sha: "133a438bbb61ab2fd6a47874fad75859f6708693"   # branch: trunk
-    # pending: re-pin after PRs #264 / #267 / #268 / #269 land (release-gate, still open at snapshot)
+    sha: "e41aec775a8ecb6634006bcb6c7bf0abfff299f5"   # branch: trunk
     image: "ghcr.io/honua-io/honua-console:nightly"
     digest: "TBD-at-publish"           # ghcr package not published yet (registry 404 on 2026-07-01)
 
@@ -71,8 +69,7 @@ components:
 
   honua-sdk-js:
     version: "0.0.19-alpha.0"          # release tag js-sdk-v0.0.19-alpha.0 (reachable on trunk)
-    sha: "e10aea91d50f48faa521202f29108ed8338f04f8"   # branch: trunk
-    # pending: re-pin after PR #342 lands (release-gate, still open at snapshot)
+    sha: "82260338008180fcb28cc63b19ca561c9cf81b0e"   # branch: trunk
     artifact: "npm:@honua-io/sdk-js"
     # companion package @honua-io/mcp-server also tagged mcp-server-v0.0.19-alpha.0.
 
@@ -84,26 +81,22 @@ components:
 
   geospatial-grpc:
     version: "0.1.0-alpha.2"           # release tag v0.1.0-alpha.2 (reachable on trunk)
-    sha: "e60f93d424d55c0614a217926b9eaf7f2e3e9779"   # branch: trunk
-    # pending: re-pin after PR #67 lands (release-gate, still open at snapshot)
+    sha: "9ae9418f5f41d4c5a0bd8cf388f52515129af7e9"   # branch: trunk
     contractVersions:
       grpc: v1                         # proto package geospatial.v1 (VERSIONING.md)
 
   geospatial-mcp:
     version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha
-    sha: "34c299b238135854254d0b2c10ab6662aee65249"   # branch: trunk
-    # pending: re-pin after PRs #42 / #39 land (release-gate, still open at snapshot)
+    sha: "1225aff919d3fe58da51bbe854e57494cd726660"   # branch: trunk
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
-    sha: "6579c57fed94a2032e81372baa7122e68bc23fcc"   # branch: trunk
-    # pending: re-pin after PR #107 lands (release-gate, still open at snapshot)
+    sha: "4f44fb1125a054a4e81bec88e970da5d00c2141c"   # branch: trunk
     artifact: "terraform-registry:honua"
 
   honua-helm:
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
-    sha: "0c0bb191730ec2e5f67475a0333e7ce7fee16bee"   # branch: trunk
-    # pending: re-pin after PR #50 lands (release-gate, still open at snapshot)
+    sha: "bb610f8e47be174f9b4624a820203fc434f56cb0"   # branch: trunk
     artifact: "oci-chart:honua"
 
 # Experimental + disabled for this release (ADR-0059): present in the binary but deliberately gated

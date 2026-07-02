@@ -51,8 +51,10 @@ contracts:
     version: "metadata.honua.io/v2alpha1"   # MetadataV2Constants.ApiVersion; schemaVersion 2.0.0-alpha.1
     clients:
       # NOTE(drift): honua-sdk-python compatibility/server-matrix.json still declares an expected
-      # metadataSchemas version of "v1"; the server now advertises metadata.honua.io/v2alpha1. Track
-      # and reconcile before promotion — the SDK's declared expectation lags the server surface.
+      # metadataSchemas version of "v1"; the server now advertises metadata.honua.io/v2alpha1. Now
+      # TRACKED in honua-sdk-python#161 (reconcile the SDK fixture to accept v2alpha1 before 2026.1
+      # promotion) — the fix lands in that repo's CI, not this manifest PR. rc.0 ships with this
+      # known lag documented, not silent.
       honua-sdk-python: ">=0.1.9"
 
 # Deploy/runtime coupling. honua-iac and honua-helm have no releases yet (pinned by sha in the
@@ -62,10 +64,10 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha (trunk == ghcr nightly-aot), so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:264a7d3810a0ae0f8c9c60c6ce4695de286b2673"   # pending: re-pin after server #2336/#2337/#2338 land
+    deploysServerImage: "sha:238cc638392170c04de24541817017e49add5302"   # re-pinned to current honua-server trunk HEAD (verified GREEN)
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:264a7d3810a0ae0f8c9c60c6ce4695de286b2673"          # pending: re-pin after server #2336/#2337/#2338 land
+    appVersion: "sha:238cc638392170c04de24541817017e49add5302"          # re-pinned to current honua-server trunk HEAD (verified GREEN)
 
 data:
   honua-server:
