@@ -40,6 +40,7 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
+ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
 ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
@@ -49,8 +50,32 @@ RED = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"
 NOT_FOUND = "not_found"     # sha/repo not resolvable (404 / no access)
 
 
-def classify(payload) -> tuple[str, str]:
-    """Map a component's check-runs payload to (status, why). Pure → unit-tested."""
+def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
+    """Load the per-component env-gated integration check-run NAMES (see env-gated-checks.yaml).
+
+    These are live/staging-integration lanes that hard-depend on an external backend the gate does
+    not provision; a red on them is an absent-environment verdict, not a build/test verdict, so the
+    gate reclassifies them to `skipped` and decides on the CORE (build+unit) check-runs. Missing file
+    => empty map => the gate keys on ALL check-runs (original behaviour). Never list a build/unit lane
+    here (guardrail proven in test_build_test.py)."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    out: dict[str, frozenset[str]] = {}
+    for comp, entries in data.items():
+        names = {str((e or {}).get("name", "")).strip() for e in (entries or [])}
+        out[comp] = frozenset(n for n in names if n)
+    return out
+
+
+def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[str, str]:
+    """Map a component's check-runs payload to (status, why). Pure → unit-tested.
+
+    `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
+    are excluded from the core verdict and, when non-green, reported as skipped (backend not
+    provisioned). The pass/fail/blocked decision is made on the CORE (remaining) check-runs only, so a
+    real compile/unit-test red still fails; env-gated lanes can never mask it."""
     if payload == NOT_FOUND:
         return "blocked", "pinned sha or repo not resolvable (404 / no access)"
     if not isinstance(payload, dict):
@@ -58,17 +83,32 @@ def classify(payload) -> tuple[str, str]:
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
-    incomplete = [r for r in runs if r.get("status") != "completed"]
+
+    core = [r for r in runs if str(r.get("name", "")) not in env_gated_names]
+    env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
+    # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
+    env_skipped = [r for r in env
+                   if r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN]
+    env_note = (f"; {len(env_skipped)} env-gated integration lane(s) skipped "
+                f"({sorted({str(r.get('name')) for r in env_skipped})}) — backend not provisioned"
+                if env_skipped else "")
+
+    if not core:
+        # Only env-gated lanes ran → no core build/test signal to certify on. Never optimistically pass.
+        return "blocked", "only env-gated integration check-runs present; no core build/test signal"
+
+    incomplete = [r for r in core if r.get("status") != "completed"]
     if incomplete:
-        return "blocked", f"CI still in progress ({len(incomplete)}/{len(runs)} not completed)"
-    conclusions = [str(r.get("conclusion")) for r in runs]
+        return "blocked", f"CI still in progress ({len(incomplete)}/{len(core)} core not completed)"
+    conclusions = [str(r.get("conclusion")) for r in core]
     reds = [c for c in conclusions if c in RED]
     if reds:
-        return "fail", f"{len(reds)}/{len(runs)} check-run(s) red ({sorted(set(reds))})"
+        # A CORE (build/unit) red — this is a real failure, never masked by env-gated lanes.
+        return "fail", f"{len(reds)}/{len(core)} core check-run(s) red ({sorted(set(reds))}){env_note}"
     non_green = [c for c in conclusions if c not in GREEN]
     if non_green:
-        return "blocked", f"unrecognised check conclusions {sorted(set(non_green))}"
-    return "pass", f"all {len(runs)} check-run(s) green"
+        return "blocked", f"unrecognised core check conclusions {sorted(set(non_green))}"
+    return "pass", f"all {len(core)} core check-run(s) green{env_note}"
 
 
 Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
@@ -94,8 +134,10 @@ def _default_fetch(repo: str, sha: str) -> object:
         return NOT_FOUND
 
 
-def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap") -> dict:
+def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
+             env_gated: dict[str, frozenset[str]] | None = None) -> dict:
     components = manifest.get("components") or {}
+    env_gated = env_gated or {}
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -104,7 +146,7 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap") -> 
             rows.append({"component": name, "status": "blocked",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
-        status, why = classify(fetch(name, sha))
+        status, why = classify(fetch(name, sha), env_gated.get(name, frozenset()))
         rows.append({"component": name, "status": status, "sha": sha[:12], "why": why})
 
     def decided(s: str) -> str:
@@ -127,11 +169,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--enforcement", choices=["bootstrap", "strict"], default="bootstrap")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
+    ap.add_argument("--env-gated", default=str(ENV_GATED_PATH),
+                    help="YAML of per-component env-gated integration check-run names")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
-    report = evaluate(manifest, _default_fetch, args.enforcement)
+    env_gated = load_env_gated(args.env_gated)
+    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

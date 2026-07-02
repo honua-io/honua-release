@@ -20,6 +20,11 @@ def _runs(*conclusions, status="completed"):
     return {"check_runs": [{"status": status, "conclusion": c} for c in conclusions]}
 
 
+def _named(*pairs, status="completed"):
+    """pairs = (name, conclusion) tuples → a check-runs payload with names."""
+    return {"check_runs": [{"name": n, "status": status, "conclusion": c} for n, c in pairs]}
+
+
 # ---- classify -------------------------------------------------------------------------------------
 def test_all_green_passes():
     assert bt.classify(_runs("success", "success", "skipped", "neutral"))[0] == "pass"
@@ -47,6 +52,55 @@ def test_not_found_is_blocked():
 def test_unknown_conclusion_is_blocked_not_pass():
     # An unrecognised conclusion must never be optimistically treated as green.
     assert bt.classify(_runs("success", "weird_new_state"))[0] == "blocked"
+
+
+# ---- env-gated integration lanes ------------------------------------------------------------------
+LIVE = frozenset({"Live Integration (Testcontainers)"})
+
+
+def test_env_gated_red_is_skipped_not_fail_when_core_green():
+    # Core build+unit lanes green; only the env-gated live lane red → component PASSES (env skipped).
+    payload = _named(("Build & Format Check", "success"), ("Unit Tests", "success"),
+                     ("Live Integration (Testcontainers)", "failure"))
+    status, why = bt.classify(payload, LIVE)
+    assert status == "pass"
+    assert "env-gated" in why and "skipped" in why
+
+
+def test_core_red_still_fails_even_with_env_gated_lane_present():
+    # GUARDRAIL: a real compile/unit-test red must fail even alongside an env-gated red — never masked.
+    payload = _named(("Restore and Build", "failure"),
+                     ("Live Integration (Testcontainers)", "failure"))
+    assert bt.classify(payload, LIVE)[0] == "fail"
+
+
+def test_only_env_gated_lanes_is_blocked_never_pass():
+    # No core build/test signal left after removing env-gated lanes → blocked, never optimistic pass.
+    payload = _named(("Live Integration (Testcontainers)", "failure"))
+    assert bt.classify(payload, LIVE)[0] == "blocked"
+
+
+def test_env_gated_name_not_matching_a_component_still_fails():
+    # A red lane that is NOT in the env-gated set (e.g. proto lint) is a real red — still fails.
+    payload = _named(("Lint and Validate Protobuf", "failure"), ("Build", "success"))
+    assert bt.classify(payload, LIVE)[0] == "fail"
+
+
+def test_env_gated_lane_green_is_ignored_and_core_decides():
+    # Env-gated lane happening to be green is simply excluded; core decides (here: pass).
+    payload = _named(("Build", "success"), ("Live Integration (Testcontainers)", "success"))
+    status, why = bt.classify(payload, LIVE)
+    assert status == "pass" and "env-gated" not in why  # nothing skipped → no env note
+
+
+def test_load_env_gated_never_lists_a_build_or_unit_lane():
+    # GUARDRAIL: the shipped policy file must not down-grade any compile/build/restore/unit lane.
+    gated = bt.load_env_gated()
+    banned = ("build", "restore", "format", "unit", "compile", ".net sdk", "analyze", "coverage")
+    for comp, names in gated.items():
+        for n in names:
+            low = n.lower()
+            assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a core lane"
 
 
 # ---- evaluate -------------------------------------------------------------------------------------

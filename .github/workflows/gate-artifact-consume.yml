@@ -612,12 +612,15 @@ jobs:
               done
               if [ -n "$OK" ]; then
                 STATUS=pass; WHY="image from ${SOURCE}: container healthy at ${SERVER_HEALTH_PATH}"
-              elif [ "$TOLERANT" = true ] && [ "$SOURCE" != staging ]; then
-                # ROOT CAUSE = not published: with no staging image + provisioned runtime, the bare
-                # locally-built honua-server image cannot answer /healthz (needs Redis + an activated
-                # snapshot). The image BUILT fine (well-formedness is proven above), so this is a
-                # publish/staging gap, not a broken artifact → skip in dry-run, hard-fail on a real cut.
-                STATUS=skipped; WHY="artifact not published — dry run: bare honua-server image needs Redis + an activated snapshot to serve ${SERVER_HEALTH_PATH}; no staging runtime in a no-publish cut"
+              elif [ "$TOLERANT" = true ]; then
+                # ROOT CAUSE = no staging runtime: the container STARTED (docker run succeeded above, so
+                # the image is well-formed / not malformed), but the bare honua-server image cannot answer
+                # ${SERVER_HEALTH_PATH} without Redis + an activated snapshot — infra a no-publish dry-run
+                # cut doesn't provision (true whether the image was pulled from staging or built locally).
+                # That is a publish/staging-runtime gap, not a broken artifact → skip in dry-run. A real
+                # cut (strict) still hard-FAILs here, and an image that won't even start hits the
+                # "container failed to start" branch above and FAILs even in dry-run.
+                STATUS=skipped; WHY="artifact not published — dry run: honua-server image (${SOURCE}) needs Redis + an activated snapshot to serve ${SERVER_HEALTH_PATH}; no staging runtime in a no-publish cut"
                 echo "--- container logs (informational) ---"; docker logs honua-gate 2>&1 | tail -n 40 || true
               else
                 STATUS=fail; WHY="container from ${SOURCE} never became healthy at ${SERVER_HEALTH_PATH}"
