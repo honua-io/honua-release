@@ -23,6 +23,9 @@ on:
         description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
         type: boolean
         default: false
+  # Nightly: run with require_real so BLOCKED/SKIPPED become hard failures (the honest gate).
+  schedule:
+    - cron: "0 7 * * *"
   # Callable by the release train (gate_e2e) as a reusable gate.
   workflow_call:
     inputs:
@@ -32,6 +35,7 @@ on:
 
 permissions:
   contents: read
+  packages: read          # pull the pinned honua-server image from ghcr for the Slice-1 harness
 
 concurrency:
   group: e2e-local-docker-${{ github.ref }}
@@ -82,5 +86,61 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-local-docker-gate-report
+          path: e2e/gate-report.json
+          if-no-files-found: warn
+
+  # ── Slice 1 — zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
+  #    drive MCP, AI Studio, GP, three-protocol parity, and per-format coverage against it. Cheap,
+  #    PR-runnable. Nightly / release-train runs set require_real so BLOCKED becomes a hard FAIL.
+  slice1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Static gates first — these ALWAYS run and can FAIL on a broken edit even with no image
+      # (compose validity, shell syntax, python compile, manifest-snapshot validity).
+      - name: Static checks
+        run: bash e2e/harness/run_all.sh check
+
+      # Pull the pinned server image from ghcr (packages:read). If this can't authenticate, boot.sh
+      # degrades to BLOCKED (honest) rather than failing the cheap PR tier.
+      - name: Log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
+        env:
+          # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+        run: bash e2e/harness/run_all.sh run
+
+      - name: Format + protocol coverage summary
+        if: always()
+        run: |
+          set -e
+          f=e2e/gate-report.json
+          [ -f "$f" ] || { echo "no gate-report"; exit 0; }
+          {
+            echo "## e2e Slice-1 — $(jq -r .status "$f")";
+            echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
+            jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
+            echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";
+            jq -r '.formatCoverage[] | "| \(.format) | \(.read) | \(.write) | \(.roundtrip) | \(.notes) |"' "$f";
+            echo ""; echo "### protocolCoverage[]"; echo "| protocol | operation | status |"; echo "|---|---|---|";
+            jq -r '.protocolCoverage[] | "| \(.protocol) | \(.operation) | \(.status) |"' "$f";
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Slice-1 gate-report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-slice1-gate-report
           path: e2e/gate-report.json
           if-no-files-found: warn

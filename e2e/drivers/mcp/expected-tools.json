@@ -1,0 +1,32 @@
+{
+  "_comment": "Expected geospatial-mcp tool catalog for the pinned honua-server. This snapshot stands in for the Track A CapabilityManifestEmitter (honua-server#2338) until that emitter lands on trunk; when it does, regenerate this file from `manifest-gen` and the MCP driver asserts live tools/list == this manifest. Live tools are advertised with the honua_ prefix.",
+  "tools": [
+    "honua_cancel_job",
+    "honua_clarify_intent",
+    "honua_create_app_package",
+    "honua_create_map_package",
+    "honua_dry_run_plan",
+    "honua_execute_plan",
+    "honua_geocode_address",
+    "honua_ground_candidates",
+    "honua_list_capabilities",
+    "honua_list_layers",
+    "honua_plan_analysis",
+    "honua_preview_package",
+    "honua_propose_operation",
+    "honua_publish_service",
+    "honua_query_features",
+    "honua_render_map",
+    "honua_resolve_entity",
+    "honua_solve_route",
+    "honua_validate_package",
+    "honua_validate_plan"
+  ],
+  "criticalTools": [
+    "honua_validate_package",
+    "honua_preview_package",
+    "honua_execute_plan",
+    "honua_plan_analysis",
+    "honua_ground_candidates"
+  ]
+}

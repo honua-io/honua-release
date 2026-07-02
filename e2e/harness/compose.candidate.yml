@@ -1,0 +1,60 @@
+# Slice-1 candidate stack — a REAL honua-server + PostGIS + Redis, booted from the manifest-pinned
+# image so every driver talks to the exact certified server (NO mocks at the seam).
+#
+# The server image is injected as HONUA_SERVER_IMAGE (boot.sh reads it from ../../platform-manifest.yaml,
+# the source of truth). Config below is the proven local-docker profile:
+#   - Development env so the dev entitlement grant is honoured (Licensing__DevGrantEdition is refused
+#     in Production — fails closed there by design).
+#   - Enterprise edition granted so the Redis-backed OGC-Processes job runtime is entitled (GP driver).
+#   - Deterministic Studio providers (no API key, no CPU model) so the Studio/MCP drivers never flake.
+name: honua-e2e-slice1
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: honua
+      POSTGRES_PASSWORD: honua
+      POSTGRES_DB: honua
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    expose: ["5432"]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    expose: ["6379"]
+
+  server:
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:nightly-aot}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      ConnectionStrings__Redis: "redis:6379"
+      HONUA_ADMIN_PASSWORD: "${E2E_API_KEY:-honua-console-dev-key}"
+      Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      Licensing__DevGrantEdition: "Enterprise"     # entitles the Redis GP job runtime (proven)
+      WorkflowGeneration__Enabled: "true"
+      WorkflowGeneration__DefaultProvider: "deterministic"   # fixture-replay LLM — no API key, no flake
+      NlQuery__Enabled: "true"
+      NlQuery__Provider: "deterministic"
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+    ports:
+      - "${E2E_SERVER_PORT:-8080}:8080"   # GeoServices / OGC / OData / MCP / admin / studio HTTP
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://localhost:8080/healthz/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
