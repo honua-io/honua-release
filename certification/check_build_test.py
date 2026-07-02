@@ -103,14 +103,17 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[st
         # Only env-gated lanes ran → no core build/test signal to certify on. Never optimistically pass.
         return "blocked", "only env-gated integration check-runs present; no core build/test signal"
 
-    incomplete = [r for r in core if r.get("status") != "completed"]
-    if incomplete:
-        return "blocked", f"CI still in progress ({len(incomplete)}/{len(core)} core not completed)"
-    conclusions = [str(r.get("conclusion")) for r in core]
+    # A CORE (build/unit) red is decisive and is evaluated FIRST — before "still in progress" — so a
+    # real failure is never masked as blocked-in-progress just because sibling shards are still
+    # running (that mid-run window is exactly when a live train read could otherwise tolerate a red).
+    conclusions = [str(r.get("conclusion")) for r in core if r.get("status") == "completed"]
     reds = [c for c in conclusions if c in RED]
     if reds:
-        # A CORE (build/unit) red — this is a real failure, never masked by env-gated/flake lanes.
         return "fail", f"{len(reds)}/{len(core)} core check-run(s) red ({sorted(set(reds))}){env_note}"
+
+    incomplete = [r for r in core if r.get("status") != "completed"]
+    if incomplete:
+        return "blocked", f"CI still in progress ({len(incomplete)}/{len(core)} core not completed){env_note}"
     flakes = [c for c in conclusions if c in FLAKE]
     if flakes:
         # Cancelled core lane(s) with no real red — re-runnable flake (runner starvation), not a

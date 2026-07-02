@@ -56,6 +56,17 @@ def test_incomplete_is_blocked():
     assert bt.classify(_runs("success", None, status="in_progress"))[0] == "blocked"
 
 
+def test_red_is_not_masked_by_in_progress_siblings():
+    # GUARDRAIL: a completed core FAILURE must fail even while other shards are still running — the
+    # mid-run window must not let a live train read tolerate a real red as blocked-in-progress.
+    payload = {"check_runs": [
+        {"name": "Server Tests (FileImport)", "status": "completed", "conclusion": "failure"},
+        {"name": "Server Tests (Scene)", "status": "in_progress", "conclusion": None},
+        {"name": "Build & Format Check", "status": "completed", "conclusion": "success"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
 def test_not_found_is_blocked():
     assert bt.classify(bt.NOT_FOUND)[0] == "blocked"
 
