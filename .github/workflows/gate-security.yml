@@ -96,7 +96,7 @@ jobs:
       - name: Trivy scan
         id: trivy
         if: steps.pull.outputs.pulled == '1'
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         continue-on-error: true     # we translate the outcome into a gate verdict ourselves
         with:
           image-ref: ${{ steps.img.outputs.image }}
@@ -140,7 +140,7 @@ jobs:
 
       - name: Trivy fs scan
         id: trivy
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         continue-on-error: true
         with:
           scan-type: fs
