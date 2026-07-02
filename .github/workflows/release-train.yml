@@ -31,6 +31,8 @@ permissions:
   contents: read
   id-token: write               # OIDC for keyless signing / cloud auth (no static creds)
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
+  checks: read                  # gate-build-test reads each pinned component's check-runs (subset guard)
+  actions: write                # e2e-cloud-aws dispatches the honua-iac cloud harness (iac-live wrapper)
 
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
