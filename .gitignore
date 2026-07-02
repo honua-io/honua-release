@@ -15,3 +15,6 @@ e2e/scenarios/**/probes/dotnet/obj/
 
 # node probe install
 e2e/scenarios/**/node_modules/
+
+# Slice-1 harness runtime output
+e2e/out/

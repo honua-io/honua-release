@@ -1,0 +1,3 @@
+{"geometryType":"esriGeometryPoint","spatialReference":{"wkid":4326},"features":[
+{"attributes":{"zone_code":"030","zone_name":"Residential"},"geometry":{"x":-156.30,"y":20.80}},
+{"attributes":{"zone_code":"500","zone_name":"Commercial"},"geometry":{"x":-156.40,"y":20.90}}]}

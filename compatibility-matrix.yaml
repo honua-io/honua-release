@@ -2,61 +2,76 @@
 # compatibility, iac<->server<->sdk." Enforced at build (drift tests), deploy (iac/helm preflight),
 # runtime (server advertises contractVersion; SDK checks), and upgrade (preflight).
 #
-# Phase 0 snapshot (2026-06-26): ranges encoded CONSERVATIVELY with the current shipped version as
-# the floor and the next major as the ceiling. These are initial bounds to make the gates real, not
-# the final negotiated support window — widen them deliberately as the compat suite proves pairings.
+# rc.0 snapshot (2026-07-01): each client range is a SUPPORT WINDOW, not a current-version pin. The
+# FLOOR is the OLDEST supported client (a support commitment), and the ceiling is the next breaking
+# boundary (for 0.x the next MINOR is breaking, so ceiling = next minor; for >=1.x, ceiling = next
+# MAJOR). The manifest's `components.*.version` tracks the currently-shipped/pinned build — a
+# DIFFERENT concept — and a newer shipped version simply sits inside this window, it does NOT move
+# the floor. Raising a floor drops support for older clients, which the drift gate treats as a
+# breaking change requiring a contract-version bump (see tools/validate_platform.py check_drift), so
+# floors stay at the phase-0 baseline until a contract is deliberately bumped. These are initial
+# bounds to make the gates real, not the final negotiated support window — widen (never silently
+# narrow) as the compat suite proves pairings.
 #
-# Floors come from platform-manifest.yaml (same snapshot). Where a component has no release it is
-# pinned by sha in the manifest and excluded from semver ranges here (noted inline).
+# Floors come from platform-manifest.yaml (same 2026-07-01 snapshot). Where a component has no
+# release it is pinned by sha in the manifest and excluded from semver ranges here (noted inline).
+# Release-gate PRs were still merging at snapshot; sha-pinned couplings that reference a still-open
+# gate PR carry a `# pending` flag mirroring the manifest.
 
 # Each rule: a contract surface at a version, and the component version ranges that satisfy it.
 contracts:
   geoservices:
-    # TODO(contract-wire): the server does not yet advertise a single GeoServices REST contract
+    # TODO(contract-wire): the server still does not advertise a single GeoServices REST contract
     # version (and deliberately does not emit ArcGIS `currentVersion`). Once a GeoServicesContract
     # .Version constant is wired into the service-info/capabilities response (see
     # platform-manifest.yaml honua-server.contractVersions.geoservices), set this and tighten the
     # client floors against the version the SDKs actually negotiate.
     version: v0        # PLACEHOLDER — not yet advertised by the server
     clients:
-      honua-sdk-js:     ">=0.0.14-alpha.0 <0.1.0"   # 0.x: minor is breaking, so ceiling = next minor
-      honua-sdk-dotnet: ">=1.3.0 <2.0.0"
-      honua-sdk-python: ">=0.1.4 <0.2.0"            # 0.x: ceiling = next minor
+      honua-sdk-js:     ">=0.0.14-alpha.0 <0.1.0"   # floor = oldest supported (shipped is 0.0.19-alpha.0); 0.x: ceiling = next minor
+      honua-sdk-dotnet: ">=1.3.0 <2.0.0"            # floor = oldest supported (shipped is 1.4.3)
+      honua-sdk-python: ">=0.1.4 <0.2.0"            # floor = oldest supported (shipped is 0.1.9); 0.x: ceiling = next minor
   grpc:
-    version: v1        # proto package geospatial.v1 (geospatial-grpc VERSIONING.md)
+    version: v1        # proto package geospatial.v1 (geospatial-grpc VERSIONING.md; server advertises grpc v1)
     # geospatial-grpc 0.1.0-alpha.2 is the schema source; SDK floors are where grpc clients live.
     clients:
-      honua-sdk-dotnet: ">=1.3.0"
-      honua-sdk-js:     ">=0.0.14-alpha.0"
+      honua-sdk-dotnet: ">=1.3.0"                   # floor = oldest supported (shipped is 1.4.3)
+      honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (shipped is 0.0.19-alpha.0)
   admin:               # console <-> server admin/control-plane API
-    # REAL: advertised at /api/v1/admin/capabilities (AdminApiMajorNumber=1, basePath /api/v1/admin).
+    # REAL: advertised at /api/v1/admin/capabilities (AdminApiMajor="v1", AdminApiMajorNumber=1,
+    # basePath /api/v1/admin; capabilities exposes compatibility.controlPlaneApi.major=1).
     version: v1
     clients:
       # console has no release (pinned by sha); floor is its declared package.json version.
       honua-console:    ">=0.1.0"
-      # python SDK gates on this surface: baseline minimumServerVersion 2026.3.0, controlPlaneApiMajor 1
+      # python SDK gates on this surface: baseline controlPlaneApiMajor 1
       # (honua-sdk-python compatibility/server-matrix.json).
-      honua-sdk-python: ">=0.1.4"
-  metadata:            # metadata schema advertised in the capabilities envelope
-    version: v1        # MetadataV2Constants.ApiVersion
+      honua-sdk-python: ">=0.1.4"                   # floor = oldest supported (shipped is 0.1.9)
+  metadata:            # metadata surface advertised in the capabilities envelope
+    version: "metadata.honua.io/v2alpha1"   # MetadataV2Constants.ApiVersion; schemaVersion 2.0.0-alpha.1
     clients:
-      honua-sdk-python: ">=0.1.4"
+      # NOTE(drift): honua-sdk-python compatibility/server-matrix.json still declares an expected
+      # metadataSchemas version of "v1"; the server now advertises metadata.honua.io/v2alpha1. Track
+      # and reconcile before promotion — the SDK's declared expectation lags the server surface.
+      honua-sdk-python: ">=0.1.9"
 
 # Deploy/runtime coupling. honua-iac and honua-helm have no releases yet (pinned by sha in the
-# manifest); ranges below bound the SERVER artifact they are allowed to deploy.
+# manifest); ranges below bound the SERVER artifact they are allowed to deploy. honua-server is
+# itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
 deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha (trunk == ghcr nightly-aot), so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:fd89ac51500b192fdefc58267308f3c368537518"   # TODO: replace with ">=X <NEXT_MAJOR" at first server release
+    deploysServerImage: "sha:264a7d3810a0ae0f8c9c60c6ce4695de286b2673"   # pending: re-pin after server #2336/#2337/#2338 land
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:fd89ac51500b192fdefc58267308f3c368537518"          # TODO: set to server semver range once server releases
+    appVersion: "sha:264a7d3810a0ae0f8c9c60c6ce4695de286b2673"          # pending: re-pin after server #2336/#2337/#2338 land
 
 data:
   honua-server:
-    # No numbered DB-schema-version constant surfaced; logical metadata schema is v1.
-    requiresDbSchema: "metadata-v1"   # TODO: replace with ">=N" once a numbered migration floor is wired
+    # DB schema version = highest applied migration on trunk (src/Honua.Server/Migrations/, NNN_ prefix);
+    # max is 072_CreateEnrichmentDatasets.sql. DbUp journals to public.schema_versions (no single constant).
+    requiresDbSchema: ">=072"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.
 supportWindow:

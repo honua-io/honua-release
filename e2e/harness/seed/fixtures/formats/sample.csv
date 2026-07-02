@@ -1,0 +1,3 @@
+zone_code,zone_name,WKT
+030,Residential,POINT(-156.30 20.80)
+500,Commercial,POINT(-156.40 20.90)
