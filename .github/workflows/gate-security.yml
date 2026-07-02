@@ -96,7 +96,7 @@ jobs:
       - name: Trivy scan
         id: trivy
         if: steps.pull.outputs.pulled == '1'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         continue-on-error: true     # we translate the outcome into a gate verdict ourselves
         with:
           image-ref: ${{ steps.img.outputs.image }}
@@ -140,7 +140,7 @@ jobs:
 
       - name: Trivy fs scan
         id: trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         continue-on-error: true
         with:
           scan-type: fs
@@ -198,22 +198,44 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          jq -s \
-            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
-            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
-            def decided(enf):
-              if .status=="pass" then "pass"
-              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
-              else "fail" end;
-            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
-            | { gate:"security", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
-                gates:$g,
-                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
-                          blocked:([$g[]|select(.decided=="blocked")]|length),
-                          fail:([$g[]|select(.decided=="fail")]|length) },
-                overallStatus:( if any($g[];.decided=="fail") then "fail"
-                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
-            fragments/*.json > out/gate-report.json
+          # An empty fragments dir must NOT crash `jq ... fragments/*.json` (glob stays literal →
+          # "Could not open file fragments/*.json", exit 2). nullglob makes the glob expand to nothing
+          # so we can detect "no fragments" and emit an HONEST non-pass instead of a hard error.
+          shopt -s nullglob
+          frags=(fragments/*.json)
+          if [ ${#frags[@]} -eq 0 ]; then
+            # Both scan jobs died before emitting a verdict (e.g. a job/setup failure). Report an
+            # honest gate result: blocked under bootstrap (scans could not run — no evidence either
+            # way, never a fake green), fail under strict. This is plumbing, not hiding a finding.
+            NP=$([ "$ENFORCEMENT" = "strict" ] && echo fail || echo blocked)
+            jq -n \
+              --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+              --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" --arg np "$NP" '
+              { gate:"security", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:[{ gate:"security", status:$np, decided:$np, source:"none",
+                         why:"no security scan fragments were produced (scan jobs emitted no verdict)" }],
+                summary:{ pass:0,
+                          blocked:( if $np=="blocked" then 1 else 0 end),
+                          fail:( if $np=="fail" then 1 else 0 end) },
+                overallStatus:$np }' > out/gate-report.json
+          else
+            jq -s \
+              --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+              --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+              def decided(enf):
+                if .status=="pass" then "pass"
+                elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+                else "fail" end;
+              ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+              | { gate:"security", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                  gates:$g,
+                  summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                            blocked:([$g[]|select(.decided=="blocked")]|length),
+                            fail:([$g[]|select(.decided=="fail")]|length) },
+                  overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                  elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+              "${frags[@]}" > out/gate-report.json
+          fi
           cat out/gate-report.json
           OVERALL=$(jq -r .overallStatus out/gate-report.json)
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"

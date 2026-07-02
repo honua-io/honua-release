@@ -112,6 +112,10 @@ jobs:
         run: |
           set -uo pipefail
           GATE=npm; SOURCE=blocked; STATUS=blocked; WHY=""
+          # The import specifier of the artifact we consume. Staging publishes under @honua-io; the
+          # LOCAL fallback discovers the real name from the built package.json (it is @honua/sdk-js
+          # today — npm pack names the tarball after the actual scope, not an assumed one).
+          PKGNAME="@honua-io/sdk-js"
           WORK="$RUNNER_TEMP/npm-consume"; mkdir -p "$WORK"; cd "$WORK"
           npm init -y >/dev/null 2>&1
 
@@ -133,7 +137,10 @@ jobs:
             rm -f .npmrc
             if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-js.git" src >/tmp/npm-clone.log 2>&1; then
               ( cd src && npm ci >/tmp/npm-build.log 2>&1 && npm run build --if-present >>/tmp/npm-build.log 2>&1 && npm pack --pack-destination "$WORK" >>/tmp/npm-build.log 2>&1 ) \
-                && TARBALL="$(ls -1 "$WORK"/honua-io-sdk-js-*.tgz 2>/dev/null | head -n1)" || TARBALL=""
+                && TARBALL="$(ls -1 "$WORK"/*.tgz 2>/dev/null | head -n1)" || TARBALL=""
+              # Consume + import the package by its REAL name (not an assumed scope) so a successful
+              # pack is not mis-reported as a failure just because the tarball/scope differs.
+              [ -f src/package.json ] && PKGNAME="$(node -p "require('./src/package.json').name" 2>/dev/null || echo "$PKGNAME")"
               if [ -n "$TARBALL" ] && npm install "$TARBALL" >>/tmp/npm-build.log 2>&1; then
                 SOURCE=local; STATUS=consuming
               else
@@ -146,11 +153,15 @@ jobs:
           fi
 
           if [ "$STATUS" = "consuming" ]; then
-            echo "::group::Import smoke test (CJS + ESM)"
-            node -e "const sdk=require('@honua-io/sdk-js'); if(!sdk) throw new Error('empty CJS export'); console.log('CJS import ok:', Object.keys(sdk).slice(0,8));" \
-              && node --input-type=module -e "import('@honua-io/sdk-js').then(m=>{if(!m||!Object.keys(m).length)throw new Error('empty ESM export');console.log('ESM import ok');})" \
-              && { STATUS=pass; WHY="installed from ${SOURCE} and imported (CJS+ESM)"; } \
-              || { STATUS=fail; WHY="package installed from ${SOURCE} but import failed"; }
+            echo "::group::Import smoke test ($PKGNAME)"
+            # ESM dynamic import loads both ESM- and CJS-published packages, so this is a faithful
+            # "can a consumer import it" smoke without forcing a module system the package doesn't ship.
+            if PKGNAME="$PKGNAME" node --input-type=module \
+                 -e "import(process.env.PKGNAME).then(m=>{const k=Object.keys(m);if(!k.length)throw new Error('empty export');console.log('import ok:',k.slice(0,8));}).catch(e=>{console.error(e);process.exit(1);})"; then
+              STATUS=pass; WHY="installed from ${SOURCE} and imported ${PKGNAME}"
+            else
+              STATUS=fail; WHY="package ${PKGNAME} installed from ${SOURCE} but import failed"
+            fi
             echo "::endgroup::"
           fi
 
@@ -287,7 +298,12 @@ jobs:
             # and pip-install THAT wheel — the same artifact `twine upload` would publish.
             echo "::group::LOCAL fallback — build honua-sdk-python wheel and pip install it"
             if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-python.git" src >/tmp/pip-clone.log 2>&1; then
-              if ( cd src && python -m build --wheel --outdir "$WORK/dist" >/tmp/pip-build.log 2>&1 ); then
+              # honua-sdk-python is a WORKSPACE root (its root pyproject is not a buildable dist —
+              # setuptools flat-layout finds packages/, conformance/, compatibility/ and errors). The
+              # shipped SDK is packages/honua-sdk; build THAT (else fall back to the repo root).
+              SDKDIR="src"
+              [ -f src/packages/honua-sdk/pyproject.toml ] && SDKDIR="src/packages/honua-sdk"
+              if ( cd "$SDKDIR" && python -m build --wheel --outdir "$WORK/dist" >/tmp/pip-build.log 2>&1 ); then
                 WHEEL="$(ls -1 "$WORK"/dist/*.whl 2>/dev/null | head -n1)"
                 if [ -n "$WHEEL" ] && python -m pip install "$WHEEL" >>/tmp/pip-build.log 2>&1; then
                   SOURCE=local; STATUS=consuming
