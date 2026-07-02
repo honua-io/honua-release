@@ -768,8 +768,8 @@ jobs:
             --arg run "$RUN_URL" '
             def decided(enf):
               if .status=="pass" then "pass"
-              # skipped = a publish-dependent consume that honestly can't run in a no-publish (dry-run)
-              # cut. Tolerated under bootstrap (does not reduce the gate); a real cut (strict) forbids it.
+              # skipped = a publish-dependent consume that honestly cannot run in a no-publish dry-run
+              # cut. Tolerated under bootstrap (does not reduce the gate); a real cut strict forbids it.
               elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)
               elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
               else "fail" end;
