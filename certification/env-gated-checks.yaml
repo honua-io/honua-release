@@ -1,0 +1,46 @@
+# Env-gated integration check-runs (release gate 'a' — build/test fan-out).
+#
+# WHY THIS FILE EXISTS
+# The build/test gate (certification/check_build_test.py) reads EVERY CI check-run on a component's
+# pinned SHA and fails the train if any is red. A small number of a component's check-runs are
+# *live/staging integration* lanes that hard-depend on an EXTERNAL backend (a provisioned staging
+# server, or a coherent published server image) which the release-gate context does NOT provision.
+# When that backend is absent/incoherent those lanes go red — but that red is a verdict on the
+# ABSENT ENVIRONMENT, not on the component's own build or unit tests. Treating it as a build/test
+# failure would redden the train for infra we deliberately don't stand up at cut time
+# (docs/TEST-STRATEGY.md: "consume continuous-green" — the component's own build+unit CI is the
+# authoritative signal).
+#
+# WHAT THE GATE DOES WITH THIS LIST
+# For each component, check-runs whose NAME matches an entry below are removed from the core
+# build/test verdict and reported as `skipped` (env not provisioned) with the `why`. The component's
+# pass/fail/blocked verdict is then computed from its remaining CORE check-runs ONLY.
+#
+# HARD GUARDRAIL (enforced by test_build_test.py — a gate that can't fail is worse than no gate):
+#   * This must ONLY list lanes that require an external live/staging backend. NEVER list a
+#     compile/format/restore/build or unit-test lane. A real core red still fails the gate even when
+#     an env-gated lane is also red.
+#   * If a component has NO core check-runs left after removing env-gated lanes, it is `blocked`
+#     (no build/test signal), never `pass`.
+#   * Adding a name here is an auditable policy decision: it asserts the lane cannot run without a
+#     provisioned backend that the gate does not create. Do not add a lane just because it is flaky.
+#
+# Keyed by component name (must match platform-manifest.yaml components).
+
+honua-console:
+  - name: "Live Integration (Testcontainers)"
+    why: >-
+      Nightly live-integration lane (Console Nightly Live Integration) that boots an EXTERNAL
+      honua-server via the moving ghcr.io/honua-io/honua-server:nightly image and seeds live admin
+      fixtures. It fails when that published image lags/incoherent with trunk (fixture-seed 500s) —
+      a backend-provisioning gap, not a console build/unit-test failure. Console's own build and unit
+      lanes (Validate Console, Playwright smoke, the pinned-image Testcontainers lane) remain
+      authoritative and are NOT listed here.
+
+honua-sdk-dotnet:
+  - name: "Staging Read-Only Integration"
+    why: >-
+      Read-only conformance against a LIVE staging honua-server. Its precheck ("Validate staging
+      configuration") fails-by-design when HONUA_STAGING_BASE_URL / HONUA_STAGING_LAYER_ID (etc.) are
+      empty — i.e. staging is not provisioned in the gate context. All 15 .NET SDK unit lanes, build,
+      API Compatibility and Contract Conformance remain authoritative and are NOT listed here.

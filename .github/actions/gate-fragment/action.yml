@@ -14,7 +14,7 @@ inputs:
     description: "gate id, e.g. npm/nuget/pip/terraform/helm/docker/grpc-codegen"
     required: true
   status:
-    description: "raw outcome: pass | fail | blocked (anything not pass/blocked is treated as fail downstream)"
+    description: "raw outcome: pass | fail | blocked | skipped (anything else is treated as fail downstream)"
     required: true
   source:
     description: "where the artifact came from: staging | local | blocked"
@@ -49,7 +49,9 @@ runs:
       run: |
         set -euo pipefail
         # Normalise any transient internal state to a terminal status.
-        case "$STATUS" in pass|fail|blocked) : ;; *) STATUS=fail ;; esac
+        # `skipped` is a legitimate terminal state: a publish-dependent consume that genuinely
+        # cannot run in a no-publish (dry-run) context — honestly recorded, NOT green-washed.
+        case "$STATUS" in pass|fail|blocked|skipped) : ;; *) STATUS=fail ;; esac
         mkdir -p "$RUNNER_TEMP/fragments"
         jq -n \
           --arg gate "$GATE" \
