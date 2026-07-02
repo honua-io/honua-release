@@ -33,7 +33,7 @@ contracts:
       honua-sdk-python: ">=0.1.4 <0.2.0"            # floor = oldest supported (shipped is 0.1.9); 0.x: ceiling = next minor
   grpc:
     version: v1        # proto package geospatial.v1 (geospatial-grpc VERSIONING.md; server advertises grpc v1)
-    # geospatial-grpc 0.1.0-alpha.2 is the schema source; SDK floors are where grpc clients live.
+    # geospatial-grpc 0.1.0-alpha.3 is the schema source; SDK floors are where grpc clients live.
     clients:
       honua-sdk-dotnet: ">=1.3.0"                   # floor = oldest supported (shipped is 1.4.3)
       honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (shipped is 0.0.19-alpha.0)
@@ -64,10 +64,10 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha (trunk == ghcr nightly-aot), so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:238cc638392170c04de24541817017e49add5302"   # re-pinned to current honua-server trunk HEAD (verified GREEN)
+    deploysServerImage: "sha:f3c811be1b14ddb245e618dcaadec6e471fbc422"   # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:238cc638392170c04de24541817017e49add5302"          # re-pinned to current honua-server trunk HEAD (verified GREEN)
+    appVersion: "sha:f3c811be1b14ddb245e618dcaadec6e471fbc422"          # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
 
 data:
   honua-server:

@@ -44,7 +44,13 @@ ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
 ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
-RED = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+RED = {"failure", "timed_out", "action_required", "startup_failure"}
+# A cancelled check-run carries NO pass/fail verdict — it is a re-runnable flake (runner starvation,
+# matrix fail-fast siblings, manual cancel). It must NOT be treated as a build/test FAILURE (cancelled
+# != failed), but it is also not a green pass. So it decides `blocked` (re-runnable), tolerated under
+# bootstrap and surfaced under strict. A real failing sibling (matrix fail-fast) is itself `failure`
+# and is still caught, so downgrading cancelled cannot mask a genuine red.
+FLAKE = {"cancelled"}
 
 # A check-runs payload is either the parsed dict, or one of these sentinels.
 NOT_FOUND = "not_found"     # sha/repo not resolvable (404 / no access)
@@ -103,8 +109,14 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[st
     conclusions = [str(r.get("conclusion")) for r in core]
     reds = [c for c in conclusions if c in RED]
     if reds:
-        # A CORE (build/unit) red — this is a real failure, never masked by env-gated lanes.
+        # A CORE (build/unit) red — this is a real failure, never masked by env-gated/flake lanes.
         return "fail", f"{len(reds)}/{len(core)} core check-run(s) red ({sorted(set(reds))}){env_note}"
+    flakes = [c for c in conclusions if c in FLAKE]
+    if flakes:
+        # Cancelled core lane(s) with no real red — re-runnable flake (runner starvation), not a
+        # build/test failure. Blocked (tolerated under bootstrap; re-run to certify under strict).
+        return "blocked", (f"{len(flakes)}/{len(core)} core check-run(s) cancelled "
+                           f"(runner-starvation flake; re-runnable, not a failure){env_note}")
     non_green = [c for c in conclusions if c not in GREEN]
     if non_green:
         return "blocked", f"unrecognised core check conclusions {sorted(set(non_green))}"

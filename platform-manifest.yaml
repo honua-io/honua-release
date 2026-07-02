@@ -26,7 +26,7 @@ snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by
 components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
-    sha: "238cc638392170c04de24541817017e49add5302"   # branch: trunk (verified GREEN)
+    sha: "f3c811be1b14ddb245e618dcaadec6e471fbc422"   # branch: trunk HEAD; #2378 fixed CA1873 build break — full CI 28613091059 build+all completed shards GREEN (2 shards runner-starvation-cancelled, re-runnable)
     image: "ghcr.io/honua-io/honua-server:nightly-aot"  # :latest only moves on v* releases; trunk == nightly-aot
     # digest of the current :nightly-aot manifest (resolved from ghcr on 2026-07-01). The nightly image
     # is rebuilt on schedule, so it may lag trunk HEAD until the next nightly build / release publish.
@@ -80,8 +80,8 @@ components:
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:
-    version: "0.1.0-alpha.2"           # release tag v0.1.0-alpha.2 (reachable on trunk)
-    sha: "9ae9418f5f41d4c5a0bd8cf388f52515129af7e9"   # branch: trunk
+    version: "0.1.0-alpha.3"           # release tag v0.1.0-alpha.3 (reachable on trunk HEAD)
+    sha: "e15644173c173e4a75e6b5b2557cd8bad4ec5906"   # branch: trunk HEAD; proto lint/contract fix — full CI GREEN
     contractVersions:
       grpc: v1                         # proto package geospatial.v1 (VERSIONING.md)
 

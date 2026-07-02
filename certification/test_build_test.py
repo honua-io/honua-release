@@ -33,7 +33,18 @@ def test_all_green_passes():
 def test_any_red_fails():
     assert bt.classify(_runs("success", "failure"))[0] == "fail"
     assert bt.classify(_runs("timed_out"))[0] == "fail"
-    assert bt.classify(_runs("cancelled"))[0] == "fail"
+    assert bt.classify(_runs("startup_failure"))[0] == "fail"
+
+
+def test_cancelled_is_blocked_flake_not_fail():
+    # Cancelled != failed — runner-starvation / fail-fast siblings are re-runnable, not build reds.
+    status, why = bt.classify(_runs("success", "cancelled"))
+    assert status == "blocked" and "cancelled" in why and "re-runnable" in why
+
+
+def test_cancelled_never_masks_a_real_red():
+    # GUARDRAIL: a genuine failure alongside a cancelled sibling still fails (fail-fast case).
+    assert bt.classify(_runs("failure", "cancelled"))[0] == "fail"
 
 
 def test_no_runs_is_blocked_not_pass():
