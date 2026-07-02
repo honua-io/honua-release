@@ -1,16 +1,23 @@
-# Cross-cloud parity tier — AWS serverless (docs/TEST-STRATEGY.md Phase B, AWS-first).
+# Slice-2 cross-cloud CERTIFICATION tier — AWS-first (docs/TEST-STRATEGY.md Phase B).
 #
-# Deploys a real honua-server via the honua-iac serverless example, runs the canonical (slim) parity
-# set against its endpoint, asserts parity with the reference (local docker) when provided, and tears
-# down (ephemeral + reaper). This is the "also runs cloud integration" layer of the release train.
+# Two complementary layers, both AWS-first, both creds-gated so a no-cloud local cut is never reddened:
 #
-# Honesty (AGENTS.md): until the AWS role + a deployable Lambda-AOT (ECR) image + the IaC are wired,
-# the run is BLOCKED, never a fake green. The nightly run defaults to NOT require_real (BLOCKED is
-# tolerated and surfaced); the release train and an explicit dispatch can set require_real so a
-# BLOCKED/parity-divergence is a hard red. OIDC into AWS — no static creds.
+#   parity     Deploys honua-server on each AWS target (serverless / ecs / eks) x Redis on/off via the
+#              honua-iac example roots, runs the canonical (slim) HTTP parity set + the EXTENDED seam
+#              scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. The
+#              extended scenarios are BLOCKED until the cloud harness image (honua-release#35) drives
+#              the real drivers against the cloud endpoint — require_real promotes that to FAIL so cloud
+#              MCP/Studio/GP/demo cert is genuinely gated, not assumed.
+#   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
+#              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
+#              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
 #
-# To make it actually deploy, set the repo/org variable HONUA_AWS_ROLE_ARN (an OIDC role this repo may
-# assume) and HONUA_LAMBDA_IMAGE_URI (an ECR `*-lambda-aot` image); see the job env below.
+# SELF-SKIP (task requirement): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and, for the
+# wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` + a clear
+# `::notice::` and exits 0 — so the local tiers of a dry-run cut still run and the train is not failed.
+# It is READY to enforce per-RC: set HONUA_AWS_ROLE_ARN (OIDC role) + HONUA_LAMBDA_IMAGE_URI/HONUA_ECS_IMAGE
+# (+ RELEASE_GH_TOKEN for the wrapper) on the candidate and every layer runs for real. OIDC into AWS — no
+# static creds. The aggregate `cloud-report` job assembles one machine-readable gate-report the train parses.
 
 name: e2e-cloud-aws
 
@@ -20,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       require_real:
-        description: "Promote BLOCKED/parity-divergence to FAIL (run once AWS infra is wired)"
+        description: "Promote BLOCKED/parity-divergence/not-certified scenarios to FAIL (per-RC, with creds wired)"
         type: boolean
         default: false
   workflow_call:
@@ -28,9 +35,17 @@ on:
       require_real:
         type: boolean
         default: false
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked | skipped — aggregate of the parity cells + the iac-live wrapper"
+        value: ${{ jobs.cloud-report.outputs.overall_status }}
 
 permissions:
   contents: read
+  actions: write                  # dispatch the honua-iac cloud harness (iac-live wrapper)
   id-token: write                 # OIDC -> AWS (no static creds)
 
 concurrency:
@@ -41,7 +56,7 @@ jobs:
   parity:
     # The deploy-target x Redis matrix: all 3 AWS targets, each with Redis on and off, so the platform
     # is proven to behave identically everywhere and with/without its cache. Each cell is independent
-    # (fail-fast off) so one blocked/red cell doesn't hide the others.
+    # (fail-fast off) so one skipped/blocked/red cell doesn't hide the others.
     strategy:
       fail-fast: false
       matrix:
@@ -51,9 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: "us-east-1"
-      # Set as repo/org variables to enable a real deploy; empty => the cell reports BLOCKED honestly.
+      # Set as repo/org variables to enable a real deploy; empty => the cell self-skips honestly.
       HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}
       HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}
+      HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +79,7 @@ jobs:
           repository: honua-io/honua-iac
           path: _honua-iac
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
-        continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => BLOCKED, not a crash
+        continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
 
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
@@ -86,7 +102,7 @@ jobs:
       - name: Self-test the cloud parity logic
         run: python -m pytest e2e/test_cloud.py -q
 
-      # OIDC into AWS — only when a role is configured; otherwise the cell reports BLOCKED.
+      # OIDC into AWS — only when a role is configured; otherwise the cell self-skips.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v4
@@ -122,13 +138,151 @@ jobs:
               [ -d "$ROOT/.terraform" ] && terraform -chdir="$ROOT" destroy -auto-approve -no-color -input=false || true
             done
           else
-            echo "no real deploy was attempted (BLOCKED) — nothing to reap"
+            echo "::notice title=cloud-cert self-skipped::no HONUA_AWS_ROLE_ARN — nothing was deployed to reap"
           fi
 
-      - name: Upload cloud gate-report
+      - name: Upload cloud gate-report (per cell)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
           if-no-files-found: warn
+
+  # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
+  iac-live:
+    name: "iac-live (terraform-manual-validation, run_live=aws)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
+        id: iac
+        env:
+          # The wrapper needs BOTH a dispatch token (to trigger honua-iac Actions) and the OIDC role
+          # (so honua-iac's live job can auth to AWS). Missing either => self-skip.
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || '' }}
+          AWS_ROLE: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          REQUIRE_REAL: ${{ inputs.require_real || false }}
+        run: |
+          set -uo pipefail
+          STATUS=skipped; WHY="cloud-creds-unset"
+          if [ -z "$GH_TOKEN" ] || [ -z "$AWS_ROLE" ]; then
+            echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (set RELEASE_GH_TOKEN + HONUA_AWS_ROLE_ARN to enforce per-RC)"
+          else
+            REPO=honua-io/honua-iac
+            WF=terraform-manual-validation.yml
+            REF=trunk
+            echo "dispatching $WF on $REPO ($REF) with run_live=true cloud=aws"
+            # Record the dispatch time so we can find the run we just triggered.
+            SINCE="$(date -u +%FT%TZ)"
+            gh workflow run "$WF" --repo "$REPO" --ref "$REF" \
+              -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
+              -f run_k8s=false -f run_aks=false -f run_eks=false -f run_drift=false \
+              >/tmp/iac-dispatch.log 2>&1 || { STATUS=fail; WHY="failed to dispatch $WF (token scope? branch $REF?)"; cat /tmp/iac-dispatch.log; }
+            if [ "$STATUS" != "fail" ]; then
+              RUN_ID=""
+              for _ in $(seq 1 12); do
+                sleep 10
+                RUN_ID="$(gh run list --repo "$REPO" --workflow "$WF" --created ">=$SINCE" \
+                          --json databaseId,createdAt --jq 'sort_by(.createdAt)|reverse|.[0].databaseId' 2>/dev/null || true)"
+                [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] && break
+              done
+              if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+                STATUS=blocked; WHY="dispatched but could not resolve the honua-iac run id"
+              else
+                echo "watching honua-iac run $RUN_ID"
+                gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/tmp/iac-watch.log 2>&1 && CONC=success || CONC=failure
+                URL="$(gh run view "$RUN_ID" --repo "$REPO" --json url --jq .url 2>/dev/null || echo '')"
+                if [ "$CONC" = "success" ]; then STATUS=pass; WHY="honua-iac live AWS validation passed ($URL)";
+                else STATUS=fail; WHY="honua-iac live AWS validation failed ($URL)"; fi
+              fi
+            fi
+          fi
+          echo "iac-live -> $STATUS ($WHY)"
+          mkdir -p out
+          jq -n --arg s "$STATUS" --arg w "$WHY" \
+            --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{gate:"cloud-iac-live", status:$s, why:$w, evidence_url:$run}' > out/gate-report-cloud.json
+          cat out/gate-report-cloud.json
+
+      - name: Upload iac-live report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-iac-live-report
+          path: out/gate-report-cloud.json
+          if-no-files-found: warn
+
+  # ── cloud-report: assemble ONE machine-readable gate-report the train parses (never scrape logs) ─────
+  cloud-report:
+    needs: [parity, iac-live]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download all cloud reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*cloud*report*"
+          path: reports
+        continue-on-error: true
+
+      - name: Assemble cloud gate-report.json
+        id: assemble
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REQUIRE_REAL: ${{ inputs.require_real || false }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          FILES=$(find reports -name 'gate-report-cloud.json' 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo '{"gate":"cloud-parity","status":"skipped","why":"no cloud cell reports produced (self-skipped)","cells":[]}' > merged.json
+          else
+            # Each cell/wrapper report contributes a {status,why,...}. Overall verdict:
+            #   fail    if any cell failed
+            #   blocked if any cell blocked (half-wired infra)
+            #   skipped if every cell self-skipped (no creds)
+            #   pass    otherwise (>=1 real pass, remainder skipped)
+            # shellcheck disable=SC2086
+            jq -s '
+              { gate:"cloud-parity",
+                cells: [ .[] | {gate:(.gate//"cloud-cell"), cell:(.cell//.gate//"?"), target:.target,
+                                redis:.redis, status:.status, why:.why} ],
+                scenarioCoverage: ( [ .[] | (.scenarioCoverage // [])[] ] | unique_by(.name) ),
+                status: ( [ .[].status ] as $s
+                  | if   ($s|any(.=="fail"))    then "fail"
+                    elif ($s|any(.=="blocked")) then "blocked"
+                    elif ($s|all(.=="skipped")) then "skipped"
+                    else "pass" end ) }' $FILES > merged.json
+          fi
+          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" \
+             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601)}' \
+             merged.json > out/gate-report-cloud.json
+          cat out/gate-report-cloud.json
+          OVERALL="$(jq -r .status out/gate-report-cloud.json)"
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Cloud cert (AWS) — $OVERALL";
+            echo "";
+            echo "| cell | status | why |"; echo "|---|---|---|";
+            jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
+            echo "";
+            echo "### Extended scenarios (MCP/Studio/GP/demo)";
+            jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload aggregated cloud gate-report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-gate-report
+          path: out/gate-report-cloud.json
+
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "cloud cert overall: $OVERALL (require_real=${{ inputs.require_real || false }})"
+          # A real FAIL always reddens the job. skipped/blocked are tolerated here (surfaced in the
+          # report + honoured by the train's aggregate + promote's allowed-skip list).
+          [ "$OVERALL" = "fail" ] && { echo "::error::cloud cert FAILED"; exit 1; } || echo "not red"

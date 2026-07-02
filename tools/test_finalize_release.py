@@ -46,6 +46,22 @@ def test_label_mismatch_is_refused():
     assert not ok and "2026.2" in why
 
 
+def test_allowed_skip_is_promotable():
+    # cloud-parity self-skipped (cloud-creds-unset) is on the allowed-skip list -> still promotable.
+    rep = _report("pass", gates=[{"gate": "manifest", "status": "pass"},
+                                 {"gate": "cloud-parity", "status": "skipped"}])
+    ok, why = fr.verify_gate_report(rep, "2026.1")
+    assert ok, why
+    assert "cloud-parity" in why
+
+
+def test_skip_of_non_allowlisted_gate_is_refused():
+    rep = _report("pass", gates=[{"gate": "manifest", "status": "pass"},
+                                 {"gate": "security", "status": "skipped"}])
+    ok, why = fr.verify_gate_report(rep, "2026.1")
+    assert not ok and "security" in why
+
+
 def test_non_dict_report_is_refused():
     ok, _ = fr.verify_gate_report("not a report", "2026.1")
     assert not ok

@@ -12,5 +12,11 @@ Deterministic (serial number derived from the component set), so it is reproduci
 workflow's OIDC identity, and attached to the `Honua YYYY.N` GitHub Release alongside its `.sig` + `.pem`.
 Unit-tested in `tools/test_generate_bom.py`.
 
-**Still a stub:** ingesting each component's *own* per-artifact SBOM so the platform BOM nests transitive
-deps, and SLSA provenance attestations beyond the keyless blob signatures.
+**Wired (gate f):** `.github/workflows/gate-sbom.yml` (reusable, run by the release train) generates a
+**per-artifact SBOM of the pinned server image via Syft in BOTH CycloneDX and SPDX**, plus the aggregated
+platform BOM (above), landing everything in `bom/` as run artifacts. It self-skips (blocked, bootstrap)
+when the image can't be pulled, and can genuinely fail (empty/failed SBOM, malformed manifest).
+
+**Still a stub:** ingesting each SDK/chart/iac component's *own* per-artifact SBOM so the platform BOM
+nests transitive deps (today only the server image is Syft-scanned per-artifact; the rest are covered by
+the manifest-derived aggregate), and SLSA provenance attestations beyond the keyless blob signatures.

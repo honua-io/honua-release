@@ -36,25 +36,49 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Explicit allow-list of gates that MAY be `skipped` on a promote (task requirement: promote requires
+# every non-skipped gate green — gates[].status in {pass, skipped} — with an explicit allowed-skip
+# list). These are the creds/infra-gated tiers that self-skip (status: skipped) when their per-RC
+# secrets are unset; an org opts a label into enforcing them by wiring those secrets. A gate NOT on
+# this list may never be skipped for a promote — a skip there is a refusal, so nothing is green-washed.
+ALLOWED_SKIP: frozenset[str] = frozenset({
+    "cloud-parity",   # Slice-2 cloud cert (e2e-cloud-aws): self-skips when HONUA_AWS_ROLE_ARN is unset.
+})
+
 
 # --------------------------------------------------------------------------------------------------
 # verify — fail closed unless the candidate is genuinely green
 # --------------------------------------------------------------------------------------------------
-def verify_gate_report(report: dict, label: str) -> tuple[bool, str]:
-    """Return (ok, why). Promotion is allowed ONLY when the candidate's train report is all-green
-    for this label."""
+def _gate_status(g: dict) -> str:
+    """A gate row's verdict, tolerant of both the train report (`status`) and a sub-gate report
+    (`decided`) shapes."""
+    return str(g.get("status") or g.get("decided") or "")
+
+
+def verify_gate_report(report: dict, label: str, allowed_skip: frozenset[str] = ALLOWED_SKIP) -> tuple[bool, str]:
+    """Return (ok, why). Promotion is allowed ONLY when the candidate's train report is all-green for
+    this label: overallStatus == 'pass' AND every gate is `pass`, OR `skipped` while on the explicit
+    allowed-skip list. A skip of any other gate is refused (never silently promoted)."""
     if not isinstance(report, dict):
         return False, "gate-report is not an object"
     overall = report.get("overallStatus")
     if overall != "pass":
         bad = [g.get("gate") for g in report.get("gates", [])
-               if isinstance(g, dict) and g.get("decided") in ("fail", "blocked")]
+               if isinstance(g, dict) and _gate_status(g) in ("fail", "blocked")]
         return False, f"candidate gate-report overallStatus={overall!r} (not 'pass'); not-green gates: {bad or 'unknown'}"
+    # Enforce the allowed-skip policy: a `skipped` gate is OK only if explicitly allow-listed.
+    illegal_skips = [g.get("gate") for g in report.get("gates", [])
+                     if isinstance(g, dict) and _gate_status(g) == "skipped" and g.get("gate") not in allowed_skip]
+    if illegal_skips:
+        return False, f"gate(s) skipped but not on the allowed-skip list: {illegal_skips}"
     rep_label = str(report.get("platform_label", ""))
     # The RC report carries the -rc label; the release label is its base (2026.1-rc.3 -> 2026.1).
     if rep_label and _base_label(rep_label) != _base_label(label):
         return False, f"gate-report is for {rep_label!r}, not {label!r}"
-    return True, f"candidate {rep_label or label!r} is all-green"
+    skipped = [g.get("gate") for g in report.get("gates", [])
+               if isinstance(g, dict) and _gate_status(g) == "skipped"]
+    note = f" (allowed-skip: {skipped})" if skipped else ""
+    return True, f"candidate {rep_label or label!r} is all-green{note}"
 
 
 def _base_label(label: str) -> str:

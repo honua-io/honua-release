@@ -11,6 +11,16 @@ data — they probe the wire surface honua-server exposes anywhere it runs:
                     (the Esri convention; the same behaviour the SDK guard depends on, checked here at
                      the HTTP layer so it is target-agnostic)
   service-catalog   GET /rest/services?f=json                 -> 200 + JSON object (a catalog shape)
+  capabilities      GET /api/v1/admin/capabilities?f=json      -> 200 + JSON (the control-plane surface
+                    the MCP tool catalog is derived from; manifest advertises admin contract v1)
+  geoprocessing     GET /rest/services?f=json includes a GP    -> a GPServer/GeoProcessing service is
+                    catalogued (the surface the GP driver exercises), else blocked
+
+The EXTENDED scenario set (MCP handshake + tool-catalog, Studio authoring, Geoprocessing execute, and
+the top demo flow) is the same seam suite the Slice-1 local-docker harness drives. Running it against a
+*cloud* endpoint needs the driver toolchain packaged as a harness image (honua-release#35); until that
+lands, `run_extended` records those scenarios as BLOCKED (with the #35 reference), so a real per-RC
+cloud cert honestly shows cloud MCP/Studio/GP/demo are not-yet-certified rather than green-washing them.
 
 `fetch` is injectable so the result-normalisation is unit-testable without a live server.
 """
@@ -107,10 +117,67 @@ def check_service_catalog(endpoint: str, fetch: Fetcher) -> CheckResult:
     return CheckResult("service-catalog", "pass", "GET /rest/services -> 200 + JSON catalog object")
 
 
-CANONICAL_CHECKS = [check_health, check_geoservices_error_surfacing, check_service_catalog]
+def check_admin_capabilities(endpoint: str, fetch: Fetcher) -> CheckResult:
+    """The admin/control-plane capabilities envelope (manifest: admin contract v1). The MCP tool
+    catalog is derived from this surface, so a target that can't advertise capabilities can't host a
+    coherent MCP layer — this is the target-agnostic HTTP proxy for 'MCP is wireable here'."""
+    r = fetch(endpoint.rstrip("/") + "/api/v1/admin/capabilities?f=json")
+    if r.status == 0:
+        return CheckResult("capabilities", "blocked", f"endpoint unreachable ({r.body})")
+    if r.status != 200:
+        return CheckResult("capabilities", "fail", f"GET /api/v1/admin/capabilities -> {r.status}",
+                           {"status": r.status})
+    try:
+        obj = json.loads(r.body)
+    except (ValueError, TypeError):
+        return CheckResult("capabilities", "fail", "capabilities is not valid JSON")
+    if not isinstance(obj, dict):
+        return CheckResult("capabilities", "fail", "capabilities JSON is not an object")
+    return CheckResult("capabilities", "pass", "GET /api/v1/admin/capabilities -> 200 + JSON envelope")
+
+
+def check_geoprocessing(endpoint: str, fetch: Fetcher) -> CheckResult:
+    """The Geoprocessing surface the GP driver exercises. At the target-agnostic HTTP layer we assert a
+    GP service is catalogued (GPServer / a `geoprocessing` service type). Absent => blocked (the catalog
+    is reachable but GP isn't exposed on this deploy), never a fake pass."""
+    r = fetch(endpoint.rstrip("/") + "/rest/services?f=json")
+    if r.status == 0:
+        return CheckResult("geoprocessing", "blocked", f"endpoint unreachable ({r.body})")
+    if r.status != 200:
+        return CheckResult("geoprocessing", "fail", f"GET /rest/services -> {r.status}", {"status": r.status})
+    body_l = r.body.lower()
+    if "gpserver" in body_l or "geoprocessing" in body_l:
+        return CheckResult("geoprocessing", "pass", "service catalog advertises a GPServer / geoprocessing service")
+    return CheckResult("geoprocessing", "blocked",
+                       "catalog reachable but no GPServer/geoprocessing service advertised on this target")
+
+
+# The slim parity set every deploy target must exhibit identically (HTTP-level, data-independent).
+CANONICAL_CHECKS = [check_health, check_geoservices_error_surfacing, check_service_catalog,
+                    check_admin_capabilities, check_geoprocessing]
+
+
+# The seam scenarios (MCP / Studio / GP-execute / top-demo) that need the driver toolchain packaged as
+# a cloud harness image (honua-release#35). Recorded as BLOCKED against a raw cloud endpoint until #35
+# lands, so a real per-RC cloud cert cannot green-wash uncertified cloud MCP/Studio/GP/demo behaviour.
+EXTENDED_SCENARIOS = [
+    ("mcp-handshake", "MCP initialize + tools/list vs the committed tool-catalog snapshot"),
+    ("studio-authoring", "Studio create->style->publish authoring lifecycle"),
+    ("gp-execute", "Geoprocessing submitJob->poll->result end-to-end"),
+    ("top-demo", "the flagship demo flow end-to-end"),
+]
 
 
 def run_canonical(endpoint: str, fetch: Fetcher | None = None) -> list[CheckResult]:
     """Run the canonical parity set against a deployed endpoint."""
     f = fetch or _default_fetch
     return [check(endpoint, f) for check in CANONICAL_CHECKS]
+
+
+def run_extended(endpoint: str, fetch: Fetcher | None = None) -> list[CheckResult]:
+    """The extended seam scenarios against a cloud endpoint. Until the harness image (honua-release#35)
+    runs the real drivers here, each is BLOCKED (honest) — the release train's require_real promotes a
+    blocked extended scenario to FAIL, so cloud MCP/Studio/GP/demo cert is gated, not assumed."""
+    return [CheckResult(name, "blocked",
+                        f"{desc}: needs the cloud harness image (honua-release#35) to drive against {endpoint.rstrip('/')}")
+            for name, desc in EXTENDED_SCENARIOS]

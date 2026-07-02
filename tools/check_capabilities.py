@@ -40,7 +40,8 @@ def known_canonical_checks() -> set[str]:
 def known_gates() -> set[str]:
     """Wired release-train gate ids, parsed from the report rows in release-train.yml (authoritative)."""
     text = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(encoding="utf-8")
-    return set(re.findall(r"^\s*([a-z][a-z-]*)\|\$R_", text, flags=re.MULTILINE))
+    # The report job lists each wired gate as a `gate-id|$SIGNAL_VAR` row (the status-signal env var).
+    return set(re.findall(r"^\s*([a-z][a-z-]*)\|\$[A-Z]", text, flags=re.MULTILINE))
 
 
 def _resolve(evidence: dict, known_checks: set[str], known_gates_: set[str]) -> tuple[bool, str]:
