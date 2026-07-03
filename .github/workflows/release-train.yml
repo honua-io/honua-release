@@ -204,7 +204,7 @@ jobs:
           S_CONFORMANCE: ${{ needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
-          S_OBS: ${{ needs.gate_observability.result }}
+          S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
           S_DOCS: ${{ needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
         run: |

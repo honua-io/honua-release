@@ -136,7 +136,9 @@ jobs:
           fi
           [ -n "$PRIOR" ] || PRIOR="$CAND"
           echo "prior=$PRIOR" >> "$GITHUB_OUTPUT"
-          echo "candidate=$CAND prior=$PRIOR cross_release=$([ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
+          CROSS="$([ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
+          echo "cross_release=$CROSS" >> "$GITHUB_OUTPUT"
+          echo "candidate=$CAND prior=$PRIOR cross_release=$CROSS"
 
       - name: Checkout honua-helm chart
         id: chart
@@ -172,6 +174,8 @@ jobs:
         env:
           PRIOR: ${{ steps.images.outputs.prior }}
           CAND: ${{ steps.images.outputs.candidate }}
+          ENF: ${{ inputs.enforcement }}
+          CROSS: ${{ steps.images.outputs.cross_release }}
         run: |
           set -uo pipefail
           STATUS=blocked; WHY=""
@@ -179,6 +183,15 @@ jobs:
             STATUS=blocked; WHY="honua-helm chart not reachable (no RELEASE_GH_TOKEN?) — kind smoke self-skipped"
           elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
+          elif [ "$CROSS" = "no" ] && [ "$ENF" != "strict" ]; then
+            # No prior platform release exists yet (prior == candidate): this is the baseline release,
+            # so there is genuinely NO cross-release upgrade to certify — exactly what the static-compat
+            # layer already reports blocked for. Degrading to a same-image lifecycle smoke would need a
+            # fully-provisioned server (Redis + a coherent metadata-v2 snapshot + the chart's required
+            # admin/master-key/redis secrets) which a no-infra dry-run does not stand up, so it cannot
+            # pass here. Self-skip honestly as blocked (never a fake green); a real cut (strict) with a
+            # published prior release still runs — and must pass — the full seed->upgrade->rollback smoke.
+            STATUS=blocked; WHY="no prior platform release — baseline (rc.x.0) has nothing to upgrade from; same-image lifecycle smoke needs Redis+snapshot+secrets infra absent in a dry run — kind smoke self-skipped"
           else
             CHART="$(dirname "$(find _honua-helm -name Chart.yaml | head -n1)")"
             NS=honua-upgrade
@@ -307,12 +320,18 @@ jobs:
             --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
             def decided(enf):
               if .status=="pass" then "pass"
+              # skipped = a layer that honestly cannot run in this context (e.g. no prior release to
+              # upgrade from in a dry run). Tolerated under bootstrap (does not reduce the gate); a real
+              # cut (strict) forbids it. Handled explicitly so a skipped fragment is never mis-scored as
+              # a hard fail by the else-branch.
+              elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)
               elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
               else "fail" end;
             ( [ .[] | . + {decided: decided($enf)} ] ) as $g
             | { gate:"upgrade", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
                 gates:$g,
                 summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          skipped:([$g[]|select(.decided=="skipped")]|length),
                           blocked:([$g[]|select(.decided=="blocked")]|length),
                           fail:([$g[]|select(.decided=="fail")]|length) },
                 overallStatus:( if any($g[];.decided=="fail") then "fail"

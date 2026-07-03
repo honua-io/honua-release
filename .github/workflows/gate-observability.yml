@@ -22,7 +22,7 @@ on:
       enforcement:    { required: false, type: string, default: bootstrap }
     outputs:
       overall_status:
-        description: "pass | fail | blocked"
+        description: "pass | fail | blocked | skipped"
         value: ${{ jobs.slo.outputs.status }}
 
 permissions:
@@ -47,7 +47,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install pytest
+      # pyyaml is needed because the shared self-test module (test_slo_upgrade.py) imports
+      # check_upgrade, which imports yaml at module load — without it the self-test crashes with
+      # ModuleNotFoundError before the SLO logic is ever exercised (false red, not a real gate signal).
+      - run: python -m pip install "pyyaml>=6.0" pytest
 
       - name: Self-test the SLO logic
         run: python -m pytest tools/test_slo_upgrade.py -q -k slo
@@ -76,13 +79,31 @@ jobs:
           )
           ERR="${ERR:-}"; REQ="${REQ:-}"
           echo "scraped error_total=${ERR:-<absent>} request_total=${REQ:-<absent>} (url=${HONUA_METRICS_URL:-<unset>})"
-          if [ "$ENF" = "strict" ]; then
-            OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE" --require-real)"; RC=$?
-          else
-            OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE")"; RC=$?
-          fi
-          STATUS="$(printf '%s\n' "$OUT" | sed -n 's/^status=//p')"
-          WHY="$(printf '%s\n' "$OUT" | sed -n 's/^why=//p')"
+          # Raw verdict from the pure, unit-tested decision core (pass|fail|blocked). We evaluate WITHOUT
+          # --require-real here and apply the enforcement policy below, so the honest dry-run skip is
+          # explicit (mirrors gate-artifact-consume's dry-run-skip pattern: a publish/deploy-dependent
+          # gate reports `skipped` — never a fake green — when its backing source genuinely doesn't exist).
+          OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE")"
+          RAW="$(printf '%s\n' "$OUT" | sed -n 's/^status=//p')"
+          RAW_WHY="$(printf '%s\n' "$OUT" | sed -n 's/^why=//p')"
+          case "$RAW" in
+            pass)
+              # Within budget on a real, scrapeable candidate — green.
+              STATUS=pass;  WHY="$RAW_WHY"; RC=0 ;;
+            fail)
+              # A genuine error-budget breach is RED in both modes (this is the gate's whole point).
+              STATUS=fail;  WHY="$RAW_WHY"; RC=1 ;;
+            *)
+              # blocked == no SLO source: HONUA_METRICS_URL unset / no scrapeable candidate / in-band
+              # error metric not wired (server#2243). In a dry-run bootstrap cut there is genuinely no
+              # staging deploy to scrape, so this is an honest SKIP (does not fake green, does not redden
+              # the train). A real cut (strict) MUST have a live SLO source, so there it stays a hard FAIL.
+              if [ "$ENF" = "strict" ]; then
+                STATUS=fail;    WHY="no live SLO source on a real cut — $RAW_WHY"; RC=1
+              else
+                STATUS=skipped; WHY="no staging SLO source — dry run (HONUA_METRICS_URL unset / in-band error metric not wired): $RAW_WHY"; RC=0
+              fi ;;
+          esac
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           { echo "## Observability / SLO — ${STATUS:-unknown}"; echo ""; echo "$WHY"; } >> "$GITHUB_STEP_SUMMARY"
           echo "SLO: $STATUS — $WHY"
