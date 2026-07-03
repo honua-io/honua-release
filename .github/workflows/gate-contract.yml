@@ -4,9 +4,12 @@
 #   proto-breaking  REAL: clone the manifest-pinned geospatial-grpc and run `buf breaking` against the
 #                   last release tag — RPC/service deletion+rename and field/enum wire breaks fail it
 #                   (the gate that retired geospatial-grpc#44; verified to catch RPC deletion).
-#   rest-sdk-api    BLOCKED: REST/OpenAPI diff + SDK public-API diff need the server's published
-#                   OpenAPI spec and the SDKs' API baselines as artifacts; reports BLOCKED honestly
-#                   until those are published (never a fake green).
+#   rest-sdk-api    REAL: clone the manifest-pinned honua-server + the three SDKs, extract their
+#                   REST/OpenAPI + SDK public-API surfaces (build-free, from committed source at the
+#                   pinned sha) and diff against the committed rc.0 baseline in contracts/baselines/.
+#                   rc.0 is the baseline-setting release (diff empty => pass); a later surface change
+#                   without a baseline refresh fails. See tools/contract_surface.py. Before a baseline
+#                   exists it reports BLOCKED honestly (bootstrap tolerates; strict fails).
 #
 # Trigger: workflow_dispatch / workflow_call (the train) / nightly. bootstrap tolerates a missing
 # baseline (blocked); strict fails on it; a real wire break always fails.
@@ -112,28 +115,54 @@ jobs:
           prefix: con-
 
   # ───────────────────────────────────────────────────────────────────────────
-  # rest-sdk-api — BLOCKED: REST/OpenAPI + SDK public-API diff need published baselines.
+  # rest-sdk-api — REAL: diff the pinned REST/OpenAPI + SDK public-API surfaces against the
+  # committed rc.0 baseline (build-free extraction; see tools/contract_surface.py).
   # ───────────────────────────────────────────────────────────────────────────
   rest-sdk-api:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: REST/OpenAPI + SDK public-API diff (blocked without baselines)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+
+      - name: Clone manifest-pinned components (server + SDKs)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -uo pipefail
-          {
-            echo "status=blocked"
-            echo "source=blocked"
-            echo "why=needs the server's published OpenAPI spec + the SDKs' public-API baselines to diff against the last release; publish those to enable"
-          } >> "$GITHUB_ENV"
+          ROOT="$RUNNER_TEMP/components"; mkdir -p "$ROOT"; echo "REPOS_ROOT=$ROOT" >> "$GITHUB_ENV"
+          for comp in honua-server honua-sdk-python honua-sdk-dotnet honua-sdk-js; do
+            sha="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('$comp',{})) or {}).get('sha','') or '')")"
+            echo "::group::clone $comp @ ${sha:-<none>}"
+            if git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/honua-io/${comp}.git" "$ROOT/$comp" 2>/tmp/clone.log; then
+              if [ -n "$sha" ]; then git -C "$ROOT/$comp" fetch --quiet origin "$sha" 2>/dev/null || true; fi
+            else
+              echo "note: $comp not cloneable"; tail -n 3 /tmp/clone.log || true
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: REST/OpenAPI + SDK public-API diff vs rc.0 baseline
+        id: diff
+        run: |
+          set -uo pipefail
+          OUT="$(python tools/contract_surface.py check --repos-root "$REPOS_ROOT" 2>&1)"; RC=$?
+          echo "$OUT"
+          STATUS=blocked
+          case "$RC" in 0) STATUS=pass ;; 1) STATUS=fail ;; *) STATUS=blocked ;; esac
+          WHY="$(printf '%s\n' "$OUT" | sed -n 's/^contract-rest-sdk: //p' | head -n1)"
+          { echo "status=$STATUS"; echo "source=contract_surface"; echo "why=${WHY:-see log}"; } >> "$GITHUB_ENV"
+
       - name: Emit fragment
         if: always()
         uses: ./.github/actions/gate-fragment
         with:
           gate: contract-rest-sdk
           status: ${{ env.status || 'blocked' }}
-          source: blocked
-          why: ${{ env.why || 'blocked' }}
+          source: ${{ env.source || 'blocked' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: con-
 

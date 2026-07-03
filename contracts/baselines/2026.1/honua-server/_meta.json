@@ -1,0 +1,11 @@
+{
+  "artifacts": [
+    "ogc-coverages-openapi.json",
+    "ogc-maps-openapi.json",
+    "ogc-processes-openapi.json",
+    "ogc-tiles-openapi.json",
+    "openapi.json"
+  ],
+  "component": "honua-server",
+  "sha": "10f2b1f627552246438c751d9f975953e9ccc57b"
+}
