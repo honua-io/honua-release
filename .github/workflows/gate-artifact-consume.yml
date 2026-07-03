@@ -233,7 +233,11 @@ jobs:
             echo "::group::LOCAL fallback — dotnet pack honua-sdk-dotnet and add from local feed"
             if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-dotnet.git" src >/tmp/nuget-clone.log 2>&1; then
               mkdir -p "$WORK/localfeed"
-              if ( cd src && dotnet pack -c Release -o "$WORK/localfeed" >/tmp/nuget-pack.log 2>&1 ); then
+              # The repo's NuGet.config maps Geospatial.Grpc to the authed github-honua source with no
+              # credentials; restore-during-pack 401s without them. Wire the token into that source.
+              dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
+                --store-password-in-clear-text --configfile src/NuGet.config >/tmp/nuget-pack.log 2>&1 || true
+              if ( cd src && dotnet pack -c Release -o "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1 ); then
                 dotnet nuget add source "$WORK/localfeed" -n honua-local >/dev/null 2>&1 || true
                 if dotnet add Consumer package Honua.Sdk --source honua-local >>/tmp/nuget-pack.log 2>&1; then
                   SOURCE=local; STATUS=consuming
@@ -498,7 +502,16 @@ jobs:
             echo "::group::LOCAL fallback — helm package honua-helm from source"
             if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-helm.git" src >/tmp/helm-clone.log 2>&1; then
               CHARTDIR="$(dirname "$(find src -name Chart.yaml | head -n1)")"
-              if [ -n "$CHARTDIR" ] && ( helm dependency build "$CHARTDIR" >/tmp/helm-pkg.log 2>&1 || true; helm package "$CHARTDIR" -d "$WORK" >>/tmp/helm-pkg.log 2>&1 ); then
+              # `helm dependency build` resolves HTTP(S) subchart repos (e.g. Bitnami) only if they
+              # are registered with `helm repo add` first — register every repo the chart declares.
+              if [ -n "$CHARTDIR" ]; then
+                i=0
+                for REPO in $(sed -nE 's/^\s+repository:\s*"?(https?:\/\/[^" ]+)"?.*/\1/p' "$CHARTDIR/Chart.yaml" | sort -u); do
+                  i=$((i+1)); helm repo add "chartdep$i" "$REPO" >>/tmp/helm-pkg.log 2>&1 || true
+                done
+                [ "$i" -gt 0 ] && helm repo update >>/tmp/helm-pkg.log 2>&1 || true
+              fi
+              if [ -n "$CHARTDIR" ] && ( helm dependency build "$CHARTDIR" >>/tmp/helm-pkg.log 2>&1 || true; helm package "$CHARTDIR" -d "$WORK" >>/tmp/helm-pkg.log 2>&1 ); then
                 TGZ="$(ls -1 "$WORK"/*.tgz | head -n1)"; mkdir -p "$WORK/unpacked"; tar xzf "$TGZ" -C "$WORK/unpacked"
                 CHART="$(dirname "$(find "$WORK/unpacked" -name Chart.yaml | head -n1)")"; SOURCE=local; STATUS=have-chart
               elif [ "$TOLERANT" = true ] && [ -n "$CHARTDIR" ] && grep -qiE 'no repository definition|could not find|failed to (download|fetch)|missing in charts/ directory|dependenc.*(not found|missing|unreachable)|no cached repository' /tmp/helm-pkg.log; then
@@ -602,32 +615,46 @@ jobs:
           fi
 
           if [ "$STATUS" = "have-image" ]; then
-            echo "::group::docker run + poll $SERVER_HEALTH_PATH"
-            docker run -d --name honua-gate -p "${SERVER_PORT}:${SERVER_PORT}" "$IMG" >/tmp/docker-run.log 2>&1 || { STATUS=fail; WHY="container failed to start"; }
+            echo "::group::docker run (postgres sidecar + required config) + poll $SERVER_HEALTH_PATH"
+            # The server's Production config validation refuses to start without a database connection
+            # string, HONUA_ADMIN_PASSWORD and a connection-encryption master key — the documented
+            # customer minimum. Run it exactly as a customer quickstart would: DB sidecar + that env.
+            docker network create honua-gate-net >/dev/null 2>&1 || true
+            docker run -d --name honua-gate-db --network honua-gate-net \
+              -e POSTGRES_USER=honua -e POSTGRES_PASSWORD=honua -e POSTGRES_DB=honua \
+              postgis/postgis:16-3.4 >/tmp/docker-db.log 2>&1 || { STATUS=fail; WHY="postgres sidecar failed to start"; }
+            if [ "$STATUS" != "fail" ]; then
+              for _ in $(seq 1 40); do
+                docker exec honua-gate-db pg_isready -U honua -d honua >/dev/null 2>&1 && break; sleep 3
+              done
+              docker run -d --name honua-gate --network honua-gate-net -p "${SERVER_PORT}:${SERVER_PORT}" \
+                -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=honua" \
+                -e HONUA_ADMIN_PASSWORD="gate-$(openssl rand -hex 12)" \
+                -e Security__ConnectionEncryption__MasterKey="$(openssl rand -hex 32)" \
+                -e HostValidation__AllowedHosts="*" -e AllowedHosts="*" \
+                "$IMG" >/tmp/docker-run.log 2>&1 || { STATUS=fail; WHY="container failed to start"; }
+            fi
             if [ "$STATUS" != "fail" ]; then
               OK=""
-              for _ in $(seq 1 30); do
+              for _ in $(seq 1 60); do
                 if curl -fsS "http://localhost:${SERVER_PORT}${SERVER_HEALTH_PATH}" >/tmp/docker-health.log 2>&1; then OK=1; break; fi
                 sleep 2
               done
               if [ -n "$OK" ]; then
-                STATUS=pass; WHY="image from ${SOURCE}: container healthy at ${SERVER_HEALTH_PATH}"
+                STATUS=pass; WHY="image from ${SOURCE}: container healthy at ${SERVER_HEALTH_PATH} against a real PostGIS"
               elif [ "$TOLERANT" = true ]; then
-                # ROOT CAUSE = no staging runtime: the container STARTED (docker run succeeded above, so
-                # the image is well-formed / not malformed), but the bare honua-server image cannot answer
-                # ${SERVER_HEALTH_PATH} without Redis + an activated snapshot — infra a no-publish dry-run
-                # cut doesn't provision (true whether the image was pulled from staging or built locally).
-                # That is a publish/staging-runtime gap, not a broken artifact → skip in dry-run. A real
-                # cut (strict) still hard-FAILs here, and an image that won't even start hits the
-                # "container failed to start" branch above and FAILs even in dry-run.
-                STATUS=skipped; WHY="artifact not published — dry run: honua-server image (${SOURCE}) needs Redis + an activated snapshot to serve ${SERVER_HEALTH_PATH}; no staging runtime in a no-publish cut"
+                # The container started with the full documented minimum config; not reaching healthy
+                # within the window in a dry-run cut is tolerated (slow migrations on cold runners),
+                # but a real cut (strict) hard-FAILs — a customer following the quickstart hits this.
+                STATUS=skipped; WHY="dry run: honua-server image (${SOURCE}) started with DB + required config but did not reach ${SERVER_HEALTH_PATH} within 120s"
                 echo "--- container logs (informational) ---"; docker logs honua-gate 2>&1 | tail -n 40 || true
               else
-                STATUS=fail; WHY="container from ${SOURCE} never became healthy at ${SERVER_HEALTH_PATH}"
+                STATUS=fail; WHY="container from ${SOURCE} never became healthy at ${SERVER_HEALTH_PATH} (real PostGIS + required config provided)"
                 echo "--- container logs ---"; docker logs honua-gate 2>&1 | tail -n 40 || true
               fi
-              docker rm -f honua-gate >/dev/null 2>&1 || true
             fi
+            docker rm -f honua-gate honua-gate-db >/dev/null 2>&1 || true
+            docker network rm honua-gate-net >/dev/null 2>&1 || true
             echo "::endgroup::"
           fi
 
