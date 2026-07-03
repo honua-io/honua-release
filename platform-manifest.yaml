@@ -46,9 +46,10 @@ components:
       # by NoArcGisServerVersionTests). Only per-feature contract IDs exist (honua.package_review.v1,
       # honua.report.v1, honua.ai_builder.*.v1) — no surface-level version. STAC advertises the spec
       # level only (StacConstants.StacVersion = "1.0.0" as stac_version), not a Honua contract rollup.
-      # ADR-0058 (unified capability registry) proposes the single source of truth but is a docs-only,
-      # unmerged branch (gate PR #2336). Wire GeoServicesContract/OgcContract/StacContract .Version and
-      # advertise them, then replace these v0 placeholders.
+      # ADR-0058 (unified capability registry as single source of truth) is Accepted and on trunk
+      # (merged #2336; Registry Phase 2 landed). The remaining work is wiring: surface
+      # GeoServicesContract/OgcContract/StacContract .Version through the registry into the
+      # service-info/capabilities response, then replace these v0 placeholders.
       geoservices: v0   # not yet advertised — see note above
       ogc: v0           # not yet advertised
       stac: v0          # not yet advertised (spec level stac_version=1.0.0 only)
@@ -63,8 +64,8 @@ components:
     digest: "TBD-at-publish"           # ghcr package not published yet (registry 404 on 2026-07-01)
 
   honua-sdk-dotnet:
-    version: "1.4.3"                   # release tag dotnet-sdk-v1.4.3 (reachable on trunk)
-    sha: "c13fa1f7599fce84447788afa97aea7aef1cc68b"   # branch: trunk  (clean: no open release-gate PR)
+    version: "1.5.0"                   # release tag dotnet-sdk-v1.5.0 (reachable on trunk)
+    sha: "bcc6de649fdbe15b1ffe8462f84d4b9383b70d30"   # branch: trunk  (clean: no open release-gate PR)
     artifact: "nuget:Honua.Sdk"
 
   honua-sdk-js:
