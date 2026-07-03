@@ -14,8 +14,26 @@ Three layers of check:
 | **coherence** | each pinned semver version **satisfies** every matrix range that names it; the sha couplings (iac/helm → server image, server → db schema) agree between the two files | a pin bumped out of its range, a range tightened past the pin, or a sha/db value that disagrees across files |
 | **drift** | vs a git baseline, a matrix range may only **widen** unless the contract's `version` is bumped | a client's support window narrowed (floor raised / ceiling lowered) or a client dropped, with no contract-version bump — the manifest/matrix half of "a breaking change without a MAJOR bump fails CI" |
 
-The wire-level breaking-change detectors (buf for proto, OpenAPI diff, SDK public-API diff) live in
-the component repos (issues #2/#3); this gate covers the pinned-set + matrix layer.
+The proto wire-breaking detector (buf) runs in `gate-contract.yml` against geospatial-grpc's release
+tags. The REST/OpenAPI + SDK public-API half runs via `contract_surface.py` (below); this
+`validate_platform.py` gate covers the pinned-set + matrix layer.
+
+## `contract_surface.py` — REST/OpenAPI + SDK public-API drift (gate b, `contract-rest-sdk`)
+
+Build-free extraction + diff of the manifest-pinned components' REST/OpenAPI + SDK public-API
+surfaces against the committed baseline in `contracts/baselines/<platform>/`. `2026.1-rc.0` is the
+baseline-setting release (diff empty ⇒ pass); a later surface change without a baseline refresh
+fails. Surfaces are read deterministically from committed source at each pinned sha (no dotnet/npm
+toolchain), so re-extraction in CI reproduces the committed baseline.
+
+```bash
+python tools/contract_surface.py update      # establish/refresh baseline from current manifest pins
+python tools/contract_surface.py check       # gate: pass|fail|blocked (exit 0|1|3)
+python -m pytest tools/test_contract_surface.py   # self-test (proves pass/fail/blocked can fire)
+```
+
+Repos are expected as siblings of `honua-release` (override with `--repos-root`). The gate workflow
+(`gate-contract.yml` → `rest-sdk-api`) clones the pinned components and runs `check`.
 
 ### Run
 

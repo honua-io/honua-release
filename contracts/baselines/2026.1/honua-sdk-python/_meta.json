@@ -1,0 +1,7 @@
+{
+  "artifacts": [
+    "public-api.json"
+  ],
+  "component": "honua-sdk-python",
+  "sha": "70e444b08c9b716cc9ccb1fc0b19982eeb6b88eb"
+}

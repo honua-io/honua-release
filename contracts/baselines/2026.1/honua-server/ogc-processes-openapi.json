@@ -1,0 +1,1003 @@
+{
+  "components": {
+    "parameters": {
+      "fMetadata": {
+        "description": "Metadata response format.",
+        "in": "query",
+        "name": "f",
+        "schema": {
+          "enum": [
+            "json",
+            "html"
+          ],
+          "type": "string"
+        }
+      },
+      "fOpenApi": {
+        "description": "OpenAPI document response format.",
+        "in": "query",
+        "name": "f",
+        "schema": {
+          "enum": [
+            "json"
+          ],
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "AnalysisPlan": {
+        "description": "Analysis plan with steps, inputs, and output expectations.",
+        "properties": {
+          "outputs": {
+            "description": "Desired output artifact kinds.",
+            "items": {
+              "enum": [
+                "scalar",
+                "featureLayer",
+                "table",
+                "raster",
+                "file",
+                "report",
+                "map",
+                "appBundle"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "planId": {
+            "description": "Unique identifier for the analysis plan.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "steps": {
+            "description": "Ordered list of processing steps.",
+            "items": {
+              "$ref": "#/components/schemas/PlanStep"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "planId",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ConformanceDeclaration": {
+        "properties": {
+          "conformsTo": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Exception": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Execute": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "properties": {
+              "plan": {
+                "$ref": "#/components/schemas/AnalysisPlan"
+              }
+            },
+            "required": [
+              "plan"
+            ],
+            "type": "object"
+          },
+          "response": {
+            "default": "document",
+            "description": "Response mode. V1 only supports 'document'.",
+            "enum": [
+              "document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "inputs"
+        ],
+        "type": "object"
+      },
+      "InputDescription": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/ProcessIoSchema"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "JobList": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/StatusInfo"
+            },
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "LandingPage": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Link": {
+        "properties": {
+          "href": {
+            "type": "string"
+          },
+          "rel": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "href"
+        ],
+        "type": "object"
+      },
+      "OutputDescription": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/ProcessIoSchema"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PlanStep": {
+        "description": "Single processing step in an analysis plan.",
+        "properties": {
+          "dependsOn": {
+            "description": "Step IDs this step depends on.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Step input parameters as key-value string pairs.",
+            "type": "object"
+          },
+          "kind": {
+            "description": "Type of processing operation.",
+            "enum": [
+              "queryFeatures",
+              "geoprocess",
+              "aggregate",
+              "renderMap",
+              "export"
+            ],
+            "type": "string"
+          },
+          "processId": {
+            "description": "Optional canonical process identifier for this step.",
+            "type": "string"
+          },
+          "stepId": {
+            "description": "Unique identifier for this step.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ProcessDescription": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProcessSummary"
+          },
+          {
+            "properties": {
+              "inputs": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/InputDescription"
+                },
+                "type": "object"
+              },
+              "outputs": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/OutputDescription"
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "ProcessIoSchema": {
+        "description": "Minimal JSON Schema fragment describing a process input or output value.",
+        "properties": {
+          "contentMediaType": {
+            "description": "Content media type hint for complex inputs.",
+            "type": "string"
+          },
+          "type": {
+            "description": "JSON Schema type (string, number, object, array, etc.).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ProcessList": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "processes": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ProcessSummary": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "jobControlOptions": {
+            "items": {
+              "enum": [
+                "async-execute",
+                "dismiss"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "outputTransmission": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Results": {
+        "additionalProperties": true,
+        "description": "Document-mode results map keyed by output identifier (OGC API Processes Part 1 §7.11.1). V1 canonical process declares no value-typed outputs, so the map is empty.",
+        "type": "object"
+      },
+      "StatusInfo": {
+        "properties": {
+          "created": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "jobID": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processID": {
+            "type": "string"
+          },
+          "progress": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "running",
+              "successful",
+              "failed",
+              "dismissed"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "description": "Resource type discriminator. Always 'process' for OGC API Processes jobs.",
+            "type": "string"
+          },
+          "updated": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "description": "Administrative API key used by protected OGC API Processes operations.",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "OGC API Processes adapter over the Honua canonical geoprocessing runtime.\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
+    "title": "Honua OGC API Processes",
+    "version": "1.0.0",
+    "x-honua-cite-compliance": {
+      "authoritativeSource": "docs/cite-status.md",
+      "lastEvidenceRun": "2026-05-17",
+      "summary": "OGC API Processes does not yet have a published ETS; the surrounding Honua OGC stack passes 952/952 across 11 conformance suites."
+    }
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/ogc/processes": {
+      "get": {
+        "operationId": "OgcProcessesLandingPage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/fMetadata"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LandingPage"
+                }
+              }
+            },
+            "description": "Landing page"
+          }
+        },
+        "summary": "OGC API Processes landing page"
+      }
+    },
+    "/ogc/processes/conformance": {
+      "get": {
+        "operationId": "OgcProcessesConformance",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/fMetadata"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConformanceDeclaration"
+                }
+              }
+            },
+            "description": "Conformance declaration"
+          }
+        },
+        "summary": "OGC API Processes conformance declaration"
+      }
+    },
+    "/ogc/processes/jobs": {
+      "get": {
+        "operationId": "OgcProcessesJobList",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            },
+            "description": "Job list"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Invalid request (e.g. limit <= 0)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Permission denied"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Durable job storage unavailable"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "List jobs"
+      }
+    },
+    "/ogc/processes/jobs/{jobId}": {
+      "delete": {
+        "operationId": "OgcProcessesDismissJob",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusInfo"
+                }
+              }
+            },
+            "description": "Job dismissal confirmed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Permission denied"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "No such job"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Dismiss could not be applied or confirmed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Durable job storage unavailable"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Request dismissal of a job"
+      },
+      "get": {
+        "operationId": "OgcProcessesJobStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusInfo"
+                }
+              }
+            },
+            "description": "Job status"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Permission denied"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "No such job"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Durable job storage unavailable"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get job status"
+      }
+    },
+    "/ogc/processes/jobs/{jobId}/results": {
+      "get": {
+        "operationId": "OgcProcessesJobResults",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Results"
+                }
+              }
+            },
+            "description": "Job succeeded. Document-mode results keyed by output identifier per OGC API Processes Part 1 §7.11.1. V1 declares no value-typed outputs on the canonical process, so the body is an empty object; populated entries land here once result storage ships."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Permission denied"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Job not found or not yet in a terminal state"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Job has been dismissed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Job failed during execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Durable job storage unavailable"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Get job results"
+      }
+    },
+    "/ogc/processes/openapi.json": {
+      "get": {
+        "operationId": "OgcProcessesOpenApiSpec",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/fOpenApi"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/vnd.oai.openapi+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenAPI document"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "OpenAPI document not found"
+          }
+        },
+        "summary": "Get OGC API Processes OpenAPI document"
+      }
+    },
+    "/ogc/processes/processes": {
+      "get": {
+        "operationId": "OgcProcessesList",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessList"
+                }
+              }
+            },
+            "description": "Process list"
+          }
+        },
+        "summary": "List available processes"
+      }
+    },
+    "/ogc/processes/processes/{processId}": {
+      "get": {
+        "operationId": "OgcProcessDescription",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "processId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessDescription"
+                }
+              }
+            },
+            "description": "Process description"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "No such process"
+          }
+        },
+        "summary": "Get process description"
+      }
+    },
+    "/ogc/processes/processes/{processId}/execution": {
+      "post": {
+        "operationId": "OgcProcessExecute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "processId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional preference hint. Async execution is the default for this process; 'respond-async' is accepted and echoed via Preference-Applied when supplied.",
+            "in": "header",
+            "name": "Prefer",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Execute"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusInfo"
+                }
+              }
+            },
+            "description": "Async job created",
+            "headers": {
+              "Location": {
+                "description": "URL of the job status endpoint",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "Returned when the client requested 'respond-async' and the server applied that preference.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Permission denied or approval required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "No such process"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Unsupported response mode in V1"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exception"
+                }
+              }
+            },
+            "description": "Durable job storage unavailable"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Execute a process"
+      }
+    }
+  }
+}
