@@ -185,6 +185,55 @@ def test_load_rollup_never_lists_a_build_or_test_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not an aggregator"
 
 
+# ---- dependency-security check-runs ---------------------------------------------------------------
+SECURITY = frozenset({"Dependabot"})
+
+
+def test_security_red_is_excluded_when_core_green():
+    # The real honua-console case: all real build/test lanes green; only the Dependabot dependency-
+    # security check red → component PASSES (security is gate_security's concern, not build-test).
+    payload = _named(
+        ("Validate Console", "success"),
+        ("Playwright smoke", "success"),
+        ("Live Integration (Testcontainers, pinned server image)", "success"),
+        ("Dependabot", "failure"),
+    )
+    status, why = bt.classify(payload, frozenset(), frozenset(), SECURITY)
+    assert status == "pass", why
+    assert "dependency-security" in why and "gate_security" in why  # surfaced for audit
+
+
+def test_security_never_masks_a_real_core_red():
+    # GUARDRAIL: a genuine build/unit red must fail even alongside a red security check — never masked.
+    payload = _named(("Validate Console", "failure"), ("Dependabot", "failure"))
+    assert bt.classify(payload, frozenset(), frozenset(), SECURITY)[0] == "fail"
+
+
+def test_only_security_checks_is_blocked_never_pass():
+    # If nothing but security checks are present, there is no build/test signal → blocked, never pass.
+    payload = _named(("Dependabot", "success"))
+    assert bt.classify(payload, frozenset(), frozenset(), SECURITY)[0] == "blocked"
+
+
+def test_security_green_is_ignored_and_core_decides():
+    # A security check happening to be green is simply excluded; core decides (here: pass, no note).
+    payload = _named(("Validate Console", "success"), ("Dependabot", "success"))
+    status, why = bt.classify(payload, frozenset(), frozenset(), SECURITY)
+    assert status == "pass" and "dependency-security" not in why  # nothing excluded-nongreen → no note
+
+
+def test_load_security_never_lists_a_build_or_test_lane():
+    # GUARDRAIL: the shipped security policy must only name dependency-security signals, never a real
+    # build/compile/unit/integration lane.
+    security = bt.load_security()
+    banned = ("restore", "build", "format", "compile", "unit", "server tests (", "analyze", "coverage",
+              "integration", "playwright", "validate console")
+    for comp, names in security.items():
+        for n in names:
+            low = n.lower()
+            assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not a security signal"
+
+
 # ---- evaluate -------------------------------------------------------------------------------------
 def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)

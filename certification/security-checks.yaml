@@ -1,0 +1,43 @@
+# Security / dependency check-runs (release gate 'a' — build/test fan-out).
+#
+# WHY THIS FILE EXISTS
+# The build/test gate (certification/check_build_test.py) reads EVERY CI check-run on a component's
+# pinned SHA and fails the train if any is red. A few of those check-runs are NOT build/compile/unit/
+# integration lanes at all — they are DEPENDENCY-SECURITY signals (Dependabot version updates, SCA/
+# advisory scanners) contributed by a security app/workflow rather than the component's build+test CI.
+# Whether a dependency has an available update or an open advisory is a SUPPLY-CHAIN verdict owned by
+# the security gate (gate_security, where Trivy/Scorecard already run) — it is not a statement about
+# whether the pinned commit BUILDS or its unit/integration tests PASS. A red here (e.g. Dependabot
+# failing to reach a private feed, or flagging an available bump) must not redden the build/test gate.
+#
+# WHAT THE GATE DOES WITH THIS LIST
+# For each component, check-runs whose NAME matches an entry below are EXCLUDED from the decisive
+# build/test pass/fail/blocked verdict — the gate decides on the component's actual build/unit/
+# integration lanes only. Excluded security checks are surfaced in the `why` for auditability and are
+# the security gate's concern, not build-test's.
+#
+# HARD GUARDRAIL (enforced by test_build_test.py — a gate that can't fail is worse than no gate):
+#   * ONLY list dependency-security / SCA / advisory check-runs that run NO build/compile/unit/
+#     integration of the component. NEVER list a build/restore/format/compile/unit-test or
+#     integration lane — a genuine build/test red still surfaces on a core lane, which stays in the
+#     verdict, so excluding a security signal can never mask it. Proven in test_build_test.py.
+#   * If a component has NO core check-runs left after removing env-gated + roll-up + security lanes,
+#     it is `blocked` (no build/test signal), never `pass`.
+#   * Adding a name here is an auditable policy decision: it asserts the named check is a dependency-
+#     security signal owned by gate_security, not a build/test lane. A REAL open advisory it surfaces
+#     is still a security-gate finding to resolve — excluding it from build-test does not dismiss it.
+#
+# Keyed by component name (must match platform-manifest.yaml components).
+
+honua-console:
+  - name: "Dependabot"
+    why: >-
+      Dependabot dependency-update check — it runs NO console build/unit/integration (Console's own
+      build/test lanes: Validate Console, Playwright smoke, and the pinned-image Live Integration
+      Testcontainers lane, are authoritative and remain in the core verdict). It is a dependency-
+      security signal owned by gate_security (where Trivy fs + Scorecard run), not build-test. On the
+      pinned SHA it went red on `private_source_authentication_failure` — the Dependabot updater could
+      not authenticate to the private GitHub Packages NuGet feed (nuget.pkg.github.com/honua-io) for
+      Honua.Sdk.Studio; that is a Dependabot feed-credential/config gap, NOT an open CVE/advisory on a
+      console dependency, so nothing is being buried here. Either way a dependency-update red is not a
+      build/test verdict and must not block the build-test gate.
