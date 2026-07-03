@@ -1,0 +1,43 @@
+# Aggregate / roll-up check-runs (release gate 'a' — build/test fan-out).
+#
+# WHY THIS FILE EXISTS
+# The build/test gate (certification/check_build_test.py) reads EVERY CI check-run on a component's
+# pinned SHA. A few of those check-runs are pure AGGREGATORS: `needs:`-only summary jobs that run no
+# tests of their own and merely mirror the collective result of the leaf shards (a "Check required
+# job results" step). Because they depend on every shard, they go RED whenever a leaf shard is
+# runner-starvation-CANCELLED — even though NO test actually failed (0 failed shards, some cancelled).
+# Treating that aggregator red as a build/test failure manufactures a FALSE fail from a leaf flake.
+#
+# WHAT THE GATE DOES WITH THIS LIST
+# For each component, check-runs whose NAME matches an entry below are EXCLUDED from the decisive
+# pass/fail/blocked verdict — the gate decides on the leaf shards only, so a roll-up "follows its
+# leaf shards". A cancelled leaf then correctly classifies as a re-runnable flake (blocked), not a
+# hard fail. Excluded roll-ups are surfaced in the `why` for auditability.
+#
+# HARD GUARDRAIL (enforced by test_build_test.py — a gate that can't fail is worse than no gate):
+#   * ONLY list PURE aggregator jobs that run no independent tests (they only aggregate other jobs'
+#     results via `needs:` + a result-check step). NEVER list a build/restore/compile/unit-test or
+#     integration lane — a genuine failure surfaces on a LEAF shard, which stays in the core verdict,
+#     so excluding a redundant aggregator can never mask a real red. Proven in test_build_test.py.
+#   * If a component has NO core check-runs left after removing env-gated + roll-up lanes, it is
+#     `blocked` (no build/test signal), never `pass`.
+#   * Adding a name here is an auditable policy decision: it asserts the named check runs no tests of
+#     its own and only mirrors the leaf shards.
+#
+# Keyed by component name (must match platform-manifest.yaml components).
+
+honua-server:
+  - name: "CI Gate"
+    why: >-
+      PR-time aggregator job (workflow job `ci-gate`): needs: [pr-template-check, pr-readiness,
+      changes, targeted-shards, ci-router-validation, build, test-all, aot-build,
+      js-integration-tests, esri-leaflet-browser-tests, maplibre-compat, mcp-certification,
+      core-package-compatibility, postgres-compat, docker-build] with a single "Check required job
+      results" step. It runs no tests; it goes red when any needed job is cancelled (runner
+      starvation). The leaf shards it aggregates remain in the core verdict, so a real red still fails.
+  - name: "Test Suite Summary"
+    why: >-
+      Aggregator job (workflow job `test-all`): needs: [all Server Tests shards] + a "Check required
+      test job results" step. Runs no tests of its own; goes red when a Server Tests shard is
+      starvation-cancelled. Each Server Tests shard is itself a core check-run, so a genuine test
+      failure is still caught on the shard.

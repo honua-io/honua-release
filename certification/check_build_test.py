@@ -41,6 +41,7 @@ except ImportError as exc:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
+ROLLUP_PATH = REPO_ROOT / "certification" / "rollup-checks.yaml"
 ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
@@ -54,6 +55,33 @@ FLAKE = {"cancelled"}
 
 # A check-runs payload is either the parsed dict, or one of these sentinels.
 NOT_FOUND = "not_found"     # sha/repo not resolvable (404 / no access)
+
+
+def _load_check_names(path) -> dict[str, frozenset[str]]:
+    """Shared loader: YAML keyed by component -> [{name, why}, ...] -> {component: frozenset(names)}.
+    Missing file => empty map."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    out: dict[str, frozenset[str]] = {}
+    for comp, entries in data.items():
+        names = {str((e or {}).get("name", "")).strip() for e in (entries or [])}
+        out[comp] = frozenset(n for n in names if n)
+    return out
+
+
+def load_rollup(path=ROLLUP_PATH) -> dict[str, frozenset[str]]:
+    """Load per-component AGGREGATE / roll-up check-run NAMES (see rollup-checks.yaml).
+
+    These are pure `needs:`-based summary jobs (e.g. honua-server's "CI Gate" and "Test Suite
+    Summary") that run NO tests of their own — they only mirror the collective result of the leaf
+    shards. They therefore go RED whenever a leaf shard is starvation-CANCELLED, even though no test
+    actually failed. The gate excludes them from the decisive verdict so a roll-up "follows its leaf
+    shards": every genuine failure still surfaces on a leaf shard (which IS evaluated), so excluding a
+    redundant aggregator can never mask a real red — while a leaf-cancellation artifact no longer
+    manufactures a false fail. Missing file => empty map => original behaviour (roll-ups counted)."""
+    return _load_check_names(path)
 
 
 def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
@@ -75,13 +103,18 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
-def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[str, str]:
+def classify(payload, env_gated_names: frozenset[str] = frozenset(),
+             rollup_names: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
     are excluded from the core verdict and, when non-green, reported as skipped (backend not
-    provisioned). The pass/fail/blocked decision is made on the CORE (remaining) check-runs only, so a
-    real compile/unit-test red still fails; env-gated lanes can never mask it."""
+    provisioned). `rollup_names` are pure aggregate/summary check-runs (`needs:`-only jobs that run no
+    tests of their own — e.g. "CI Gate", "Test Suite Summary"); they are ALSO excluded from the core
+    verdict because they merely mirror the leaf shards and go red on a starvation-cancelled leaf. The
+    pass/fail/blocked decision is made on the CORE (remaining) check-runs only, so a real compile/unit
+    -test red still fails (it surfaces on a leaf shard that stays in core); env-gated and roll-up lanes
+    can never mask it."""
     if payload == NOT_FOUND:
         return "blocked", "pinned sha or repo not resolvable (404 / no access)"
     if not isinstance(payload, dict):
@@ -90,7 +123,8 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[st
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
 
-    core = [r for r in runs if str(r.get("name", "")) not in env_gated_names]
+    excluded = env_gated_names | rollup_names
+    core = [r for r in runs if str(r.get("name", "")) not in excluded]
     env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
     # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
     env_skipped = [r for r in env
@@ -98,10 +132,18 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset()) -> tuple[st
     env_note = (f"; {len(env_skipped)} env-gated integration lane(s) skipped "
                 f"({sorted({str(r.get('name')) for r in env_skipped})}) — backend not provisioned"
                 if env_skipped else "")
+    # roll-up aggregators that went non-green (they follow their leaves; a red here without a red leaf
+    # is a cancelled-leaf artifact, already reflected by the leaf's own flake/verdict in core).
+    rollup_nongreen = [r for r in runs if str(r.get("name", "")) in rollup_names
+                       and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
+    rollup_note = (f"; {len(rollup_nongreen)} aggregate roll-up check(s) excluded "
+                   f"({sorted({str(r.get('name')) for r in rollup_nongreen})}) — follows leaf shards"
+                   if rollup_nongreen else "")
+    env_note = env_note + rollup_note
 
     if not core:
-        # Only env-gated lanes ran → no core build/test signal to certify on. Never optimistically pass.
-        return "blocked", "only env-gated integration check-runs present; no core build/test signal"
+        # Only env-gated / roll-up lanes ran → no core build/test signal to certify on. Never pass.
+        return "blocked", "only env-gated / roll-up check-runs present; no core build/test signal"
 
     # A CORE (build/unit) red is decisive and is evaluated FIRST — before "still in progress" — so a
     # real failure is never masked as blocked-in-progress just because sibling shards are still
@@ -150,9 +192,11 @@ def _default_fetch(repo: str, sha: str) -> object:
 
 
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
-             env_gated: dict[str, frozenset[str]] | None = None) -> dict:
+             env_gated: dict[str, frozenset[str]] | None = None,
+             rollup: dict[str, frozenset[str]] | None = None) -> dict:
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
+    rollup = rollup or {}
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -161,7 +205,8 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
             rows.append({"component": name, "status": "blocked",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
-        status, why = classify(fetch(name, sha), env_gated.get(name, frozenset()))
+        status, why = classify(fetch(name, sha), env_gated.get(name, frozenset()),
+                               rollup.get(name, frozenset()))
         rows.append({"component": name, "status": status, "sha": sha[:12], "why": why})
 
     def decided(s: str) -> str:
@@ -186,12 +231,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--env-gated", default=str(ENV_GATED_PATH),
                     help="YAML of per-component env-gated integration check-run names")
+    ap.add_argument("--rollup", default=str(ROLLUP_PATH),
+                    help="YAML of per-component aggregate/roll-up check-run names (excluded from the verdict)")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
     env_gated = load_env_gated(args.env_gated)
-    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated)
+    rollup = load_rollup(args.rollup)
+    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

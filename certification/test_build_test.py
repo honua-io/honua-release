@@ -125,6 +125,66 @@ def test_load_env_gated_never_lists_a_build_or_unit_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a core lane"
 
 
+# ---- aggregate / roll-up check-runs ---------------------------------------------------------------
+ROLLUP = frozenset({"CI Gate", "Test Suite Summary"})
+
+
+def test_rollup_failure_from_cancelled_leaf_is_blocked_not_fail():
+    # The real honua-server case: all leaf shards green except two starvation-CANCELLED; the aggregator
+    # roll-ups ("CI Gate", "Test Suite Summary") therefore go `failure`. Excluding the roll-ups, the
+    # verdict follows the leaves → cancelled flake → BLOCKED (re-runnable), never a false fail.
+    payload = _named(
+        ("Server Tests (Core)", "success"),
+        ("Server Tests (Server Features Misc)", "cancelled"),
+        ("Server Tests (Server Features Admin and Console)", "cancelled"),
+        ("Restore and Build", "success"),
+        ("CI Gate", "failure"),
+        ("Test Suite Summary", "failure"),
+    )
+    status, why = bt.classify(payload, frozenset(), ROLLUP)
+    assert status == "blocked", why
+    assert "cancelled" in why and "re-runnable" in why
+    assert "roll-up" in why  # the excluded aggregators are surfaced for audit
+
+
+def test_rollup_never_masks_a_real_leaf_red():
+    # GUARDRAIL: a genuine test failure surfaces on a LEAF shard (which stays in core), so excluding the
+    # aggregator roll-ups must NOT hide it — still fails.
+    payload = _named(
+        ("Server Tests (FileImport)", "failure"),   # real leaf red
+        ("Server Tests (Core)", "success"),
+        ("CI Gate", "failure"),
+        ("Test Suite Summary", "failure"),
+    )
+    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "fail"
+
+
+def test_rollup_all_leaves_green_is_pass():
+    # Leaves all green; the roll-ups (also green here) are simply excluded → pass.
+    payload = _named(
+        ("Server Tests (Core)", "success"), ("Restore and Build", "success"),
+        ("CI Gate", "success"), ("Test Suite Summary", "success"),
+    )
+    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "pass"
+
+
+def test_only_rollup_checks_is_blocked_never_pass():
+    # If nothing but aggregators are present, there is no leaf build/test signal → blocked, never pass.
+    payload = _named(("CI Gate", "success"), ("Test Suite Summary", "success"))
+    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "blocked"
+
+
+def test_load_rollup_never_lists_a_build_or_test_lane():
+    # GUARDRAIL: the shipped roll-up policy must only name pure aggregators, never a real shard/build.
+    rollup = bt.load_rollup()
+    banned = ("restore", "build", "format", "compile", "unit", "server tests (", "analyze", "coverage",
+              "integration")
+    for comp, names in rollup.items():
+        for n in names:
+            low = n.lower()
+            assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not an aggregator"
+
+
 # ---- evaluate -------------------------------------------------------------------------------------
 def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)
