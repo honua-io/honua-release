@@ -26,6 +26,12 @@ class TfTargetSpec:
     endpoint_output: str = "honua_url"
     redis_var: str = "redis_enabled"
     image_hint: str = ""  # human hint for the BLOCKED message
+    # Extra terraform vars this root needs for an EPHEMERAL, reaped-on-teardown cert run. The ECS root's
+    # ALB defaults enable_deletion_protection=true, which strands the ALB on `terraform destroy` (an
+    # orphaned ALB every run) for the ecs cell. Force it off here (the shell integration harness already
+    # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
+    # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
+    ephemeral_vars: tuple[str, ...] = ()
 
 
 class TerraformTarget(DeployTarget):
@@ -71,7 +77,15 @@ class TerraformTarget(DeployTarget):
         return subprocess.run(["terraform", f"-chdir={root}", *args], text=True, capture_output=True, check=check)
 
     def _vars(self, redis_enabled: bool) -> list[str]:
-        prefix = f"honua{self.name.replace('-', '')[:6]}{self.run_id[:6]}".lower()[:18]
+        # The Redis mode MUST be part of the prefix. The cert harness runs the redis-on and redis-off
+        # cells for the same target with the SAME run_id (one GITHUB_RUN_ID across the whole matrix) IN
+        # PARALLEL against one AWS account; an identical name_prefix collides on named resources (RDS
+        # identifier, Lambda name, ...) and fails the redis-on cell spuriously (DBInstanceAlreadyExists
+        # / ResourceExistsException). The `r`/`n` (redis / no-redis) tag, placed right after the "honua"
+        # prefix so it survives the length cap, keeps the two cells' resource sets independent. Bounded
+        # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
+        redis_tag = "r" if redis_enabled else "n"
+        prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
         admin_pw = os.environ.get("HONUA_ADMIN_PASSWORD", f"it-{self.run_id}-Aa1!")
         return [
             "-input=false", "-no-color",
@@ -81,6 +95,7 @@ class TerraformTarget(DeployTarget):
             f"-var={self.spec.image_var}={os.environ[self.spec.image_env]}",
             f"-var=honua_admin_password={admin_pw}",
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
+            *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]
 
     def provision(self, redis_enabled: bool = False) -> str:
@@ -124,6 +139,7 @@ ECS_SPEC = TfTargetSpec(
     image_env="HONUA_ECS_IMAGE",
     image_var="honua_image",
     image_hint="container image (ghcr or ECR; immutable tag/digest)",
+    ephemeral_vars=("alb_deletion_protection=false",),
 )
 
 

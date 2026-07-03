@@ -120,6 +120,51 @@ def test_all_three_aws_targets_registered():
     assert set(REGISTRY) == {"aws-serverless", "aws-ecs", "aws-eks"}
 
 
+def _tf_vars(argv):
+    """Parse `-var=k=v` flags from a terraform arg list into a {k: v} dict."""
+    out = {}
+    for a in argv:
+        if a.startswith("-var="):
+            k, _, v = a[len("-var="):].partition("=")
+            out[k] = v
+    return out
+
+
+def test_prefix_distinct_per_redis_mode_no_collision(monkeypatch):
+    # Regression guard for the strict-cloud-parity collision: the redis-on and redis-off cells run
+    # against the same AWS account with the SAME run_id (one GITHUB_RUN_ID across the matrix), so their
+    # name_prefix MUST differ or RDS/Lambda/etc. names collide and the redis-on cell fails spuriously.
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    for factory in (serverless, ecs):
+        t = factory(run_id="run1234567890")
+        on = _tf_vars(t._vars(True))
+        off = _tf_vars(t._vars(False))
+        assert on["name_prefix"] != off["name_prefix"], (t.name, on["name_prefix"], off["name_prefix"])
+        # redis toggle is still correctly threaded to the module var.
+        assert on["redis_enabled"] == "true" and off["redis_enabled"] == "false"
+        # both bounded for RDS(63)/Lambda(64) identifiers once the module suffixes ("<=18>-it-...").
+        for p in (on["name_prefix"], off["name_prefix"]):
+            assert 0 < len(p) <= 18 and p.isalnum() and p.islower(), (t.name, p)
+
+    # EKS derives its prefix independently (cluster, not a tf output) — same non-collision guarantee,
+    # and teardown must reconstruct the exact prefix it applied (stored on provision, not recomputed).
+    eks = REGISTRY["aws-eks"](run_id="run1234567890")
+    assert eks._name_prefix(True) != eks._name_prefix(False)
+    assert 0 < len(eks._name_prefix(True)) <= 18
+    assert eks._prefix is None  # unset until provision; teardown falls back safely
+
+
+def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatch):
+    # The ECS ALB defaults deletion_protection=true and would strand the ALB on `terraform destroy`;
+    # the ephemeral cert harness must force it off. Serverless has no ALB, so it must NOT pass the var
+    # (the serverless root doesn't declare it — passing it would be a terraform error).
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    assert _tf_vars(ecs(run_id="r1")._vars(False)).get("alb_deletion_protection") == "false"
+    assert "alb_deletion_protection" not in _tf_vars(serverless(run_id="r1")._vars(False))
+
+
 def test_serverless_blocked_without_infra(monkeypatch):
     for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)

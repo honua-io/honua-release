@@ -30,6 +30,14 @@ class AwsEksTarget(DeployTarget):
         self.run_id = run_id
         self.region = region or os.environ.get("AWS_REGION", "us-east-1")
         self._workdir: Path | None = None
+        self._prefix: str | None = None
+
+    def _name_prefix(self, redis_enabled: bool) -> str:
+        # Redis mode in the prefix so the redis-on and redis-off EKS cells (same run_id, run in parallel)
+        # provision independent, non-colliding cluster resource names. Bounded to 18 chars. Stored on
+        # provision so teardown reaps the exact same names it applied.
+        redis_tag = "r" if redis_enabled else "n"
+        return f"honuaeks{redis_tag}{self.run_id[:6]}".lower()[:18]
 
     def _iac_root(self) -> Path | None:
         base = os.environ.get("HONUA_IAC_DIR")
@@ -68,7 +76,7 @@ class AwsEksTarget(DeployTarget):
         if root is None:
             raise ProvisionError(f"{self.name}: honua-iac EKS root not found (set HONUA_IAC_DIR)")
         self._workdir = root
-        prefix = f"honuaeks{self.run_id[:6]}".lower()[:18]
+        prefix = self._prefix = self._name_prefix(redis_enabled)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
             self._tf(root, "apply", "-auto-approve", "-input=false", "-no-color",
@@ -89,7 +97,7 @@ class AwsEksTarget(DeployTarget):
         if root is None:
             return
         try:
-            prefix = f"honuaeks{self.run_id[:6]}".lower()[:18]
+            prefix = self._prefix or self._name_prefix(False)
             self._tf(root, "destroy", "-auto-approve", "-input=false", "-no-color",
                      f"-var=region={self.region}", f"-var=name_prefix={prefix}", "-var=environment=it", check=False)
         except Exception:  # noqa: BLE001 - best-effort reaper
