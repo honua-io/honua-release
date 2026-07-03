@@ -72,7 +72,11 @@ class TerraformTarget(DeployTarget):
 
     def _vars(self, redis_enabled: bool) -> list[str]:
         prefix = f"honua{self.name.replace('-', '')[:6]}{self.run_id[:6]}".lower()[:18]
-        admin_pw = os.environ.get("HONUA_ADMIN_PASSWORD", f"it-{self.run_id}-Aa1!")
+        # The honua-iac modules validate admin_password length (>=32 chars) + complexity, so the
+        # generated ephemeral test password must satisfy that contract or `terraform apply` fails at
+        # variable validation before anything is provisioned.
+        run = self.run_id or "local"
+        admin_pw = os.environ.get("HONUA_ADMIN_PASSWORD") or f"HonuaCertIt-{run}-Aa1!-{run}-padpad"
         return [
             "-input=false", "-no-color",
             f"-var=region={self.region}",
