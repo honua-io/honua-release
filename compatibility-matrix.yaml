@@ -64,10 +64,10 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha (trunk == ghcr nightly-aot), so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:b6b60c7cbc98c8b901141282e19d15973dbc33ee"   # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
+    deploysServerImage: "sha:13351eb7551ef4022fc1feb09233d0f4f2e76a2e"   # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:b6b60c7cbc98c8b901141282e19d15973dbc33ee"          # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
+    appVersion: "sha:13351eb7551ef4022fc1feb09233d0f4f2e76a2e"          # re-pinned to honua-server trunk HEAD f3c811b (#2378 CA1873 fix; full CI build+shards GREEN)
 
 data:
   honua-server:
