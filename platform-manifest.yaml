@@ -26,7 +26,7 @@ snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by
 components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
-    sha: "10f2b1f627552246438c751d9f975953e9ccc57b"   # branch: trunk HEAD; #2378 fixed CA1873 build break — full CI 28613091059 build+all completed shards GREEN (2 shards runner-starvation-cancelled, re-runnable)
+    sha: "5152a8e27fe15a9817ad0aecd42dc1e06c756319"   # branch: trunk HEAD; #2378 fixed CA1873 build break — full CI 28613091059 build+all completed shards GREEN (2 shards runner-starvation-cancelled, re-runnable)
     image: "ghcr.io/honua-io/honua-server:nightly-aot"  # :latest only moves on v* releases; trunk == nightly-aot
     # digest of the current :nightly-aot manifest (resolved from ghcr on 2026-07-01). The nightly image
     # is rebuilt on schedule, so it may lag trunk HEAD until the next nightly build / release publish.
@@ -59,7 +59,7 @@ components:
 
   honua-console:
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    sha: "642d110b1872b7fd64ed31f13f80be06a91b62b8"   # branch: trunk
+    sha: "d26993f49f437347e699ff36a88c20bb60a190e6"   # branch: trunk
     image: "ghcr.io/honua-io/honua-console:nightly"
     digest: "TBD-at-publish"           # ghcr package not published yet (registry 404 on 2026-07-01)
 
