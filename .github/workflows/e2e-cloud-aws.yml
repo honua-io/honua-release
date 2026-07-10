@@ -71,10 +71,10 @@ jobs:
       HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Checkout honua-iac (terraform tree)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: honua-io/honua-iac
           path: _honua-iac
@@ -83,17 +83,17 @@ jobs:
 
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: honua-io/honua-helm
           path: _honua-helm
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
       - run: python -m pip install pytest
@@ -105,7 +105,7 @@ jobs:
       # OIDC into AWS — only when a role is configured; otherwise the cell self-skips.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
@@ -143,7 +143,7 @@ jobs:
 
       - name: Upload cloud gate-report (per cell)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
@@ -206,7 +206,7 @@ jobs:
 
       - name: Upload iac-live report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cloud-iac-live-report
           path: out/gate-report-cloud.json
@@ -221,7 +221,7 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download all cloud reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: "*cloud*report*"
           path: reports
@@ -273,7 +273,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cloud-gate-report
           path: out/gate-report-cloud.json

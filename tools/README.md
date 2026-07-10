@@ -1,5 +1,8 @@
 # tools/ — release-repo gate tooling
 
+GitHub Actions supply-chain pins are enforced by `check_action_pins.py`; the review and update
+procedure is documented in [`docs/ACTION-PINNING.md`](../docs/ACTION-PINNING.md).
+
 ## `validate_platform.py` — Phase 0 source-of-truth gate (issue #1)
 
 Validates `platform-manifest.yaml` + `compatibility-matrix.yaml` and enforces compatibility drift.

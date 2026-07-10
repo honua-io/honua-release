@@ -109,8 +109,8 @@ jobs:
   consume-npm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
 
@@ -195,8 +195,8 @@ jobs:
   consume-nuget:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: "8.0.x"
 
@@ -291,8 +291,8 @@ jobs:
   consume-pip:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -386,8 +386,8 @@ jobs:
   consume-terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_wrapper: false
 
@@ -472,8 +472,8 @@ jobs:
   consume-helm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: "v3.14.4"
 
@@ -571,7 +571,7 @@ jobs:
   consume-docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
       - name: Consume honua-server image
         id: consume
         env:
@@ -679,8 +679,8 @@ jobs:
   consume-grpc-codegen:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # for the local ./.github/actions/gate-fragment composite action
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           github_token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -769,7 +769,7 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: gate-fragment-*
           path: fragments
@@ -832,7 +832,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report.json
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-report
           path: out/gate-report.json

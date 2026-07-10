@@ -37,11 +37,16 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0          # need the base ref present for `git show <base>:matrix` drift
 
-      - uses: actions/setup-python@v5
+      # Standard-library-only and deliberately before dependency installation: a mutable action
+      # reference must fail the branch-protected validate job even when no Python deps are present.
+      - name: Enforce immutable GitHub Actions pins
+        run: python3 tools/check_action_pins.py
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
