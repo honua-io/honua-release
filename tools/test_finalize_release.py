@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _report(overall, label="2026.1-rc.3", gates=None):
-    return {"platform_label": label, "overallStatus": overall,
+    return {"platform_label": label, "dry_run": False, "overallStatus": overall,
             "gates": gates or [{"gate": "manifest", "decided": "pass"}],
             "evidence_url": "https://example/run/1"}
 
@@ -69,6 +69,22 @@ def test_non_dict_report_is_refused():
     assert not ok
 
 
+def test_all_green_dry_run_report_is_refused():
+    report = _report("pass")
+    report["dry_run"] = True
+    ok, why = fr.verify_gate_report(report, "2026.1")
+    assert not ok
+    assert "dry-run" in why
+
+
+def test_report_without_certification_mode_is_refused():
+    report = _report("pass")
+    del report["dry_run"]
+    ok, why = fr.verify_gate_report(report, "2026.1")
+    assert not ok
+    assert "dry_run" in why
+
+
 # ---- finalize --------------------------------------------------------------------------------------
 def test_finalize_sets_released_status_and_base_label():
     m = fr.finalize_manifest({"platformRelease": "2026.1-rc.0", "status": "draft", "components": {}},
@@ -88,10 +104,12 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
     identity = {
         "source_repository": "honua-io/honua-release",
         "source_sha": "a" * 40,
+        "source_branch": "trunk",
         "workflow_path": ".github/workflows/release-train.yml",
         "train_run_id": "28720697360",
         "train_run_attempt": 1,
         "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "certification_mode": "live",
     }
     report = cb.bind_gate_report(
         _report("pass"),
@@ -114,10 +132,12 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "--matrix", str(matrix),
         "--source-repository", identity["source_repository"],
         "--source-sha", identity["source_sha"],
+        "--source-branch", identity["source_branch"],
         "--workflow-path", identity["workflow_path"],
         "--train-run-id", identity["train_run_id"],
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
+        "--certification-mode", identity["certification_mode"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])

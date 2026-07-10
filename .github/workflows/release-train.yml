@@ -284,10 +284,12 @@ jobs:
         env:
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
           SOURCE_WORKFLOW_REF: ${{ github.workflow_ref }}
           TRAIN_RUN_ID: ${{ github.run_id }}
           TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
           TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CERTIFICATION_MODE: ${{ inputs.dry_run && 'dry-run' || 'live' }}
         run: |
           set -euo pipefail
           WORKFLOW_PATH="${SOURCE_WORKFLOW_REF#${SOURCE_REPOSITORY}/}"
@@ -298,10 +300,12 @@ jobs:
             --matrix candidate-input/compatibility-matrix.yaml \
             --source-repository "$SOURCE_REPOSITORY" \
             --source-sha "$SOURCE_SHA" \
+            --source-branch "$SOURCE_BRANCH" \
             --workflow-path "$WORKFLOW_PATH" \
             --train-run-id "$TRAIN_RUN_ID" \
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
+            --certification-mode "$CERTIFICATION_MODE" \
             --out-dir out/certified-candidate
           python tools/candidate_binding.py verify \
             --report out/certified-candidate/gate-report.json \
@@ -309,10 +313,12 @@ jobs:
             --matrix out/certified-candidate/compatibility-matrix.yaml \
             --source-repository "$SOURCE_REPOSITORY" \
             --source-sha "$SOURCE_SHA" \
+            --source-branch "$SOURCE_BRANCH" \
             --workflow-path "$WORKFLOW_PATH" \
             --train-run-id "$TRAIN_RUN_ID" \
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
-            --train-run-url "$TRAIN_RUN_URL"
+            --train-run-url "$TRAIN_RUN_URL" \
+            --certification-mode "$CERTIFICATION_MODE"
 
       - name: Upload bound platform gate-report.json
         uses: actions/upload-artifact@v4

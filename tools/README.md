@@ -53,9 +53,12 @@ third-party semver lib).
 
 Packages the frozen `platform-manifest.yaml` and `compatibility-matrix.yaml` with the platform gate
 report. The report binds both files by SHA-256 and size and records the certifying source repository,
-source SHA, workflow path, run id, and run attempt. `promote.yml` fetches the selected run from the
-GitHub Actions API and requires all of that identity and both artifact digests to match before it
-parses the manifest, generates a BOM, signs anything, or creates a release.
+source SHA and branch, workflow path, run id and attempt, and explicit `live`/`dry-run` certification
+mode. `promote.yml` fetches the selected run, repository, and branch from the GitHub API. It requires
+the run to be successful, from the protected current default branch, and bound to `live` mode. It
+then requires all identity fields and both artifact digests to match before it parses the manifest,
+generates a BOM, signs anything, or creates a release. Missing protection and legacy reports without
+an explicit boolean `dry_run` field fail closed.
 
 The release train publishes the three files together as the immutable `certified-candidate` artifact.
 Promotion checks out release tooling at the certified source SHA and passes the bundled files by

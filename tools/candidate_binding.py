@@ -20,6 +20,7 @@ from pathlib import Path
 BINDING_SCHEMA_VERSION = 1
 PLATFORM_MANIFEST = "platform-manifest.yaml"
 COMPATIBILITY_MATRIX = "compatibility-matrix.yaml"
+CERTIFICATION_MODES = frozenset({"live", "dry-run"})
 _ARTIFACT_FILENAMES = (PLATFORM_MANIFEST, COMPATIBILITY_MATRIX)
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -49,15 +50,19 @@ def _require_artifact(path: Path, filename: str) -> None:
 def _require_identity(
     source_repository: str,
     source_sha: str,
+    source_branch: str,
     workflow_path: str,
     train_run_id: str,
     train_run_attempt: int,
     train_run_url: str,
+    certification_mode: str,
 ) -> None:
     if source_repository.count("/") != 1 or any(not part for part in source_repository.split("/")):
         raise CandidateBindingError("source repository must be an owner/repository name")
     if not _SHA_PATTERN.fullmatch(source_sha):
         raise CandidateBindingError("source SHA must be a lowercase 40-64 character hexadecimal digest")
+    if not source_branch or any(ord(char) < 33 for char in source_branch):
+        raise CandidateBindingError("source branch must be a non-empty Git branch name without whitespace")
     if not workflow_path.startswith(".github/workflows/") or not workflow_path.endswith((".yml", ".yaml")):
         raise CandidateBindingError("workflow path must identify a GitHub Actions workflow")
     if not train_run_id.isdigit() or int(train_run_id) <= 0:
@@ -66,6 +71,86 @@ def _require_identity(
         raise CandidateBindingError("train run attempt must be a positive integer")
     if train_run_url != f"https://github.com/{source_repository}/actions/runs/{train_run_id}":
         raise CandidateBindingError("train run URL does not match its repository and run id")
+    if certification_mode not in CERTIFICATION_MODES:
+        raise CandidateBindingError(
+            f"certification mode must be one of {sorted(CERTIFICATION_MODES)}, got {certification_mode!r}"
+        )
+
+
+def validate_train_run_metadata(
+    run: dict,
+    repository: dict,
+    branch: dict,
+    *,
+    expected_repository: str,
+    expected_workflow_path: str,
+    expected_run_id: str,
+) -> tuple[bool, str, dict | None]:
+    """Validate a certifying run against authoritative Actions and repository metadata."""
+    if not isinstance(run, dict) or not isinstance(repository, dict) or not isinstance(branch, dict):
+        return False, "Actions run, repository, and branch metadata must be objects", None
+    if repository.get("full_name") != expected_repository:
+        return False, "repository metadata does not match the promotion repository", None
+
+    default_branch = repository.get("default_branch")
+    if not isinstance(default_branch, str) or not default_branch:
+        return False, "repository metadata has no default branch", None
+    if branch.get("name") != default_branch:
+        return False, "branch metadata does not describe the repository default branch", None
+    if branch.get("protected") is not True:
+        return False, f"repository default branch {default_branch!r} is not protected", None
+
+    run_repository = run.get("repository")
+    head_repository = run.get("head_repository")
+    checks = {
+        "run repository": isinstance(run_repository, dict)
+        and run_repository.get("full_name") == expected_repository,
+        "head repository": isinstance(head_repository, dict)
+        and head_repository.get("full_name") == expected_repository,
+        "workflow path": run.get("path") == expected_workflow_path,
+        "event": run.get("event") == "workflow_dispatch",
+        "status": run.get("status") == "completed",
+        "conclusion": run.get("conclusion") == "success",
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if failed:
+        return False, f"selected run failed trusted release-train metadata checks: {failed}", None
+
+    source_branch = run.get("head_branch")
+    if source_branch != default_branch:
+        return (
+            False,
+            f"selected run head branch {source_branch!r} is not repository default branch {default_branch!r}",
+            None,
+        )
+
+    run_id = run.get("id")
+    run_attempt = run.get("run_attempt")
+    source_sha = run.get("head_sha")
+    run_url = run.get("html_url")
+    if not isinstance(run_id, int) or run_id <= 0:
+        return False, "selected run id must be a positive integer", None
+    if str(run_id) != expected_run_id:
+        return False, "selected run metadata id does not match requested train run id", None
+    if not isinstance(run_attempt, int) or run_attempt <= 0:
+        return False, "selected run attempt must be a positive integer", None
+    if not isinstance(source_sha, str) or not _SHA_PATTERN.fullmatch(source_sha):
+        return False, "selected run head SHA is not a lowercase hexadecimal commit digest", None
+    expected_url = f"https://github.com/{expected_repository}/actions/runs/{run_id}"
+    if run_url != expected_url:
+        return False, "selected run URL does not match its repository and run id", None
+
+    identity = {
+        "run_id": str(run_id),
+        "run_attempt": str(run_attempt),
+        "run_url": run_url,
+        "source_repository": expected_repository,
+        "source_sha": source_sha,
+        "source_branch": source_branch,
+        "default_branch": default_branch,
+        "workflow_path": expected_workflow_path,
+    }
+    return True, f"selected run is a successful release train from default branch {default_branch!r}", identity
 
 
 def build_candidate_binding(
@@ -74,10 +159,12 @@ def build_candidate_binding(
     *,
     source_repository: str,
     source_sha: str,
+    source_branch: str,
     workflow_path: str,
     train_run_id: str,
     train_run_attempt: int,
     train_run_url: str,
+    certification_mode: str,
 ) -> dict:
     """Build the report fragment binding candidate bytes to their train/source identity."""
     _require_artifact(manifest_path, PLATFORM_MANIFEST)
@@ -85,10 +172,12 @@ def build_candidate_binding(
     _require_identity(
         source_repository,
         source_sha,
+        source_branch,
         workflow_path,
         train_run_id,
         train_run_attempt,
         train_run_url,
+        certification_mode,
     )
 
     artifacts = {}
@@ -103,12 +192,14 @@ def build_candidate_binding(
         "source": {
             "repository": source_repository,
             "sha": source_sha,
+            "branch": source_branch,
         },
         "train": {
             "workflowPath": workflow_path,
             "runId": train_run_id,
             "runAttempt": train_run_attempt,
             "runUrl": train_run_url,
+            "certificationMode": certification_mode,
         },
         "artifacts": artifacts,
     }
@@ -120,6 +211,12 @@ def bind_gate_report(report: dict, manifest_path: Path, matrix_path: Path, **ide
         raise CandidateBindingError("gate report must be an object")
     if "candidate" in report:
         raise CandidateBindingError("gate report already contains a candidate binding")
+    dry_run = report.get("dry_run")
+    if not isinstance(dry_run, bool):
+        raise CandidateBindingError("gate report dry_run must be a boolean")
+    report_mode = "dry-run" if dry_run else "live"
+    if identity.get("certification_mode") != report_mode:
+        raise CandidateBindingError("gate report dry_run does not match candidate certification mode")
     bound = dict(report)
     bound["candidate"] = build_candidate_binding(manifest_path, matrix_path, **identity)
     return bound
@@ -132,10 +229,12 @@ def verify_candidate_binding(
     *,
     source_repository: str,
     source_sha: str,
+    source_branch: str,
     workflow_path: str,
     train_run_id: str,
     train_run_attempt: int,
     train_run_url: str,
+    certification_mode: str,
 ) -> tuple[bool, str]:
     """Verify candidate bytes and report identity against trusted Actions run metadata."""
     try:
@@ -144,16 +243,21 @@ def verify_candidate_binding(
         _require_identity(
             source_repository,
             source_sha,
+            source_branch,
             workflow_path,
             train_run_id,
             train_run_attempt,
             train_run_url,
+            certification_mode,
         )
     except CandidateBindingError as exc:
         return False, str(exc)
 
     if not isinstance(report, dict):
         return False, "gate report is not an object"
+    dry_run = report.get("dry_run")
+    if not isinstance(dry_run, bool):
+        return False, "gate report dry_run must be a boolean"
     candidate = report.get("candidate")
     if not isinstance(candidate, dict):
         return False, "gate report has no candidate binding"
@@ -168,18 +272,22 @@ def verify_candidate_binding(
     expected_identity = {
         "source.repository": source_repository,
         "source.sha": source_sha,
+        "source.branch": source_branch,
         "train.workflowPath": workflow_path,
         "train.runId": train_run_id,
         "train.runAttempt": train_run_attempt,
         "train.runUrl": train_run_url,
+        "train.certificationMode": certification_mode,
     }
     actual_identity = {
         "source.repository": source.get("repository"),
         "source.sha": source.get("sha"),
+        "source.branch": source.get("branch"),
         "train.workflowPath": train.get("workflowPath"),
         "train.runId": train.get("runId"),
         "train.runAttempt": train.get("runAttempt"),
         "train.runUrl": train.get("runUrl"),
+        "train.certificationMode": train.get("certificationMode"),
     }
     mismatches = [
         name for name, expected in expected_identity.items()
@@ -187,6 +295,10 @@ def verify_candidate_binding(
     ]
     if mismatches:
         return False, f"candidate source/train identity mismatch: {mismatches}"
+
+    report_mode = "dry-run" if dry_run else "live"
+    if train.get("certificationMode") != report_mode:
+        return False, "gate report dry_run does not match bound train certificationMode"
 
     artifacts = candidate.get("artifacts")
     if not isinstance(artifacts, dict) or set(artifacts) != set(_ARTIFACT_FILENAMES):
@@ -237,9 +349,11 @@ def create_bundle(
 def _add_identity_args(parser: argparse.ArgumentParser, *, include_url: bool) -> None:
     parser.add_argument("--source-repository", required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--source-branch", required=True)
     parser.add_argument("--workflow-path", required=True)
     parser.add_argument("--train-run-id", required=True)
     parser.add_argument("--train-run-attempt", required=True, type=int)
+    parser.add_argument("--certification-mode", required=True, choices=sorted(CERTIFICATION_MODES))
     if include_url:
         parser.add_argument("--train-run-url", required=True)
 
@@ -247,6 +361,15 @@ def _add_identity_args(parser: argparse.ArgumentParser, *, include_url: bool) ->
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    validate_run = commands.add_parser("validate-run", help="validate certifying Actions run metadata")
+    validate_run.add_argument("--run-metadata", required=True, type=Path)
+    validate_run.add_argument("--repository-metadata", required=True, type=Path)
+    validate_run.add_argument("--branch-metadata", required=True, type=Path)
+    validate_run.add_argument("--expected-repository", required=True)
+    validate_run.add_argument("--expected-workflow-path", required=True)
+    validate_run.add_argument("--expected-run-id", required=True)
+    validate_run.add_argument("--github-output", required=True, type=Path)
 
     bind = commands.add_parser("bind", help="create a certified candidate bundle")
     bind.add_argument("--report", required=True, type=Path)
@@ -263,6 +386,27 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
+        if args.command == "validate-run":
+            run = json.loads(args.run_metadata.read_text(encoding="utf-8"))
+            repository = json.loads(args.repository_metadata.read_text(encoding="utf-8"))
+            branch = json.loads(args.branch_metadata.read_text(encoding="utf-8"))
+            ok, why, identity = validate_train_run_metadata(
+                run,
+                repository,
+                branch,
+                expected_repository=args.expected_repository,
+                expected_workflow_path=args.expected_workflow_path,
+                expected_run_id=args.expected_run_id,
+            )
+            if not ok or identity is None:
+                print(f"REFUSED: {why}", file=sys.stderr)
+                return 1
+            with args.github_output.open("a", encoding="utf-8") as output:
+                for name, value in identity.items():
+                    output.write(f"{name}={value}\n")
+            print(f"OK: {why}")
+            return 0
+
         if args.command == "bind":
             report = create_bundle(
                 args.report,
@@ -271,10 +415,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.out_dir,
                 source_repository=args.source_repository,
                 source_sha=args.source_sha,
+                source_branch=args.source_branch,
                 workflow_path=args.workflow_path,
                 train_run_id=args.train_run_id,
                 train_run_attempt=args.train_run_attempt,
                 train_run_url=args.train_run_url,
+                certification_mode=args.certification_mode,
             )
             print(f"certified candidate bundle -> {report.parent}")
             return 0
@@ -286,10 +432,12 @@ def main(argv: list[str] | None = None) -> int:
             args.matrix,
             source_repository=args.source_repository,
             source_sha=args.source_sha,
+            source_branch=args.source_branch,
             workflow_path=args.workflow_path,
             train_run_id=args.train_run_id,
             train_run_attempt=args.train_run_attempt,
             train_run_url=args.train_run_url,
+            certification_mode=args.certification_mode,
         )
         print(f"{'OK' if ok else 'REFUSED'}: {why}", file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1

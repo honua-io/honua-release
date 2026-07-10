@@ -11,10 +11,12 @@ import candidate_binding as cb  # noqa: E402
 IDENTITY = {
     "source_repository": "honua-io/honua-release",
     "source_sha": "a" * 40,
+    "source_branch": "trunk",
     "workflow_path": ".github/workflows/release-train.yml",
     "train_run_id": "28720697360",
     "train_run_attempt": 2,
     "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+    "certification_mode": "live",
 }
 
 
@@ -29,7 +31,7 @@ def _files(root: Path, manifest: bytes = b"platformRelease: 2026.1-rc.1\n") -> t
 
 def _bound_report(manifest_path: Path, matrix_path: Path) -> dict:
     return cb.bind_gate_report(
-        {"platform_label": "2026.1-rc.1", "overallStatus": "pass", "gates": []},
+        {"platform_label": "2026.1-rc.1", "dry_run": False, "overallStatus": "pass", "gates": []},
         manifest_path,
         matrix_path,
         **IDENTITY,
@@ -97,9 +99,83 @@ def test_source_or_train_substitution_is_refused(tmp_path: Path):
     assert "train.runId" in why
 
 
+def test_dry_run_certification_is_refused_for_live_promotion(tmp_path: Path):
+    manifest_path, matrix_path = _files(tmp_path / "candidate")
+    dry_run_identity = dict(IDENTITY, certification_mode="dry-run")
+    report = cb.bind_gate_report(
+        {"platform_label": "2026.1-rc.1", "dry_run": True, "overallStatus": "pass", "gates": []},
+        manifest_path,
+        matrix_path,
+        **dry_run_identity,
+    )
+
+    ok, why = _verify(report, manifest_path, matrix_path, certification_mode="live")
+    assert not ok
+    assert "certificationMode" in why
+
+
+def test_non_default_branch_train_metadata_is_refused():
+    repository = {
+        "full_name": "honua-io/honua-release",
+        "default_branch": "trunk",
+    }
+    branch = {"name": "trunk", "protected": True}
+    run = {
+        "id": 28720697360,
+        "run_attempt": 2,
+        "html_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "repository": {"full_name": "honua-io/honua-release"},
+        "head_repository": {"full_name": "honua-io/honua-release"},
+        "head_branch": "trunk",
+        "head_sha": "a" * 40,
+        "path": ".github/workflows/release-train.yml",
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    ok, why, identity = cb.validate_train_run_metadata(
+        run,
+        repository,
+        branch,
+        expected_repository="honua-io/honua-release",
+        expected_workflow_path=".github/workflows/release-train.yml",
+        expected_run_id="28720697360",
+    )
+    assert ok, why
+    assert identity is not None
+    assert identity["source_branch"] == "trunk"
+
+    run["head_branch"] = "feature/weaken-release-gates"
+    ok, why, identity = cb.validate_train_run_metadata(
+        run,
+        repository,
+        branch,
+        expected_repository="honua-io/honua-release",
+        expected_workflow_path=".github/workflows/release-train.yml",
+        expected_run_id="28720697360",
+    )
+    assert not ok
+    assert "default branch" in why
+    assert identity is None
+
+    run["head_branch"] = "trunk"
+    branch["protected"] = False
+    ok, why, identity = cb.validate_train_run_metadata(
+        run,
+        repository,
+        branch,
+        expected_repository="honua-io/honua-release",
+        expected_workflow_path=".github/workflows/release-train.yml",
+        expected_run_id="28720697360",
+    )
+    assert not ok
+    assert "not protected" in why
+    assert identity is None
+
+
 def test_missing_binding_is_refused(tmp_path: Path):
     manifest_path, matrix_path = _files(tmp_path / "candidate")
-    ok, why = _verify({"overallStatus": "pass"}, manifest_path, matrix_path)
+    ok, why = _verify({"dry_run": False, "overallStatus": "pass"}, manifest_path, matrix_path)
     assert not ok
     assert "no candidate binding" in why
 
@@ -107,7 +183,7 @@ def test_missing_binding_is_refused(tmp_path: Path):
 def test_create_bundle_copies_exact_candidate_bytes_and_binds_copies(tmp_path: Path):
     manifest_path, matrix_path = _files(tmp_path / "input")
     report_path = tmp_path / "gate-report.json"
-    report_path.write_text(json.dumps({"overallStatus": "pass"}), encoding="utf-8")
+    report_path.write_text(json.dumps({"dry_run": False, "overallStatus": "pass"}), encoding="utf-8")
     out_dir = tmp_path / "certified-candidate"
 
     bound_report_path = cb.create_bundle(

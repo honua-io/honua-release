@@ -10,7 +10,7 @@
 # identity — the AI never holds keys.
 #
 # What it does on success:
-#   1. verify the selected run is a completed release-train run in this repository
+#   1. verify the selected run is a completed live release-train run from the protected default branch
 #   2. pull its immutable certified-candidate bundle (report + exact manifest + exact matrix)
 #   3. verify both artifact digests and source/run identity before parsing or finalizing anything
 #   4. verify all gates green for this label, finalize the manifest, generate notes + platform BOM
@@ -46,6 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: production    # required reviewers / wait timer configured in repo settings
     steps:
+      # Load the validator shipped with this promotion workflow. The checkout is replaced with the
+      # certifying commit immediately after the run metadata passes.
+      - uses: actions/checkout@v4
+
       - name: Resolve and validate the certifying train run
         id: train
         env:
@@ -59,30 +63,22 @@ jobs:
             echo "::error::train_run_id must be a positive Actions run id"
             exit 1
           fi
+          gh api "repos/$REPOSITORY" > repository.json
+          DEFAULT_BRANCH="$(python -c 'import json; print(json.load(open("repository.json"))["default_branch"])')"
+          ENCODED_BRANCH="$(python -c 'import sys; from urllib.parse import quote; print(quote(sys.argv[1], safe=""))' "$DEFAULT_BRANCH")"
+          gh api "repos/$REPOSITORY/branches/$ENCODED_BRANCH" > branch.json
           gh api "repos/$REPOSITORY/actions/runs/$TRAIN_RUN_ID" > train-run.json
-          if ! jq -e \
-            --arg repository "$REPOSITORY" \
-            --arg workflow "$EXPECTED_WORKFLOW_PATH" '
-              .repository.full_name == $repository and
-              .head_repository.full_name == $repository and
-              .path == $workflow and
-              .event == "workflow_dispatch" and
-              .status == "completed" and
-              .conclusion == "success"
-            ' train-run.json >/dev/null; then
-            echo "::error::selected run is not a successful completed release-train run from this repository"
-            jq '{id, event, status, conclusion, path, head_sha, head_repository: .head_repository.full_name}' train-run.json
-            exit 1
-          fi
-          echo "run_id=$(jq -r '.id | tostring' train-run.json)" >> "$GITHUB_OUTPUT"
-          echo "run_attempt=$(jq -r '.run_attempt | tostring' train-run.json)" >> "$GITHUB_OUTPUT"
-          echo "run_url=$(jq -r .html_url train-run.json)" >> "$GITHUB_OUTPUT"
-          echo "source_repository=$(jq -r .head_repository.full_name train-run.json)" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$(jq -r .head_sha train-run.json)" >> "$GITHUB_OUTPUT"
-          echo "workflow_path=$(jq -r .path train-run.json)" >> "$GITHUB_OUTPUT"
+          python tools/candidate_binding.py validate-run \
+            --run-metadata train-run.json \
+            --repository-metadata repository.json \
+            --branch-metadata branch.json \
+            --expected-repository "$REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-run-id "$TRAIN_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
 
-      # Use the tools that existed at certification time. The current default branch is never used
-      # as a source for candidate files or release tooling.
+      # Candidate parsing, finalization, and release generation use the tools that existed at
+      # certification time. The promotion checkout is never a source for candidate bytes.
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.train.outputs.source_sha }}
@@ -122,10 +118,12 @@ jobs:
             --matrix candidate/compatibility-matrix.yaml \
             --source-repository "${{ steps.train.outputs.source_repository }}" \
             --source-sha "${{ steps.train.outputs.source_sha }}" \
+            --source-branch "${{ steps.train.outputs.source_branch }}" \
             --workflow-path "${{ steps.train.outputs.workflow_path }}" \
             --train-run-id "${{ steps.train.outputs.run_id }}" \
             --train-run-attempt "${{ steps.train.outputs.run_attempt }}" \
             --train-run-url "${{ steps.train.outputs.run_url }}" \
+            --certification-mode live \
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md
