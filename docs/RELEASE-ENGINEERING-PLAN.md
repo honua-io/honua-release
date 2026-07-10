@@ -160,9 +160,26 @@ The "weak gates," "artifact integrity," and "telemetry blindness" themes are not
 - **Reusable workflows everywhere.** Each component repo exposes its gates as `workflow_call` units (`gate-build-test.yml`, `gate-contract.yml`, `gate-artifact-consume.yml`, `gate-security.yml`). They run in PR CI *and* are callable by the train — same code, no drift.
 - **Release repo owns `release-train.yml`** triggered by `workflow_dispatch` (inputs: `platform_label`, `pins` or `auto-snapshot`, `dry_run`). It: snapshot main → build candidate manifest → fan out to component gates via `workflow_call`/`repository_dispatch` → cross-repo conformance + upgrade gate → SBOM/notes → tag RC → (gated) promote.
 - **`workflow_dispatch` is the trigger surface for *both* humans and AI** — there is exactly one way to cut, and it's the same one. Cross-repo fan-out via `repository_dispatch` with a GitHub App token.
-- **Promote = a separate job behind a GHA `environment`** (`production`) with required reviewers + optional wait timer. This is the human/AI approval boundary; GHA enforces it, the AI cannot skip it.
+- **Promote = a separate job behind a GHA `environment`** (`production`) with a required human reviewer and a protected-branch deployment policy. Promotion preflights the environment through the GitHub API and fails before release work if either protection is absent. This is the human/AI approval boundary; the AI cannot skip it.
 - **`concurrency` group** on the train so two cuts can't race.
 - **Every gate emits a machine-readable report** (a `gate-report.json` artifact + job summary): `{gate, status, why, evidence_url}`. The AI parses *that*, never scrapes logs. The train packages its report with the exact candidate manifest and compatibility matrix; the report binds both by SHA-256 plus immutable source/run identity and an explicit live/dry-run mode. Promote requires a successful live train from the repository's protected current default branch, verifies that bundle against the Actions and repository APIs, and requires all gates green before it finalizes, signs, or releases anything. It never replaces certified files with a later checkout.
+
+### Repository configuration prerequisites
+
+Promotion remains intentionally unavailable until configuration outside git matches the workflow's
+trust model:
+
+- Protect the current default branch, enforce the rule for administrators, require pull requests,
+  and require the GitHub Actions `validate` check. `manifest-validate.yml` runs that stable check on
+  every pull request so path filters cannot deadlock or bypass it.
+- Configure the `production` environment to allow only protected branches and require the expected
+  human reviewer. Required environment reviewers are unavailable to private repositories on GitHub
+  Team; this private repository therefore needs GitHub Enterprise (or a different external approval
+  control) before production promotion can be enabled. Do not weaken the preflight to work around the
+  plan limitation.
+- Enabling `prevent_self_review` gives a genuine two-actor approval when automation dispatches, but
+  a single-seat owner cannot then approve a manually dispatched run. Add a second human reviewer for
+  continuity before enabling that option.
 
 ### Identity, least privilege, provenance
 - The AI acts as a dedicated **GitHub App** with scoped permissions: `actions:write` (dispatch) + `contents:read` + read checks/artifacts — **but no publish/sign/tag rights.** Tagging, publishing, and signing are done by the *workflow's own OIDC identity*, so the AI never holds signing keys and can't exfiltrate them. Keyless signing (OIDC → Sigstore/SLSA) ties provenance to the workflow, and every dispatch records the triggering actor (which AI/human).

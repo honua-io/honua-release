@@ -60,10 +60,15 @@ then requires all identity fields and both artifact digests to match before it p
 generates a BOM, signs anything, or creates a release. Missing protection and legacy reports without
 an explicit boolean `dry_run` field fail closed.
 
+Promotion also preflights the `production` environment. It requires a protected-branch deployment
+policy and the configured human reviewer before doing release work. This is deliberately stricter
+than merely naming an environment in workflow YAML, because GitHub can otherwise create an
+unprotected environment implicitly.
+
 The release train publishes the three files together as the immutable `certified-candidate` artifact.
 Promotion checks out release tooling at the certified source SHA and passes the bundled files by
 explicit path; files from the branch that happens to be current at promotion time are never inputs.
 
 ```bash
-python -m pytest tools/test_candidate_binding.py tools/test_finalize_release.py
+python -m pytest tools/test_candidate_binding.py tools/test_finalize_release.py tools/test_workflow_contracts.py
 ```

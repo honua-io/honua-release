@@ -1,8 +1,9 @@
 # Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
 #
-# This is the human/AI approval boundary: the `production` environment carries required reviewers +
-# an optional wait timer, enforced by GHA — the AI (or a human) cannot skip it. Within the gate it
-# FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
+# This is the human/AI approval boundary: the `production` environment must carry the expected human
+# reviewer and allow only protected branches. The first job step verifies that policy through the
+# GitHub API, so a missing/unprotected environment cannot silently become a release path. Within the
+# gate it FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
 # gate-report is all-green — every gate `pass`, OR `skipped` while on the EXPLICIT allowed-skip list
 # (tools/finalize_release.ALLOWED_SKIP: the creds-gated cloud cert tier that self-skips when
 # HONUA_AWS_ROLE_ARN is unset). A red/blocked candidate, or a skip of any non-allow-listed gate, can
@@ -44,11 +45,25 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    environment: production    # required reviewers / wait timer configured in repo settings
+    environment: production    # verified below; absent/unprotected configuration fails closed
     steps:
       # Load the validator shipped with this promotion workflow. The checkout is replaced with the
       # certifying commit immediately after the run metadata passes.
       - uses: actions/checkout@v4
+
+      - name: Verify the production environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_ENVIRONMENT: production
+          EXPECTED_REVIEWER_ID: "12301237"
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPOSITORY/environments/$EXPECTED_ENVIRONMENT" > environment.json
+          python tools/candidate_binding.py validate-environment \
+            --environment-metadata environment.json \
+            --expected-name "$EXPECTED_ENVIRONMENT" \
+            --expected-reviewer-id "$EXPECTED_REVIEWER_ID"
 
       - name: Resolve and validate the certifying train run
         id: train
