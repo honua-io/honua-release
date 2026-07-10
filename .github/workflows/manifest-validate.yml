@@ -9,17 +9,14 @@
 #   - a matrix range narrowed (support dropped) without a contract-version bump (DRIFT) — the
 #     manifest/matrix half of "a breaking change without a MAJOR bump fails CI"
 #
-# Runs per-PR (drift vs the PR base) and is callable by the release train as a reusable gate.
+# Runs on every PR so branch protection can require its stable `validate` check. It validates the
+# full committed source of truth (and the gate tooling) even when a PR changes only workflow/docs
+# files. It is also callable by the release train as a reusable gate.
 
 name: manifest-validate
 
 on:
   pull_request:
-    paths:
-      - "platform-manifest.yaml"
-      - "compatibility-matrix.yaml"
-      - "tools/**"
-      - ".github/workflows/manifest-validate.yml"
   workflow_dispatch:
   workflow_call:
     inputs:

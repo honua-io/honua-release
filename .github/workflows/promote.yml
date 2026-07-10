@@ -1,8 +1,9 @@
 # Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
 #
-# This is the human/AI approval boundary: the `production` environment carries required reviewers +
-# an optional wait timer, enforced by GHA — the AI (or a human) cannot skip it. Within the gate it
-# FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
+# This is the human/AI approval boundary: the `production` environment must carry the expected human
+# reviewer and allow only protected branches. The first job step verifies that policy through the
+# GitHub API, so a missing/unprotected environment cannot silently become a release path. Within the
+# gate it FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
 # gate-report is all-green — every gate `pass`, OR `skipped` while on the EXPLICIT allowed-skip list
 # (tools/finalize_release.ALLOWED_SKIP: the creds-gated cloud cert tier that self-skips when
 # HONUA_AWS_ROLE_ARN is unset). A red/blocked candidate, or a skip of any non-allow-listed gate, can
@@ -10,11 +11,12 @@
 # identity — the AI never holds keys.
 #
 # What it does on success:
-#   1. pull the candidate's platform-gate-report from the certified train run
-#   2. verify it is all-green for this label, finalize the manifest (status: released), generate notes
-#   3. OIDC keyless-sign the finalized manifest (Sigstore/cosign)
-#   4. create the `honua-<label>` git tag + GitHub Release with the manifest + matrix + notes +
-#      signature + certificate attached
+#   1. verify the selected run is a completed live release-train run from the protected default branch
+#   2. pull its immutable certified-candidate bundle (report + exact manifest + exact matrix)
+#   3. verify both artifact digests and source/run identity before parsing or finalizing anything
+#   4. verify all gates green for this label, finalize the manifest, generate notes + platform BOM
+#   5. OIDC keyless-sign the certified inputs, bound report, finalized manifest, and BOM
+#   6. create the `honua-<label>` git tag + GitHub Release at the certified source SHA
 
 name: promote
 run-name: "promote ${{ inputs.platform_label }} (from run ${{ inputs.train_run_id }})"
@@ -27,14 +29,14 @@ on:
         required: true
         type: string
       train_run_id:
-        description: "release-train run id that certified this candidate (its platform-gate-report)"
+        description: "release-train run id that produced the certified-candidate bundle"
         required: true
         type: string
 
 permissions:
   contents: write     # create the tag + GitHub Release
   id-token: write     # OIDC keyless signing of the manifest (no static keys)
-  actions: read       # download the candidate gate-report artifact from the train run
+  actions: read       # inspect the train run and download its certified-candidate artifact
 
 concurrency:
   group: promote-${{ inputs.platform_label }}
@@ -43,24 +45,74 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    environment: production    # required reviewers / wait timer configured in repo settings
+    environment: production    # verified below; absent/unprotected configuration fails closed
     steps:
+      # Load the validator shipped with this promotion workflow. The checkout is replaced with the
+      # certifying commit immediately after the run metadata passes.
       - uses: actions/checkout@v4
+
+      - name: Verify the production environment approval policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_ENVIRONMENT: production
+          EXPECTED_REVIEWER_ID: "12301237"
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPOSITORY/environments/$EXPECTED_ENVIRONMENT" > environment.json
+          python tools/candidate_binding.py validate-environment \
+            --environment-metadata environment.json \
+            --expected-name "$EXPECTED_ENVIRONMENT" \
+            --expected-reviewer-id "$EXPECTED_REVIEWER_ID"
+
+      - name: Resolve and validate the certifying train run
+        id: train
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/release-train.yml
+        run: |
+          set -euo pipefail
+          if [[ ! "$TRAIN_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::train_run_id must be a positive Actions run id"
+            exit 1
+          fi
+          gh api "repos/$REPOSITORY" > repository.json
+          DEFAULT_BRANCH="$(python -c 'import json; print(json.load(open("repository.json"))["default_branch"])')"
+          ENCODED_BRANCH="$(python -c 'import sys; from urllib.parse import quote; print(quote(sys.argv[1], safe=""))' "$DEFAULT_BRANCH")"
+          gh api "repos/$REPOSITORY/branches/$ENCODED_BRANCH" > branch.json
+          gh api "repos/$REPOSITORY/actions/runs/$TRAIN_RUN_ID" > train-run.json
+          python tools/candidate_binding.py validate-run \
+            --run-metadata train-run.json \
+            --repository-metadata repository.json \
+            --branch-metadata branch.json \
+            --expected-repository "$REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-run-id "$TRAIN_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
+
+      # Candidate parsing, finalization, and release generation use the tools that existed at
+      # certification time. The promotion checkout is never a source for candidate bytes.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.train.outputs.source_sha }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
 
-      - name: Fetch the candidate gate-report from the train run
+      - name: Fetch the exact certified candidate bundle from the train run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p candidate
           gh run download "${{ inputs.train_run_id }}" --repo "${{ github.repository }}" \
-            --name platform-gate-report --dir candidate
-          echo "gate-report:"; cat candidate/gate-report.json
+            --name certified-candidate --dir candidate
+          echo "bound gate-report:"
+          cat candidate/gate-report.json
 
       - name: Finalize (fail closed unless all-green) + generate notes
         id: finalize
@@ -77,25 +129,44 @@ jobs:
           python tools/finalize_release.py \
             --label "$LABEL" \
             --gate-report candidate/gate-report.json \
+            --manifest candidate/platform-manifest.yaml \
+            --matrix candidate/compatibility-matrix.yaml \
+            --source-repository "${{ steps.train.outputs.source_repository }}" \
+            --source-sha "${{ steps.train.outputs.source_sha }}" \
+            --source-branch "${{ steps.train.outputs.source_branch }}" \
+            --workflow-path "${{ steps.train.outputs.workflow_path }}" \
+            --train-run-id "${{ steps.train.outputs.run_id }}" \
+            --train-run-attempt "${{ steps.train.outputs.run_attempt }}" \
+            --train-run-url "${{ steps.train.outputs.run_url }}" \
+            --certification-mode live \
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md
           # The platform BOM (CycloneDX) — the customer-facing bill of materials for this label.
-          python tools/generate_bom.py --label "$LABEL" --timestamp "$STAMP" --out bom.cdx.json
+          python tools/generate_bom.py \
+            --label "$LABEL" \
+            --timestamp "$STAMP" \
+            --manifest candidate/platform-manifest.yaml \
+            --out bom.cdx.json
 
       - name: Install cosign (Sigstore)
         uses: sigstore/cosign-installer@v3
-      - name: Sign the manifest + BOM (keyless / OIDC)
+      - name: Sign the certified inputs + release outputs (keyless / OIDC)
         run: |
           set -euo pipefail
           # Provenance: each release artifact is keyless-signed by THIS workflow's OIDC identity
           # (Fulcio cert + Rekor transparency log) — no static keys, and the AI never holds them.
-          for f in finalized-manifest.yaml bom.cdx.json; do
+          for f in \
+            candidate/gate-report.json \
+            candidate/platform-manifest.yaml \
+            candidate/compatibility-matrix.yaml \
+            finalized-manifest.yaml \
+            bom.cdx.json; do
             cosign sign-blob --yes "$f" \
               --output-signature "$f.sig" \
               --output-certificate "$f.pem"
           done
-          echo "Signed manifest + BOM. Verify e.g.:"
+          echo "Signed certified inputs + release outputs. Verify e.g.:"
           echo "  cosign verify-blob bom.cdx.json \\"
           echo "    --signature bom.cdx.json.sig --certificate bom.cdx.json.pem \\"
           echo "    --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/promote.yml@.*' \\"
@@ -114,11 +185,19 @@ jobs:
           fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
+            --target "${{ steps.train.outputs.source_sha }}" \
             --title "Honua ${BASE}" \
             --notes-file release-notes.md \
+            candidate/gate-report.json \
+            candidate/gate-report.json.sig \
+            candidate/gate-report.json.pem \
+            candidate/platform-manifest.yaml \
+            candidate/platform-manifest.yaml.sig \
+            candidate/platform-manifest.yaml.pem \
+            candidate/compatibility-matrix.yaml \
+            candidate/compatibility-matrix.yaml.sig \
+            candidate/compatibility-matrix.yaml.pem \
             finalized-manifest.yaml \
-            compatibility-matrix.yaml \
             bom.cdx.json \
             finalized-manifest.yaml.sig \
             finalized-manifest.yaml.pem \

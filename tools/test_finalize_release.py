@@ -8,17 +8,19 @@ Run: python -m pytest tools/test_finalize_release.py    (or: python tools/test_f
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import candidate_binding as cb  # noqa: E402
 import finalize_release as fr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _report(overall, label="2026.1-rc.3", gates=None):
-    return {"platform_label": label, "overallStatus": overall,
+    return {"platform_label": label, "dry_run": False, "overallStatus": overall,
             "gates": gates or [{"gate": "manifest", "decided": "pass"}],
             "evidence_url": "https://example/run/1"}
 
@@ -67,6 +69,22 @@ def test_non_dict_report_is_refused():
     assert not ok
 
 
+def test_all_green_dry_run_report_is_refused():
+    report = _report("pass")
+    report["dry_run"] = True
+    ok, why = fr.verify_gate_report(report, "2026.1")
+    assert not ok
+    assert "dry-run" in why
+
+
+def test_report_without_certification_mode_is_refused():
+    report = _report("pass")
+    del report["dry_run"]
+    ok, why = fr.verify_gate_report(report, "2026.1")
+    assert not ok
+    assert "dry_run" in why
+
+
 # ---- finalize --------------------------------------------------------------------------------------
 def test_finalize_sets_released_status_and_base_label():
     m = fr.finalize_manifest({"platformRelease": "2026.1-rc.0", "status": "draft", "components": {}},
@@ -74,6 +92,59 @@ def test_finalize_sets_released_status_and_base_label():
     assert m["status"] == "released"
     assert m["platformRelease"] == "2026.1"           # -rc stripped
     assert m["releasedDate"] == "2026-07-01T00:00:00Z"
+
+
+def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_path):
+    certified = tmp_path / "certified"
+    certified.mkdir()
+    manifest = certified / cb.PLATFORM_MANIFEST
+    matrix = certified / cb.COMPATIBILITY_MATRIX
+    manifest.write_text("platformRelease: 2026.1-rc.3\nstatus: candidate\ncomponents: {}\n", encoding="utf-8")
+    matrix.write_text("matrixVersion: 1\n", encoding="utf-8")
+    identity = {
+        "source_repository": "honua-io/honua-release",
+        "source_sha": "a" * 40,
+        "source_branch": "trunk",
+        "workflow_path": ".github/workflows/release-train.yml",
+        "train_run_id": "28720697360",
+        "train_run_attempt": 1,
+        "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "certification_mode": "live",
+    }
+    report = cb.bind_gate_report(
+        _report("pass"),
+        manifest,
+        matrix,
+        **identity,
+    )
+    report_path = certified / "gate-report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    # Simulate promotion checking out a newer manifest after certification.
+    manifest.write_text("platformRelease: 2026.1-rc.9\nstatus: candidate\ncomponents: {}\n", encoding="utf-8")
+    out_manifest = tmp_path / "finalized-manifest.yaml"
+    out_notes = tmp_path / "release-notes.md"
+    rc = fr.main([
+        "--label", "2026.1",
+        "--gate-report", str(report_path),
+        "--released-at", "2026-07-01T00:00:00Z",
+        "--manifest", str(manifest),
+        "--matrix", str(matrix),
+        "--source-repository", identity["source_repository"],
+        "--source-sha", identity["source_sha"],
+        "--source-branch", identity["source_branch"],
+        "--workflow-path", identity["workflow_path"],
+        "--train-run-id", identity["train_run_id"],
+        "--train-run-attempt", str(identity["train_run_attempt"]),
+        "--train-run-url", identity["train_run_url"],
+        "--certification-mode", identity["certification_mode"],
+        "--out-manifest", str(out_manifest),
+        "--out-notes", str(out_notes),
+    ])
+
+    assert rc == 1
+    assert not out_manifest.exists()
+    assert not out_notes.exists()
 
 
 # ---- release notes against the REAL committed files ------------------------------------------------

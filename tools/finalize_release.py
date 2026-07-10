@@ -6,8 +6,11 @@ candidate's gate-report is all-green, then finalizes the manifest and generates 
 notes. This is the "AI proposes, the pipeline disposes" boundary made concrete — a red/blocked
 candidate can never be tagged (AGENTS.md: the gate must be able to fail; here it fails *closed*).
 
-Three pure, unit-tested pieces:
+Four pure, unit-tested pieces:
 
+  verify_candidate_binding — the manifest + matrix bytes and release-train source/run identity must
+                        match the binding embedded in the gate report. A file copied from a later
+                        checkout or a different train run is refused before YAML is parsed.
   verify_gate_report  — the candidate's release-train gate-report must have overallStatus == "pass"
                         for THIS platform label. A "blocked"/"fail" overall (any wired gate not green)
                         is refused. Without this, promotion could tag a broken set.
@@ -19,6 +22,12 @@ Three pure, unit-tested pieces:
 
 Usage (the workflow calls this):
   python tools/finalize_release.py --label 2026.1 --gate-report report.json \
+      --manifest candidate/platform-manifest.yaml \
+      --matrix candidate/compatibility-matrix.yaml \
+      --source-repository honua-io/honua-release --source-sha <sha> --source-branch trunk \
+      --workflow-path .github/workflows/release-train.yml \
+      --train-run-id <id> --train-run-attempt <attempt> --train-run-url <url> \
+      --certification-mode live \
       --released-at 2026-07-01T00:00:00Z \
       --out-manifest finalized-manifest.yaml --out-notes release-notes.md
 """
@@ -29,12 +38,12 @@ import json
 import sys
 from pathlib import Path
 
+from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Explicit allow-list of gates that MAY be `skipped` on a promote (task requirement: promote requires
 # every non-skipped gate green — gates[].status in {pass, skipped} — with an explicit allowed-skip
@@ -61,6 +70,11 @@ def verify_gate_report(report: dict, label: str, allowed_skip: frozenset[str] = 
     allowed-skip list. A skip of any other gate is refused (never silently promoted)."""
     if not isinstance(report, dict):
         return False, "gate-report is not an object"
+    dry_run = report.get("dry_run")
+    if dry_run is not False:
+        if dry_run is True:
+            return False, "candidate was certified by a dry-run release train"
+        return False, "gate-report dry_run must be the boolean false for live promotion"
     overall = report.get("overallStatus")
     if overall != "pass":
         bad = [g.get("gate") for g in report.get("gates", [])
@@ -177,13 +191,39 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="platform label to release, e.g. 2026.1")
     ap.add_argument("--gate-report", required=True, help="the candidate's release-train gate-report.json")
     ap.add_argument("--released-at", required=True, help="ISO-8601 release timestamp")
-    ap.add_argument("--manifest", default=str(REPO_ROOT / "platform-manifest.yaml"))
-    ap.add_argument("--matrix", default=str(REPO_ROOT / "compatibility-matrix.yaml"))
+    ap.add_argument("--manifest", required=True, help="certified candidate platform-manifest.yaml")
+    ap.add_argument("--matrix", required=True, help="certified candidate compatibility-matrix.yaml")
+    ap.add_argument("--source-repository", required=True, help="train run head repository from Actions API")
+    ap.add_argument("--source-sha", required=True, help="train run head SHA from Actions API")
+    ap.add_argument("--source-branch", required=True, help="train run head branch from Actions API")
+    ap.add_argument("--workflow-path", required=True, help="train workflow path from Actions API")
+    ap.add_argument("--train-run-id", required=True, help="certifying release-train Actions run id")
+    ap.add_argument("--train-run-attempt", required=True, type=int, help="certifying run attempt")
+    ap.add_argument("--train-run-url", required=True, help="certifying release-train Actions run URL")
+    ap.add_argument("--certification-mode", required=True, choices=sorted(CERTIFICATION_MODES))
     ap.add_argument("--out-manifest", required=True)
     ap.add_argument("--out-notes", required=True)
     args = ap.parse_args(argv)
 
     report = json.loads(Path(args.gate_report).read_text(encoding="utf-8"))
+    candidate_ok, candidate_why = verify_candidate_binding(
+        report,
+        Path(args.manifest),
+        Path(args.matrix),
+        source_repository=args.source_repository,
+        source_sha=args.source_sha,
+        source_branch=args.source_branch,
+        workflow_path=args.workflow_path,
+        train_run_id=args.train_run_id,
+        train_run_attempt=args.train_run_attempt,
+        train_run_url=args.train_run_url,
+        certification_mode=args.certification_mode,
+    )
+    if not candidate_ok:
+        print(f"REFUSED: {candidate_why}", file=sys.stderr)
+        return 1
+    print(f"OK: {candidate_why}")
+
     ok, why = verify_gate_report(report, args.label)
     if not ok:
         print(f"REFUSED: {why}", file=sys.stderr)

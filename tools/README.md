@@ -48,3 +48,27 @@ callable by the release train as a reusable gate (`workflow_call`, input `baseli
 
 Only dependency: `pyyaml`. `semver.py` is a minimal stdlib SemVer + range implementation (no
 third-party semver lib).
+
+## `candidate_binding.py` — certified-candidate integrity boundary
+
+Packages the frozen `platform-manifest.yaml` and `compatibility-matrix.yaml` with the platform gate
+report. The report binds both files by SHA-256 and size and records the certifying source repository,
+source SHA and branch, workflow path, run id and attempt, and explicit `live`/`dry-run` certification
+mode. `promote.yml` fetches the selected run, repository, and branch from the GitHub API. It requires
+the run to be successful, from the protected current default branch, and bound to `live` mode. It
+then requires all identity fields and both artifact digests to match before it parses the manifest,
+generates a BOM, signs anything, or creates a release. Missing protection and legacy reports without
+an explicit boolean `dry_run` field fail closed.
+
+Promotion also preflights the `production` environment. It requires a protected-branch deployment
+policy and the configured human reviewer before doing release work. This is deliberately stricter
+than merely naming an environment in workflow YAML, because GitHub can otherwise create an
+unprotected environment implicitly.
+
+The release train publishes the three files together as the immutable `certified-candidate` artifact.
+Promotion checks out release tooling at the certified source SHA and passes the bundled files by
+explicit path; files from the branch that happens to be current at promotion time are never inputs.
+
+```bash
+python -m pytest tools/test_candidate_binding.py tools/test_finalize_release.py tools/test_workflow_contracts.py
+```
