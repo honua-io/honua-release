@@ -176,6 +176,18 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download the frozen candidate artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-manifest
+          path: candidate-input
+
       - name: Collect sub-gate reports (best-effort)
         uses: actions/download-artifact@v4
         with:
@@ -268,11 +280,51 @@ jobs:
             jq -r '.gates[] | "| \(.gate) | \(.status) |"' out/gate-report.json;
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload platform gate-report.json
+      - name: Bind the report to the exact candidate and train identity
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_WORKFLOW_REF: ${{ github.workflow_ref }}
+          TRAIN_RUN_ID: ${{ github.run_id }}
+          TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          WORKFLOW_PATH="${SOURCE_WORKFLOW_REF#${SOURCE_REPOSITORY}/}"
+          WORKFLOW_PATH="${WORKFLOW_PATH%@*}"
+          python tools/candidate_binding.py bind \
+            --report out/gate-report.json \
+            --manifest candidate-input/platform-manifest.yaml \
+            --matrix candidate-input/compatibility-matrix.yaml \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-sha "$SOURCE_SHA" \
+            --workflow-path "$WORKFLOW_PATH" \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
+            --train-run-url "$TRAIN_RUN_URL" \
+            --out-dir out/certified-candidate
+          python tools/candidate_binding.py verify \
+            --report out/certified-candidate/gate-report.json \
+            --manifest out/certified-candidate/platform-manifest.yaml \
+            --matrix out/certified-candidate/compatibility-matrix.yaml \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-sha "$SOURCE_SHA" \
+            --workflow-path "$WORKFLOW_PATH" \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
+            --train-run-url "$TRAIN_RUN_URL"
+
+      - name: Upload bound platform gate-report.json
         uses: actions/upload-artifact@v4
         with:
           name: platform-gate-report
-          path: out/gate-report.json
+          path: out/certified-candidate/gate-report.json
+
+      - name: Upload the certified candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: certified-candidate
+          path: out/certified-candidate/
 
       - name: Enforce + (TODO) tag RC
         run: |

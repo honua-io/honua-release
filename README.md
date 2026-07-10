@@ -18,8 +18,10 @@ reports its contract version up to the manifest here.
 
 ## How a release works (summary)
 `workflow_dispatch` → snapshot main → build candidate manifest → fan out to component gates → cross-repo
-conformance + artifact-consumption + upgrade gate → SBOM + notes → tag RC → (environment-gated) promote to
-`Honua YYYY.N`. **AI proposes, the pipeline disposes** — gates live in GHA and can't be overridden.
+conformance + artifact-consumption + upgrade gate → emit a digest- and run-bound certified-candidate bundle
+→ SBOM + notes → tag RC → (environment-gated) promote to `Honua YYYY.N`. Promotion consumes only the exact
+manifest and matrix in that bundle and verifies them against the certifying Actions run before release work
+begins. **AI proposes, the pipeline disposes** — gates live in GHA and can't be overridden.
 
 See `docs/RELEASE-ENGINEERING-PLAN.md` and `docs/TEST-STRATEGY.md` for the full design. Work is tracked in the
 **Phase 0/1 epic** (issues in this repo).
