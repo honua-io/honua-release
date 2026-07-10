@@ -204,6 +204,32 @@ def test_production_environment_requires_expected_human_reviewer():
     assert "required-reviewer" in why
 
 
+def test_production_environment_rejects_any_additional_reviewer():
+    environment = {
+        "name": "production",
+        "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": False,
+                "reviewers": [
+                    {"type": "User", "reviewer": {"id": 12301237, "login": "mikemcdougall"}},
+                    {"type": "Team", "reviewer": {"id": 99, "slug": "release-automation"}},
+                ],
+            },
+        ],
+    }
+
+    ok, why = cb.validate_environment_metadata(
+        environment,
+        expected_name="production",
+        expected_reviewer_id=12301237,
+    )
+
+    assert not ok
+    assert "exactly" in why
+
+
 def test_missing_binding_is_refused(tmp_path: Path):
     manifest_path, matrix_path = _files(tmp_path / "candidate")
     ok, why = _verify({"dry_run": False, "overallStatus": "pass"}, manifest_path, matrix_path)

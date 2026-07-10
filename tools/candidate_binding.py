@@ -177,20 +177,22 @@ def validate_environment_metadata(
     reviewer_rules = [rule for rule in rules if isinstance(rule, dict) and rule.get("type") == "required_reviewers"]
     if not reviewer_rules:
         return False, "production environment has no required-reviewer protection rule"
+    if len(reviewer_rules) != 1:
+        return False, "production environment must have exactly one required-reviewer rule"
 
-    expected_reviewer = any(
-        isinstance(entry, dict)
-        and entry.get("type") == "User"
-        and isinstance(entry.get("reviewer"), dict)
-        and entry["reviewer"].get("id") == expected_reviewer_id
-        for rule in reviewer_rules
-        for entry in rule.get("reviewers", [])
-        if isinstance(rule.get("reviewers"), list)
-    )
-    if not expected_reviewer:
+    reviewers = reviewer_rules[0].get("reviewers")
+    if not isinstance(reviewers, list) or len(reviewers) != 1:
+        return False, f"production environment must require exactly reviewer id {expected_reviewer_id}"
+    reviewer = reviewers[0]
+    if not (
+        isinstance(reviewer, dict)
+        and reviewer.get("type") == "User"
+        and isinstance(reviewer.get("reviewer"), dict)
+        and reviewer["reviewer"].get("id") == expected_reviewer_id
+    ):
         return False, f"production environment does not require reviewer id {expected_reviewer_id}"
 
-    prevents_self_review = any(rule.get("prevent_self_review") is True for rule in reviewer_rules)
+    prevents_self_review = reviewer_rules[0].get("prevent_self_review") is True
     self_review = "disabled" if prevents_self_review else "allowed"
     return True, f"production environment requires expected human reviewer; self-review is {self_review}"
 
