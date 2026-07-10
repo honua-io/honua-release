@@ -81,8 +81,8 @@ jobs:
   conformance-mcp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4          # honua-release: gate-fragment action + parser + manifest
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5          # v4.3.1 - honua-release: gate-fragment action + parser + manifest
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -170,7 +170,7 @@ jobs:
   conformance-esri-geoservices:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Esri GeoServices conformance (blocked without candidate server)
         run: |
           set -uo pipefail
@@ -201,7 +201,7 @@ jobs:
   conformance-ogc-stac:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: OGC/STAC conformance (blocked without candidate server)
         run: |
           set -uo pipefail
@@ -233,7 +233,7 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cert-gate-fragment-*
           path: fragments
@@ -290,7 +290,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report.json
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: certification-gate-report
           path: out/gate-report.json

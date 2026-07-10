@@ -54,12 +54,12 @@ jobs:
   proto-breaking:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           github_token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -121,8 +121,8 @@ jobs:
   rest-sdk-api:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
@@ -177,7 +177,7 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: con-gate-fragment-*
           path: fragments
@@ -216,7 +216,7 @@ jobs:
             jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload gate-report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: contract-gate-report
           path: out/gate-report.json

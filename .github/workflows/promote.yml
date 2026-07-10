@@ -49,7 +49,7 @@ jobs:
     steps:
       # Load the validator shipped with this promotion workflow. The checkout is replaced with the
       # certifying commit immediately after the run metadata passes.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Verify the production environment approval policy
         env:
@@ -94,11 +94,11 @@ jobs:
 
       # Candidate parsing, finalization, and release generation use the tools that existed at
       # certification time. The promotion checkout is never a source for candidate bytes.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ steps.train.outputs.source_sha }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
@@ -150,7 +150,7 @@ jobs:
             --out bom.cdx.json
 
       - name: Install cosign (Sigstore)
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Sign the certified inputs + release outputs (keyless / OIDC)
         run: |
           set -euo pipefail
