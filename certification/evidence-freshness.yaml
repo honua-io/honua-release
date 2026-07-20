@@ -1,0 +1,36 @@
+# Evidence lineage/freshness thresholds for the freeze-phase gate (honua-release#60,
+# tools/check_evidence_freshness.py, .github/workflows/gate-evidence.yml).
+#
+# WHY THIS FILE EXISTS
+# The freeze job pins platform-manifest.yaml's honua-server SHA as the release candidate's identity.
+# docs/capabilities.yaml's `capability-key` claims (honua-release#59) are only as trustworthy as the
+# honua-evidence capability-matrix.v1.json backing them — so this gate proves that matrix is actually
+# ABOUT the candidate's pinned SHA (lineage) and is recent enough to trust (freshness), before a
+# candidate is certified. Thresholds live here, not buried in check_evidence_freshness.py, so they can
+# be tuned without touching the decision logic.
+#
+# A producer listed here that is ABSENT from the matrix's own `freshness` block reports BLOCKED
+# (honest — never a fake pass), most commonly because honua-io/honua-evidence#8 ("Cross-repo evidence
+# joins... CITE freshness carries freshness metadata... documented as a stable contract for gate
+# consumers") hasn't landed that producer's metadata yet.
+
+producers:
+  # The honua-server capability-matrix.v1.json snapshot honua-evidence ingests as a producer — this is
+  # the direct evidence-for-the-pinned-SHA link the lineage check also keys off of. Present in the
+  # matrix's `freshness` block today (schemaVersion 2.0.0).
+  server-matrix:
+    maxAgeHours: 48
+    why: >-
+      The server capability matrix should be no more than ~2 release-train cadences stale relative to
+      the candidate's pinned honua-server sha; honua-evidence refreshes this producer far more often
+      than that in steady state.
+
+  # CITE conformance freshness — NOT YET emitted by honua-evidence as of this gate landing (tracked in
+  # honua-io/honua-evidence#8: "CITE join carries freshness metadata... consumable by honua-release's
+  # freeze/docs gates"). Listed here so the threshold is ready and the gate reports an honest, direct
+  # BLOCKED (pointing at that issue) instead of silently skipping CITE freshness altogether.
+  cite:
+    maxAgeHours: 336   # 14 days
+    why: >-
+      CITE suite runs are expensive and run on their own cadence (not per-commit), so a wider window
+      than server-matrix is appropriate once honua-evidence#8 lands the per-suite freshness join.

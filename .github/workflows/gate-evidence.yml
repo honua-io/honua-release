@@ -1,0 +1,150 @@
+# Freeze-phase gate (honua-release#60) — evidence lineage + freshness. The release train pins a
+# honua-server SHA as the candidate's identity (platform-manifest.yaml); this gate proves the
+# honua-evidence capability-matrix.v1.json backing every capability-key docs-gate claim (#59) is
+# actually ABOUT that pinned SHA (lineage) and is not stale (freshness) — so the evidence chain
+# doesn't silently break at its very first link (plan §8 traceability).
+#
+# tools/check_evidence_freshness.py is the pure, unit-tested decision core; this workflow is the thin
+# shim that fetches honua-evidence's matrix (raw.githubusercontent, pinned ref) and computes the sha
+# ancestor/descendant relationship via the GitHub compare API, then feeds both in. A missing/
+# unfetchable matrix, an undecidable lineage, or a producer whose freshness metadata honua-evidence
+# hasn't landed yet (honua-io/honua-evidence#8) reports BLOCKED — never a fake pass. A genuinely
+# diverged evidence sha or a stale producer is FAIL in both dry-run and real cuts (a gate that can't
+# fail is worse than no gate); bootstrap only tolerates BLOCKED, strict promotes it to FAIL.
+
+name: gate-evidence
+run-name: "gate-evidence ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
+  workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.evidence.outputs.status }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-evidence-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.check.outputs.status }}
+    env:
+      HONUA_EVIDENCE_REF: ${{ vars.HONUA_EVIDENCE_REF || 'trunk' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the freshness/lineage logic
+        run: python -m pytest tools/test_check_evidence_freshness.py -q
+
+      - name: Fetch honua-evidence capability-matrix.v1.json
+        id: fetch
+        run: |
+          set -uo pipefail
+          mkdir -p _evidence
+          URL="https://raw.githubusercontent.com/honua-io/honua-evidence/${HONUA_EVIDENCE_REF}/data/capability-matrix.v1.json"
+          if curl -fsSL "$URL" -o _evidence/capability-matrix.v1.json 2>/tmp/fetch.log; then
+            echo "fetched=1" >> "$GITHUB_OUTPUT"
+            echo "fetched matrix from $URL"
+          else
+            echo "fetched=0" >> "$GITHUB_OUTPUT"
+            echo "could not fetch $URL"; tail -n 5 /tmp/fetch.log || true
+          fi
+
+      - name: Resolve evidence sha lineage vs the candidate honua-server pin
+        id: lineage
+        if: steps.fetch.outputs.fetched == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          CAND_SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('sha','') or '')")"
+          EVID_SHA="$(python -c "
+          import json, re
+          d = json.load(open('_evidence/capability-matrix.v1.json'))
+          sv = ((d.get('freshness') or {}).get('server-matrix') or {}).get('sourceVersion') or ''
+          m = re.match(r'^([0-9a-f]{6,40})@', sv)
+          print(m.group(1) if m else '')
+          ")"
+          echo "candidate honua-server sha: ${CAND_SHA:-<none>}"
+          echo "evidence server-matrix sha: ${EVID_SHA:-<none>}"
+          STATUS=""
+          if [ -n "$CAND_SHA" ] && [ -n "$EVID_SHA" ]; then
+            # base=evidence sha, head=candidate sha: "ahead" -> base is an ancestor of head (evidence
+            # is older than / equal to the candidate); "behind" -> head is an ancestor of base
+            # (evidence observed a LATER commit than the candidate pin -- still the same lineage, just
+            # the evidence refreshed after the freeze); "diverged" -> a real fork, the failure case.
+            CMP="$(gh api "repos/honua-io/honua-server/compare/${EVID_SHA}...${CAND_SHA}" --jq .status 2>/tmp/cmp.log || true)"
+            case "$CMP" in
+              identical) STATUS=identical ;;
+              ahead)     STATUS=ancestor ;;
+              behind)    STATUS=descendant ;;
+              diverged)  STATUS=diverged ;;
+              *) echo "compare API returned unexpected/empty status: '${CMP:-<empty>}'"; tail -n 5 /tmp/cmp.log || true ;;
+            esac
+          fi
+          echo "lineage_status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "resolved lineage: ${STATUS:-<unknown -- compare unreachable or sha unparseable>}"
+
+      - name: Evaluate evidence lineage + freshness
+        id: check
+        run: |
+          set -uo pipefail
+          ENF='${{ inputs.enforcement }}'
+          ARGS=(--manifest platform-manifest.yaml)
+          if [ "${{ steps.fetch.outputs.fetched }}" = "1" ]; then
+            ARGS+=(--matrix _evidence/capability-matrix.v1.json)
+          fi
+          LINEAGE='${{ steps.lineage.outputs.lineage_status }}'
+          [ -n "$LINEAGE" ] && ARGS+=(--lineage-status "$LINEAGE")
+
+          set +e
+          python tools/check_evidence_freshness.py "${ARGS[@]}" > /tmp/evidence.log 2>&1
+          set -e
+          cat /tmp/evidence.log
+          RAW="$(sed -n 's/^== evidence lineage\/freshness — \(.*\) ==$/\1/p' /tmp/evidence.log | tr '[:upper:]' '[:lower:]')"
+          [ -n "$RAW" ] || RAW=fail
+          case "$RAW" in
+            pass) STATUS=pass ;;
+            fail) STATUS=fail ;;   # a genuine diverged sha or stale producer is red in BOTH modes
+            *)
+              if [ "$ENF" = "strict" ]; then STATUS=fail; else STATUS=blocked; fi ;;
+          esac
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          { echo "## Evidence lineage/freshness — $STATUS"; echo ""; echo '```'; cat /tmp/evidence.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: evidence-freshness
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: ${{ steps.fetch.outputs.fetched == '1' && 'honua-evidence' || 'blocked' }}
+          why: "see step summary / job log for per-check (lineage + freshness) detail"
+          enforcement: ${{ inputs.enforcement }}
+          prefix: evidence-
+
+      - name: Enforce
+        run: |
+          set -e
+          STATUS='${{ steps.check.outputs.status }}'
+          echo "gate-evidence: $STATUS (enforcement=${{ inputs.enforcement }})"
+          [ "$STATUS" = "fail" ] && { echo "::error::evidence lineage/freshness gate FAILED"; exit 1; } || echo "not red"

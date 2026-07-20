@@ -1,11 +1,14 @@
 # Release train — the single trigger surface for cutting a platform release candidate.
 # Both humans and AI use this one workflow_dispatch (AI via the GitHub App / MCP).
 #
-# State: EVERY gate (a-i) is wired as a reusable (workflow_call) job with a real, fail-able body — the
-# same code as their per-PR CI, so there is no drift between "what CI checks" and "what the train
-# checks." Gates whose deeper cert needs infra/creds not present in a local cut (cloud cert, upgrade
-# kind-smoke, sbom image scan, security image scan) report `blocked`/`skipped` HONESTLY (never a fake
-# green) and are promoted to a hard FAIL on a real cut / once their secrets are wired.
+# State: EVERY gate (a-i), plus `gate_evidence` (honua-release#60, evidence lineage/freshness — proves
+# the honua-evidence capability matrix backing #59's capability-key docs claims is about this
+# candidate's pinned honua-server sha and isn't stale), is wired as a reusable (workflow_call) job with
+# a real, fail-able body — the same code as their per-PR CI, so there is no drift between "what CI
+# checks" and "what the train checks." Gates whose deeper cert needs infra/creds not present in a local
+# cut (cloud cert, upgrade kind-smoke, sbom image scan, security image scan) report `blocked`/`skipped`
+# HONESTLY (never a fake green) and are promoted to a hard FAIL on a real cut / once their secrets are
+# wired.
 #
 # Honesty (AGENTS.md): a gate that can't fail is worse than no gate. Every gate here can fail. On a real
 # cut (dry_run=false) the consume/sbom/security/upgrade gates run `strict` and e2e/cloud run
@@ -145,9 +148,12 @@ jobs:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
-  gate_docs:                   # h) advertised-vs-actual: every shipped capability is backed. Phase 3.
+  gate_docs:                   # h) advertised-vs-actual + advertised-GA ⊆ evidenced-GA (#59). Phase 3.
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_upgrade:                # i) prior-release -> candidate: compat-matrix + forward-schema + kind install/upgrade/rollback smoke
     needs: gate_e2e
@@ -156,6 +162,15 @@ jobs:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
+
+  gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
+                                 # matrix backing #59's capability-key claims must be about this
+                                 # candidate's pinned honua-server sha and not stale. Wired at freeze.
+    needs: freeze
+    uses: ./.github/workflows/gate-evidence.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -173,6 +188,7 @@ jobs:
       - gate_observability
       - gate_docs
       - gate_upgrade
+      - gate_evidence
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -217,8 +233,9 @@ jobs:
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
-          S_DOCS: ${{ needs.gate_docs.result }}
+          S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
+          S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -238,6 +255,7 @@ jobs:
           observability|$S_OBS
           docs|$S_DOCS
           upgrade|$S_UPGRADE
+          evidence|$S_EVIDENCE
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
