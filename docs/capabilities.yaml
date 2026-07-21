@@ -98,6 +98,11 @@ capabilities:
     status: shipped
     evidence: { kind: gate, ref: evidence }
 
+  - id: live-capability-manifest-check
+    claim: "A deployed candidate's live /api/v1/capabilities/manifest is asserted against the release's committed expected-GA capability set, target-agnostically (terraform-provisioned cells and https://demo.honua.io alike)."
+    status: shipped
+    evidence: { kind: canonical-check, ref: capability-manifest }
+
   # --- roadmap (honestly labelled; not yet shipped) -------------------------------------------------
   - id: slo-observability
     claim: "Releases are gated on a live SLO/error-budget including the GeoServices in-band error metric."

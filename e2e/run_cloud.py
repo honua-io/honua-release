@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """Cross-cloud parity tier entrypoint (docs/TEST-STRATEGY.md Phase B).
 
-Provisions a real honua-server on a cloud deploy target, runs the canonical (slim) parity set against
-its endpoint, tears it down, and — when a reference endpoint is supplied — asserts parity with the
-reference (local docker). Emits a machine-readable gate-report.json the release train consumes.
+Provisions a real honua-server on a cloud deploy target, runs the canonical (slim) parity set —
+including the live capability-manifest check (honua-release#61) — against its endpoint, plus the
+canary probe set (STAC/EDR/OData/OGC-Features/tiles/per-service-WMS-WMTS-WCS reachability;
+e2e/canary_probes.py), tears it down, and — when a reference endpoint is supplied — asserts parity
+with the reference (local docker). Emits a machine-readable gate-report.json the release train
+consumes.
 
 Honesty (AGENTS.md): when the target's infra isn't wired (no OIDC creds / no deployable image / no
 IaC), the run is BLOCKED, never a fake green. `--require-real` (the train / a real nightly run)
 promotes BLOCKED to a hard FAIL so the gate can genuinely fail once infra exists.
+
+Cloud-tier unblock (honua-release#61): the canary probes run here in GENERIC mode — no service/tile
+id is configured for a bare terraform-provisioned cell (nothing is seeded there yet), so the
+data-dependent probes (render+query smoke, per-service WMS/WMTS/WCS, tile.json) honestly report
+BLOCKED rather than a fake pass/fail; the reachability-only probes (health, security headers,
+metrics-gated, STAC/EDR/OData/OGC-Features reachability) run for real. A genuine FAIL from any canary
+probe (a real break, not just "nothing seeded") reddens the run unconditionally — BLOCKED canary
+probes are reported but do not gate, since the ephemeral cloud cells have no seed-data story yet
+(distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
+pending the driver harness image, honua-release#35).
 
   python e2e/run_cloud.py --target aws-serverless [--require-real] [--reference-endpoint URL]
 
@@ -24,7 +37,8 @@ from pathlib import Path
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
-from canonical_checks import run_canonical, run_extended  # noqa: E402
+import canary_probes  # noqa: E402
+from canonical_checks import make_fetch, run_canonical, run_extended  # noqa: E402
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -79,11 +93,17 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
     endpoint = None
     checks = []
+    canary_results = []
     try:
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         checks = run_canonical(endpoint)
         report["checks"] = _check_dicts(checks)
+        # Cloud-tier unblock (honua-release#61): the canary probe set, GENERIC mode (no service/tile id
+        # configured — nothing is seeded on a bare terraform cell yet), so data-dependent probes report
+        # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
+        canary_results = canary_probes.run_canary(endpoint, make_fetch())
+        report["canaryProbes"] = _check_dicts(canary_results)
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
@@ -97,13 +117,14 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     extended = run_extended(endpoint)
     report["scenarioCoverage"] = _check_dicts(extended)
 
-    # Verdict from the canonical set.
+    # Verdict from the canonical set + the canary probes' genuine failures.
     failed = [c.name for c in checks if c.status == "fail"]
+    canary_failed = [c.name for c in canary_results if c.status == "fail"]
     blocked = [c.name for c in checks if c.status == "blocked"]
     ext_blocked = [c.name for c in extended if c.status in ("blocked", "fail")]
-    if failed:
+    if failed or canary_failed:
         report["status"] = "fail"
-        report["why"] = f"canonical checks failed on {cell}: {failed}"
+        report["why"] = f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}"
         return report
     if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
@@ -154,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
               "(set HONUA_AWS_ROLE_ARN to enforce this tier per-RC)")
     for c in report.get("checks", []):
         print(f"   [{c['status'].upper():7}] {c['name']}: {c['why']}")
+    for c in report.get("canaryProbes", []):
+        print(f"   canary [{c['status'].upper():7}] {c['name']}: {c['why']}")
     for c in report.get("scenarioCoverage", []):
         print(f"   scenario [{c['status'].upper():7}] {c['name']}: {c['why']}")
     if "parity" in report:
