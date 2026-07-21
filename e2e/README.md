@@ -65,14 +65,22 @@ deploy shapes and with/without its cache:
 
 ```
 e2e/
-  canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog) — HTTP-level, no SDK/Prom
+  canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog,
+                          #   live capability-manifest check honua-release#61) — HTTP-level, no SDK/Prom
+  canary_probes.py        # the wider canary probe set (STAC/EDR/OData/OGC-Features/tiles/per-service
+                          #   WMS-WMTS-WCS reachability, report-only geocoding latency; honua-release#61)
+  expected-ga-manifest.json  # committed expected-GA capability id set the manifest check asserts against
+  demo_canary.py          # scheduled entrypoint: canonical + canary probes against a live target
+                          #   (default https://demo.honua.io); writes gate-report + a versioned
+                          #   live-canary-evidence.json envelope for honua-evidence#8's join
   parity.py               # compare(reference, other): identical verdicts across targets, else FAIL
-  run_cloud.py            # provision(target, redis) -> canonical -> teardown -> parity -> gate-report-cloud.json
+  run_cloud.py            # provision(target, redis) -> canonical + canary probes -> teardown -> parity -> gate-report-cloud.json
   targets/
     base.py               # DeployTarget contract (availability / provision(redis_enabled) / teardown)
     terraform_target.py   # config-driven terraform cells (serverless + ECS): apply image+redis var -> honua_url -> destroy
     aws_eks.py            # the heavy EKS cell (cluster + Helm + LB); needs kubectl/helm + the chart
-  test_cloud.py           # unit tests: parity comparator, canonical normalisation, all 3 targets × redis BLOCKED-without-infra
+  test_cloud.py           # unit tests: parity comparator, canonical normalisation (incl. capability-manifest), all 3 targets × redis BLOCKED-without-infra
+  test_canary_probes.py   # unit tests: the canary probe set (pass/fail/blocked, incl. seeded-data honesty)
 ```
 
 ```bash
@@ -92,6 +100,29 @@ dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable imag
 for EKS also kubectl/helm + the chart (`HONUA_HELM_DIR`). `--require-real` (the train on a real cut / a
 real nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is
 unit-tested (`make test`) so the gate is trustworthy with zero cloud.
+
+## Phase B.1 — scheduled demo canary (honua-release#61)
+
+`.github/workflows/demo-canary.yml` runs `demo_canary.py` every 6 hours (+ `workflow_dispatch`) against
+the always-on public demo (`https://demo.honua.io` by default) — a HYBRID-train evidence producer, not a
+`release-train.yml` gate job (see [`docs/HYBRID-TRAIN.md`](../docs/HYBRID-TRAIN.md)). It runs the
+canonical set + the full canary probe set (`canary_probes.run_canary`, with the demo's real
+service/tile ids configured) and writes:
+
+- `gate-report-demo-canary.json` — the human/machine-readable report (workflow step summary + the
+  single tracking issue opened/updated on a genuine FAIL).
+- `live-canary-evidence.json` — a versioned `honua.live-canary-evidence.v1` envelope for
+  honua-io/honua-evidence#8's capability-matrix join (schema proposed here; not yet finalized upstream).
+
+```bash
+python e2e/demo_canary.py --base https://demo.honua.io          # unauthenticated (default)
+HONUA_DEMO_API_KEY=... python e2e/demo_canary.py --base https://demo.honua.io   # asserts available=true too
+```
+
+`geocoding-latency` is REPORT-ONLY (honua-server#2948 — geocoding is known-broken pending VPC egress) and
+never fails the run. Every other check/probe can genuinely fail; key-gated probes (`metrics-gated`,
+`admin-metrics-health`, `deploy-preflight`, and the manifest check's `available=true` assertion) report
+BLOCKED — not FAIL — when `HONUA_DEMO_API_KEY` isn't configured.
 
 ### Probe exit-code contract (every language probe)
 
