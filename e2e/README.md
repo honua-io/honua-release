@@ -111,7 +111,7 @@ service/tile ids configured) and writes:
 
 - `gate-report-demo-canary.json` — the human/machine-readable report (workflow step summary + the
   single tracking issue opened/updated on a genuine FAIL).
-- `live-canary-evidence.json` — a versioned `honua.live-canary-evidence.v1` envelope for
+- `live-canary-evidence.json` — a versioned `honua-evidence.live-canary-envelope/v1` envelope (honua-evidence#9 producer contract) for
   honua-io/honua-evidence#8's capability-matrix join (schema proposed here; not yet finalized upstream).
 
 ```bash

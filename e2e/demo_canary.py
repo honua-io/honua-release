@@ -49,7 +49,27 @@ from canonical_checks import CheckResult, make_fetch, run_canonical  # noqa: E40
 
 REPORT_PATH = E2E_DIR / "gate-report-demo-canary.json"
 ENVELOPE_PATH = E2E_DIR / "live-canary-evidence.json"
-ENVELOPE_SCHEMA = "honua.live-canary-evidence.v1"
+ENVELOPE_SCHEMA = "honua-evidence.live-canary-envelope/v1"
+
+# Probe/check name -> capability-matrix key(s) (honua-evidence capability-matrix.v1.json
+# vocabulary). Only mapped results become evidence-envelope probes; the ingester requires
+# non-empty capabilityKeys per probe (docs/producer-contracts.md in honua-evidence).
+PROBE_CAPABILITY_KEYS: dict[str, list[str]] = {
+    "health-live-ready": ["ops.health"],
+    "metrics-gated": ["ops.observability"],
+    "admin-metrics-health": ["ops.observability"],
+    "render-query-smoke": ["serve.geoservices-mapserver", "serve.geoservices-featureserver"],
+    "stac-collections": ["serve.stac"],
+    "ogc-features-collections": ["serve.ogc-api-features"],
+    "edr-collections": ["serve.ogc-api-edr"],
+    "odata-service-document": ["serve.odata"],
+    "tiles-tilejson": ["serve.vector-tiles"],
+    "geocoding-latency": ["geocoding.forward"],
+    "ogc-wms-capabilities": ["serve.wms"],
+    "ogc-wmts-capabilities": ["serve.wmts"],
+    "ogc-wcs-capabilities": ["serve.wcs"],
+    "capability-manifest": ["discovery.capability-manifest"],
+}
 
 
 def _check_dicts(results: list[CheckResult]) -> list[dict]:
@@ -101,22 +121,40 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
                  "all canonical + canary checks passed")),
     }
 
+    # honua-evidence#8 landed its producer contract (honua-io/honua-evidence#9,
+    # docs/producer-contracts.md: schema honua-evidence.live-canary-envelope/v1) after this
+    # emitter was first drafted — the envelope below conforms to that contract exactly.
+    # Required top-level fields: schema, manifestId, targetEnvironment, runAt, probes.
+    # Probes without capabilityKeys are skipped by the ingester, so only capability-mapped
+    # results are emitted here; the FULL check list (including unmapped operational checks
+    # like security-headers/deploy-preflight) lives in the gate report above.
+    status_map = {"pass": "green", "fail": "red"}
+    probes = []
+    for r in all_results:
+        keys = PROBE_CAPABILITY_KEYS.get(r.name)
+        if not keys or r.status not in status_map:
+            continue  # unmapped or blocked results are operational detail, not capability evidence
+        probes.append({
+            "probeName": r.name,
+            "capabilityKeys": keys,
+            "status": status_map[r.status],
+            "lastGreenAt": generated_at if r.status == "pass" else "",
+            "detail": r.why,
+        })
+
     envelope = {
-        "schemaVersion": ENVELOPE_SCHEMA,
-        "producer": "honua-release/demo-canary",
-        "target": {"url": base, "environment": "demo" if "demo.honua.io" in base else "unknown"},
-        "generatedAt": generated_at,
-        # Mirrors tools/check_evidence_freshness.py's "<sha>@<iso-timestamp>" sourceVersion convention
-        # for the server-matrix producer, so honua-evidence#8 can join this the same way once it lands.
-        "sourceVersion": f"{candidate_sha or 'unknown'}@{generated_at}",
-        "runUrl": run_url,
-        "overallStatus": overall,
-        "checks": _check_dicts(all_results),
-        # Per manifest-capability-id last-verdict, for a future capability-matrix join (honua-evidence#8).
-        "capabilityKeys": {
-            r.name: {"lastStatus": r.status, "lastGreenAt": generated_at if r.status == "pass" else None}
-            for r in all_results
-        },
+        "schema": ENVELOPE_SCHEMA,
+        "manifestId": f"demo-canary-{generated_at}",
+        "targetEnvironment": "demo.honua.io" if "demo.honua.io" in base else base,
+        "targetUrl": base,
+        "runAt": generated_at,
+        "overallStatus": {"pass": "green", "fail": "red"}.get(overall, "partial"),
+        "sourceRepo": "honua-io/honua-release",
+        "sourceRef": os.environ.get("GITHUB_SHA", ""),
+        "sourceRunUrl": run_url,
+        # Extra (contract tolerates unknown fields): which pinned server candidate this ran against.
+        "candidateServerSha": candidate_sha or "",
+        "probes": probes,
     }
     return report, envelope
 

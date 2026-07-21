@@ -18,3 +18,5 @@ e2e/scenarios/**/node_modules/
 
 # Slice-1 harness runtime output
 e2e/out/
+e2e/gate-report-demo-canary.json
+e2e/live-canary-evidence.json

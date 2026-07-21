@@ -105,27 +105,14 @@ no teeth).
 
 ## Coordination point: honua-io/honua-evidence#8
 
-Evidence#8 ("Cross-repo evidence joins: terraform DR drills, live canary results, CITE freshness")
-had **not yet defined a schema** for live-canary results as of this writing. `demo_canary.py` writes a
-minimal `honua.live-canary-evidence.v1` envelope as a **proposal**, not a frozen contract:
-
-```json
-{
-  "schemaVersion": "honua.live-canary-evidence.v1",
-  "producer": "honua-release/demo-canary",
-  "target": { "url": "https://demo.honua.io", "environment": "demo" },
-  "generatedAt": "2026-07-21T10:00:00Z",
-  "sourceVersion": "<honua-server-sha-if-resolvable>@2026-07-21T10:00:00Z",
-  "runUrl": "https://github.com/honua-io/honua-release/actions/runs/...",
-  "overallStatus": "pass|fail|blocked",
-  "checks": [ { "name": "...", "status": "pass|fail|blocked", "why": "...", "evidence": {} } ],
-  "capabilityKeys": { "<check-or-probe-name>": { "lastStatus": "...", "lastGreenAt": "...|null" } }
-}
-```
-
-It deliberately mirrors the `sourceVersion: "<sha>@<timestamp>"` convention
-`tools/check_evidence_freshness.py` already uses for the `server-matrix` producer (honua-release#60),
-so once evidence#8 lands its ingestion it can join this the same way — by regex-extracting the sha
-prefix and comparing lineage/age exactly like the existing freshness gate does. When evidence#8's
-schema lands, `demo_canary.py`'s envelope shape should be reconciled against it (rename fields, drop
-this doc's proposal framing) rather than maintained as a second, competing shape.
+Evidence#8's producer contract landed in honua-io/honua-evidence#9
+(`docs/producer-contracts.md`: schema `honua-evidence.live-canary-envelope/v1`, pushed as one file
+per run into that repo's `data/producers/live-canary/`). `demo_canary.py` emits that schema
+directly: required fields `schema` / `manifestId` / `targetEnvironment` / `runAt` / `probes`, with
+each probe carrying `probeName`, non-empty `capabilityKeys` (the mapping to capability-matrix keys
+lives in `demo_canary.PROBE_CAPABILITY_KEYS` — only mapped, non-blocked results become evidence
+probes; the full check list stays in the gate report), `status` (`green`/`red`), and `lastGreenAt`.
+The envelope also carries `candidateServerSha` as a tolerated extra field so the pinned-candidate
+lineage stays traceable. Delivery of the envelope into honua-evidence (commit/PR automation from the
+canary workflow) is the remaining wiring step — until then the `live-canary` producer correctly
+reports `missing` in the evidence freshness ledger.
