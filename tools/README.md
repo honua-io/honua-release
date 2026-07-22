@@ -75,3 +75,51 @@ explicit path; files from the branch that happens to be current at promotion tim
 ```bash
 python -m pytest tools/test_candidate_binding.py tools/test_finalize_release.py tools/test_workflow_contracts.py
 ```
+
+## `check_capabilities.py` — docs gate (h): advertised-vs-actual + `capability-key` evidence (honua-release#59)
+
+Every `shipped` claim in `docs/capabilities.yaml` needs `evidence` that resolves to something real:
+`canonical-check`/`gate`/`test` (unchanged), plus a new `capability-key` kind that resolves against
+honua-evidence's `capability-matrix.v1.json`. A claim passes only if the matrix key has an implemented
+(non-experimental) surface, `provingTestCount` at or above `docs/capabilities.yaml`'s
+`defaults.minProvingTests` floor, and 100% CITE pass rate on every joined suite. The matrix is fetched
+by the calling workflow (`gate-docs.yml`, raw.githubusercontent pinned to `HONUA_EVIDENCE_REF`) and
+handed in via `--capability-matrix`/`HONUA_CAPABILITY_MATRIX` — a missing/unfetchable/malformed matrix
+resolves every `capability-key` claim to `blocked`, never a fake pass.
+
+```bash
+python tools/check_capabilities.py --capability-matrix path/to/capability-matrix.v1.json
+python -m pytest tools/test_check_capabilities.py -q
+```
+
+## `check_ga_surface.py` — docs gate (h): advertised-GA ⊆ evidenced-GA (honua-release#59)
+
+Sibling of the above: applies the SAME GA criteria (`check_capabilities.resolve_capability_key`) to
+EVERY matrix key the server implicitly advertises as GA — `noSurface` falsy and
+`maturity.implemented > 0` — not just the hand-picked `docs/capabilities.yaml` claims. Reports
+per-key verdicts so a red is diagnosable. Wired into `gate-docs.yml`'s `ga-surface` job; in bootstrap
+(PR / dry-run train cut) a real fail is reported (`blocked`, not reddening the train) since it will
+legitimately surface pre-existing honua-server gaps ahead of a companion re-grade fix; `strict` (a
+real cut) enforces it fully.
+
+```bash
+python tools/check_ga_surface.py --matrix path/to/capability-matrix.v1.json
+python -m pytest tools/test_check_ga_surface.py -q
+```
+
+## `check_evidence_freshness.py` — freeze-phase gate: evidence lineage + freshness (honua-release#60)
+
+Proves the honua-evidence capability matrix backing the claims above is actually ABOUT the release
+candidate's pinned honua-server SHA (`platform-manifest.yaml`) and isn't stale, before a candidate is
+certified. `lineage` needs the sha ancestor/descendant relationship (computed by the workflow shim,
+`gate-evidence.yml`, via the GitHub compare API — never inside this module); `freshness` reads each
+configured producer's age from the matrix's own `freshness` block against thresholds in
+`certification/evidence-freshness.yaml`. A missing matrix, undecidable lineage, or a producer absent
+from the freshness contract (honua-io/honua-evidence#8 pending) reports `blocked`; a genuinely
+diverged sha or stale producer is `fail` in both dry-run and real cuts.
+
+```bash
+python tools/check_evidence_freshness.py --manifest platform-manifest.yaml \
+    --matrix path/to/capability-matrix.v1.json --lineage-status ancestor
+python -m pytest tools/test_check_evidence_freshness.py -q
+```

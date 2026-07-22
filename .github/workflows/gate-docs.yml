@@ -1,22 +1,48 @@
-# Release gate (h) — documentation: advertised-vs-actual.
+# Release gate (h) — documentation: advertised-vs-actual + advertised-GA ⊆ evidenced-GA (honua-release#59).
 #
-# Every capability advertised as `shipped` in docs/capabilities.yaml must be backed by a real
-# test/gate/canonical-check; a `roadmap` claim is honestly labelled. tools/check_capabilities.py
-# fails the gate on a fabricated claim (the audit's recurring credibility risk). Unlike the
-# build-test/security gates, this DOES run per-PR — the claims live in this repo, so a PR that adds an
-# unbacked capability must fail.
+# advertised-vs-actual   Every capability advertised as `shipped` in docs/capabilities.yaml must be
+#                        backed by a real canonical-check/gate/test in this repo, OR by a
+#                        `capability-key` claim that resolves against honua-evidence's capability-
+#                        matrix.v1.json GA criteria: maturity.implemented > 0, provingTestCount >= the
+#                        configurable floor, and 100% CITE pass rate wherever CITE is joined.
+# ga-surface             Advertised-GA ⊆ evidenced-GA: EVERY non-noSurface, non-experimental-only key
+#                        in the capability matrix (not just the handful of docs/capabilities.yaml
+#                        claims) must meet that SAME bar — a capability the server surfaces as GA
+#                        without qualifying evidence fails the gate, with per-key verdicts reported so
+#                        a red is diagnosable.
+#
+# Both checks fetch honua-evidence's capability-matrix.v1.json (raw.githubusercontent, pinned to
+# HONUA_EVIDENCE_REF, default trunk) and fail CLOSED to BLOCKED — never a fake pass — if it can't be
+# fetched. bootstrap (PR / dry-run train cut) tolerates BLOCKED; strict (a real train cut) promotes it
+# to FAIL. A genuinely fabricated/under-evidenced claim is FAIL in BOTH modes — this DOES run per-PR
+# (the claims live in this repo), so a PR that adds an unbacked capability must fail.
 
 name: gate-docs
+run-name: "gate-docs ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
 
 on:
   pull_request:
     paths:
       - "docs/capabilities.yaml"
       - "tools/check_capabilities.py"
+      - "tools/check_ga_surface.py"
       - "tools/test_check_capabilities.py"
+      - "tools/test_check_ga_surface.py"
       - ".github/workflows/gate-docs.yml"
+  schedule:
+    - cron: "57 5 * * *"
   workflow_dispatch:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
   workflow_call:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.report.outputs.overall_status }}
 
 permissions:
   contents: read
@@ -25,8 +51,39 @@ concurrency:
   group: gate-docs-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  HONUA_EVIDENCE_REF: ${{ vars.HONUA_EVIDENCE_REF || 'trunk' }}
+
 jobs:
+  # ── fetch honua-evidence's capability-matrix.v1.json ONCE; both checks below consume it ───────────
+  fetch-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      fetched: ${{ steps.fetch.outputs.fetched }}
+    steps:
+      - name: Fetch honua-evidence capability-matrix.v1.json
+        id: fetch
+        run: |
+          set -uo pipefail
+          mkdir -p _evidence
+          URL="https://raw.githubusercontent.com/honua-io/honua-evidence/${HONUA_EVIDENCE_REF}/data/capability-matrix.v1.json"
+          if curl -fsSL "$URL" -o _evidence/capability-matrix.v1.json 2>/tmp/fetch.log; then
+            echo "fetched=1" >> "$GITHUB_OUTPUT"
+            echo "fetched matrix from $URL"
+          else
+            echo "fetched=0" >> "$GITHUB_OUTPUT"
+            echo "could not fetch $URL"; tail -n 5 /tmp/fetch.log || true
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.fetch.outputs.fetched == '1'
+        with:
+          name: docs-capability-matrix
+          path: _evidence/capability-matrix.v1.json
+          if-no-files-found: error
+
+  # ── the ~10 hand-picked docs/capabilities.yaml claims (gate a, unchanged) + capability-key claims ──
   advertised-vs-actual:
+    needs: fetch-matrix
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -39,6 +96,165 @@ jobs:
       - name: Self-test the docs gate
         run: python -m pytest tools/test_check_capabilities.py -q
 
-      # The real advertised-vs-actual check: every shipped claim resolves, or the gate is red.
+      - name: Download the fetched matrix (best-effort)
+        if: needs.fetch-matrix.outputs.fetched == '1'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: docs-capability-matrix
+          path: _evidence
+
       - name: Advertised-vs-actual
-        run: python tools/check_capabilities.py
+        id: check
+        run: |
+          set -uo pipefail
+          ENF='${{ inputs.enforcement || 'bootstrap' }}'
+          ARGS=(--capabilities docs/capabilities.yaml)
+          [ -f _evidence/capability-matrix.v1.json ] && ARGS+=(--capability-matrix _evidence/capability-matrix.v1.json)
+          [ "$ENF" = "strict" ] && ARGS+=(--require-real)
+          set +e
+          python tools/check_capabilities.py "${ARGS[@]}" > /tmp/advertised.log 2>&1
+          RC=$?
+          set -e
+          cat /tmp/advertised.log
+          # Parse the tool's own verdict rather than trusting the exit code alone: with --require-real
+          # unset (bootstrap), a BLOCKED matrix exits 0, and that must not read back as a fake pass.
+          RAW="$(sed -n 's/^== advertised-vs-actual docs gate — \([A-Z]*\).*$/\1/p' /tmp/advertised.log | tr '[:upper:]' '[:lower:]')"
+          [ -n "$RAW" ] || RAW=fail
+          if [ "$RC" -ne 0 ] && [ "$RAW" != "blocked" ]; then RAW=fail; fi
+          STATUS="$RAW"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: advertised-vs-actual
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: ${{ needs.fetch-matrix.outputs.fetched == '1' && 'honua-evidence' || 'blocked' }}
+          why: "see job log for per-capability verdicts"
+          enforcement: ${{ inputs.enforcement || 'bootstrap' }}
+          prefix: docs-
+
+  # ── advertised-GA ⊆ evidenced-GA: every implemented, surfaced matrix key must be evidenced ─────────
+  ga-surface:
+    needs: fetch-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the GA-surface logic
+        run: python -m pytest tools/test_check_ga_surface.py -q
+
+      - name: Download the fetched matrix (best-effort)
+        if: needs.fetch-matrix.outputs.fetched == '1'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: docs-capability-matrix
+          path: _evidence
+
+      - name: Advertised-GA ⊆ evidenced-GA
+        id: check
+        run: |
+          set -uo pipefail
+          ENF='${{ inputs.enforcement || 'bootstrap' }}'
+          ARGS=()
+          [ -f _evidence/capability-matrix.v1.json ] && ARGS+=(--matrix _evidence/capability-matrix.v1.json)
+          [ "$ENF" = "strict" ] && ARGS+=(--require-real)
+          set +e
+          python tools/check_ga_surface.py "${ARGS[@]}" > /tmp/ga.log 2>&1
+          RC=$?
+          set -e
+          cat /tmp/ga.log
+          # Parse the tool's own verdict rather than trusting the exit code alone: with --require-real
+          # unset (bootstrap), a BLOCKED matrix exits 0, and that must not read back as a fake pass.
+          RAW="$(sed -n 's/^== advertised-GA ⊆ evidenced-GA — \([A-Z]*\).*$/\1/p' /tmp/ga.log | tr '[:upper:]' '[:lower:]')"
+          [ -n "$RAW" ] || RAW=fail
+          if [ "$RC" -ne 0 ] && [ "$RAW" != "blocked" ]; then RAW=fail; fi
+          STATUS="$RAW"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          { echo "## Advertised-GA ⊆ evidenced-GA"; echo ""; echo '```'; cat /tmp/ga.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: ga-surface
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: ${{ needs.fetch-matrix.outputs.fetched == '1' && 'honua-evidence' || 'blocked' }}
+          why: "see step summary for per-key verdicts"
+          enforcement: ${{ inputs.enforcement || 'bootstrap' }}
+          prefix: docs-
+
+  # ── report — aggregate the docs- fragments; fail per enforcement (same pattern as other gates) ─────
+  report:
+    needs: [advertised-vs-actual, ga-surface]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - name: Download fragments
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: docs-gate-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          ENFORCEMENT: ${{ inputs.enforcement || 'bootstrap' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          jq -s \
+            --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
+            def decided(enf):
+              if .status=="pass" then "pass"
+              # ga-surface is a NEW, broad check (every implemented+surfaced matrix key, not just the
+              # hand-picked capability-key claims) — it will legitimately find pre-existing honua-server
+              # under-evidenced GA keys (the 2026-07-20 audit finding) before the companion honua-server
+              # re-grade ticket lands. bootstrap (PR / dry-run cut) reports it (blocked, never a fake
+              # pass) WITHOUT reddening the train; strict (a real cut) enforces it fully, same as every
+              # other gate. advertised-vs-actual is unaffected: its claims are hand-picked to already
+              # meet the bar, so a real red there stays a real red in both modes.
+              elif (.gate=="ga-surface" and enf!="strict") then "blocked"
+              elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
+              else "fail" end;
+            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            | { gate:"docs", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
+                gates:$g,
+                summary:{ pass:([$g[]|select(.decided=="pass")]|length),
+                          blocked:([$g[]|select(.decided=="blocked")]|length),
+                          fail:([$g[]|select(.decided=="fail")]|length) },
+                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                                elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
+            fragments/*.json > out/gate-report.json
+          cat out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Docs gate — $OVERALL";
+            echo "| check | status | why |"; echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate-report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: docs-gate-report
+          path: out/gate-report.json
+
+      - name: Enforce
+        run: |
+          set -e
+          OVERALL='${{ steps.assemble.outputs.overall_status }}'
+          echo "docs gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
+          [ "$OVERALL" = "fail" ] && { echo "::error::docs gate FAILED"; exit 1; } || echo "not red"

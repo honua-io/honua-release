@@ -3,14 +3,27 @@
 # The audit's recurring credibility risk was capabilities claimed in docs/READMEs with no backing
 # (e.g. a fabricated AR example citing a non-existent SDK). This file makes every claim accountable:
 #
-#   status: shipped  -> MUST cite `evidence` that resolves to something real in this repo:
+#   status: shipped  -> MUST cite `evidence` that resolves to something real:
 #       kind: canonical-check   ref: a check name in e2e/canonical_checks.py
 #       kind: gate              ref: a wired release-train gate id (from release-train.yml)
 #       kind: test              ref: a test file path that exists
+#       kind: capability-key    ref: a key in honua-evidence's capability-matrix.v1.json that meets
+#                                the GA criteria below (honua-release#59) — implemented > 0,
+#                                provingTestCount >= defaults.minProvingTests, and 100% CITE pass rate
+#                                on every joined suite. A stale/unfetchable matrix reports BLOCKED,
+#                                never a fake pass (tools/check_capabilities.resolve_capability_key).
 #   status: roadmap  -> explicitly labelled as not-yet-shipped; needs no evidence (but is honest).
 #
 # tools/check_capabilities.py fails the docs gate if a `shipped` claim has missing/unresolvable
 # evidence, or an unknown status — so a capability cannot be advertised without an actual test/gate.
+# tools/check_ga_surface.py applies the SAME `capability-key` criteria to EVERY advertised-GA key in
+# the matrix (not just the claims below) — the advertised-GA ⊆ evidenced-GA check.
+
+# GA criteria defaults shared by the `capability-key` evidence kind AND check_ga_surface.py, so the
+# two checks can never silently disagree. Override here (not in code) to retune the bar.
+defaults:
+  minProvingTests: 5   # floor: a GA-advertised capability needs at least this many proving tests
+                        # (server + SDK contract tests exercising it) behind the claim.
 
 capabilities:
   - id: geoservices-error-surfacing
@@ -52,6 +65,38 @@ capabilities:
     claim: "The platform behaves identically across deploy targets (cross-cloud parity)."
     status: shipped
     evidence: { kind: gate, ref: cloud-parity }
+
+  # --- capability-key claims (honua-release#59): seeded from honua-evidence's REAL capability-matrix,
+  # not hand-invented — each key below must independently satisfy the GA criteria (`defaults` above).
+  - id: capability-serve-wfs
+    claim: "WFS 1.0/1.1/2.0 is a GA, evidenced serving surface (capability key serve.wfs: implemented, CITE-backed)."
+    status: shipped
+    evidence: { kind: capability-key, ref: serve.wfs }
+
+  - id: capability-serve-ogc-api-features
+    claim: "OGC API Features is a GA, evidenced serving surface (capability key serve.ogc-api-features: implemented, CITE-backed)."
+    status: shipped
+    evidence: { kind: capability-key, ref: serve.ogc-api-features }
+
+  - id: capability-serve-vector-tiles
+    claim: "MVT vector tiles is a GA, evidenced serving surface (capability key serve.vector-tiles)."
+    status: shipped
+    evidence: { kind: capability-key, ref: serve.vector-tiles }
+
+  - id: capability-geoservices-featureserver
+    claim: "GeoServices FeatureServer is a GA, evidenced serving surface (capability key serve.geoservices-featureserver)."
+    status: shipped
+    evidence: { kind: capability-key, ref: serve.geoservices-featureserver }
+
+  - id: advertised-ga-subset-evidenced-ga
+    claim: "Every advertised-GA capability in the server's capability matrix has qualifying evidence (advertised-GA ⊆ evidenced-GA), not just the hand-picked keys above."
+    status: shipped
+    evidence: { kind: gate, ref: docs }
+
+  - id: evidence-lineage-freshness
+    claim: "The release train verifies the honua-evidence capability matrix backing GA claims is about the candidate's pinned honua-server SHA and isn't stale before a candidate is certified."
+    status: shipped
+    evidence: { kind: gate, ref: evidence }
 
   # --- roadmap (honestly labelled; not yet shipped) -------------------------------------------------
   - id: slo-observability
