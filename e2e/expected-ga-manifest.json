@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "honua.expected-ga-manifest.v1",
+  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). Seeded from a real fetch of https://demo.honua.io/api/v1/capabilities/manifest (schemaVersion honua.capability_manifest.v1, 29 ids, all supported=true) minus two deliberately-gated ids listed in `excluded`. `expectedGa` (minus `excluded`) is the id set every deployed candidate must advertise as supported=true; when the check runs authenticated (an admin X-API-Key) it also asserts available=true for the same set. Update this file (with a fresh sourceSnapshot) when the server adds/removes a GA capability id or when an excluded id's gating status changes.",
+  "sourceSnapshot": {
+    "target": "https://demo.honua.io/api/v1/capabilities/manifest",
+    "manifestSchemaVersion": "honua.capability_manifest.v1",
+    "fetchedAt": "2026-07-21T10:11:22Z",
+    "totalCapabilities": 29
+  },
+  "expectedGa": [
+    "package.metadata-v2",
+    "package.release-package",
+    "package.gitops-manifest",
+    "package.map",
+    "package.app",
+    "temporal.filtering",
+    "temporal.extent-discovery",
+    "temporal.histogram",
+    "temporal.time-series-tiles",
+    "realtime.feature-streams",
+    "jobs.runner",
+    "ai.spec-apply",
+    "ai.grounding",
+    "ai.workflow-generation",
+    "gitops.release-manifest",
+    "transport.grpc",
+    "transport.grpc-web",
+    "transport.native-grpc",
+    "transport.mcp",
+    "transport.qgis",
+    "preview.file-import",
+    "query.features",
+    "analysis.spatial",
+    "publication.metadata-release",
+    "upload.file",
+    "edit.features",
+    "operate.status",
+    "alerts.geofence",
+    "security.mtls"
+  ],
+  "excluded": [
+    {
+      "id": "security.mtls",
+      "reason": "Gated: Enterprise-edition mTLS client-certificate auth, disabled-by-configuration on public/demo deployments. honua-server#2958 will reclassify this capability from GA to experimental — tracked there, not asserted as universally-GA here."
+    },
+    {
+      "id": "alerts.geofence",
+      "reason": "Gated: disabled-by-configuration (geofence enter/exit alerting is not enabled on every deployment profile). Present in the manifest as supported=true but not asserted available on a bare/demo deployment."
+    }
+  ]
+}

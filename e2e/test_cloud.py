@@ -8,6 +8,7 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -39,6 +40,37 @@ def test_health_pass_fail_blocked():
     assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(200, "ok"))])).status == "pass"
     assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(503, "down"))])).status == "fail"
     assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(0, "conn refused"))])).status == "blocked"
+
+
+def test_health_falls_back_to_live_ready_on_404():
+    # Plain /healthz is Development-only (Honua.ServiceDefaults.MapDefaultEndpoints); a Production/
+    # Staging deploy (any real cloud cell, or https://demo.honua.io) 404s there by design — the
+    # always-registered /healthz/live + /healthz/ready pair must be checked as a fallback (2026-07-21
+    # live-canary finding, honua-release#61). More-specific routes are listed first — "/healthz" is a
+    # substring of "/healthz/live"/"/healthz/ready" so it must be checked last.
+    ok = _fetcher([
+        ("/healthz/live", cc.HttpResponse(200, "")),
+        ("/healthz/ready", cc.HttpResponse(200, "")),
+        ("/healthz", cc.HttpResponse(404, "")),
+    ])
+    r = cc.check_health("http://x", ok)
+    assert r.status == "pass" and "404" in r.why
+
+    bad = _fetcher([
+        ("/healthz/live", cc.HttpResponse(200, "")),
+        ("/healthz/ready", cc.HttpResponse(503, "")),
+        ("/healthz", cc.HttpResponse(404, "")),
+    ])
+    assert cc.check_health("http://x", bad).status == "fail"
+
+    def unreachable_fallback(url):
+        # Exact-match fetch (not the substring _fetcher) so /healthz -> 404 but /healthz/live and
+        # /healthz/ready are genuinely unreachable (status 0), distinct from the 404 case above.
+        if url == "http://x/healthz":
+            return cc.HttpResponse(404, "")
+        return cc.HttpResponse(0, "conn refused")
+
+    assert cc.check_health("http://x", unreachable_fallback).status == "blocked"
 
 
 def test_geoservices_error_envelope_detection():
@@ -74,6 +106,104 @@ def test_geoprocessing_catalog():
     nogp = cc.HttpResponse(200, '{"services":[{"name":"roads","type":"FeatureServer"}]}')
     assert cc.check_geoprocessing("http://x", _fetcher([("/rest/services", nogp)])).status == "blocked"
     assert cc.check_geoprocessing("http://x", _fetcher([])).status == "blocked"
+
+
+def test_capability_manifest_pass_unauthenticated():
+    expected = {"expectedGa": ["a.one", "a.two"], "excluded": [{"id": "b.gated", "reason": "gated"}]}
+    body = json.dumps({
+        "schemaVersion": "honua.capability_manifest.v1",
+        "capabilities": [
+            {"id": "a.one", "supported": True, "available": True},
+            {"id": "a.two", "supported": True, "available": False},
+            {"id": "b.gated", "supported": True, "available": False},
+        ],
+    })
+    r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
+                                     expected=expected)
+    assert r.status == "pass"
+    assert r.evidence["expectedGaCount"] == 2
+    assert r.evidence["availableCountUnauthenticated"] == 1
+
+
+def test_capability_manifest_fail_on_missing_or_unsupported_id():
+    expected = {"expectedGa": ["a.one", "a.missing"], "excluded": []}
+    body = json.dumps({
+        "schemaVersion": "honua.capability_manifest.v1",
+        "capabilities": [{"id": "a.one", "supported": False, "available": False}],
+    })
+    r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
+                                     expected=expected)
+    assert r.status == "fail"
+    assert "a.missing" in r.why
+
+
+def test_capability_manifest_fail_on_wrong_schema_version():
+    body = json.dumps({"schemaVersion": "wrong.v0", "capabilities": []})
+    r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
+                                     expected={"expectedGa": [], "excluded": []})
+    assert r.status == "fail" and "schemaVersion" in r.why
+
+
+def test_capability_manifest_blocked_when_unreachable():
+    assert cc.check_capability_manifest("http://x", _fetcher([])).status == "blocked"
+
+
+def test_load_expected_ga_returns_none_for_missing_or_malformed_file():
+    import tempfile
+    assert cc.load_expected_ga("/nonexistent/path.json") is None
+    with tempfile.TemporaryDirectory() as d:
+        bad = Path(d) / "bad.json"
+        bad.write_text("not json", encoding="utf-8")
+        assert cc.load_expected_ga(bad) is None
+        wrong_shape = Path(d) / "wrong.json"
+        wrong_shape.write_text(json.dumps({"noExpectedGaKey": []}), encoding="utf-8")
+        assert cc.load_expected_ga(wrong_shape) is None
+
+
+def test_committed_expected_ga_manifest_loads_and_is_well_formed():
+    data = cc.load_expected_ga()
+    assert data is not None, "e2e/expected-ga-manifest.json must exist and be well-formed"
+    assert data["expectedGa"], "expectedGa must be non-empty"
+    excluded_ids = {e["id"] for e in data.get("excluded", [])}
+    assert {"security.mtls", "alerts.geofence"} <= excluded_ids
+
+
+def test_capability_manifest_blocked_when_expected_ga_file_missing(monkeypatch):
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    # Force the default-lookup branch (expected=None) to miss, simulating an absent/unfetchable
+    # committed manifest — must report BLOCKED, never a fake pass.
+    monkeypatch.setattr(cc, "EXPECTED_GA_PATH", Path("/nonexistent/does-not-exist.json"))
+    r = cc.check_capability_manifest(
+        "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]))
+    assert r.status == "blocked" and "does-not-exist.json is missing/unreadable" in r.why
+
+
+def test_capability_manifest_authenticated_asserts_available():
+    expected = {"expectedGa": ["a.one"], "excluded": []}
+    unauth_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
+                              "capabilities": [{"id": "a.one", "supported": True, "available": False}]})
+    auth_ok_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
+                               "capabilities": [{"id": "a.one", "supported": True, "available": True}]})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
+    auth_fetch_ok = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_ok_body))])
+    r = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_ok)
+    assert r.status == "pass" and r.evidence["authenticated"] is True
+
+    auth_fetch_stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
+    r2 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_stale)
+    assert r2.status == "fail" and "available=true when authenticated" in r2.why
+
+    # An expected-GA id entirely OMITTED from the authenticated manifest (not just present-but-
+    # unavailable) must also fail, not silently drop out of the `unavailable` list.
+    auth_omitted_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    auth_fetch_omitted = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_omitted_body))])
+    r3 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_omitted)
+    assert r3.status == "fail" and "a.one" in r3.why and "available=true when authenticated" in r3.why
+
+
+def test_run_canonical_includes_capability_manifest():
+    names = {r.name for r in cc.run_canonical("http://x", _fetcher([]))}
+    assert "capability-manifest" in names
 
 
 def test_extended_scenarios_blocked_pending_harness_image():
@@ -236,6 +366,9 @@ if __name__ == "__main__":
         def setenv(self, k, v):
             import os
             os.environ[k] = v
+
+        def setattr(self, obj, name, value):
+            setattr(obj, name, value)
 
     failures = 0
     for name, fn in sorted(globals().items()):

@@ -3,11 +3,15 @@
 # Two complementary layers, both AWS-first, both creds-gated so a no-cloud local cut is never reddened:
 #
 #   parity     Deploys honua-server on each AWS target (serverless / ecs / eks) x Redis on/off via the
-#              honua-iac example roots, runs the canonical (slim) HTTP parity set + the EXTENDED seam
-#              scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. The
-#              extended scenarios are BLOCKED until the cloud harness image (honua-release#35) drives
-#              the real drivers against the cloud endpoint — require_real promotes that to FAIL so cloud
-#              MCP/Studio/GP/demo cert is genuinely gated, not assumed.
+#              honua-iac example roots, runs the canonical (slim) HTTP parity set — now including the
+#              live capability-manifest check (honua-release#61) — plus the canary probe set
+#              (e2e/canary_probes.py, GENERIC/no-seed-id mode: reachability-only probes run for real,
+#              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
+#              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
+#              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
+#              harness image (honua-release#35) to drive the real drivers against the cloud endpoint —
+#              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
+#              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
 #   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
 #              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
 #              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
@@ -250,6 +254,7 @@ jobs:
                 cells: [ .[] | {gate:(.gate//"cloud-cell"), cell:(.cell//.gate//"?"), target:.target,
                                 redis:.redis, status:.status, why:.why} ],
                 scenarioCoverage: ( [ .[] | (.scenarioCoverage // [])[] ] | unique_by(.name) ),
+                canaryProbes: ( [ .[] | (.canaryProbes // [])[] ] | unique_by(.name) ),
                 status: ( [ .[].status ] as $s
                   | if   ($s|any(.=="fail"))    then "fail"
                     elif ($s|any(.=="blocked")) then "blocked"
@@ -268,8 +273,11 @@ jobs:
             echo "| cell | status | why |"; echo "|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo)";
+            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#35)";
             jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
+            echo "";
+            echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";
+            jq -r '.canaryProbes[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
