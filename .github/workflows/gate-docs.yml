@@ -112,10 +112,16 @@ jobs:
           [ -f _evidence/capability-matrix.v1.json ] && ARGS+=(--capability-matrix _evidence/capability-matrix.v1.json)
           [ "$ENF" = "strict" ] && ARGS+=(--require-real)
           set +e
-          python tools/check_capabilities.py "${ARGS[@]}"
+          python tools/check_capabilities.py "${ARGS[@]}" > /tmp/advertised.log 2>&1
           RC=$?
           set -e
-          [ "$RC" -eq 0 ] && STATUS=pass || STATUS=fail
+          cat /tmp/advertised.log
+          # Parse the tool's own verdict rather than trusting the exit code alone: with --require-real
+          # unset (bootstrap), a BLOCKED matrix exits 0, and that must not read back as a fake pass.
+          RAW="$(sed -n 's/^== advertised-vs-actual docs gate — \([A-Z]*\).*$/\1/p' /tmp/advertised.log | tr '[:upper:]' '[:lower:]')"
+          [ -n "$RAW" ] || RAW=fail
+          if [ "$RC" -ne 0 ] && [ "$RAW" != "blocked" ]; then RAW=fail; fi
+          STATUS="$RAW"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
       - name: Emit fragment
@@ -163,7 +169,12 @@ jobs:
           RC=$?
           set -e
           cat /tmp/ga.log
-          [ "$RC" -eq 0 ] && STATUS=pass || STATUS=fail
+          # Parse the tool's own verdict rather than trusting the exit code alone: with --require-real
+          # unset (bootstrap), a BLOCKED matrix exits 0, and that must not read back as a fake pass.
+          RAW="$(sed -n 's/^== advertised-GA ⊆ evidenced-GA — \([A-Z]*\).*$/\1/p' /tmp/ga.log | tr '[:upper:]' '[:lower:]')"
+          [ -n "$RAW" ] || RAW=fail
+          if [ "$RC" -ne 0 ] && [ "$RAW" != "blocked" ]; then RAW=fail; fi
+          STATUS="$RAW"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           { echo "## Advertised-GA ⊆ evidenced-GA"; echo ""; echo '```'; cat /tmp/ga.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
