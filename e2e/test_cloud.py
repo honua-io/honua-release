@@ -193,6 +193,13 @@ def test_capability_manifest_authenticated_asserts_available():
     r2 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_stale)
     assert r2.status == "fail" and "available=true when authenticated" in r2.why
 
+    # An expected-GA id entirely OMITTED from the authenticated manifest (not just present-but-
+    # unavailable) must also fail, not silently drop out of the `unavailable` list.
+    auth_omitted_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    auth_fetch_omitted = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_omitted_body))])
+    r3 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_omitted)
+    assert r3.status == "fail" and "a.one" in r3.why and "available=true when authenticated" in r3.why
+
 
 def test_run_canonical_includes_capability_manifest():
     names = {r.name for r in cc.run_canonical("http://x", _fetcher([]))}

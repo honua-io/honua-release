@@ -297,7 +297,9 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
             return CheckResult("capability-manifest", "fail",
                                "authenticated manifest is not valid JSON / missing capabilities[]", evidence)
         aby_id = {c.get("id"): c for c in acaps if isinstance(c, dict) and c.get("id")}
-        unavailable = sorted(i for i in checked if i in aby_id and aby_id[i].get("available") is not True)
+        # An expected-GA id entirely OMITTED from the authenticated manifest is exactly as bad as one
+        # present with available != true — both must fail, not silently drop out of `unavailable`.
+        unavailable = sorted(i for i in checked if aby_id.get(i, {}).get("available") is not True)
         avail_auth = sum(1 for i in checked if aby_id.get(i, {}).get("available") is True)
         evidence["authenticated"] = True
         evidence["availableCountAuthenticated"] = avail_auth

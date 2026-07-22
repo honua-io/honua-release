@@ -89,7 +89,11 @@ def check_metrics_gated(fetch: Fetcher, base: str, admin_fetch: Fetcher | None =
     with_key = admin_fetch(url)
     if with_key.status != 200:
         return CheckResult("metrics-gated", "fail", f"/metrics with a key -> {with_key.status} (want 200)")
-    return CheckResult("metrics-gated", "pass", "/metrics: 401 without a key, 200 with one")
+    if "honua_lambda_" not in with_key.body:
+        return CheckResult("metrics-gated", "fail",
+                           f"/metrics with a key -> 200 but body has no honua_lambda_* series "
+                           f"(body={with_key.body[:200]!r})")
+    return CheckResult("metrics-gated", "pass", "/metrics: 401 without a key, 200 + honua_lambda_* with one")
 
 
 def check_admin_metrics_health(admin_fetch: Fetcher | None, base: str) -> CheckResult:
@@ -141,10 +145,21 @@ def check_deploy_preflight(fetch: Fetcher, base: str, admin_fetch: Fetcher | Non
         return CheckResult("deploy-preflight", "blocked", "no admin API key configured",
                            {"unauthenticated": "401 (ok)"})
     r = admin_fetch(url)
-    if r.status != 200 or "readyForCoordinatedDeploy" not in r.body:
+    if r.status != 200:
         return CheckResult("deploy-preflight", "fail",
                            f"preflight -> {r.status}, body={r.body[:200]!r}")
-    return CheckResult("deploy-preflight", "pass", "deploy/preflight returned coordination readiness")
+    try:
+        obj = json.loads(r.body)
+    except (ValueError, TypeError):
+        return CheckResult("deploy-preflight", "fail", "preflight response is not valid JSON",
+                           {"body": r.body[:200]})
+    if not isinstance(obj, dict) or "readyForCoordinatedDeploy" not in obj:
+        return CheckResult("deploy-preflight", "fail",
+                           f"preflight response has no readyForCoordinatedDeploy field, body={r.body[:200]!r}")
+    if obj["readyForCoordinatedDeploy"] is not True:
+        return CheckResult("deploy-preflight", "fail",
+                           f"readyForCoordinatedDeploy={obj['readyForCoordinatedDeploy']!r} (want true)")
+    return CheckResult("deploy-preflight", "pass", "deploy/preflight: readyForCoordinatedDeploy=true")
 
 
 def check_stac_collections(fetch: Fetcher, base: str, assert_non_empty: bool = False) -> CheckResult:

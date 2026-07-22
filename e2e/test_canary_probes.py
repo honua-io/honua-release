@@ -72,6 +72,12 @@ def test_metrics_gated():
     no_gate = _fetcher([("/metrics", cc.HttpResponse(200, ""))])
     assert canary.check_metrics_gated(no_gate, "http://x").status == "fail"
 
+    # A 200 with a key but a body that isn't actually exporting honua_lambda_* (e.g. a proxy
+    # fallback or a broken exporter) must NOT read back as pass.
+    admin_empty_body = _fetcher([("/metrics", cc.HttpResponse(200, ""))])
+    r_empty = canary.check_metrics_gated(fetch, "http://x", admin_empty_body)
+    assert r_empty.status == "fail" and "honua_lambda_" in r_empty.why
+
 
 def test_admin_metrics_health():
     assert canary.check_admin_metrics_health(None, "http://x").status == "blocked"
@@ -116,6 +122,12 @@ def test_deploy_preflight():
 
     admin_ok = _fetcher([("deploy/preflight", cc.HttpResponse(200, '{"readyForCoordinatedDeploy": true}'))])
     assert canary.check_deploy_preflight(no_key_401, "http://x", admin_ok).status == "pass"
+
+    # readyForCoordinatedDeploy: false must FAIL, not pass — the field being present is not enough.
+    admin_not_ready = _fetcher(
+        [("deploy/preflight", cc.HttpResponse(200, '{"readyForCoordinatedDeploy": false}'))])
+    r_not_ready = canary.check_deploy_preflight(no_key_401, "http://x", admin_not_ready)
+    assert r_not_ready.status == "fail" and "readyForCoordinatedDeploy=False" in r_not_ready.why
 
 
 def test_stac_collections():
