@@ -75,10 +75,10 @@ jobs:
       HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Checkout honua-iac (terraform tree)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
           path: _honua-iac
@@ -87,7 +87,7 @@ jobs:
 
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-helm
           path: _honua-helm
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
       - run: python -m pip install pytest
@@ -109,7 +109,7 @@ jobs:
       # OIDC into AWS — only when a role is configured; otherwise the cell self-skips.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
@@ -147,7 +147,7 @@ jobs:
 
       - name: Upload cloud gate-report (per cell)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
@@ -210,7 +210,7 @@ jobs:
 
       - name: Upload iac-live report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-iac-live-report
           path: out/gate-report-cloud.json
@@ -281,7 +281,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-gate-report
           path: out/gate-report-cloud.json
