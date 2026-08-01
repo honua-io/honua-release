@@ -98,15 +98,89 @@ env:
   STAGING_NUGET_SOURCE: "https://nuget.pkg.github.com/honua-io/index.json"
   STAGING_PYPI_INDEX:   "https://test.pypi.org/simple/"      # TestPyPI as the staging index
   STAGING_OCI_REGISTRY: "ghcr.io/honua-io"                   # server image + OCI helm chart
-  SERVER_IMAGE:         "ghcr.io/honua-io/honua-server"
-  SERVER_HEALTH_PATH:   "/healthz"
+  SERVER_HEALTH_PATH:   "/healthz/ready"
   SERVER_PORT:          "8080"
 
 jobs:
+  resolve_pins:
+    runs-on: ubuntu-latest
+    outputs:
+      sdk_js_version: ${{ steps.pins.outputs.sdk_js_version }}
+      sdk_js_sha: ${{ steps.pins.outputs.sdk_js_sha }}
+      sdk_dotnet_version: ${{ steps.pins.outputs.sdk_dotnet_version }}
+      sdk_dotnet_sha: ${{ steps.pins.outputs.sdk_dotnet_sha }}
+      sdk_python_version: ${{ steps.pins.outputs.sdk_python_version }}
+      sdk_python_sha: ${{ steps.pins.outputs.sdk_python_sha }}
+      iac_version: ${{ steps.pins.outputs.iac_version }}
+      iac_sha: ${{ steps.pins.outputs.iac_sha }}
+      helm_version: ${{ steps.pins.outputs.helm_version }}
+      helm_sha: ${{ steps.pins.outputs.helm_sha }}
+      server_image: ${{ steps.pins.outputs.server_image }}
+      server_digest: ${{ steps.pins.outputs.server_digest }}
+      server_sha: ${{ steps.pins.outputs.server_sha }}
+      grpc_version: ${{ steps.pins.outputs.grpc_version }}
+      grpc_sha: ${{ steps.pins.outputs.grpc_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0,<7"
+      - name: Resolve and validate the frozen artifact pins
+        id: pins
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          import yaml
+
+          manifest = yaml.safe_load(Path("platform-manifest.yaml").read_text(encoding="utf-8"))
+          components = manifest.get("components") or {}
+          specs = {
+              "sdk_js": "honua-sdk-js",
+              "sdk_dotnet": "honua-sdk-dotnet",
+              "sdk_python": "honua-sdk-python",
+              "iac": "honua-iac",
+              "helm": "honua-helm",
+              "grpc": "geospatial-grpc",
+          }
+          values = {}
+          for prefix, component_name in specs.items():
+              component = components.get(component_name) or {}
+              sha = str(component.get("sha", ""))
+              version = str(component.get("version", ""))
+              if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise SystemExit(f"{component_name} does not have a full lowercase SHA pin")
+              if not version:
+                  raise SystemExit(f"{component_name} does not have a version pin")
+              values[f"{prefix}_sha"] = sha
+              values[f"{prefix}_version"] = version
+
+          server = components.get("honua-server") or {}
+          server_sha = str(server.get("sha", ""))
+          server_digest = str(server.get("digest", ""))
+          server_image = str(server.get("image", ""))
+          if not re.fullmatch(r"[0-9a-f]{40}", server_sha):
+              raise SystemExit("honua-server does not have a full lowercase SHA pin")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", server_digest):
+              raise SystemExit("honua-server does not have an immutable sha256 digest")
+          if not server_image.startswith("ghcr.io/honua-io/honua-server:"):
+              raise SystemExit("honua-server image is not an explicit GHCR tag")
+          values.update(server_sha=server_sha, server_digest=server_digest, server_image=server_image)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in values.items():
+                  print(f"{key}={value}", file=output)
+          PY
+
   # ───────────────────────────────────────────────────────────────────────────
   # npm — install @honua-io/sdk-js and actually import it. Retires sdk-js#310.
   # ───────────────────────────────────────────────────────────────────────────
   consume-npm:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -118,6 +192,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          SDK_JS_VERSION: ${{ needs.resolve_pins.outputs.sdk_js_version }}
+          SDK_JS_SHA: ${{ needs.resolve_pins.outputs.sdk_js_sha }}
         run: |
           set -uo pipefail
           GATE=npm; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -131,7 +207,7 @@ jobs:
           echo "::group::Try STAGING (npm registry: $STAGING_NPM_REGISTRY)"
           printf '@honua-io:registry=%s\n//npm.pkg.github.com/:_authToken=%s\n' \
             "$STAGING_NPM_REGISTRY" "$GH_TOKEN" > .npmrc
-          if npm install @honua-io/sdk-js@latest >/tmp/npm-staging.log 2>&1; then
+          if npm install "@honua-io/sdk-js@${SDK_JS_VERSION}" >/tmp/npm-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
             echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/npm-staging.log || true
@@ -144,7 +220,7 @@ jobs:
             # "never built" (sdk-js#310) fails right here.
             echo "::group::LOCAL fallback — build honua-sdk-js and consume npm pack tarball"
             rm -f .npmrc
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-js.git" src >/tmp/npm-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-sdk-js "$SDK_JS_SHA" src >/tmp/npm-clone.log 2>&1; then
               ( cd src && npm ci >/tmp/npm-build.log 2>&1 && npm run build --if-present >>/tmp/npm-build.log 2>&1 && npm pack --pack-destination "$WORK" >>/tmp/npm-build.log 2>&1 ) \
                 && TARBALL="$(ls -1 "$WORK"/*.tgz 2>/dev/null | head -n1)" || TARBALL=""
               # Consume + import the package by its REAL name (not an assumed scope) so a successful
@@ -193,6 +269,7 @@ jobs:
   # nuget — add Honua.Sdk to a project and build against it. Retires the .NET arm of gate (d).
   # ───────────────────────────────────────────────────────────────────────────
   consume-nuget:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -204,6 +281,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          SDK_DOTNET_VERSION: ${{ needs.resolve_pins.outputs.sdk_dotnet_version }}
+          SDK_DOTNET_SHA: ${{ needs.resolve_pins.outputs.sdk_dotnet_sha }}
         run: |
           set -uo pipefail
           GATE=nuget; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -219,7 +298,7 @@ jobs:
           echo "::group::Try STAGING (nuget source: $STAGING_NUGET_SOURCE)"
           dotnet nuget add source "$STAGING_NUGET_SOURCE" -n honua-staging \
             -u honua -p "$GH_TOKEN" --store-password-in-clear-text >/tmp/nuget-src.log 2>&1 || true
-          if dotnet add Consumer package Honua.Sdk --source honua-staging >/tmp/nuget-staging.log 2>&1; then
+          if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE" >/tmp/nuget-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
             echo "staging add miss (expected until publish lands):"; tail -n 5 /tmp/nuget-staging.log || true
@@ -231,15 +310,14 @@ jobs:
             # serve it from a local folder feed, and add the package from there — the exact artifact
             # `dotnet nuget push` would publish.
             echo "::group::LOCAL fallback — dotnet pack honua-sdk-dotnet and add from local feed"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-dotnet.git" src >/tmp/nuget-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-sdk-dotnet "$SDK_DOTNET_SHA" src >/tmp/nuget-clone.log 2>&1; then
               mkdir -p "$WORK/localfeed"
               # The repo's NuGet.config maps Geospatial.Grpc to the authed github-honua source with no
               # credentials; restore-during-pack 401s without them. Wire the token into that source.
               dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
                 --store-password-in-clear-text --configfile src/NuGet.config >/tmp/nuget-pack.log 2>&1 || true
               if ( cd src && dotnet pack -c Release -o "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1 ); then
-                dotnet nuget add source "$WORK/localfeed" -n honua-local >/dev/null 2>&1 || true
-                if dotnet add Consumer package Honua.Sdk --source honua-local >>/tmp/nuget-pack.log 2>&1; then
+                if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1; then
                   SOURCE=local; STATUS=consuming
                 else
                   STATUS=fail; WHY="packed Honua.Sdk but consuming project could not add it"; tail -n 20 /tmp/nuget-pack.log || true
@@ -289,6 +367,7 @@ jobs:
   # pip — install honua-sdk and import it.
   # ───────────────────────────────────────────────────────────────────────────
   consume-pip:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -300,6 +379,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          SDK_PYTHON_VERSION: ${{ needs.resolve_pins.outputs.sdk_python_version }}
+          SDK_PYTHON_SHA: ${{ needs.resolve_pins.outputs.sdk_python_sha }}
         run: |
           set -uo pipefail
           GATE=pip; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -307,7 +388,7 @@ jobs:
           python -m venv .venv && . .venv/bin/activate && python -m pip install -U pip wheel build >/dev/null 2>&1
 
           echo "::group::Try STAGING (pip index: $STAGING_PYPI_INDEX)"
-          if python -m pip install --index-url "$STAGING_PYPI_INDEX" honua-sdk >/tmp/pip-staging.log 2>&1; then
+          if python -m pip install --index-url "$STAGING_PYPI_INDEX" "honua-sdk==${SDK_PYTHON_VERSION}" >/tmp/pip-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
             echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/pip-staging.log || true
@@ -318,7 +399,7 @@ jobs:
             # STUB (pending real published artifact): build the wheel from source (`python -m build`)
             # and pip-install THAT wheel — the same artifact `twine upload` would publish.
             echo "::group::LOCAL fallback — build honua-sdk-python wheel and pip install it"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-sdk-python.git" src >/tmp/pip-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-sdk-python "$SDK_PYTHON_SHA" src >/tmp/pip-clone.log 2>&1; then
               # honua-sdk-python is a WORKSPACE root (its root pyproject is not a buildable dist —
               # setuptools flat-layout finds packages/, conformance/, compatibility/ and errors). The
               # shipped SDK is packages/honua-sdk; build THAT (else fall back to the repo root).
@@ -384,6 +465,7 @@ jobs:
   # terraform — `terraform init` the honua-iac customer distribution tarball. Retires iac#81.
   # ───────────────────────────────────────────────────────────────────────────
   consume-terraform:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -395,6 +477,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          IAC_VERSION: ${{ needs.resolve_pins.outputs.iac_version }}
+          IAC_SHA: ${{ needs.resolve_pins.outputs.iac_sha }}
         run: |
           set -uo pipefail
           GATE=terraform; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -402,7 +486,7 @@ jobs:
 
           echo "::group::Try STAGING (release asset: honua-iac customer tarball)"
           # The customer distribution tarball is published as a GitHub release asset on honua-iac.
-          if gh release download --repo honua-io/honua-iac --pattern 'honua-iac-*.tar.gz' --dir "$WORK" >/tmp/tf-staging.log 2>&1; then
+          if [ "$IAC_VERSION" != "pre-release" ] && gh release download "$IAC_VERSION" --repo honua-io/honua-iac --pattern 'honua-iac-*.tar.gz' --dir "$WORK" >/tmp/tf-staging.log 2>&1; then
             SOURCE=staging; STATUS=have-tarball
           else
             echo "staging asset miss (expected until publish lands):"; tail -n 5 /tmp/tf-staging.log || true
@@ -414,7 +498,7 @@ jobs:
             # way the release would (prefer a `make dist`/packaging target; else tar the module root),
             # then init THAT. A tarball that "doesn't init" (iac#81) fails at `terraform init` below.
             echo "::group::LOCAL fallback — build honua-iac customer tarball from source"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-iac.git" src >/tmp/tf-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-iac "$IAC_SHA" src >/tmp/tf-clone.log 2>&1; then
               ( cd src && make dist >/tmp/tf-dist.log 2>&1 ) || true
               DIST_TGZ="$(find src -name 'honua-iac-*.tar.gz' | head -n1)"
               if [ -n "$DIST_TGZ" ]; then
@@ -470,6 +554,7 @@ jobs:
   # helm — lint + template the published chart.
   # ───────────────────────────────────────────────────────────────────────────
   consume-helm:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -481,6 +566,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          HELM_VERSION: ${{ needs.resolve_pins.outputs.helm_version }}
+          HELM_SHA: ${{ needs.resolve_pins.outputs.helm_sha }}
         run: |
           set -uo pipefail
           GATE=helm; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -489,7 +576,7 @@ jobs:
 
           echo "::group::Try STAGING (OCI chart: oci://$STAGING_OCI_REGISTRY/honua)"
           echo "$GH_TOKEN" | helm registry login "$STAGING_OCI_REGISTRY" -u honua --password-stdin >/tmp/helm-login.log 2>&1 || true
-          if helm pull "oci://$STAGING_OCI_REGISTRY/charts/honua" --destination "$WORK" --untar >/tmp/helm-staging.log 2>&1; then
+          if [ "$HELM_VERSION" != "pre-release" ] && helm pull "oci://$STAGING_OCI_REGISTRY/charts/honua" --version "$HELM_VERSION" --destination "$WORK" --untar >/tmp/helm-staging.log 2>&1; then
             SOURCE=staging; STATUS=have-chart; CHART="$WORK/honua"
           else
             echo "staging chart miss (expected until publish lands):"; tail -n 5 /tmp/helm-staging.log || true
@@ -500,7 +587,7 @@ jobs:
             # STUB (pending real published artifact): package the chart from source (`helm package`)
             # and consume THAT .tgz — exactly what `helm push` would publish.
             echo "::group::LOCAL fallback — helm package honua-helm from source"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-helm.git" src >/tmp/helm-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-helm "$HELM_SHA" src >/tmp/helm-clone.log 2>&1; then
               CHARTDIR="$(dirname "$(find src -name Chart.yaml | head -n1)")"
               # `helm dependency build` resolves HTTP(S) subchart repos (e.g. Bitnami) only if they
               # are registered with `helm repo add` first — register every repo the chart declares.
@@ -513,7 +600,16 @@ jobs:
               fi
               if [ -n "$CHARTDIR" ] && ( helm dependency build "$CHARTDIR" >>/tmp/helm-pkg.log 2>&1 || true; helm package "$CHARTDIR" -d "$WORK" >>/tmp/helm-pkg.log 2>&1 ); then
                 TGZ="$(ls -1 "$WORK"/*.tgz | head -n1)"; mkdir -p "$WORK/unpacked"; tar xzf "$TGZ" -C "$WORK/unpacked"
-                CHART="$(dirname "$(find "$WORK/unpacked" -name Chart.yaml | head -n1)")"; SOURCE=local; STATUS=have-chart
+                # Select the package's top-level chart, never a nested dependency/library chart.
+                # Read the full archive stream: an early awk exit makes tar receive SIGPIPE, which
+                # is a hard error under pipefail even when the root chart was found correctly.
+                CHART_ROOT="$(tar tzf "$TGZ" | awk -F/ 'NF==2 && $2=="Chart.yaml" && !root {root=$1} END {print root}')"
+                CHART="$WORK/unpacked/$CHART_ROOT"
+                if [ -n "$CHART_ROOT" ] && [ -f "$CHART/Chart.yaml" ]; then
+                  SOURCE=local; STATUS=have-chart
+                else
+                  STATUS=fail; WHY="packaged helm artifact has no top-level Chart.yaml"
+                fi
               elif [ "$TOLERANT" = true ] && [ -n "$CHARTDIR" ] && grep -qiE 'no repository definition|could not find|failed to (download|fetch)|missing in charts/ directory|dependenc.*(not found|missing|unreachable)|no cached repository' /tmp/helm-pkg.log; then
                 # ROOT CAUSE = not published: the chart declares external subchart deps (e.g. Bitnami)
                 # that need a configured chart registry to `helm dependency build`; in a no-registry cut
@@ -532,7 +628,16 @@ jobs:
 
           if [ "$STATUS" = "have-chart" ]; then
             echo "::group::helm lint + helm template (render manifests)"
-            if helm lint "$CHART" >/tmp/helm-lint.log 2>&1 && helm template honua "$CHART" >/tmp/helm-tmpl.log 2>&1; then
+            # The production chart intentionally has no insecure default secrets. Supply
+            # deterministic, non-production values so this consumer exercises a complete
+            # render instead of failing on the chart's required-value guardrails.
+            HELM_RUNTIME_ARGS=(
+              --set-string 'secret.env.ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=honua;Username=honua;Password=gate'
+              --set-string 'secret.env.ConnectionStrings__redis=redis:6379'
+              --set-string 'secret.env.HONUA_ADMIN_PASSWORD=Gate-Aa1!ArtifactConsume'
+              --set-string 'secret.env.Security__ConnectionEncryption__MasterKey=0123456789abcdef0123456789abcdef'
+            )
+            if helm lint "$CHART" "${HELM_RUNTIME_ARGS[@]}" >/tmp/helm-lint.log 2>&1 && helm template honua "$CHART" "${HELM_RUNTIME_ARGS[@]}" >/tmp/helm-tmpl.log 2>&1; then
               # A chart that renders to zero documents is broken even if lint passes.
               if grep -q 'kind:' /tmp/helm-tmpl.log; then
                 STATUS=pass; WHY="chart from ${SOURCE}: lint clean and templated to real manifests"
@@ -566,9 +671,10 @@ jobs:
           enforcement: ${{ inputs.enforcement }}
 
   # ───────────────────────────────────────────────────────────────────────────
-  # docker — pull the server image, run it, curl /healthz.
+  # docker — pull the manifest-pinned image digest, run it, curl /healthz/ready.
   # ───────────────────────────────────────────────────────────────────────────
   consume-docker:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -576,6 +682,9 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          PINNED_SERVER_IMAGE: ${{ needs.resolve_pins.outputs.server_image }}
+          PINNED_SERVER_DIGEST: ${{ needs.resolve_pins.outputs.server_digest }}
+          SERVER_SHA: ${{ needs.resolve_pins.outputs.server_sha }}
         run: |
           set -uo pipefail
           GATE=docker; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -585,23 +694,21 @@ jobs:
           WORK="$RUNNER_TEMP/docker-consume"; mkdir -p "$WORK"; cd "$WORK"
           IMG=""
 
-          echo "::group::Try STAGING (docker pull $SERVER_IMAGE)"
+          echo "::group::Try STAGING (docker pull ${PINNED_SERVER_IMAGE}@${PINNED_SERVER_DIGEST})"
           echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/tmp/docker-login.log 2>&1 || true
-          # nightly-aot tracks trunk (see memory: :latest only moves on v* releases).
-          for TAG in "${{ inputs.platform_label }}" nightly-aot latest; do
-            if [ -n "$TAG" ] && docker pull "$SERVER_IMAGE:$TAG" >/tmp/docker-pull.log 2>&1; then
-              IMG="$SERVER_IMAGE:$TAG"; SOURCE=staging; STATUS=have-image; break
-            fi
-          done
+          # Both tag and digest come from the candidate manifest; never substitute a floating tag.
+          if docker pull "${PINNED_SERVER_IMAGE}@${PINNED_SERVER_DIGEST}" >/tmp/docker-pull.log 2>&1; then
+            IMG="${PINNED_SERVER_IMAGE}@${PINNED_SERVER_DIGEST}"; SOURCE=staging; STATUS=have-image
+          fi
           [ "$STATUS" = "have-image" ] || { echo "staging pull miss (expected until publish lands):"; tail -n 5 /tmp/docker-pull.log || true; }
           echo "::endgroup::"
 
           if [ "$STATUS" != "have-image" ]; then
             # STUB (pending real published artifact): build the image from honua-server's Dockerfile
-            # and run THAT — the same artifact `docker push` would publish. /healthz failing here is
+            # and run THAT — the same artifact `docker push` would publish. Readiness failing here is
             # a real release blocker.
             echo "::group::LOCAL fallback — docker build honua-server from source"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-server.git" src >/tmp/docker-clone.log 2>&1; then
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-server "$SERVER_SHA" src >/tmp/docker-clone.log 2>&1; then
               DOCKERFILE="$(find src -maxdepth 2 -iname 'Dockerfile' | head -n1)"
               if [ -n "$DOCKERFILE" ] && docker build -t honua-server:gate -f "$DOCKERFILE" "$(dirname "$DOCKERFILE")" >/tmp/docker-build.log 2>&1; then
                 IMG="honua-server:gate"; SOURCE=local; STATUS=have-image
@@ -627,9 +734,12 @@ jobs:
               for _ in $(seq 1 40); do
                 docker exec honua-gate-db pg_isready -U honua -d honua >/dev/null 2>&1 && break; sleep 3
               done
+              # Avoid the cold-start edge where pg_isready turns green a fraction before the
+              # server's one-shot migration connection is accepted.
+              sleep 5
               docker run -d --name honua-gate --network honua-gate-net -p "${SERVER_PORT}:${SERVER_PORT}" \
                 -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=honua" \
-                -e HONUA_ADMIN_PASSWORD="gate-$(openssl rand -hex 12)" \
+                -e HONUA_ADMIN_PASSWORD="Gate-Aa1!$(openssl rand -hex 12)" \
                 -e Security__ConnectionEncryption__MasterKey="$(openssl rand -hex 32)" \
                 -e HostValidation__AllowedHosts="*" -e AllowedHosts="*" \
                 "$IMG" >/tmp/docker-run.log 2>&1 || { STATUS=fail; WHY="container failed to start"; }
@@ -677,6 +787,7 @@ jobs:
   # grpc codegen — run `buf generate` against the proto module. Retires grpc#45.
   # ───────────────────────────────────────────────────────────────────────────
   consume-grpc-codegen:
+    needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
@@ -688,6 +799,8 @@ jobs:
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          GRPC_VERSION: ${{ needs.resolve_pins.outputs.grpc_version }}
+          GRPC_SHA: ${{ needs.resolve_pins.outputs.grpc_sha }}
         run: |
           set -uo pipefail
           GATE=grpc-codegen; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -697,7 +810,7 @@ jobs:
           # the artifact IS the generated code). Closes grpc#45: if `buf generate` is broken,
           # this fails. We try a published buf module first, then the source repo.
           echo "::group::Try STAGING (buf module: buf.build/honua-io/geospatial)"
-          if buf export buf.build/honua-io/geospatial --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
+          if [ "$GRPC_VERSION" != "pre-release" ] && buf export "buf.build/honua-io/geospatial:v${GRPC_VERSION}" --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
             SOURCE=staging; STATUS=have-proto; PROTODIR="$WORK/proto"
           else
             echo "buf module miss (expected until publish lands):"; tail -n 5 /tmp/grpc-staging.log || true
@@ -707,8 +820,14 @@ jobs:
           if [ "$STATUS" != "have-proto" ]; then
             # STUB (pending published buf module): clone the proto repo and generate from source.
             echo "::group::LOCAL fallback — clone geospatial-grpc and generate from source"
-            if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-grpc.git" src >/tmp/grpc-clone.log 2>&1; then
-              PROTODIR="$(dirname "$(find src -name 'buf.gen.yaml' -o -name 'buf.yaml' | head -n1)")"
+            if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" geospatial-grpc "$GRPC_SHA" src >/tmp/grpc-clone.log 2>&1; then
+              # The repo also contains example buf.gen.yaml files. Always prefer the root module
+              # containing the frozen proto sources, then fall back to discovery for older layouts.
+              if [ -f src/buf.yaml ]; then
+                PROTODIR=src
+              else
+                PROTODIR="$(dirname "$(find src \( -name 'buf.yaml' -o -name 'buf.gen.yaml' \) | head -n1)")"
+              fi
               [ -n "$PROTODIR" ] && { SOURCE=local; STATUS=have-proto; } || { STATUS=fail; WHY="no buf config (buf.yaml/buf.gen.yaml) found in geospatial-grpc"; }
             else
               STATUS=blocked; WHY="staging empty and geospatial-grpc source not reachable (no RELEASE_GH_TOKEN?)"; tail -n 5 /tmp/grpc-clone.log || true

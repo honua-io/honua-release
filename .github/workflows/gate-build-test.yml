@@ -21,6 +21,10 @@ on:
     paths:
       - "certification/check_build_test.py"
       - "certification/test_build_test.py"
+      - "certification/env-gated-checks.yaml"
+      - "certification/governance-checks.yaml"
+      - "certification/rollup-checks.yaml"
+      - "certification/security-checks.yaml"
       - ".github/workflows/gate-build-test.yml"
   schedule:
     - cron: "37 6 * * *"          # nightly drift check on the current pins

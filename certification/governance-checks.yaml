@@ -1,0 +1,13 @@
+# Non-build governance/attestation check-runs excluded from release gate "build-test".
+#
+# Every entry here must run NO restore, compile, unit, integration, or artifact production. These
+# checks remain auditable in the gate explanation, but their policy verdict is not misreported as a
+# component build failure. If excluding an entry leaves no core CI lane, the component is BLOCKED.
+
+honua-server:
+  - name: "Publish SHA-bound Codex review attestation"
+    why: >-
+      Review Gate Attestation inspects the triggering pull request's labels, review threads, and
+      exact-head review evidence, then publishes a status. It performs no server restore, build, or
+      test. On the immutable nightly source commit it is a workflow_run policy signal about the
+      originating PR, while the 56 server leaf build/test lanes remain decisive here.

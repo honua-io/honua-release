@@ -44,6 +44,7 @@ MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
 ROLLUP_PATH = REPO_ROOT / "certification" / "rollup-checks.yaml"
 SECURITY_PATH = REPO_ROOT / "certification" / "security-checks.yaml"
+GOVERNANCE_PATH = REPO_ROOT / "certification" / "governance-checks.yaml"
 ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
@@ -118,6 +119,16 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
+def load_governance(path=GOVERNANCE_PATH) -> dict[str, frozenset[str]]:
+    """Load non-build policy/attestation check names.
+
+    These lanes inspect PR/review state and run no component build or tests. They
+    remain visible in the verdict explanation but cannot be mistaken for a red
+    compile/unit lane on an already-merged candidate SHA.
+    """
+    return _load_check_names(path)
+
+
 def _latest_named_runs(runs: list[dict]) -> list[dict]:
     """Keep the latest check-run attempt for each named app lane.
 
@@ -159,7 +170,8 @@ def _latest_named_runs(runs: list[dict]) -> list[dict]:
 
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
-             security_names: frozenset[str] = frozenset()) -> tuple[str, str]:
+             security_names: frozenset[str] = frozenset(),
+             governance_names: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
@@ -182,7 +194,7 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
     runs = _latest_named_runs(runs)
 
-    excluded = env_gated_names | rollup_names | security_names
+    excluded = env_gated_names | rollup_names | security_names | governance_names
     core = [r for r in runs if str(r.get("name", "")) not in excluded]
     env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
     # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
@@ -204,7 +216,12 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     security_note = (f"; {len(security_nongreen)} dependency-security check(s) excluded "
                      f"({sorted({str(r.get('name')) for r in security_nongreen})}) — owned by gate_security"
                      if security_nongreen else "")
-    env_note = env_note + rollup_note + security_note
+    governance_nongreen = [r for r in runs if str(r.get("name", "")) in governance_names
+                           and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
+    governance_note = (f"; {len(governance_nongreen)} non-build governance check(s) excluded "
+                       f"({sorted({str(r.get('name')) for r in governance_nongreen})}) — no build/test work"
+                       if governance_nongreen else "")
+    env_note = env_note + rollup_note + security_note + governance_note
 
     if not core:
         # Only env-gated / roll-up / security lanes ran → no core build/test signal to certify on. Never pass.
@@ -293,11 +310,13 @@ def _default_fetch(repo: str, sha: str) -> object:
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              env_gated: dict[str, frozenset[str]] | None = None,
              rollup: dict[str, frozenset[str]] | None = None,
-             security: dict[str, frozenset[str]] | None = None) -> dict:
+             security: dict[str, frozenset[str]] | None = None,
+             governance: dict[str, frozenset[str]] | None = None) -> dict:
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
     rollup = rollup or {}
     security = security or {}
+    governance = governance or {}
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -307,7 +326,8 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
         status, why = classify(fetch(name, sha), env_gated.get(name, frozenset()),
-                               rollup.get(name, frozenset()), security.get(name, frozenset()))
+                               rollup.get(name, frozenset()), security.get(name, frozenset()),
+                               governance.get(name, frozenset()))
         rows.append({"component": name, "status": status, "sha": sha[:12], "why": why})
 
     def decided(s: str) -> str:
@@ -336,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="YAML of per-component aggregate/roll-up check-run names (excluded from the verdict)")
     ap.add_argument("--security", default=str(SECURITY_PATH),
                     help="YAML of per-component dependency-security check-run names (excluded from the verdict)")
+    ap.add_argument("--governance", default=str(GOVERNANCE_PATH),
+                    help="YAML of per-component non-build governance check-run names")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
@@ -343,7 +365,8 @@ def main(argv: list[str] | None = None) -> int:
     env_gated = load_env_gated(args.env_gated)
     rollup = load_rollup(args.rollup)
     security = load_security(args.security)
-    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security)
+    governance = load_governance(args.governance)
+    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

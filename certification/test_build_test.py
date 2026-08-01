@@ -317,6 +317,39 @@ def test_load_security_never_lists_a_build_or_test_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not a security signal"
 
 
+# ---- non-build governance check-runs -------------------------------------------------------------
+GOVERNANCE = frozenset({"Publish SHA-bound Codex review attestation"})
+
+
+def test_governance_red_is_excluded_when_core_green():
+    payload = _named(("Restore and Build", "success"), ("Server Tests (Core)", "success"),
+                     ("Publish SHA-bound Codex review attestation", "failure"))
+    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)
+    assert status == "pass", why
+    assert "non-build governance" in why
+
+
+def test_governance_never_masks_real_core_red():
+    payload = _named(("Server Tests (Core)", "failure"),
+                     ("Publish SHA-bound Codex review attestation", "failure"))
+    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "fail"
+
+
+def test_only_governance_checks_is_blocked_never_pass():
+    payload = _named(("Publish SHA-bound Codex review attestation", "failure"))
+    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "blocked"
+
+
+def test_load_governance_never_lists_build_or_test_lane():
+    import re
+
+    governance = bt.load_governance()
+    banned = re.compile(r"\b(?:restore|build|compile|unit|tests?|integration|playwright|validate)\b")
+    for comp, names in governance.items():
+        for name in names:
+            assert not banned.search(name.lower()), f"{comp}: '{name}' looks like a core lane"
+
+
 # ---- evaluate -------------------------------------------------------------------------------------
 def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)

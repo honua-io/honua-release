@@ -33,25 +33,28 @@ services:
     # bare `docker compose config` still validates; a real run substitutes the pinned, digest-addressed
     # image. NEVER hardcode a floating tag here — the manifest is the source of truth.
     image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    # Docker can report Postgres healthy a fraction before its container port accepts the server's
+    # one-shot migration connection. A short deterministic delay prevents that cold-start race.
+    entrypoint: ["/bin/sh", "-c", "sleep 5; exec /app/Honua.Server"]
     depends_on:
       db:
         condition: service_healthy
     environment:
-      # TODO(#7): align these with honua-server's actual config keys once the image is published.
-      HONUA_DB_HOST: db
-      HONUA_DB_PORT: "5432"
-      HONUA_DB_USER: honua
-      HONUA_DB_PASSWORD: honua
-      HONUA_DB_NAME: honua
-      # The observability gate (plan §4g) depends on the in-band GeoServices error metric
-      # (honua_geoservices_error_total, server#2243). Ensure metrics are exposed.
-      HONUA_METRICS_ENABLED: "true"
+      # Match the proven Slice-1 candidate stack. The old HONUA_DB_* scaffold variables are not
+      # consumed by the published image and prevented the server from reaching readiness.
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      HONUA_ADMIN_PASSWORD: "${HONUA_ADMIN_PASSWORD:-honua-console-dev-key}"
+      Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      Licensing__DevGrantEdition: "Enterprise"
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+      # The observability gate reads the authenticated /metrics endpoint on the server HTTP port.
     ports:
       - "${HONUA_SERVER_PORT:-8080}:8080"     # GeoServices/OGC/admin HTTP
-      - "${HONUA_METRICS_PORT:-9090}:9090"    # Prometheus metrics scrape (TODO: confirm port)
     healthcheck:
-      # TODO(#7): confirm honua-server's health endpoint path.
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://localhost:8080/healthz/ready || exit 1"]
       interval: 5s
-      timeout: 3s
-      retries: 30
+      timeout: 5s
+      retries: 60
+      start_period: 20s

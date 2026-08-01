@@ -52,3 +52,10 @@ honua-iac:
       resources that the build/test fan-out does not create. The release train owns this verdict in
       its dedicated e2e-cloud-aws cloud-parity gate. Static Terraform Validate and Terraform Policy
       Gates remain authoritative core IaC checks and are NOT listed here.
+
+honua-sdk-python:
+  - name: "staging-smoke"
+    why: >-
+      Read-only SDK smoke against an EXTERNAL staging deployment. The release build/test fan-out
+      does not provision or configure that backend; the Python build, unit, typing, packaging, and
+      contract lanes remain authoritative core checks and are NOT listed here.
