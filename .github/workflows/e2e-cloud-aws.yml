@@ -122,15 +122,19 @@ jobs:
           pins["server_image"] = f"{image}@{digest}"
           lambda_image = str(server.get("awsLambdaImage", ""))
           lambda_digest = str(server.get("awsLambdaDigest", ""))
+          lambda_ecr_digest = str(server.get("awsLambdaEcrDigest", ""))
           lambda_architecture = str(server.get("awsLambdaArchitecture", ""))
           if not lambda_image.startswith("ghcr.io/honua-io/honua-server:"):
               raise SystemExit("honua-server awsLambdaImage must be an exact Honua GHCR tag")
           if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
               raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
+              raise SystemExit("honua-server awsLambdaEcrDigest must be an exact sha256 digest")
           if lambda_architecture not in {"arm64", "x86_64"}:
               raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
           pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
           pins["lambda_source_digest"] = lambda_digest
+          pins["lambda_ecr_digest"] = lambda_ecr_digest
           pins["lambda_architecture"] = lambda_architecture
           pins["lambda_ecr_tag"] = f"rc-{manifest['platformRelease']}-lambda-aot-{pins['server_ref'][:7]}-{lambda_architecture}"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
@@ -151,6 +155,7 @@ jobs:
         env:
           SOURCE_IMAGE: ${{ steps.pins.outputs.lambda_source }}
           SOURCE_DIGEST: ${{ steps.pins.outputs.lambda_source_digest }}
+          EXPECTED_ECR_DIGEST: ${{ steps.pins.outputs.lambda_ecr_digest }}
           SOURCE_ARCHITECTURE: ${{ steps.pins.outputs.lambda_architecture }}
           TARGET_TAG: ${{ steps.pins.outputs.lambda_ecr_tag }}
         run: |
@@ -160,14 +165,17 @@ jobs:
           REPOSITORY="honua-server"
           TARGET="${REGISTRY}/${REPOSITORY}:${TARGET_TAG}"
 
+          SOURCE_MANIFEST="$(docker buildx imagetools inspect --raw "$SOURCE_IMAGE")"
+          SOURCE_CONFIG="$(jq -er '.config.digest' <<<"$SOURCE_MANIFEST")"
+
           aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
           EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
             --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
-          if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$SOURCE_DIGEST" ]; then
-            echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $SOURCE_DIGEST"
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $EXPECTED_ECR_DIGEST"
             exit 1
           fi
-          if [ "$EXISTING" != "$SOURCE_DIGEST" ]; then
+          if [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
             PLATFORM_ARCH="${SOURCE_ARCHITECTURE/x86_64/amd64}"
             aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
             docker pull --platform "linux/${PLATFORM_ARCH}" "$SOURCE_IMAGE"
@@ -177,8 +185,17 @@ jobs:
 
           RESOLVED="$(aws ecr describe-images --repository-name "$REPOSITORY" \
             --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
-          if [ "$RESOLVED" != "$SOURCE_DIGEST" ]; then
-            echo "::error::ECR Lambda digest $RESOLVED does not match manifest source digest $SOURCE_DIGEST"
+          if [ "$RESOLVED" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST"
+            exit 1
+          fi
+          ECR_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+            --image-ids imageDigest="$RESOLVED" \
+            --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+            --query 'images[0].imageManifest' --output text)"
+          ECR_CONFIG="$(jq -er '.config.digest' <<<"$ECR_MANIFEST")"
+          if [ "$ECR_CONFIG" != "$SOURCE_CONFIG" ]; then
+            echo "::error::ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG"
             exit 1
           fi
           echo "lambda_image=${REGISTRY}/${REPOSITORY}@${RESOLVED}" >> "$GITHUB_OUTPUT"

@@ -70,7 +70,8 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert '"server_ref": str(server.get("sha", ""))' in workflow
     assert 'pins["server_image"] = f"{image}@{digest}"' in workflow
     assert 'pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"' in workflow
-    assert "ECR Lambda digest $RESOLVED does not match manifest source digest $SOURCE_DIGEST" in workflow
+    assert "ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST" in workflow
+    assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}" in workflow
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
