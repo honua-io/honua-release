@@ -137,12 +137,29 @@ jobs:
           echo "Failed to publish the live-canary envelope after 3 attempts" >&2
           exit 1
 
-      - name: Report an evidence-delivery failure
-        if: ${{ always() && steps.canary.outcome == 'success' && steps.publish_evidence.outcome != 'success' }}
+      - name: Trigger evidence aggregation and Pages deployment
+        id: dispatch_aggregate
+        if: ${{ always() && steps.publish_evidence.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
-          echo "::error title=Live-canary evidence publication failed::The demo canary passed, but its evidence envelope was not delivered to honua-evidence."
-          echo "## Evidence delivery failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "The demo canary passed, but the live-canary envelope was not delivered to honua-evidence. This is an evidence-pipeline failure, not a demo regression." >> "$GITHUB_STEP_SUMMARY"
+          gh api --method POST repos/honua-io/honua-evidence/dispatches \
+            -f event_type=producer-updated
+
+      - name: Report an evidence-delivery failure
+        if: ${{ always() && steps.canary.outcome == 'success' && (steps.publish_evidence.outcome != 'success' || steps.dispatch_aggregate.outcome != 'success') }}
+        env:
+          PUBLISH_OUTCOME: ${{ steps.publish_evidence.outcome }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch_aggregate.outcome }}
+        run: |
+          if [ "$PUBLISH_OUTCOME" != "success" ]; then
+            detail="the live-canary envelope was not delivered to honua-evidence"
+          else
+            detail="the envelope was delivered, but the honua-evidence aggregate and Pages deployment were not triggered"
+          fi
+          echo "::error title=Live-canary evidence pipeline failed::The demo canary passed, but $detail."
+          echo "## Evidence pipeline failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "The demo canary passed, but $detail. This is an evidence-pipeline failure, not a demo regression." >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       - name: Open/update issue on a genuine FAIL
