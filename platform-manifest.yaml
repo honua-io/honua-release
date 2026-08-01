@@ -97,7 +97,7 @@ components:
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
-    sha: "5365cd4aa240530b7577ed577f93ad2b3c43f47f"   # branch: trunk; exact handoff + Redis AUTH + deterministic serverless routes
+    sha: "e0f60f33d573757fad271a93c52f36c6001a26cd"   # PR #135 candidate; adds API Gateway/Lambda HSTS topology fix
     artifact: "terraform-registry:honua"
 
   honua-helm:
