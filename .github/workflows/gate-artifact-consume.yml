@@ -601,7 +601,9 @@ jobs:
               if [ -n "$CHARTDIR" ] && ( helm dependency build "$CHARTDIR" >>/tmp/helm-pkg.log 2>&1 || true; helm package "$CHARTDIR" -d "$WORK" >>/tmp/helm-pkg.log 2>&1 ); then
                 TGZ="$(ls -1 "$WORK"/*.tgz | head -n1)"; mkdir -p "$WORK/unpacked"; tar xzf "$TGZ" -C "$WORK/unpacked"
                 # Select the package's top-level chart, never a nested dependency/library chart.
-                CHART_ROOT="$(tar tzf "$TGZ" | awk -F/ 'NF==2 && $2=="Chart.yaml" {print $1; exit}')"
+                # Read the full archive stream: an early awk exit makes tar receive SIGPIPE, which
+                # is a hard error under pipefail even when the root chart was found correctly.
+                CHART_ROOT="$(tar tzf "$TGZ" | awk -F/ 'NF==2 && $2=="Chart.yaml" && !root {root=$1} END {print root}')"
                 CHART="$WORK/unpacked/$CHART_ROOT"
                 if [ -n "$CHART_ROOT" ] && [ -f "$CHART/Chart.yaml" ]; then
                   SOURCE=local; STATUS=have-chart

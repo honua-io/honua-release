@@ -41,6 +41,7 @@ def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
 
     assert '--source "$STAGING_NUGET_SOURCE"' in workflow
     assert '--source "$WORK/localfeed"' in workflow
-    assert 'NF==2 && $2=="Chart.yaml"' in workflow
+    assert 'NF==2 && $2=="Chart.yaml" && !root' in workflow
+    assert 'END {print root}' in workflow
     assert "if [ -f src/buf.yaml ]" in workflow
     assert 'HONUA_ADMIN_PASSWORD="Gate-Aa1!' in workflow
