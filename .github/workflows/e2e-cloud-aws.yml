@@ -34,11 +34,34 @@ on:
         description: "Promote BLOCKED/parity-divergence/not-certified scenarios to FAIL (per-RC, with creds wired)"
         type: boolean
         default: false
+      target:
+        description: "AWS runtime target to validate"
+        type: choice
+        options: [all, aws-serverless, aws-ecs, aws-eks]
+        default: all
+      redis_mode:
+        description: "Redis mode(s) to validate"
+        type: choice
+        options: [both, "off", "on"]
+        default: both
+      run_iac_live:
+        description: "Also dispatch the full honua-iac live AWS harness"
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       require_real:
         type: boolean
         default: false
+      target:
+        type: string
+        default: all
+      redis_mode:
+        type: string
+        default: both
+      run_iac_live:
+        type: boolean
+        default: true
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -166,8 +189,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [aws-serverless, aws-ecs, aws-eks]
-        redis: ["off", "on"]
+        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     runs-on: ubuntu-latest
     env:
@@ -266,6 +289,7 @@ jobs:
   iac-live:
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
+    if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)

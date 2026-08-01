@@ -75,5 +75,8 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
     assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in workflow
+    assert "inputs.target == '' || inputs.target == 'all'" in workflow
+    assert "inputs.redis_mode == '' || inputs.redis_mode == 'both'" in workflow
+    assert "github.event_name == 'schedule' || inputs.run_iac_live" in workflow
     assert '-f honua_server_ref="$SERVER_REF"' in workflow
     assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow
