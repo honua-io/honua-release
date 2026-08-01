@@ -449,7 +449,7 @@
     "contact": {
       "name": "Honua Server"
     },
-    "description": "OGC API Features implementation for geospatial data access\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites â€” see docs/cite-status.md.",
+    "description": "OGC API Features implementation for geospatial data access\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
     "title": "Honua OGC API Features",
     "version": "1.0.0",
     "x-honua-cite-compliance": {
@@ -740,7 +740,7 @@
                 "properties": {
                   "dissolve": {
                     "default": true,
-                    "description": "Union overlapping buffers within each group. Must be true when outStatistics is supplied â€” the aggregate columns are only emitted in the dissolved GROUP BY path.",
+                    "description": "Union overlapping buffers within each group. Must be true when outStatistics is supplied — the aggregate columns are only emitted in the dissolved GROUP BY path.",
                     "type": "boolean"
                   },
                   "distance": {
@@ -851,7 +851,7 @@
             "description": "Collection not found"
           },
           "501": {
-            "description": "Spatial analytics backend not available â€” the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
           }
         },
         "summary": "Buffer + aggregate for a collection (Pro)",
@@ -945,7 +945,7 @@
                   },
                   "returnHullPerCluster": {
                     "default": false,
-                    "description": "Return per-cluster convex hulls instead of per-feature assignments. Must be true when outStatistics is supplied â€” aggregate columns are only emitted in the hull-per-cluster GROUP BY path.",
+                    "description": "Return per-cluster convex hulls instead of per-feature assignments. Must be true when outStatistics is supplied — aggregate columns are only emitted in the hull-per-cluster GROUP BY path.",
                     "type": "boolean"
                   },
                   "spatialRel": {
@@ -993,7 +993,7 @@
             "description": "Collection not found"
           },
           "501": {
-            "description": "Spatial analytics backend not available â€” the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
           }
         },
         "summary": "Spatial clustering for a collection (Pro)",
@@ -1122,7 +1122,7 @@
             "description": "Collection not found"
           },
           "501": {
-            "description": "Spatial analytics backend not available â€” the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
           }
         },
         "summary": "Density binning for a collection (Pro)",
@@ -1175,10 +1175,10 @@
             "description": "Collection not found"
           },
           "501": {
-            "description": "H3 extension not available â€” the h3-pg PostgreSQL extension is not installed"
+            "description": "H3 extension not available — the h3-pg PostgreSQL extension is not installed"
           },
           "503": {
-            "description": "H3 capability check failed â€” the database may be temporarily unreachable"
+            "description": "H3 capability check failed — the database may be temporarily unreachable"
           }
         },
         "summary": "H3 hexagonal grid aggregation for a collection",
@@ -2103,7 +2103,7 @@
             "description": "Collection not found"
           },
           "501": {
-            "description": "Spatial analytics backend not available â€” the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
           }
         },
         "summary": "Spatial join against a target collection (Pro)",

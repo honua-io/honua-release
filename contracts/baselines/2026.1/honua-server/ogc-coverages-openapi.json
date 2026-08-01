@@ -250,7 +250,7 @@
     }
   },
   "info": {
-    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites â€” see docs/cite-status.md.",
+    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
     "title": "Honua OGC API Coverages",
     "version": "1.0.0",
     "x-honua-cite-compliance": {

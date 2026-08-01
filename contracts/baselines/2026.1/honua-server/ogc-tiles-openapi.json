@@ -488,7 +488,7 @@
     }
   },
   "info": {
-    "description": "OGC API Tiles implementation for vector tiles\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites â€” see docs/cite-status.md.",
+    "description": "OGC API Tiles implementation for vector tiles\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
     "title": "Honua OGC API Tiles",
     "version": "1.0.0",
     "x-honua-cite-compliance": {

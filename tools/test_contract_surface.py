@@ -5,9 +5,28 @@ extractors on sample source and the pure `check` decision on controlled surfaces
 """
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import contract_surface as cs
+
+
+def test_git_show_decodes_committed_source_as_utf8(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@example.com"], check=True)
+    source = '{"description":"wire-compatible — OGC §7.11"}\n'
+    (tmp_path / "openapi.json").write_text(source, encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "openapi.json"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "fixture"], check=True)
+    sha = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert cs._git_show(tmp_path, sha, "openapi.json") == source
 
 
 # ── syntactic extractors detect real surface changes ────────────────────────

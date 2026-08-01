@@ -72,7 +72,10 @@ def _git_show(repo: Path, sha: str, path: str) -> str | None:
     """Return the text of `path` at `sha`, or None if it does not exist there."""
     r = subprocess.run(
         ["git", "-C", str(repo), "show", f"{sha}:{path}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="strict",
     )
     return r.stdout if r.returncode == 0 else None
 
@@ -291,10 +294,11 @@ def cmd_update(platform: str, repos_root: Path, manifest_path: Path, baseline_ro
             if existing.name != "_meta.json":
                 existing.unlink()
         for name, text in artifacts.items():
-            (cdir / name).write_text(text, encoding="utf-8")
+            (cdir / name).write_text(text, encoding="utf-8", newline="\n")
         (cdir / "_meta.json").write_text(
             _canon({"component": component, "sha": sha, "artifacts": sorted(artifacts)}),
             encoding="utf-8",
+            newline="\n",
         )
         print(f"{component}: captured {len(artifacts)} artifact(s) @ {sha[:12]} -> {_rel(cdir)}")
     return 0
