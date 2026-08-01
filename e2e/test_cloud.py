@@ -19,10 +19,12 @@ import canonical_checks as cc  # noqa: E402
 import parity as par  # noqa: E402
 import run_cloud  # noqa: E402
 from targets import REGISTRY  # noqa: E402
+from targets.base import ProvisionError  # noqa: E402
 from targets.terraform_target import ecs, serverless  # noqa: E402
 
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
-            "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR")
+            "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
+            "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE")
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -266,6 +268,8 @@ def test_prefix_distinct_per_redis_mode_no_collision(monkeypatch):
     # name_prefix MUST differ or RDS/Lambda/etc. names collide and the redis-on cell fails spuriously.
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     for factory in (serverless, ecs):
         t = factory(run_id="run1234567890")
         on = _tf_vars(t._vars(True))
@@ -291,6 +295,8 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
     # (the serverless root doesn't declare it — passing it would be a terraform error).
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     assert _tf_vars(ecs(run_id="r1")._vars(False)).get("alb_deletion_protection") == "false"
     assert "alb_deletion_protection" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
@@ -298,12 +304,46 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
 def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
     monkeypatch.delenv("HONUA_ADMIN_PASSWORD", raising=False)
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     password = _tf_vars(serverless(run_id="r1")._vars(False))["honua_admin_password"]
     assert len(password) >= 32
     assert any(c.isupper() for c in password)
     assert any(c.islower() for c in password)
     assert any(c.isdigit() for c in password)
     assert any(not c.isalnum() for c in password)
+
+
+def test_serverless_exposes_only_runner_ip_for_postgis_bootstrap(monkeypatch):
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    values = _tf_vars(serverless(run_id="r1")._vars(False))
+    assert values["db_publicly_accessible"] == "true"
+    assert json.loads(values["db_additional_ingress_cidrs"]) == ["192.0.2.10/32"]
+    assert json.loads(values["lambda_architectures"]) == ["arm64"]
+
+
+def test_serverless_rejects_broad_db_ingress(monkeypatch):
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "0.0.0.0/0")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    with __import__("pytest").raises(ProvisionError, match="single IPv4 /32"):
+        serverless(run_id="r1")._vars(False)
+
+
+def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    target = serverless(run_id="run123456")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
+    calls = []
+    monkeypatch.setattr(target, "_tf", lambda root, *args, **kwargs: calls.append(args))
+    target.teardown(redis_enabled=True)
+    values = _tf_vars(calls[0])
+    assert values["redis_enabled"] == "true"
+    assert values["name_prefix"].startswith("honuar")
 
 
 def test_serverless_blocked_without_infra(monkeypatch):

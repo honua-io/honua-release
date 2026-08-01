@@ -8,6 +8,8 @@ image + the honua-iac tree are all present.
 """
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
 import shutil
 import subprocess
@@ -32,6 +34,8 @@ class TfTargetSpec:
     # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
     # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
     ephemeral_vars: tuple[str, ...] = ()
+    needs_runner_db_access: bool = False
+    architecture_env: str = ""
 
 
 class TerraformTarget(DeployTarget):
@@ -68,6 +72,10 @@ class TerraformTarget(DeployTarget):
             missing.append(f"{self.spec.image_env} ({self.spec.image_hint or 'deployable image'})")
         if self._iac_root() is None:
             missing.append("HONUA_IAC_DIR pointing at the honua-iac terraform tree")
+        if self.spec.needs_runner_db_access and not os.environ.get("HONUA_AWS_DB_INGRESS_CIDR"):
+            missing.append("HONUA_AWS_DB_INGRESS_CIDR (ephemeral runner /32 for PostGIS bootstrap)")
+        if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
+            missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
         if missing:
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
@@ -93,7 +101,7 @@ class TerraformTarget(DeployTarget):
             "HONUA_ADMIN_PASSWORD",
             f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}",
         )
-        return [
+        values = [
             "-input=false", "-no-color",
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
@@ -103,6 +111,30 @@ class TerraformTarget(DeployTarget):
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]
+        if self.spec.needs_runner_db_access:
+            raw_cidr = os.environ.get("HONUA_AWS_DB_INGRESS_CIDR", "").strip()
+            try:
+                cidr = ipaddress.ip_network(raw_cidr, strict=True)
+            except ValueError as exc:
+                raise ProvisionError(
+                    f"{self.name}: HONUA_AWS_DB_INGRESS_CIDR must be a valid runner CIDR, got {raw_cidr!r}"
+                ) from exc
+            if cidr.version != 4 or cidr.prefixlen != 32:
+                raise ProvisionError(
+                    f"{self.name}: HONUA_AWS_DB_INGRESS_CIDR must be a single IPv4 /32, got {raw_cidr!r}"
+                )
+            values.extend([
+                "-var=db_publicly_accessible=true",
+                f"-var=db_additional_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
+            ])
+        if self.spec.architecture_env:
+            architecture = os.environ.get(self.spec.architecture_env, "").strip()
+            if architecture not in {"arm64", "x86_64"}:
+                raise ProvisionError(
+                    f"{self.name}: {self.spec.architecture_env} must be arm64 or x86_64, got {architecture!r}"
+                )
+            values.append(f'-var=lambda_architectures=["{architecture}"]')
+        return values
 
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
@@ -121,12 +153,13 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
-    def teardown(self) -> None:
+    def teardown(self, redis_enabled: bool | None = None) -> None:
         root = self._workdir or self._iac_root()
         if root is None:
             return
         try:
-            self._tf(root, "destroy", "-auto-approve", *(self._last_vars or self._vars(False)), check=False)
+            mode = False if redis_enabled is None else redis_enabled
+            self._tf(root, "destroy", "-auto-approve", *(self._last_vars or self._vars(mode)), check=False)
         except Exception:  # noqa: BLE001 - best-effort reaper
             pass
 
@@ -138,6 +171,8 @@ SERVERLESS_SPEC = TfTargetSpec(
     image_env="HONUA_LAMBDA_IMAGE_URI",
     image_var="honua_image_uri",
     image_hint="ECR Lambda-AOT image (*-lambda-aot)",
+    needs_runner_db_access=True,
+    architecture_env="HONUA_LAMBDA_ARCHITECTURE",
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",

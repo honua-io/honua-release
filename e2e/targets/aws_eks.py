@@ -92,12 +92,13 @@ class AwsEksTarget(DeployTarget):
             f"--set redis.enabled={str(redis_enabled).lower()}` + kubectl wait for the LB hostname"
         )
 
-    def teardown(self) -> None:
+    def teardown(self, redis_enabled: bool | None = None) -> None:
         root = self._workdir or self._iac_root()
         if root is None:
             return
         try:
-            prefix = self._prefix or self._name_prefix(False)
+            mode = False if redis_enabled is None else redis_enabled
+            prefix = self._prefix or self._name_prefix(mode)
             self._tf(root, "destroy", "-auto-approve", "-input=false", "-no-color",
                      f"-var=region={self.region}", f"-var=name_prefix={prefix}", "-var=environment=it", check=False)
         except Exception:  # noqa: BLE001 - best-effort reaper

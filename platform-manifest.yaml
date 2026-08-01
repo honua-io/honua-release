@@ -29,6 +29,11 @@ components:
     image: "ghcr.io/honua-io/honua-server:nightly-aot-5cad074"
     # Digest of the immutable nightly-aot-5cad074 multi-arch index resolved from GHCR on 2026-07-31.
     digest: "sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd"
+    # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
+    # exact source manifest into the release account and verifies ECR preserves its digest.
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-5cad074-arm64"
+    awsLambdaDigest: "sha256:7182e8b74e399aeb5abc6c0ce5d074f8b8ad42a58a94c181cdfbd2b57977f43d"
+    awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
       # (src/Honua.Server/Features/Admin/AdminInfoEndpoints.cs: AdminApiMajor="v1", AdminApiMajorNumber=1).

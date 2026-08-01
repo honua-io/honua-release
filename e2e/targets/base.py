@@ -37,6 +37,6 @@ class DeployTarget:
         """Provision (with Redis on/off) and return honua-server's public base URL. Raises ProvisionError."""
         raise NotImplementedError  # pragma: no cover - interface
 
-    def teardown(self) -> None:
+    def teardown(self, redis_enabled: bool | None = None) -> None:
         """Best-effort teardown. MUST be safe to call even if provision() partially ran."""
         raise NotImplementedError  # pragma: no cover - interface
