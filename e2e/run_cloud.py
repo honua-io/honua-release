@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 E2E_DIR = Path(__file__).resolve().parent
@@ -51,6 +52,9 @@ REPORT_PATH = E2E_DIR / "gate-report-cloud.json"
 _CLOUD_CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID",
                    "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE")
 
+_READY_ATTEMPTS = 36
+_READY_DELAY_SECONDS = 5.0
+
 
 def _cloud_creds_present() -> bool:
     return any(os.environ.get(v) for v in _CLOUD_CRED_ENV)
@@ -59,6 +63,36 @@ def _cloud_creds_present() -> bool:
 def _check_dicts(results) -> list[dict]:
     return [{"name": r.name, "status": r.status, "why": r.why, **({"evidence": r.evidence} if r.evidence else {})}
             for r in results]
+
+
+def _wait_for_endpoint(endpoint: str, fetch, *, attempts: int = _READY_ATTEMPTS,
+                       delay_seconds: float = _READY_DELAY_SECONDS,
+                       sleep=time.sleep) -> tuple[bool, dict]:
+    """Wait for the deployed route, Lambda cold start, and application readiness.
+
+    Terraform can finish while an API Gateway auto-deployment is still propagating. A newly
+    published Lambda alias also needs one cold start before the canonical probes are meaningful.
+    Treat every non-200 response as not-ready and preserve the final response as gate evidence;
+    the canonical checks still run after timeout so they retain their detailed verdicts.
+    """
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+    url = endpoint.rstrip("/") + "/healthz/ready"
+    last = None
+    for attempt in range(1, attempts + 1):
+        last = fetch(url)
+        if last.status == 200:
+            return True, {"url": url, "status": 200, "attempts": attempt}
+        if attempt < attempts:
+            sleep(delay_seconds)
+    assert last is not None
+    return False, {
+        "url": url,
+        "status": last.status,
+        "attempts": attempts,
+        "body_head": last.body[:200],
+        "headers": last.headers,
+    }
 
 
 def run(target_name: str, require_real: bool, reference_endpoint: str | None,
@@ -97,12 +131,15 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     try:
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
-        checks = run_canonical(endpoint)
+        fetch = make_fetch(timeout=10.0)
+        ready, readiness = _wait_for_endpoint(endpoint, fetch)
+        report["readiness"] = {"ready": ready, **readiness}
+        checks = run_canonical(endpoint, fetch)
         report["checks"] = _check_dicts(checks)
         # Cloud-tier unblock (honua-release#61): the canary probe set, GENERIC mode (no service/tile id
         # configured — nothing is seeded on a bare terraform cell yet), so data-dependent probes report
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
-        canary_results = canary_probes.run_canary(endpoint, make_fetch())
+        canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
     except ProvisionError as e:
         report["status"] = "fail"

@@ -406,6 +406,45 @@ def test_run_cloud_unknown_target_fails():
     assert run_cloud.run("aws-nonexistent", require_real=False, reference_endpoint=None)["status"] == "fail"
 
 
+def test_cloud_endpoint_readiness_retries_transient_gateway_404():
+    responses = iter([
+        cc.HttpResponse(404, '{"message":"Not Found"}', {"server": "AmazonAPIGateway"}),
+        cc.HttpResponse(503, "starting"),
+        cc.HttpResponse(200, "ready"),
+    ])
+    sleeps = []
+    ready, evidence = run_cloud._wait_for_endpoint(
+        "https://example.execute-api.us-east-1.amazonaws.com/",
+        lambda _url: next(responses),
+        attempts=3,
+        delay_seconds=0.25,
+        sleep=sleeps.append,
+    )
+    assert ready is True
+    assert evidence == {
+        "url": "https://example.execute-api.us-east-1.amazonaws.com/healthz/ready",
+        "status": 200,
+        "attempts": 3,
+    }
+    assert sleeps == [0.25, 0.25]
+
+
+def test_cloud_endpoint_readiness_preserves_final_failure_evidence():
+    response = cc.HttpResponse(404, '{"message":"Not Found"}', {"server": "AmazonAPIGateway"})
+    ready, evidence = run_cloud._wait_for_endpoint(
+        "https://example.execute-api.us-east-1.amazonaws.com",
+        lambda _url: response,
+        attempts=2,
+        delay_seconds=0,
+        sleep=lambda _seconds: None,
+    )
+    assert ready is False
+    assert evidence["status"] == 404
+    assert evidence["attempts"] == 2
+    assert evidence["body_head"] == '{"message":"Not Found"}'
+    assert evidence["headers"]["server"] == "AmazonAPIGateway"
+
+
 if __name__ == "__main__":
     import traceback
 
