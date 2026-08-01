@@ -117,6 +117,37 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
+def _latest_named_runs(runs: list[dict]) -> list[dict]:
+    """Keep the latest check-run attempt for each named app lane.
+
+    GitHub retains scheduled runs and reruns on the same commit, so the check-runs endpoint can return
+    several historical verdicts for one lane. Certification must use that lane's latest attempt: an
+    old red must not poison a later green forever, and a newer red must not be hidden by an old green.
+    Unnamed runs stay independent because there is no stable lane identity by which to supersede them.
+    """
+    unnamed: list[tuple[int, dict]] = []
+    latest: dict[tuple[str, str], tuple[tuple[str, int, int], dict]] = {}
+    for index, run in enumerate(runs):
+        name = str(run.get("name", "")).strip()
+        if not name:
+            unnamed.append((index, run))
+            continue
+        app = run.get("app") or {}
+        app_slug = str(app.get("slug", "")).strip() if isinstance(app, dict) else ""
+        timestamp = str(run.get("started_at") or run.get("completed_at") or "")
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        marker = (timestamp, run_id, index)
+        key = (name, app_slug)
+        if key not in latest or marker > latest[key][0]:
+            latest[key] = (marker, run)
+
+    selected = unnamed + [(marker[2], run) for marker, run in latest.values()]
+    return [run for _, run in sorted(selected, key=lambda item: item[0])]
+
+
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
              security_names: frozenset[str] = frozenset()) -> tuple[str, str]:
@@ -140,6 +171,7 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
+    runs = _latest_named_runs(runs)
 
     excluded = env_gated_names | rollup_names | security_names
     core = [r for r in runs if str(r.get("name", "")) not in excluded]

@@ -44,3 +44,11 @@ honua-sdk-dotnet:
       configuration") fails-by-design when HONUA_STAGING_BASE_URL / HONUA_STAGING_LAYER_ID (etc.) are
       empty — i.e. staging is not provisioned in the gate context. All 15 .NET SDK unit lanes, build,
       API Compatibility and Contract Conformance remain authoritative and are NOT listed here.
+
+honua-iac:
+  - name: "AWS Live Validation"
+    why: >-
+      Provisions and validates an EXTERNAL AWS deployment using cloud credentials and billable
+      resources that the build/test fan-out does not create. The release train owns this verdict in
+      its dedicated e2e-cloud-aws cloud-parity gate. Static Terraform Validate and Terraform Policy
+      Gates remain authoritative core IaC checks and are NOT listed here.
