@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "gate-artifact-consume.yml"
 CONTRACT_WORKFLOW = ROOT / ".github" / "workflows" / "gate-contract.yml"
+CLOUD_WORKFLOW = ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml"
 
 
 def test_artifact_consume_never_uses_floating_staging_or_source_refs():
@@ -61,3 +62,12 @@ def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():
     assert 'git clone --quiet "https://x-access-token:' not in workflow
     assert 'if OUT="$(python tools/contract_surface.py check' in workflow
     assert "RC=$?" in workflow
+
+
+def test_iac_live_receives_exact_manifest_server_candidate():
+    workflow = CLOUD_WORKFLOW.read_text(encoding="utf-8")
+
+    assert '"server_ref": str(server.get("sha", ""))' in workflow
+    assert 'pins["server_image"] = f"{image}@{digest}"' in workflow
+    assert '-f honua_server_ref="$SERVER_REF"' in workflow
+    assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow

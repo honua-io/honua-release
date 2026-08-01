@@ -63,6 +63,8 @@ jobs:
     outputs:
       iac_ref: ${{ steps.pins.outputs.iac_ref }}
       helm_ref: ${{ steps.pins.outputs.helm_ref }}
+      server_ref: ${{ steps.pins.outputs.server_ref }}
+      server_image: ${{ steps.pins.outputs.server_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -79,13 +81,20 @@ jobs:
 
           manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
           components = manifest.get("components") or {}
+          server = components.get("honua-server") or {}
           pins = {
               "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
               "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
+              "server_ref": str(server.get("sha", "")),
           }
           for name, value in pins.items():
               if not re.fullmatch(r"[0-9a-f]{40}", value):
                   raise SystemExit(f"{name} is not an exact 40-character commit SHA: {value!r}")
+          image = str(server.get("image", ""))
+          digest = str(server.get("digest", ""))
+          if not image or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+              raise SystemExit("honua-server image and exact sha256 digest are required")
+          pins["server_image"] = f"{image}@{digest}"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for name, value in pins.items():
                   output.write(f"{name}={value}\n")
@@ -205,6 +214,8 @@ jobs:
           AWS_ROLE: ${{ vars.HONUA_AWS_ROLE_ARN }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
           IAC_REF: ${{ needs.candidate.outputs.iac_ref }}
+          SERVER_REF: ${{ needs.candidate.outputs.server_ref }}
+          ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
         run: |
           set -uo pipefail
           STATUS=skipped; WHY="cloud-creds-unset"
@@ -214,11 +225,12 @@ jobs:
             REPO=honua-io/honua-iac
             WF=terraform-manual-validation.yml
             REF=trunk
-            echo "dispatching $WF from $REPO/$REF against manifest candidate $IAC_REF with run_live=true cloud=aws"
+            echo "dispatching $WF from $REPO/$REF against IAC $IAC_REF and server $SERVER_REF with run_live=true cloud=aws"
             # Record the dispatch time so we can find the run we just triggered.
             SINCE="$(date -u +%FT%TZ)"
             gh workflow run "$WF" --repo "$REPO" --ref "$REF" \
-              -f candidate_ref="$IAC_REF" -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
+              -f candidate_ref="$IAC_REF" -f honua_server_ref="$SERVER_REF" -f aws_ecs_image="$ECS_IMAGE" \
+              -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
               -f run_k8s=false -f run_aks=false -f run_eks=false -f run_drift=false \
               >/tmp/iac-dispatch.log 2>&1 || { STATUS=fail; WHY="failed to dispatch $WF (token scope? branch $REF?)"; cat /tmp/iac-dispatch.log; }
             if [ "$STATUS" != "fail" ]; then
