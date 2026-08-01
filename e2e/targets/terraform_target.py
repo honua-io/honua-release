@@ -180,7 +180,13 @@ ECS_SPEC = TfTargetSpec(
     image_env="HONUA_ECS_IMAGE",
     image_var="honua_image",
     image_hint="container image (ghcr or ECR; immutable tag/digest)",
-    ephemeral_vars=("alb_deletion_protection=false",),
+    # This is always a brand-new ephemeral deployment, so explicitly select the
+    # IAC root's null/new-key path. Existing deployments must supply their current
+    # key instead, but the release harness never adopts an existing ECS database.
+    ephemeral_vars=(
+        "alb_deletion_protection=false",
+        "honua_connection_encryption_master_key=null",
+    ),
 )
 
 
