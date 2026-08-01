@@ -470,8 +470,8 @@ jobs:
               fi
             fi
           fi
-          jq --arg full "$FULL_SCOPE" \
-            '.certifying = ($full == "true" and .status == "pass")' \
+          jq --arg full "$FULL_SCOPE" --arg enf "$REQUIRE_REAL" \
+            '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' \
             out/gate-report-cloud.json > out/gate-report-cloud.certification.json
           mv out/gate-report-cloud.certification.json out/gate-report-cloud.json
           cat out/gate-report-cloud.json

@@ -83,7 +83,7 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "CANDIDATE_RESULT: ${{ needs.candidate.result }}" in workflow
     assert 'candidate prerequisite ended $CANDIDATE_RESULT' in workflow
     assert 'certifyingScope:($full == "true")' in workflow
-    assert '.certifying = ($full == "true" and .status == "pass")' in workflow
+    assert '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' in workflow
     assert "focused dispatch is diagnostic only" in workflow
     assert "full-scope cloud reports missing required cells" in workflow
     assert "full-scope cloud reports did not all pass" in workflow
