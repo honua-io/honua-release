@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -117,6 +118,45 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
+def _latest_named_runs(runs: list[dict]) -> list[dict]:
+    """Keep the latest check-run attempt for each named app lane.
+
+    GitHub retains scheduled runs and reruns on the same commit, so the check-runs endpoint can return
+    several historical verdicts for one lane. Certification must use that lane's latest attempt: an
+    old red must not poison a later green forever, and a newer red must not be hidden by an old green.
+    Unnamed runs stay independent because there is no stable lane identity by which to supersede them.
+    """
+    unnamed: list[tuple[int, dict]] = []
+    latest: dict[tuple[str, str, str], tuple[tuple[int, str, int], dict]] = {}
+    for index, run in enumerate(runs):
+        name = str(run.get("name", "")).strip()
+        if not name:
+            unnamed.append((index, run))
+            continue
+        app = run.get("app") or {}
+        app_slug = str(app.get("slug", "")).strip() if isinstance(app, dict) else ""
+        workflow_id = str(run.get("_workflow_id", "")).strip()
+        suite = run.get("check_suite") or {}
+        suite_id = str(suite.get("id", "")).strip() if isinstance(suite, dict) else ""
+        # Workflow IDs distinguish independent Actions workflows that happen to use the same job
+        # name. If enrichment was unavailable, keep each Actions check suite independent rather than
+        # risk hiding one workflow behind another; this conservative fallback may retain stale runs,
+        # but can never manufacture a pass.
+        lane_scope = workflow_id or (f"suite:{suite_id}" if app_slug == "github-actions" else "")
+        timestamp = str(run.get("started_at") or run.get("completed_at") or "")
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        marker = (run_id, timestamp, index)
+        key = (name, app_slug, lane_scope)
+        if key not in latest or marker > latest[key][0]:
+            latest[key] = (marker, run)
+
+    selected = unnamed + [(marker[2], run) for marker, run in latest.values()]
+    return [run for _, run in sorted(selected, key=lambda item: item[0])]
+
+
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
              security_names: frozenset[str] = frozenset()) -> tuple[str, str]:
@@ -140,6 +180,7 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
+    runs = _latest_named_runs(runs)
 
     excluded = env_gated_names | rollup_names | security_names
     core = [r for r in runs if str(r.get("name", "")) not in excluded]
@@ -195,24 +236,58 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
 Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
 
 
+_ACTIONS_RUN_URL = re.compile(r"/actions/runs/(\d+)(?:/|$)")
+
+
+def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
+    """Attach stable workflow IDs to Actions check-runs so same-named jobs stay independent."""
+    workflows = {
+        int(run["id"]): str(run.get("workflow_id") or run.get("path") or "")
+        for run in (workflow_payload.get("workflow_runs") or [])
+        if run.get("id") is not None
+    }
+    for run in payload.get("check_runs") or []:
+        app = run.get("app") or {}
+        if not isinstance(app, dict) or app.get("slug") != "github-actions":
+            continue
+        match = _ACTIONS_RUN_URL.search(str(run.get("details_url") or ""))
+        workflow_id = workflows.get(int(match.group(1))) if match else None
+        if workflow_id:
+            run["_workflow_id"] = workflow_id
+    return payload
+
+
 def _default_fetch(repo: str, sha: str) -> object:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     url = f"https://api.github.com/repos/{ORG}/{repo}/commits/{sha}/check-runs?per_page=100"
-    req = urllib.request.Request(url, headers={
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "honua-release-gate",
         **({"Authorization": f"Bearer {token}"} if token else {}),
-    })
+    }
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
-            return json.loads(r.read().decode("utf-8", "replace"))
+            payload = json.loads(r.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         if e.code in (404, 403, 422):
             return NOT_FOUND
         raise
     except (urllib.error.URLError, OSError):
         return NOT_FOUND
+
+    # One additional request identifies the Actions workflow behind each job. This lets the
+    # classifier supersede attempts of one workflow without merging an unrelated workflow that uses
+    # the same generic job name. If metadata cannot be read, the classifier conservatively keys
+    # Actions runs by check-suite ID and retains every suite.
+    actions_url = f"https://api.github.com/repos/{ORG}/{repo}/actions/runs?head_sha={sha}&per_page=100"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(actions_url, headers=headers), timeout=20) as r:
+            workflow_payload = json.loads(r.read().decode("utf-8", "replace"))
+        return _enrich_action_workflow_ids(payload, workflow_payload)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
+        return payload
 
 
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
