@@ -628,7 +628,16 @@ jobs:
 
           if [ "$STATUS" = "have-chart" ]; then
             echo "::group::helm lint + helm template (render manifests)"
-            if helm lint "$CHART" >/tmp/helm-lint.log 2>&1 && helm template honua "$CHART" >/tmp/helm-tmpl.log 2>&1; then
+            # The production chart intentionally has no insecure default secrets. Supply
+            # deterministic, non-production values so this consumer exercises a complete
+            # render instead of failing on the chart's required-value guardrails.
+            HELM_RUNTIME_ARGS=(
+              --set-string 'secret.env.ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=honua;Username=honua;Password=gate'
+              --set-string 'secret.env.ConnectionStrings__redis=redis:6379'
+              --set-string 'secret.env.HONUA_ADMIN_PASSWORD=Gate-Aa1!ArtifactConsume'
+              --set-string 'secret.env.Security__ConnectionEncryption__MasterKey=0123456789abcdef0123456789abcdef'
+            )
+            if helm lint "$CHART" "${HELM_RUNTIME_ARGS[@]}" >/tmp/helm-lint.log 2>&1 && helm template honua "$CHART" "${HELM_RUNTIME_ARGS[@]}" >/tmp/helm-tmpl.log 2>&1; then
               # A chart that renders to zero documents is broken even if lint passes.
               if grep -q 'kind:' /tmp/helm-tmpl.log; then
                 STATUS=pass; WHY="chart from ${SOURCE}: lint clean and templated to real manifests"

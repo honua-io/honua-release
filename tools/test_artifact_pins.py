@@ -43,5 +43,9 @@ def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     assert '--source "$WORK/localfeed"' in workflow
     assert 'NF==2 && $2=="Chart.yaml" && !root' in workflow
     assert 'END {print root}' in workflow
+    assert "secret.env.ConnectionStrings__DefaultConnection=Host=postgres" in workflow
+    assert "secret.env.ConnectionStrings__redis=redis:6379" in workflow
+    assert "secret.env.HONUA_ADMIN_PASSWORD=Gate-Aa1!ArtifactConsume" in workflow
+    assert "HELM_RUNTIME_ARGS[@]" in workflow
     assert "if [ -f src/buf.yaml ]" in workflow
     assert 'HONUA_ADMIN_PASSWORD="Gate-Aa1!' in workflow
