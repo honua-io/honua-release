@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "gate-artifact-consume.yml"
+CONTRACT_WORKFLOW = ROOT / ".github" / "workflows" / "gate-contract.yml"
 
 
 def test_artifact_consume_never_uses_floating_staging_or_source_refs():
@@ -49,3 +50,14 @@ def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     assert "HELM_RUNTIME_ARGS[@]" in workflow
     assert "if [ -f src/buf.yaml ]" in workflow
     assert 'HONUA_ADMIN_PASSWORD="Gate-Aa1!' in workflow
+
+
+def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():
+    workflow = CONTRACT_WORKFLOW.read_text(encoding="utf-8")
+
+    for repository in ("honua-server", "honua-sdk-python", "honua-sdk-dotnet", "honua-sdk-js"):
+        assert repository in workflow
+    assert 'checkout_component.sh" "$comp" "$sha" "$ROOT/$comp"' in workflow
+    assert 'git clone --quiet "https://x-access-token:' not in workflow
+    assert 'if OUT="$(python tools/contract_surface.py check' in workflow
+    assert "RC=$?" in workflow

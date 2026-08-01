@@ -903,7 +903,7 @@
             "scan_migration_source": {
               "async": true,
               "kind": "method",
-              "signature": "(self, request: 'MigrationInventoryScanRequest', *, export_json: 'bool' = False) -> 'MigrationSourceInventoryArtifact'"
+              "signature": "(self, request: 'MigrationInventoryScanRequest', *, export_json: 'bool' = False, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'MigrationSourceInventoryArtifact'"
             },
             "set_layer_enabled": {
               "async": true,
@@ -1248,7 +1248,7 @@
             },
             "scan_migration_source": {
               "kind": "method",
-              "signature": "(self, request: 'MigrationInventoryScanRequest', *, export_json: 'bool' = False) -> 'MigrationSourceInventoryArtifact'"
+              "signature": "(self, request: 'MigrationInventoryScanRequest', *, export_json: 'bool' = False, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'MigrationSourceInventoryArtifact'"
             },
             "set_layer_enabled": {
               "kind": "method",

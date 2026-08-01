@@ -86,7 +86,13 @@ class TerraformTarget(DeployTarget):
         # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
         redis_tag = "r" if redis_enabled else "n"
         prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
-        admin_pw = os.environ.get("HONUA_ADMIN_PASSWORD", f"it-{self.run_id}-Aa1!")
+        # honua-iac requires at least 32 characters plus mixed-case, digit and special
+        # characters. Keep the ephemeral fallback deterministic so the same value is
+        # available to destroy after a partial apply.
+        admin_pw = os.environ.get(
+            "HONUA_ADMIN_PASSWORD",
+            f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}",
+        )
         return [
             "-input=false", "-no-color",
             f"-var=region={self.region}",

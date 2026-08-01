@@ -250,12 +250,12 @@
     }
   },
   "info": {
-    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
+    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
     "title": "Honua OGC API Coverages",
     "version": "1.0.0",
     "x-honua-cite-compliance": {
       "authoritativeSource": "docs/cite-status.md",
-      "lastEvidenceRun": "2026-05-17",
+      "lastEvidenceRun": "2026-07-27",
       "suites": [
         {
           "passRate": "100%",
@@ -265,7 +265,7 @@
           "total": 82
         }
       ],
-      "summary": "Coverage retrieval is exercised through the classic WCS 2.0 ETS, which passes 82/82 on trunk; full Honua suite is 952/952."
+      "summary": "Coverage retrieval is exercised through the classic WCS 2.0 ETS, which passes 82/82 on trunk; full Honua suite is 1117/1117."
     }
   },
   "openapi": "3.0.3",
