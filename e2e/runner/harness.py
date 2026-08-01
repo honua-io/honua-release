@@ -79,7 +79,12 @@ def compose_up(manifest: Manifest, server_url: str, timeout_s: int = 180) -> Non
         raise ImageUnavailable(f"failed to pull {manifest.server_image}: {e}") from e
 
     _compose("up", "-d", check=True)
-    _wait_for_health(server_url, timeout_s)
+    try:
+        _wait_for_health(server_url, timeout_s)
+    except ImageUnavailable as e:
+        logs = _compose("logs", "--no-color", "--tail", "80", "server", check=False, capture=True)
+        detail = (logs.stdout or logs.stderr or "server emitted no container logs").strip()
+        raise ImageUnavailable(f"{e}\nserver container logs:\n{detail}") from e
 
 
 def compose_down() -> None:
@@ -90,8 +95,9 @@ def compose_down() -> None:
 
 
 def _wait_for_health(server_url: str, timeout_s: int) -> None:
-    # TODO(#7): confirm honua-server's health path; /healthz is assumed in docker-compose.yml.
-    url = server_url.rstrip("/") + "/healthz"
+    # /healthz is Development-only and is not the deployable health contract. The published image
+    # consistently exposes the readiness endpoint used by the cloud canary and Slice-1 harness.
+    url = server_url.rstrip("/") + "/healthz/ready"
     deadline = time.time() + timeout_s
     last = ""
     while time.time() < deadline:
@@ -134,7 +140,9 @@ def scrape_metric(metrics_url: str, name: str) -> float | None:
     real, BLOCKED while placeholder.
     """
     try:
-        with urllib.request.urlopen(metrics_url, timeout=5) as r:
+        request = urllib.request.Request(metrics_url)
+        request.add_header("X-API-Key", os.environ.get("HONUA_ADMIN_PASSWORD", "honua-console-dev-key"))
+        with urllib.request.urlopen(request, timeout=5) as r:
             body = r.read().decode("utf-8", "replace")
     except (urllib.error.URLError, OSError):
         return None

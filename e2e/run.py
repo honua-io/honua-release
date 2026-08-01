@@ -49,9 +49,8 @@ def main() -> int:
     require_real = os.environ.get("E2E_REQUIRE_REAL", "") not in ("", "0", "false", "False")
     manifest = load_manifest()
     server_port = os.environ.get("HONUA_SERVER_PORT", "8080")
-    metrics_port = os.environ.get("HONUA_METRICS_PORT", "9090")
     server_url = f"http://localhost:{server_port}"
-    metrics_url = f"http://localhost:{metrics_port}/metrics"
+    metrics_url = f"{server_url}/metrics"
 
     print(f"== Honua e2e local-docker :: platform {manifest.platform_release} ==")
     print(f"   server image pin: {manifest.server_image} (real={manifest.server.is_real})")
@@ -124,7 +123,7 @@ def main() -> int:
                     why=f"scenario raised: {e}",
                 ))
     finally:
-        if server_up:
+        if cfg_ok:
             harness.compose_down()
 
     report = assemble(results, require_real)

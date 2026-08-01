@@ -13,6 +13,7 @@ Run: python -m pytest e2e/runner/test_runner.py    (or: python e2e/runner/test_r
 from __future__ import annotations
 
 import sys
+import urllib.request
 from pathlib import Path
 
 E2E_DIR = Path(__file__).resolve().parents[1]
@@ -83,6 +84,33 @@ def test_parse_metric_does_not_match_prefixed_name():
     # A different metric that merely shares a prefix must NOT be counted.
     body = "honua_geoservices_error_total_created 12345\n"
     assert harness.parse_metric_total(body, "honua_geoservices_error_total") is None
+
+
+def test_scrape_metric_uses_admin_key(monkeypatch):
+    seen: dict[str, str] = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"honua_geoservices_error_total 2\n"
+
+    def fake_urlopen(request: urllib.request.Request, timeout: int):
+        seen["key"] = request.get_header("X-api-key") or ""
+        assert timeout == 5
+        return Response()
+
+    monkeypatch.setenv("HONUA_ADMIN_PASSWORD", "test-admin-key")
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    assert harness.scrape_metric("http://server/metrics", "honua_geoservices_error_total") == 2.0
+    assert seen["key"] == "test-admin-key"
 
 
 # ---- manifest loading: what counts as a real (runnable) pin ---------------------------------------
