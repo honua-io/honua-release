@@ -342,7 +342,7 @@
       },
       "Results": {
         "additionalProperties": true,
-        "description": "Document-mode results map keyed by output identifier (OGC API Processes Part 1 §7.11.1). V1 canonical process declares no value-typed outputs, so the map is empty.",
+        "description": "Document-mode results map keyed by output identifier (OGC API Processes Part 1 Â§7.11.1). V1 canonical process declares no value-typed outputs, so the map is empty.",
         "type": "object"
       },
       "StatusInfo": {
@@ -403,13 +403,13 @@
     }
   },
   "info": {
-    "description": "OGC API Processes adapter over the Honua canonical geoprocessing runtime.\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
+    "description": "OGC API Processes adapter over the Honua canonical geoprocessing runtime.\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites â€” see docs/cite-status.md.",
     "title": "Honua OGC API Processes",
     "version": "1.0.0",
     "x-honua-cite-compliance": {
       "authoritativeSource": "docs/cite-status.md",
-      "lastEvidenceRun": "2026-05-17",
-      "summary": "OGC API Processes does not yet have a published ETS; the surrounding Honua OGC stack passes 952/952 across 11 conformance suites."
+      "lastEvidenceRun": "2026-07-27",
+      "summary": "OGC API Processes does not yet have a published ETS; the surrounding Honua OGC stack passes 1117/1117 across 13 conformance suites."
     }
   },
   "openapi": "3.0.3",
@@ -709,7 +709,7 @@
                 }
               }
             },
-            "description": "Job succeeded. Document-mode results keyed by output identifier per OGC API Processes Part 1 §7.11.1. V1 declares no value-typed outputs on the canonical process, so the body is an empty object; populated entries land here once result storage ships."
+            "description": "Job succeeded. Document-mode results keyed by output identifier per OGC API Processes Part 1 Â§7.11.1. V1 declares no value-typed outputs on the canonical process, so the body is an empty object; populated entries land here once result storage ships."
           },
           "401": {
             "content": {

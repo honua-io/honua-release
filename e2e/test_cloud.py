@@ -295,6 +295,17 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
     assert "alb_deletion_protection" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
 
+def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
+    monkeypatch.delenv("HONUA_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    password = _tf_vars(serverless(run_id="r1")._vars(False))["honua_admin_password"]
+    assert len(password) >= 32
+    assert any(c.isupper() for c in password)
+    assert any(c.islower() for c in password)
+    assert any(c.isdigit() for c in password)
+    assert any(not c.isalnum() for c in password)
+
+
 def test_serverless_blocked_without_infra(monkeypatch):
     for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)

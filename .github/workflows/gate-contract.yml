@@ -135,11 +135,11 @@ jobs:
           ROOT="$RUNNER_TEMP/components"; mkdir -p "$ROOT"; echo "REPOS_ROOT=$ROOT" >> "$GITHUB_ENV"
           for comp in honua-server honua-sdk-python honua-sdk-dotnet honua-sdk-js; do
             sha="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('$comp',{})) or {}).get('sha','') or '')")"
-            echo "::group::clone $comp @ ${sha:-<none>}"
-            if git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/honua-io/${comp}.git" "$ROOT/$comp" 2>/tmp/clone.log; then
-              if [ -n "$sha" ]; then git -C "$ROOT/$comp" fetch --quiet origin "$sha" 2>/dev/null || true; fi
+            echo "::group::checkout exact $comp @ ${sha:-<none>}"
+            if [ -n "$sha" ] && bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" "$comp" "$sha" "$ROOT/$comp" 2>/tmp/clone.log; then
+              echo "$comp exact checkout: $(git -C "$ROOT/$comp" rev-parse HEAD)"
             else
-              echo "note: $comp not cloneable"; tail -n 3 /tmp/clone.log || true
+              echo "note: exact $comp checkout unavailable"; tail -n 3 /tmp/clone.log || true
             fi
             echo "::endgroup::"
           done
@@ -148,7 +148,13 @@ jobs:
         id: diff
         run: |
           set -uo pipefail
-          OUT="$(python tools/contract_surface.py check --repos-root "$REPOS_ROOT" 2>&1)"; RC=$?
+          # The checker deliberately returns non-zero for fail/blocked. Capture that result
+          # without Bash's inherited `-e` aborting before we can emit an honest fragment.
+          if OUT="$(python tools/contract_surface.py check --repos-root "$REPOS_ROOT" 2>&1)"; then
+            RC=0
+          else
+            RC=$?
+          fi
           echo "$OUT"
           STATUS=blocked
           case "$RC" in 0) STATUS=pass ;; 1) STATUS=fail ;; *) STATUS=blocked ;; esac
