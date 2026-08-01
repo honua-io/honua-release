@@ -57,7 +57,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  candidate:
+    name: "Resolve manifest cloud candidates"
+    runs-on: ubuntu-latest
+    outputs:
+      iac_ref: ${{ steps.pins.outputs.iac_ref }}
+      helm_ref: ${{ steps.pins.outputs.helm_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Read exact cloud component SHAs from the platform manifest
+        id: pins
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import yaml
+
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          components = manifest.get("components") or {}
+          pins = {
+              "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
+              "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
+          }
+          for name, value in pins.items():
+              if not re.fullmatch(r"[0-9a-f]{40}", value):
+                  raise SystemExit(f"{name} is not an exact 40-character commit SHA: {value!r}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for name, value in pins.items():
+                  output.write(f"{name}={value}\n")
+          PY
+
   parity:
+    needs: candidate
     # The deploy-target x Redis matrix: all 3 AWS targets, each with Redis on and off, so the platform
     # is proven to behave identically everywhere and with/without its cache. Each cell is independent
     # (fail-fast off) so one skipped/blocked/red cell doesn't hide the others.
@@ -81,6 +116,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
+          ref: ${{ needs.candidate.outputs.iac_ref }}
           path: _honua-iac
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
@@ -90,6 +126,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-helm
+          ref: ${{ needs.candidate.outputs.helm_ref }}
           path: _honua-helm
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
@@ -156,6 +193,7 @@ jobs:
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:
     name: "iac-live (terraform-manual-validation, run_live=aws)"
+    needs: candidate
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
@@ -166,6 +204,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || '' }}
           AWS_ROLE: ${{ vars.HONUA_AWS_ROLE_ARN }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
+          IAC_REF: ${{ needs.candidate.outputs.iac_ref }}
         run: |
           set -uo pipefail
           STATUS=skipped; WHY="cloud-creds-unset"
@@ -175,11 +214,11 @@ jobs:
             REPO=honua-io/honua-iac
             WF=terraform-manual-validation.yml
             REF=trunk
-            echo "dispatching $WF on $REPO ($REF) with run_live=true cloud=aws"
+            echo "dispatching $WF from $REPO/$REF against manifest candidate $IAC_REF with run_live=true cloud=aws"
             # Record the dispatch time so we can find the run we just triggered.
             SINCE="$(date -u +%FT%TZ)"
             gh workflow run "$WF" --repo "$REPO" --ref "$REF" \
-              -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
+              -f candidate_ref="$IAC_REF" -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
               -f run_k8s=false -f run_aks=false -f run_eks=false -f run_drift=false \
               >/tmp/iac-dispatch.log 2>&1 || { STATUS=fail; WHY="failed to dispatch $WF (token scope? branch $REF?)"; cat /tmp/iac-dispatch.log; }
             if [ "$STATUS" != "fail" ]; then
@@ -196,8 +235,8 @@ jobs:
                 echo "watching honua-iac run $RUN_ID"
                 gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/tmp/iac-watch.log 2>&1 && CONC=success || CONC=failure
                 URL="$(gh run view "$RUN_ID" --repo "$REPO" --json url --jq .url 2>/dev/null || echo '')"
-                if [ "$CONC" = "success" ]; then STATUS=pass; WHY="honua-iac live AWS validation passed ($URL)";
-                else STATUS=fail; WHY="honua-iac live AWS validation failed ($URL)"; fi
+                if [ "$CONC" = "success" ]; then STATUS=pass; WHY="honua-iac $IAC_REF live AWS validation passed ($URL)";
+                else STATUS=fail; WHY="honua-iac $IAC_REF live AWS validation failed ($URL)"; fi
               fi
             fi
           fi

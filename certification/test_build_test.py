@@ -97,6 +97,16 @@ def test_latest_in_progress_attempt_blocks_instead_of_reusing_an_older_green():
     assert bt.classify(payload)[0] == "blocked"
 
 
+def test_higher_id_queued_attempt_blocks_even_without_timestamps():
+    payload = {"check_runs": [
+        {"id": 20, "name": "Build", "status": "completed", "conclusion": "success",
+         "started_at": "2026-07-02T00:00:00Z", "completed_at": "2026-07-02T00:01:00Z"},
+        {"id": 30, "name": "Build", "status": "queued", "conclusion": None,
+         "started_at": None, "completed_at": None},
+    ]}
+    assert bt.classify(payload)[0] == "blocked"
+
+
 def test_distinct_named_lanes_remain_independently_decisive():
     payload = _named(("Build", "success"), ("Unit Tests", "failure"))
     assert bt.classify(payload)[0] == "fail"
@@ -108,6 +118,36 @@ def test_same_name_from_distinct_apps_remains_independently_decisive():
         {"name": "Analyze", "app": {"slug": "another-scanner"}, "status": "completed", "conclusion": "failure"},
     ]}
     assert bt.classify(payload)[0] == "fail"
+
+
+def test_same_actions_job_name_from_distinct_workflows_remains_decisive():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "app": {"slug": "github-actions"}, "_workflow_id": "100",
+         "status": "completed", "conclusion": "success"},
+        {"id": 20, "name": "Build", "app": {"slug": "github-actions"}, "_workflow_id": "200",
+         "status": "completed", "conclusion": "failure"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_unenriched_actions_suites_are_kept_independent_conservatively():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "app": {"slug": "github-actions"}, "check_suite": {"id": 1000},
+         "status": "completed", "conclusion": "success"},
+        {"id": 20, "name": "Build", "app": {"slug": "github-actions"}, "check_suite": {"id": 2000},
+         "status": "completed", "conclusion": "failure"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_actions_run_metadata_enriches_jobs_with_stable_workflow_identity():
+    payload = {"check_runs": [
+        {"name": "Build", "app": {"slug": "github-actions"},
+         "details_url": "https://github.com/honua-io/repo/actions/runs/42/job/99"},
+    ]}
+    workflows = {"workflow_runs": [{"id": 42, "workflow_id": 1234}]}
+    enriched = bt._enrich_action_workflow_ids(payload, workflows)
+    assert enriched["check_runs"][0]["_workflow_id"] == "1234"
 
 
 def test_not_found_is_blocked():
