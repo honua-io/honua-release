@@ -34,3 +34,13 @@ def test_artifact_consume_pins_registry_versions_from_manifest():
     assert 'Honua.Sdk --version "$SDK_DOTNET_VERSION"' in workflow
     assert "honua-sdk==${SDK_PYTHON_VERSION}" in workflow
     assert 'buf.build/honua-io/geospatial:v${GRPC_VERSION}' in workflow
+
+
+def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert '--source "$STAGING_NUGET_SOURCE"' in workflow
+    assert '--source "$WORK/localfeed"' in workflow
+    assert 'NF==2 && $2=="Chart.yaml"' in workflow
+    assert "if [ -f src/buf.yaml ]" in workflow
+    assert 'HONUA_ADMIN_PASSWORD="Gate-Aa1!' in workflow

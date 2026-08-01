@@ -298,7 +298,7 @@ jobs:
           echo "::group::Try STAGING (nuget source: $STAGING_NUGET_SOURCE)"
           dotnet nuget add source "$STAGING_NUGET_SOURCE" -n honua-staging \
             -u honua -p "$GH_TOKEN" --store-password-in-clear-text >/tmp/nuget-src.log 2>&1 || true
-          if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source honua-staging >/tmp/nuget-staging.log 2>&1; then
+          if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE" >/tmp/nuget-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
             echo "staging add miss (expected until publish lands):"; tail -n 5 /tmp/nuget-staging.log || true
@@ -317,8 +317,7 @@ jobs:
               dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
                 --store-password-in-clear-text --configfile src/NuGet.config >/tmp/nuget-pack.log 2>&1 || true
               if ( cd src && dotnet pack -c Release -o "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1 ); then
-                dotnet nuget add source "$WORK/localfeed" -n honua-local >/dev/null 2>&1 || true
-                if dotnet add Consumer package Honua.Sdk --source honua-local >>/tmp/nuget-pack.log 2>&1; then
+                if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1; then
                   SOURCE=local; STATUS=consuming
                 else
                   STATUS=fail; WHY="packed Honua.Sdk but consuming project could not add it"; tail -n 20 /tmp/nuget-pack.log || true
@@ -601,7 +600,14 @@ jobs:
               fi
               if [ -n "$CHARTDIR" ] && ( helm dependency build "$CHARTDIR" >>/tmp/helm-pkg.log 2>&1 || true; helm package "$CHARTDIR" -d "$WORK" >>/tmp/helm-pkg.log 2>&1 ); then
                 TGZ="$(ls -1 "$WORK"/*.tgz | head -n1)"; mkdir -p "$WORK/unpacked"; tar xzf "$TGZ" -C "$WORK/unpacked"
-                CHART="$(dirname "$(find "$WORK/unpacked" -name Chart.yaml | head -n1)")"; SOURCE=local; STATUS=have-chart
+                # Select the package's top-level chart, never a nested dependency/library chart.
+                CHART_ROOT="$(tar tzf "$TGZ" | awk -F/ 'NF==2 && $2=="Chart.yaml" {print $1; exit}')"
+                CHART="$WORK/unpacked/$CHART_ROOT"
+                if [ -n "$CHART_ROOT" ] && [ -f "$CHART/Chart.yaml" ]; then
+                  SOURCE=local; STATUS=have-chart
+                else
+                  STATUS=fail; WHY="packaged helm artifact has no top-level Chart.yaml"
+                fi
               elif [ "$TOLERANT" = true ] && [ -n "$CHARTDIR" ] && grep -qiE 'no repository definition|could not find|failed to (download|fetch)|missing in charts/ directory|dependenc.*(not found|missing|unreachable)|no cached repository' /tmp/helm-pkg.log; then
                 # ROOT CAUSE = not published: the chart declares external subchart deps (e.g. Bitnami)
                 # that need a configured chart registry to `helm dependency build`; in a no-registry cut
@@ -722,7 +728,7 @@ jobs:
               sleep 5
               docker run -d --name honua-gate --network honua-gate-net -p "${SERVER_PORT}:${SERVER_PORT}" \
                 -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=honua" \
-                -e HONUA_ADMIN_PASSWORD="gate-$(openssl rand -hex 12)" \
+                -e HONUA_ADMIN_PASSWORD="Gate-Aa1!$(openssl rand -hex 12)" \
                 -e Security__ConnectionEncryption__MasterKey="$(openssl rand -hex 32)" \
                 -e HostValidation__AllowedHosts="*" -e AllowedHosts="*" \
                 "$IMG" >/tmp/docker-run.log 2>&1 || { STATUS=fail; WHY="container failed to start"; }
@@ -804,7 +810,13 @@ jobs:
             # STUB (pending published buf module): clone the proto repo and generate from source.
             echo "::group::LOCAL fallback — clone geospatial-grpc and generate from source"
             if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" geospatial-grpc "$GRPC_SHA" src >/tmp/grpc-clone.log 2>&1; then
-              PROTODIR="$(dirname "$(find src -name 'buf.gen.yaml' -o -name 'buf.yaml' | head -n1)")"
+              # The repo also contains example buf.gen.yaml files. Always prefer the root module
+              # containing the frozen proto sources, then fall back to discovery for older layouts.
+              if [ -f src/buf.yaml ]; then
+                PROTODIR=src
+              else
+                PROTODIR="$(dirname "$(find src \( -name 'buf.yaml' -o -name 'buf.gen.yaml' \) | head -n1)")"
+              fi
               [ -n "$PROTODIR" ] && { SOURCE=local; STATUS=have-proto; } || { STATUS=fail; WHY="no buf config (buf.yaml/buf.gen.yaml) found in geospatial-grpc"; }
             else
               STATUS=blocked; WHY="staging empty and geospatial-grpc source not reachable (no RELEASE_GH_TOKEN?)"; tail -n 5 /tmp/grpc-clone.log || true
