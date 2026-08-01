@@ -151,6 +151,7 @@ jobs:
         env:
           SOURCE_IMAGE: ${{ steps.pins.outputs.lambda_source }}
           SOURCE_DIGEST: ${{ steps.pins.outputs.lambda_source_digest }}
+          SOURCE_ARCHITECTURE: ${{ steps.pins.outputs.lambda_architecture }}
           TARGET_TAG: ${{ steps.pins.outputs.lambda_ecr_tag }}
         run: |
           set -euo pipefail
@@ -167,8 +168,9 @@ jobs:
             exit 1
           fi
           if [ "$EXISTING" != "$SOURCE_DIGEST" ]; then
+            PLATFORM_ARCH="${SOURCE_ARCHITECTURE/x86_64/amd64}"
             aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
-            docker pull "$SOURCE_IMAGE"
+            docker pull --platform "linux/${PLATFORM_ARCH}" "$SOURCE_IMAGE"
             docker tag "$SOURCE_IMAGE" "$TARGET"
             docker push "$TARGET"
           fi
