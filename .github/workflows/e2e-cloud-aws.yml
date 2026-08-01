@@ -438,7 +438,8 @@ jobs:
              --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
              --arg iac "$REQUESTED_IAC_LIVE" \
              '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
-                    certifying:($full == "true"),
+                    certifying:false,
+                    certifyingScope:($full == "true"),
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
@@ -457,8 +458,22 @@ jobs:
                 '.status="fail" | .why=("full-scope cloud reports missing required cells: " + $missing)' \
                 out/gate-report-cloud.json > out/gate-report-cloud.checked.json
               mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+            elif [ "$(jq -r .status out/gate-report-cloud.json)" = "pass" ]; then
+              NON_PASS="$(jq -c --argjson expected "$EXPECTED" \
+                '[.cells[] | select(.cell as $cell | $expected | index($cell))
+                  | select(.status != "pass") | {cell,status}]' out/gate-report-cloud.json)"
+              if [ "$NON_PASS" != "[]" ]; then
+                jq --arg nonpass "$NON_PASS" \
+                  '.status="fail" | .why=("full-scope cloud reports did not all pass: " + $nonpass)' \
+                  out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+                mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+              fi
             fi
           fi
+          jq --arg full "$FULL_SCOPE" \
+            '.certifying = ($full == "true" and .status == "pass")' \
+            out/gate-report-cloud.json > out/gate-report-cloud.certification.json
+          mv out/gate-report-cloud.certification.json out/gate-report-cloud.json
           cat out/gate-report-cloud.json
           OVERALL="$(jq -r .status out/gate-report-cloud.json)"
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
