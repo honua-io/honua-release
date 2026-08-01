@@ -95,7 +95,7 @@ components:
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
-    sha: "7db6bcbe77d34ec675d47bec6d2813475b60eceb"   # branch: trunk; immutable candidate workflow
+    sha: "bb55cc75a78a79ff377460e10a31f0690d864259"   # branch: trunk; exact candidate handoff + valid ElastiCache AUTH
     artifact: "terraform-registry:honua"
 
   honua-helm:
