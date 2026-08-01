@@ -304,10 +304,16 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
 def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     # The IAC ECS root is fail-closed: callers must choose between adopting the
     # current key and generating one for a new deployment. This harness always
-    # creates a fresh, ephemeral database, so it must pass the HCL null decision.
+    # creates a fresh, ephemeral database, so it must pass a typed JSON null.
+    # `-var=name=null` is insufficient for a string-constrained Terraform input:
+    # it is coerced to the literal string "null".
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
-    values = _tf_vars(ecs(run_id="r1")._vars(False))
-    assert values["honua_connection_encryption_master_key"] == "null"
+    args = ecs(run_id="r1")._vars(False)
+    var_files = [Path(a.removeprefix("-var-file=")) for a in args if a.startswith("-var-file=")]
+    assert len(var_files) == 1
+    values = json.loads(var_files[0].read_text(encoding="utf-8"))
+    assert values["honua_connection_encryption_master_key"] is None
+    assert "honua_connection_encryption_master_key" not in _tf_vars(args)
 
 
 def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):

@@ -34,6 +34,10 @@ class TfTargetSpec:
     # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
     # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
     ephemeral_vars: tuple[str, ...] = ()
+    # JSON var files preserve typed values that cannot be represented faithfully
+    # by Terraform's string-constrained `-var=name=value` coercion (notably null).
+    # Paths are relative to the honua-release repository root.
+    ephemeral_var_files: tuple[str, ...] = ()
     needs_runner_db_access: bool = False
     architecture_env: str = ""
 
@@ -103,6 +107,7 @@ class TerraformTarget(DeployTarget):
         )
         values = [
             "-input=false", "-no-color",
+            *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
             "-var=environment=it",
@@ -135,6 +140,14 @@ class TerraformTarget(DeployTarget):
                 )
             values.append(f'-var=lambda_architectures=["{architecture}"]')
         return values
+
+    @staticmethod
+    def _resolve_var_file(relative_path: str) -> Path:
+        repo_root = Path(__file__).resolve().parents[2]
+        path = (repo_root / relative_path).resolve()
+        if not path.is_file():
+            raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
+        return path
 
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
@@ -183,10 +196,8 @@ ECS_SPEC = TfTargetSpec(
     # This is always a brand-new ephemeral deployment, so explicitly select the
     # IAC root's null/new-key path. Existing deployments must supply their current
     # key instead, but the release harness never adopts an existing ECS database.
-    ephemeral_vars=(
-        "alb_deletion_protection=false",
-        "honua_connection_encryption_master_key=null",
-    ),
+    ephemeral_vars=("alb_deletion_protection=false",),
+    ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
 )
 
 
