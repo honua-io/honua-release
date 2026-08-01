@@ -222,6 +222,12 @@ def check_odata_service_document(fetch: Fetcher, base: str) -> CheckResult:
     r = fetch(base.rstrip("/") + "/odata")
     if r.status == 0:
         return CheckResult("odata-service-document", "blocked", "endpoint unreachable")
+    if r.status == 404 and "odata is not enabled for any available service" in r.body.lower():
+        return CheckResult(
+            "odata-service-document",
+            "blocked",
+            "OData endpoint reachable but no service is published on this ephemeral target",
+        )
     if r.status != 200:
         return CheckResult("odata-service-document", "fail", f"-> {r.status} (want 200)")
     try:

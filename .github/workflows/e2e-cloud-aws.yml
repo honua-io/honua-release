@@ -19,7 +19,7 @@
 # SELF-SKIP (task requirement): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and, for the
 # wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` + a clear
 # `::notice::` and exits 0 — so the local tiers of a dry-run cut still run and the train is not failed.
-# It is READY to enforce per-RC: set HONUA_AWS_ROLE_ARN (OIDC role) + HONUA_LAMBDA_IMAGE_URI/HONUA_ECS_IMAGE
+# It is READY to enforce per-RC from manifest-derived server and Lambda images; set HONUA_AWS_ROLE_ARN
 # (+ RELEASE_GH_TOKEN for the wrapper) on the candidate and every layer runs for real. OIDC into AWS — no
 # static creds. The aggregate `cloud-report` job assembles one machine-readable gate-report the train parses.
 
@@ -34,11 +34,34 @@ on:
         description: "Promote BLOCKED/parity-divergence/not-certified scenarios to FAIL (per-RC, with creds wired)"
         type: boolean
         default: false
+      target:
+        description: "AWS runtime target to validate"
+        type: choice
+        options: [all, aws-serverless, aws-ecs, aws-eks]
+        default: all
+      redis_mode:
+        description: "Redis mode(s) to validate"
+        type: choice
+        options: [both, "off", "on"]
+        default: both
+      run_iac_live:
+        description: "Also dispatch the full honua-iac live AWS harness"
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       require_real:
         type: boolean
         default: false
+      target:
+        type: string
+        default: all
+      redis_mode:
+        type: string
+        default: both
+      run_iac_live:
+        type: boolean
+        default: true
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -63,6 +86,10 @@ jobs:
     outputs:
       iac_ref: ${{ steps.pins.outputs.iac_ref }}
       helm_ref: ${{ steps.pins.outputs.helm_ref }}
+      server_ref: ${{ steps.pins.outputs.server_ref }}
+      server_image: ${{ steps.pins.outputs.server_image }}
+      lambda_image: ${{ steps.lambda-ecr.outputs.lambda_image }}
+      lambda_architecture: ${{ steps.pins.outputs.lambda_architecture }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -79,17 +106,99 @@ jobs:
 
           manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
           components = manifest.get("components") or {}
+          server = components.get("honua-server") or {}
           pins = {
               "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
               "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
+              "server_ref": str(server.get("sha", "")),
           }
           for name, value in pins.items():
               if not re.fullmatch(r"[0-9a-f]{40}", value):
                   raise SystemExit(f"{name} is not an exact 40-character commit SHA: {value!r}")
+          image = str(server.get("image", ""))
+          digest = str(server.get("digest", ""))
+          if not image or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+              raise SystemExit("honua-server image and exact sha256 digest are required")
+          pins["server_image"] = f"{image}@{digest}"
+          lambda_image = str(server.get("awsLambdaImage", ""))
+          lambda_digest = str(server.get("awsLambdaDigest", ""))
+          lambda_ecr_digest = str(server.get("awsLambdaEcrDigest", ""))
+          lambda_architecture = str(server.get("awsLambdaArchitecture", ""))
+          if not lambda_image.startswith("ghcr.io/honua-io/honua-server:"):
+              raise SystemExit("honua-server awsLambdaImage must be an exact Honua GHCR tag")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
+              raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
+              raise SystemExit("honua-server awsLambdaEcrDigest must be an exact sha256 digest")
+          if lambda_architecture not in {"arm64", "x86_64"}:
+              raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
+          pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
+          pins["lambda_source_digest"] = lambda_digest
+          pins["lambda_ecr_digest"] = lambda_ecr_digest
+          pins["lambda_architecture"] = lambda_architecture
+          pins["lambda_ecr_tag"] = f"rc-{manifest['platformRelease']}-lambda-aot-{pins['server_ref'][:7]}-{lambda_architecture}"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for name, value in pins.items():
                   output.write(f"{name}={value}\n")
           PY
+
+      - name: Configure AWS credentials for the candidate Lambda mirror
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Mirror the exact Lambda candidate into same-region ECR
+        id: lambda-ecr
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        env:
+          SOURCE_IMAGE: ${{ steps.pins.outputs.lambda_source }}
+          SOURCE_DIGEST: ${{ steps.pins.outputs.lambda_source_digest }}
+          EXPECTED_ECR_DIGEST: ${{ steps.pins.outputs.lambda_ecr_digest }}
+          SOURCE_ARCHITECTURE: ${{ steps.pins.outputs.lambda_architecture }}
+          TARGET_TAG: ${{ steps.pins.outputs.lambda_ecr_tag }}
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          REPOSITORY="honua-server"
+          TARGET="${REGISTRY}/${REPOSITORY}:${TARGET_TAG}"
+
+          SOURCE_MANIFEST="$(docker buildx imagetools inspect --raw "$SOURCE_IMAGE")"
+          SOURCE_CONFIG="$(jq -er '.config.digest' <<<"$SOURCE_MANIFEST")"
+
+          aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
+          EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+            --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $EXPECTED_ECR_DIGEST"
+            exit 1
+          fi
+          if [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
+            PLATFORM_ARCH="${SOURCE_ARCHITECTURE/x86_64/amd64}"
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+            docker pull --platform "linux/${PLATFORM_ARCH}" "$SOURCE_IMAGE"
+            docker tag "$SOURCE_IMAGE" "$TARGET"
+            docker push "$TARGET"
+          fi
+
+          RESOLVED="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+            --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          if [ "$RESOLVED" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST"
+            exit 1
+          fi
+          ECR_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+            --image-ids imageDigest="$RESOLVED" \
+            --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+            --query 'images[0].imageManifest' --output text)"
+          ECR_CONFIG="$(jq -er '.config.digest' <<<"$ECR_MANIFEST")"
+          if [ "$ECR_CONFIG" != "$SOURCE_CONFIG" ]; then
+            echo "::error::ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG"
+            exit 1
+          fi
+          echo "lambda_image=${REGISTRY}/${REPOSITORY}@${RESOLVED}" >> "$GITHUB_OUTPUT"
 
   parity:
     needs: candidate
@@ -99,15 +208,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [aws-serverless, aws-ecs, aws-eks]
-        redis: ["off", "on"]
+        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     runs-on: ubuntu-latest
     env:
       AWS_REGION: "us-east-1"
-      # Set as repo/org variables to enable a real deploy; empty => the cell self-skips honestly.
-      HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}
-      HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}
+      # Both deployable artifacts are resolved from the frozen platform manifest by the candidate job.
+      HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}
+      HONUA_LAMBDA_ARCHITECTURE: ${{ needs.candidate.outputs.lambda_architecture }}
+      HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,6 +261,14 @@ jobs:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
 
+      - name: Resolve ephemeral runner database ingress
+        if: ${{ matrix.target == 'aws-serverless' && vars.HONUA_AWS_ROLE_ARN != '' }}
+        run: |
+          set -euo pipefail
+          export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,os; ipaddress.IPv4Address(os.environ["RUNNER_IP"])'
+          echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
@@ -170,14 +288,10 @@ jobs:
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
         run: |
-          # run_cloud already tears down; belt-and-suspenders so nothing lingers on credits even if the
-          # cell was cancelled mid-apply. Sweep every AWS example root.
+          # run_cloud already tears down; reconstruct this exact matrix cell's variables so the backstop
+          # can safely destroy partial state after cancellation without prompting for required inputs.
           if [ -n "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
-            for ROOT in "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws \
-                        "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws-serverless \
-                        "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws-eks; do
-              [ -d "$ROOT/.terraform" ] && terraform -chdir="$ROOT" destroy -auto-approve -no-color -input=false || true
-            done
+            python e2e/reap_cloud.py --target "${{ matrix.target }}" --redis "${{ matrix.redis }}" || true
           else
             echo "::notice title=cloud-cert self-skipped::no HONUA_AWS_ROLE_ARN — nothing was deployed to reap"
           fi
@@ -194,6 +308,7 @@ jobs:
   iac-live:
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
+    if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
@@ -205,6 +320,8 @@ jobs:
           AWS_ROLE: ${{ vars.HONUA_AWS_ROLE_ARN }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
           IAC_REF: ${{ needs.candidate.outputs.iac_ref }}
+          SERVER_REF: ${{ needs.candidate.outputs.server_ref }}
+          ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
         run: |
           set -uo pipefail
           STATUS=skipped; WHY="cloud-creds-unset"
@@ -214,11 +331,12 @@ jobs:
             REPO=honua-io/honua-iac
             WF=terraform-manual-validation.yml
             REF=trunk
-            echo "dispatching $WF from $REPO/$REF against manifest candidate $IAC_REF with run_live=true cloud=aws"
+            echo "dispatching $WF from $REPO/$REF against IAC $IAC_REF and server $SERVER_REF with run_live=true cloud=aws"
             # Record the dispatch time so we can find the run we just triggered.
             SINCE="$(date -u +%FT%TZ)"
             gh workflow run "$WF" --repo "$REPO" --ref "$REF" \
-              -f candidate_ref="$IAC_REF" -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
+              -f candidate_ref="$IAC_REF" -f honua_server_ref="$SERVER_REF" -f aws_ecs_image="$ECS_IMAGE" \
+              -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
               -f run_k8s=false -f run_aks=false -f run_eks=false -f run_drift=false \
               >/tmp/iac-dispatch.log 2>&1 || { STATUS=fail; WHY="failed to dispatch $WF (token scope? branch $REF?)"; cat /tmp/iac-dispatch.log; }
             if [ "$STATUS" != "fail" ]; then
@@ -257,7 +375,7 @@ jobs:
 
   # ── cloud-report: assemble ONE machine-readable gate-report the train parses (never scrape logs) ─────
   cloud-report:
-    needs: [parity, iac-live]
+    needs: [candidate, parity, iac-live]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -275,12 +393,28 @@ jobs:
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          PARITY_RESULT: ${{ needs.parity.result }}
+          IAC_LIVE_RESULT: ${{ needs.iac-live.result }}
+          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') && inputs.run_iac_live)) && 'true' || 'false' }}
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+          REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
         run: |
           set -euo pipefail
           mkdir -p out
           FILES=$(find reports -name 'gate-report-cloud.json' 2>/dev/null || true)
-          if [ -z "$FILES" ]; then
-            echo '{"gate":"cloud-parity","status":"skipped","why":"no cloud cell reports produced (self-skipped)","cells":[]}' > merged.json
+          if [ "$CANDIDATE_RESULT" != "success" ]; then
+            jq -n --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$PARITY_RESULT" != "success" ]; then
+            jq -n --arg why "parity prerequisite ended $PARITY_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$FULL_SCOPE" = "true" ] && [ "$IAC_LIVE_RESULT" != "success" ]; then
+            jq -n --arg why "iac-live prerequisite ended $IAC_LIVE_RESULT during a full-scope run" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ -z "$FILES" ]; then
+            echo '{"gate":"cloud-parity","status":"fail","why":"no cloud cell reports produced","cells":[]}' > merged.json
           else
             # Each cell/wrapper report contributes a {status,why,...}. Overall verdict:
             #   fail    if any cell failed
@@ -300,9 +434,46 @@ jobs:
                     elif ($s|all(.=="skipped")) then "skipped"
                     else "pass" end ) }' $FILES > merged.json
           fi
-          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" \
-             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601)}' \
+          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" --arg full "$FULL_SCOPE" \
+             --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
+             --arg iac "$REQUESTED_IAC_LIVE" \
+             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
+                    certifying:false,
+                    certifyingScope:($full == "true"),
+                    requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
+              | if .status == "pass" and $full != "true" then
+                  .status = "blocked"
+                  | .why = "focused dispatch is diagnostic only; full AWS target x Redis scope plus iac-live is required for certification"
+                else . end' \
              merged.json > out/gate-report-cloud.json
+
+          # A full certification requires all six target/cache cells plus the IaC live wrapper. A
+          # successful job that failed to upload one of those reports must fail closed.
+          if [ "$FULL_SCOPE" = "true" ] && [ "$(jq -r .status out/gate-report-cloud.json)" != "fail" ]; then
+            EXPECTED='["aws-serverless/redis-off","aws-serverless/redis-on","aws-ecs/redis-off","aws-ecs/redis-on","aws-eks/redis-off","aws-eks/redis-on","cloud-iac-live"]'
+            MISSING="$(jq -c --argjson expected "$EXPECTED" \
+              '$expected - [.cells[].cell]' out/gate-report-cloud.json)"
+            if [ "$MISSING" != "[]" ]; then
+              jq --arg missing "$MISSING" \
+                '.status="fail" | .why=("full-scope cloud reports missing required cells: " + $missing)' \
+                out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+              mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+            elif [ "$(jq -r .status out/gate-report-cloud.json)" = "pass" ]; then
+              NON_PASS="$(jq -c --argjson expected "$EXPECTED" \
+                '[.cells[] | select(.cell as $cell | $expected | index($cell))
+                  | select(.status != "pass") | {cell,status}]' out/gate-report-cloud.json)"
+              if [ "$NON_PASS" != "[]" ]; then
+                jq --arg nonpass "$NON_PASS" \
+                  '.status="fail" | .why=("full-scope cloud reports did not all pass: " + $nonpass)' \
+                  out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+                mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+              fi
+            fi
+          fi
+          jq --arg full "$FULL_SCOPE" --arg enf "$REQUIRE_REAL" \
+            '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' \
+            out/gate-report-cloud.json > out/gate-report-cloud.certification.json
+          mv out/gate-report-cloud.certification.json out/gate-report-cloud.json
           cat out/gate-report-cloud.json
           OVERALL="$(jq -r .status out/gate-report-cloud.json)"
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"

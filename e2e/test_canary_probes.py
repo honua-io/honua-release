@@ -160,6 +160,14 @@ def test_edr_odata_ogc_features():
 
     ok_odata = _fetcher([("/odata", cc.HttpResponse(200, json.dumps({"@odata.context": "x", "value": []})))])
     assert canary.check_odata_service_document(ok_odata, "http://x").status == "pass"
+    empty_odata = _fetcher([("/odata", cc.HttpResponse(
+        404,
+        json.dumps({"error": {"message": "OData is not enabled for any available service."}}),
+    ))])
+    empty_result = canary.check_odata_service_document(empty_odata, "http://x")
+    assert empty_result.status == "blocked" and "no service is published" in empty_result.why
+    unexpected_odata_404 = _fetcher([("/odata", cc.HttpResponse(404, "not found"))])
+    assert canary.check_odata_service_document(unexpected_odata_404, "http://x").status == "fail"
     bad_odata = _fetcher([("/odata", cc.HttpResponse(200, json.dumps({"value": []})))])
     assert canary.check_odata_service_document(bad_odata, "http://x").status == "fail"
 

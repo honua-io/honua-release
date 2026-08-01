@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "gate-artifact-consume.yml"
 CONTRACT_WORKFLOW = ROOT / ".github" / "workflows" / "gate-contract.yml"
+CLOUD_WORKFLOW = ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml"
 
 
 def test_artifact_consume_never_uses_floating_staging_or_source_refs():
@@ -61,3 +62,30 @@ def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():
     assert 'git clone --quiet "https://x-access-token:' not in workflow
     assert 'if OUT="$(python tools/contract_surface.py check' in workflow
     assert "RC=$?" in workflow
+
+
+def test_iac_live_receives_exact_manifest_server_candidate():
+    workflow = CLOUD_WORKFLOW.read_text(encoding="utf-8")
+
+    assert '"server_ref": str(server.get("sha", ""))' in workflow
+    assert 'pins["server_image"] = f"{image}@{digest}"' in workflow
+    assert 'pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"' in workflow
+    assert "ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST" in workflow
+    assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
+    assert "HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}" in workflow
+    assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
+    assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
+    assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in workflow
+    assert "inputs.target == '' || inputs.target == 'all'" in workflow
+    assert "inputs.redis_mode == '' || inputs.redis_mode == 'both'" in workflow
+    assert "github.event_name == 'schedule' || inputs.run_iac_live" in workflow
+    assert "needs: [candidate, parity, iac-live]" in workflow
+    assert "CANDIDATE_RESULT: ${{ needs.candidate.result }}" in workflow
+    assert 'candidate prerequisite ended $CANDIDATE_RESULT' in workflow
+    assert 'certifyingScope:($full == "true")' in workflow
+    assert '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' in workflow
+    assert "focused dispatch is diagnostic only" in workflow
+    assert "full-scope cloud reports missing required cells" in workflow
+    assert "full-scope cloud reports did not all pass" in workflow
+    assert '-f honua_server_ref="$SERVER_REF"' in workflow
+    assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow
