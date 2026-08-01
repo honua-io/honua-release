@@ -375,7 +375,7 @@ jobs:
 
   # ── cloud-report: assemble ONE machine-readable gate-report the train parses (never scrape logs) ─────
   cloud-report:
-    needs: [parity, iac-live]
+    needs: [candidate, parity, iac-live]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -393,12 +393,28 @@ jobs:
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          PARITY_RESULT: ${{ needs.parity.result }}
+          IAC_LIVE_RESULT: ${{ needs.iac-live.result }}
+          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') && inputs.run_iac_live)) && 'true' || 'false' }}
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+          REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
         run: |
           set -euo pipefail
           mkdir -p out
           FILES=$(find reports -name 'gate-report-cloud.json' 2>/dev/null || true)
-          if [ -z "$FILES" ]; then
-            echo '{"gate":"cloud-parity","status":"skipped","why":"no cloud cell reports produced (self-skipped)","cells":[]}' > merged.json
+          if [ "$CANDIDATE_RESULT" != "success" ]; then
+            jq -n --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$PARITY_RESULT" != "success" ]; then
+            jq -n --arg why "parity prerequisite ended $PARITY_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$FULL_SCOPE" = "true" ] && [ "$IAC_LIVE_RESULT" != "success" ]; then
+            jq -n --arg why "iac-live prerequisite ended $IAC_LIVE_RESULT during a full-scope run" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ -z "$FILES" ]; then
+            echo '{"gate":"cloud-parity","status":"fail","why":"no cloud cell reports produced","cells":[]}' > merged.json
           else
             # Each cell/wrapper report contributes a {status,why,...}. Overall verdict:
             #   fail    if any cell failed
@@ -418,9 +434,31 @@ jobs:
                     elif ($s|all(.=="skipped")) then "skipped"
                     else "pass" end ) }' $FILES > merged.json
           fi
-          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" \
-             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601)}' \
+          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" --arg full "$FULL_SCOPE" \
+             --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
+             --arg iac "$REQUESTED_IAC_LIVE" \
+             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
+                    certifying:($full == "true"),
+                    requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
+              | if .status == "pass" and $full != "true" then
+                  .status = "blocked"
+                  | .why = "focused dispatch is diagnostic only; full AWS target x Redis scope plus iac-live is required for certification"
+                else . end' \
              merged.json > out/gate-report-cloud.json
+
+          # A full certification requires all six target/cache cells plus the IaC live wrapper. A
+          # successful job that failed to upload one of those reports must fail closed.
+          if [ "$FULL_SCOPE" = "true" ] && [ "$(jq -r .status out/gate-report-cloud.json)" != "fail" ]; then
+            EXPECTED='["aws-serverless/redis-off","aws-serverless/redis-on","aws-ecs/redis-off","aws-ecs/redis-on","aws-eks/redis-off","aws-eks/redis-on","cloud-iac-live"]'
+            MISSING="$(jq -c --argjson expected "$EXPECTED" \
+              '$expected - [.cells[].cell]' out/gate-report-cloud.json)"
+            if [ "$MISSING" != "[]" ]; then
+              jq --arg missing "$MISSING" \
+                '.status="fail" | .why=("full-scope cloud reports missing required cells: " + $missing)' \
+                out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+              mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+            fi
+          fi
           cat out/gate-report-cloud.json
           OVERALL="$(jq -r .status out/gate-report-cloud.json)"
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"

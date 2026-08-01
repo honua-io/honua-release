@@ -79,5 +79,11 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "inputs.target == '' || inputs.target == 'all'" in workflow
     assert "inputs.redis_mode == '' || inputs.redis_mode == 'both'" in workflow
     assert "github.event_name == 'schedule' || inputs.run_iac_live" in workflow
+    assert "needs: [candidate, parity, iac-live]" in workflow
+    assert "CANDIDATE_RESULT: ${{ needs.candidate.result }}" in workflow
+    assert 'candidate prerequisite ended $CANDIDATE_RESULT' in workflow
+    assert 'certifying:($full == "true")' in workflow
+    assert "focused dispatch is diagnostic only" in workflow
+    assert "full-scope cloud reports missing required cells" in workflow
     assert '-f honua_server_ref="$SERVER_REF"' in workflow
     assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow
