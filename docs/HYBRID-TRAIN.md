@@ -113,6 +113,6 @@ each probe carrying `probeName`, non-empty `capabilityKeys` (the mapping to capa
 lives in `demo_canary.PROBE_CAPABILITY_KEYS` — only mapped, non-blocked results become evidence
 probes; the full check list stays in the gate report), `status` (`green`/`red`), and `lastGreenAt`.
 The envelope also carries `candidateServerSha` as a tolerated extra field so the pinned-candidate
-lineage stays traceable. Delivery of the envelope into honua-evidence (commit/PR automation from the
-canary workflow) is the remaining wiring step — until then the `live-canary` producer correctly
-reports `missing` in the evidence freshness ledger.
+lineage stays traceable. The canary workflow commits each versioned envelope directly into
+honua-evidence's `data/producers/live-canary/` landing zone; the evidence aggregate then records the
+producer as `fresh`, `stale`, or `missing` from those delivered artifacts.

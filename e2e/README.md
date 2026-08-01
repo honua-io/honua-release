@@ -112,7 +112,7 @@ service/tile ids configured) and writes:
 - `gate-report-demo-canary.json` — the human/machine-readable report (workflow step summary + the
   single tracking issue opened/updated on a genuine FAIL).
 - `live-canary-evidence.json` — a versioned `honua-evidence.live-canary-envelope/v1` envelope (honua-evidence#9 producer contract) for
-  honua-io/honua-evidence#8's capability-matrix join (schema proposed here; not yet finalized upstream).
+  honua-io/honua-evidence#8's capability-matrix join. The scheduled workflow commits each envelope into the evidence repo's live-canary landing zone.
 
 ```bash
 python e2e/demo_canary.py --base https://demo.honua.io          # unauthenticated (default)

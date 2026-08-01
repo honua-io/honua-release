@@ -101,6 +101,41 @@ jobs:
           path: e2e/live-canary-evidence.json
           if-no-files-found: warn
 
+      - name: Check out the evidence landing zone
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: honua-io/honua-evidence
+          ref: trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN }}
+          path: evidence-repo
+          fetch-depth: 0
+
+      - name: Publish the versioned envelope to honua-evidence
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          destination="evidence-repo/data/producers/live-canary/demo-${RUN_ID}.json"
+          cp e2e/live-canary-evidence.json "$destination"
+
+          cd evidence-repo
+          git config user.name "honua-io"
+          git config user.email "mike@honua.io"
+          git add "data/producers/live-canary/demo-${RUN_ID}.json"
+          git commit -m "chore: ingest demo canary evidence ${RUN_ID}"
+
+          for attempt in 1 2 3; do
+            if git pull --rebase origin trunk && git push origin HEAD:trunk; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep "$((attempt * 2))"
+          done
+          echo "Failed to publish the live-canary envelope after 3 attempts" >&2
+          exit 1
+
       - name: Open/update issue on a genuine FAIL
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
