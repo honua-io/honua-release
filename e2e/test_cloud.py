@@ -306,6 +306,7 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
 def test_ecs_uses_the_proven_x86_64_aot_manifest(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
 
     values = _tf_vars(ecs(run_id="r1")._vars(False))
 
@@ -320,6 +321,7 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     # it is coerced to the literal string "null".
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     args = ecs(run_id="r1")._vars(False)
     var_files = [Path(a.removeprefix("-var-file=")) for a in args if a.startswith("-var-file=")]
     assert len(var_files) == 1
@@ -341,14 +343,17 @@ def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
     assert any(not c.isalnum() for c in password)
 
 
-def test_serverless_exposes_only_runner_ip_for_postgis_bootstrap(monkeypatch):
+def test_aws_tf_targets_expose_only_runner_ip_for_postgis_bootstrap(monkeypatch):
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
-    values = _tf_vars(serverless(run_id="r1")._vars(False))
-    assert values["db_publicly_accessible"] == "true"
-    assert json.loads(values["db_additional_ingress_cidrs"]) == ["192.0.2.10/32"]
-    assert json.loads(values["lambda_architectures"]) == ["arm64"]
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    for factory in (serverless, ecs):
+        values = _tf_vars(factory(run_id="r1")._vars(False))
+        assert values["db_publicly_accessible"] == "true"
+        assert json.loads(values["db_additional_ingress_cidrs"]) == ["192.0.2.10/32"]
+    assert json.loads(_tf_vars(serverless(run_id="r1")._vars(False))["lambda_architectures"]) == ["arm64"]
 
 
 def test_serverless_rejects_broad_db_ingress(monkeypatch):

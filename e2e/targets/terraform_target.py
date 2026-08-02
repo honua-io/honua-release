@@ -210,6 +210,7 @@ ECS_SPEC = TfTargetSpec(
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
+    needs_runner_db_access=True,
     architecture_env="HONUA_ECS_ARCHITECTURE",
     architecture_var="task_cpu_architecture",
 )

@@ -268,7 +268,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Resolve ephemeral runner database ingress
-        if: ${{ matrix.target == 'aws-serverless' && vars.HONUA_AWS_ROLE_ARN != '' }}
+        if: ${{ (matrix.target == 'aws-serverless' || matrix.target == 'aws-ecs') && vars.HONUA_AWS_ROLE_ARN != '' }}
         run: |
           set -euo pipefail
           export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
