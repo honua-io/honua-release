@@ -83,6 +83,14 @@ def test_structure_rejects_component_with_no_valid_pin():
     assert not f.ok and any("neither a valid semver" in e for e in f.errors)
 
 
+def test_structure_requires_explicit_aws_runtime_architectures():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    del manifest["components"]["honua-server"]["awsEcsArchitecture"]
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
+
+
 # ---- coherence rules can fail ---------------------------------------------------------------------
 def test_coherence_pin_out_of_range_fails():
     manifest, matrix = _real_files()

@@ -24,7 +24,7 @@ from targets.terraform_target import ecs, serverless  # noqa: E402
 
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
             "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
-            "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE")
+            "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE")
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -270,6 +270,7 @@ def test_prefix_distinct_per_redis_mode_no_collision(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     for factory in (serverless, ecs):
         t = factory(run_id="run1234567890")
         on = _tf_vars(t._vars(True))
@@ -297,12 +298,14 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     assert _tf_vars(ecs(run_id="r1")._vars(False)).get("alb_deletion_protection") == "false"
     assert "alb_deletion_protection" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
 
 def test_ecs_uses_the_proven_x86_64_aot_manifest(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
 
     values = _tf_vars(ecs(run_id="r1")._vars(False))
 
@@ -316,6 +319,7 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     # `-var=name=null` is insufficient for a string-constrained Terraform input:
     # it is coerced to the literal string "null".
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     args = ecs(run_id="r1")._vars(False)
     var_files = [Path(a.removeprefix("-var-file=")) for a in args if a.startswith("-var-file=")]
     assert len(var_files) == 1

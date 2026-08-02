@@ -40,6 +40,8 @@ class TfTargetSpec:
     ephemeral_var_files: tuple[str, ...] = ()
     needs_runner_db_access: bool = False
     architecture_env: str = ""
+    architecture_var: str = ""
+    architecture_is_list: bool = False
 
 
 class TerraformTarget(DeployTarget):
@@ -138,7 +140,14 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(
                     f"{self.name}: {self.spec.architecture_env} must be arm64 or x86_64, got {architecture!r}"
                 )
-            values.append(f'-var=lambda_architectures=["{architecture}"]')
+            if not self.spec.architecture_var:
+                raise ProvisionError(f"{self.name}: architecture_env requires architecture_var")
+            architecture_value = (
+                json.dumps([architecture], separators=(",", ":"))
+                if self.spec.architecture_is_list
+                else architecture.upper()
+            )
+            values.append(f"-var={self.spec.architecture_var}={architecture_value}")
         return values
 
     @staticmethod
@@ -186,6 +195,8 @@ SERVERLESS_SPEC = TfTargetSpec(
     image_hint="ECR Lambda-AOT image (*-lambda-aot)",
     needs_runner_db_access=True,
     architecture_env="HONUA_LAMBDA_ARCHITECTURE",
+    architecture_var="lambda_architectures",
+    architecture_is_list=True,
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -196,11 +207,11 @@ ECS_SPEC = TfTargetSpec(
     # This is always a brand-new ephemeral deployment, so explicitly select the
     # IAC root's null/new-key path. Existing deployments must supply their current
     # key instead, but the release harness never adopts an existing ECS database.
-    # The manifest-pinned ARM64 AOT image exits 139 before readiness on native Fargate,
-    # while the exact AMD64 manifest passes the same PostGIS topology. Keep the release
-    # certification path on the proven architecture until ARM64 has its own image smoke.
-    ephemeral_vars=("alb_deletion_protection=false", "task_cpu_architecture=X86_64"),
+    # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
+    ephemeral_vars=("alb_deletion_protection=false",),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
+    architecture_env="HONUA_ECS_ARCHITECTURE",
+    architecture_var="task_cpu_architecture",
 )
 
 

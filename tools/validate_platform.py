@@ -125,6 +125,15 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
         if kind == "sha" and not comp.get("sha"):
             f.error(f"manifest: component {name!r} is {PRERELEASE_SENTINEL} but has no sha")
 
+    server = components.get("honua-server") or {}
+    for field_name in ("awsEcsArchitecture", "awsLambdaArchitecture"):
+        architecture = str(server.get(field_name, "")).strip()
+        if architecture not in {"arm64", "x86_64"}:
+            f.error(
+                f"manifest: honua-server.{field_name} must explicitly select arm64 or x86_64, "
+                f"got {architecture!r}"
+            )
+
     # Matrix ranges must parse, and every named client/component must exist in the manifest.
     for contract, body in (matrix.get("contracts") or {}).items():
         for client, spec in (body.get("clients") or {}).items():

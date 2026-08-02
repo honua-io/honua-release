@@ -74,6 +74,8 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}" in workflow
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
+    assert 'ecs_architecture = str(server.get("awsEcsArchitecture", ""))' in workflow
+    assert "HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
     assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in workflow
     assert "inputs.target == '' || inputs.target == 'all'" in workflow
