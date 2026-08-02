@@ -301,6 +301,14 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
     assert "alb_deletion_protection" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
 
+def test_ecs_uses_the_proven_x86_64_aot_manifest(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+
+    values = _tf_vars(ecs(run_id="r1")._vars(False))
+
+    assert values["task_cpu_architecture"] == "X86_64"
+
+
 def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     # The IAC ECS root is fail-closed: callers must choose between adopting the
     # current key and generating one for a new deployment. This harness always

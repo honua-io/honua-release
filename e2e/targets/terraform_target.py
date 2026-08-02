@@ -196,7 +196,10 @@ ECS_SPEC = TfTargetSpec(
     # This is always a brand-new ephemeral deployment, so explicitly select the
     # IAC root's null/new-key path. Existing deployments must supply their current
     # key instead, but the release harness never adopts an existing ECS database.
-    ephemeral_vars=("alb_deletion_protection=false",),
+    # The manifest-pinned ARM64 AOT image exits 139 before readiness on native Fargate,
+    # while the exact AMD64 manifest passes the same PostGIS topology. Keep the release
+    # certification path on the proven architecture until ARM64 has its own image smoke.
+    ephemeral_vars=("alb_deletion_protection=false", "task_cpu_architecture=X86_64"),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
 )
 
