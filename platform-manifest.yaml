@@ -80,7 +80,7 @@ components:
   honua-sdk-js:
     version: "0.1.2-beta.0"            # release tag js-sdk-v0.1.2-beta.0 (reachable on trunk)
     sha: "416d83e4c45a686a5bc3a186cf7ac4a69599b1eb"   # branch: trunk; 13 bundles verified
-    artifact: "npm:@honua-io/sdk-js"
+    artifact: "npm:@honua/sdk-js"
     # companion package @honua-io/mcp-server is also tagged mcp-server-v0.1.2-beta.0.
 
   honua-sdk-python:

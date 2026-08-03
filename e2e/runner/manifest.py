@@ -45,11 +45,11 @@ class ServerPin:
 class SdkPin:
     name: str
     version: str
-    artifact: str  # e.g. "npm:@honua-io/sdk-js"
+    artifact: str  # e.g. "npm:@honua/sdk-js"
 
     @property
     def coord(self) -> str:
-        """Package coordinate without the registry-kind prefix (e.g. '@honua-io/sdk-js')."""
+        """Package coordinate without the registry-kind prefix (e.g. '@honua/sdk-js')."""
         return self.artifact.split(":", 1)[1] if ":" in self.artifact else self.artifact
 
     @property
