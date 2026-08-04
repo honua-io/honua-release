@@ -1,8 +1,17 @@
-# Non-build governance/attestation check-runs excluded from release gate "build-test".
+# Non-build governance / attestation / scheduled-drift check-runs excluded from release gate
+# "build-test".
 #
-# Every entry here must run NO restore, compile, unit, integration, or artifact production. These
-# checks remain auditable in the gate explanation, but their policy verdict is not misreported as a
-# component build failure. If excluding an entry leaves no core CI lane, the component is BLOCKED.
+# Two kinds of entry are permitted, and BOTH must leave the component's real per-commit build/test
+# signal decisive (if excluding an entry leaves no core CI lane, the component is BLOCKED):
+#
+#   1. Pure governance/attestation checks that run NO restore, compile, unit, integration, or
+#      artifact production (e.g. a review-gate attestation).
+#   2. SCHEDULED drift/canary checks (schedule-triggered nightly/weekly lanes) whose check-run
+#      lands on the pinned SHA only by timing coincidence, AND whose DETERMINISTIC per-commit
+#      counterpart is a separate check that stays in the verdict and is green. These forward-looking
+#      drift alarms (they file/track drift issues; pins are never auto-promoted) are not a per-commit
+#      build/test verdict — the per-commit lane is. Excluding one can never mask a real per-commit red
+#      because that red still surfaces on the deterministic lane, which is NOT excluded.
 
 honua-server:
   - name: "Publish SHA-bound Codex review attestation"
@@ -11,3 +20,23 @@ honua-server:
       exact-head review evidence, then publishes a status. It performs no server restore, build, or
       test. On the immutable nightly source commit it is a workflow_run policy signal about the
       originating PR, while the 56 server leaf build/test lanes remain decisive here.
+  - name: "Client Compatibility Smoke"
+    why: >-
+      Schedule-triggered nightly lane (workflow "Windows Client Compatibility Certification",
+      .github/workflows/windows-client-compat-nightly.yml) that runs the in-repo arcgis-stub cert.
+      It lands on the pinned SHA only when a nightly fires while trunk == the pin; it is a
+      forward-looking client-compat drift alarm, not a per-commit gate. The behaviour it grades
+      (CERT-ERRH-01/02 error envelopes) is covered deterministically by the per-commit unit lane
+      Honua.Server.Tests ClientCompatErrorHandlingTests (proven green), which stays decisive here.
+
+honua-sdk-dotnet:
+  - name: "Contract Conformance (moving canary)"
+    why: >-
+      The schedule-triggered variant of conformance.yml (job name is "moving canary" on schedule,
+      "pinned" on push/PR). It ignores the committed pins and tests the SDK's alpha.1-generated
+      gRPC types against the newest PUBLISHED geospatial-grpc fixtures (currently alpha.3, which
+      added int64 pagination fields), so it is red by design as an upstream-drift alarm (auto-files
+      tracking issue #272; PINS.md: pins are never auto-promoted). It is currently un-greenable in
+      this repo because the matching Geospatial.Grpc alpha.3 NuGet package is not yet published. The
+      DETERMINISTIC release-gating check "Contract Conformance (pinned)" is green on the pinned SHA
+      and stays decisive here, so excluding the canary cannot mask a real conformance red.

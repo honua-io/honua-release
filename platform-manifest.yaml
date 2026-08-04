@@ -82,7 +82,7 @@ components:
 
   honua-sdk-python:
     version: "0.1.9"                   # release tag python-sdk-v0.1.9 (reachable on trunk)
-    sha: "af82420932564eb14cb26d5de856b0571b97ce01"   # branch: trunk
+    sha: "65a565822286b6c37597c15c8aa6e4ff47be7de9"   # branch: trunk; #189 fixed the publish-smoke test path (green)
     artifact: "pypi:honua-sdk"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
