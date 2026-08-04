@@ -34,9 +34,9 @@ components:
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-4a7903c-arm64"
     awsLambdaDigest: "sha256:dc8fdef698c0e60d9ea6ffdf39dcfbfddd056e25fa4f0f7778afb0926412cf7f"
     # Same-region ECR digest of the schema-2 re-mirror the cloud gate performs (gate_cloud_parity
-    # mirrors this source manifest into the release account); provisional (= GHCR digest) until the
-    # gate's verification reports the schema-2 digest on the next dry run.
-    awsLambdaEcrDigest: "sha256:dc8fdef698c0e60d9ea6ffdf39dcfbfddd056e25fa4f0f7778afb0926412cf7f"
+    # docker-pushes the source Lambda image into the release ECR, which rewrites OCI -> Docker
+    # schema-2); resolved from the gate's own verification output (run 30949166608) on 2026-08-04.
+    awsLambdaEcrDigest: "sha256:6750774e036e53577aa4ce81396514bf4caf4396aebf789da4f5b2d63ac95cc7"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
