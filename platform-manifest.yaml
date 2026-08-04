@@ -25,17 +25,18 @@ snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by
 components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
-    sha: "6ad71ac701ca709ec671afd09257217e8d17a149"   # published nightly AOT source commit
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-6ad71ac"
-    # Digest of the immutable nightly-aot-6ad71ac multi-arch index resolved from GHCR on 2026-08-04.
-    digest: "sha256:524302a6ee9c361127e4a2cf25efb67ffa0ea3d34ec066b38f240af83f1495ac"
+    sha: "07d75cdfa4129b9f3067d644128678e69d5cb79d"   # published nightly AOT source commit (green CI)
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-07d75cd"
+    # Digest of the immutable nightly-aot-07d75cd multi-arch index resolved from GHCR on 2026-08-04.
+    digest: "sha256:112e220373dd47a330d3015a82f72ae275a7549a50378a3e25356a03191abe57"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-6ad71ac-arm64"
-    awsLambdaDigest: "sha256:e4844922ee698dd8898beff6bdfd5479e95f75be660a5e89607822fbec64d532"
-    # ECR preserved the OCI manifest byte-for-byte for this image (no Docker schema-2 rewrite), so the
-    # ECR digest equals the source manifest digest — verified live against ECR honua-server on 2026-08-04.
-    awsLambdaEcrDigest: "sha256:e4844922ee698dd8898beff6bdfd5479e95f75be660a5e89607822fbec64d532"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-07d75cd-arm64"
+    awsLambdaDigest: "sha256:45b6ef1834f49ef58c1fc5848c5e6b3ea875c66ea5477483314eb8ec2654630d"
+    # Same-region ECR digest of the schema-2 re-mirror the cloud gate performs (gate_cloud_parity
+    # mirrors this exact source manifest into the release account); resolved from the gate's own
+    # verification output on 2026-08-04.
+    awsLambdaEcrDigest: "sha256:45b6ef1834f49ef58c1fc5848c5e6b3ea875c66ea5477483314eb8ec2654630d"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
