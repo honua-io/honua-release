@@ -25,16 +25,17 @@ snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by
 components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
-    sha: "5cad0744f49b06716d4df174f50bf237016e133c"   # published nightly AOT source commit
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-5cad074"
-    # Digest of the immutable nightly-aot-5cad074 multi-arch index resolved from GHCR on 2026-07-31.
-    digest: "sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd"
+    sha: "6ad71ac701ca709ec671afd09257217e8d17a149"   # published nightly AOT source commit
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-6ad71ac"
+    # Digest of the immutable nightly-aot-6ad71ac multi-arch index resolved from GHCR on 2026-08-04.
+    digest: "sha256:524302a6ee9c361127e4a2cf25efb67ffa0ea3d34ec066b38f240af83f1495ac"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-5cad074-arm64"
-    awsLambdaDigest: "sha256:7182e8b74e399aeb5abc6c0ce5d074f8b8ad42a58a94c181cdfbd2b57977f43d"
-    # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs.
-    awsLambdaEcrDigest: "sha256:f1970f2a87563373446312d53d8db223e61cbbe252b2009326bbfe3ec1a746fb"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-6ad71ac-arm64"
+    awsLambdaDigest: "sha256:e4844922ee698dd8898beff6bdfd5479e95f75be660a5e89607822fbec64d532"
+    # ECR preserved the OCI manifest byte-for-byte for this image (no Docker schema-2 rewrite), so the
+    # ECR digest equals the source manifest digest — verified live against ECR honua-server on 2026-08-04.
+    awsLambdaEcrDigest: "sha256:e4844922ee698dd8898beff6bdfd5479e95f75be660a5e89607822fbec64d532"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
