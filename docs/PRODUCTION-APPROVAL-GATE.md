@@ -170,6 +170,8 @@ unapplied state can never let a release through. Once `applied` is true, any dri
 
 ```bash
 python3 -m pytest tools/test_check_production_approval.py -q
+# --mode defaults to the enforcing `promote`; the read-only monitor's reduced check set must be
+# asked for explicitly with --mode drift.
 python3 tools/check_production_approval.py --policy certification/production-approval.yaml \
-  --unreadable-reason "environment not configured"   # expect REFUSED, exit 1
+  --mode drift --unreadable-reason "environment not configured"   # expect REFUSED, exit 1
 ```

@@ -44,7 +44,12 @@ MAX_ATTESTATION_AGE_DAYS = 365
 # Modes: `promote` is the enforcing path and requires the promotion identity to be supplied, so those
 # checks cannot be skipped by simply not passing the arguments. `drift` is the read-only monitor,
 # where no promotion is in flight and those two checks legitimately do not apply.
+#
+# `promote` is the DEFAULT so that an omitted --mode fails closed: a caller who forgets the flag gets
+# the full check set and a refusal, rather than silently running the reduced one. The reduced set must
+# be asked for explicitly.
 MODES = ("promote", "drift")
+DEFAULT_MODE = "promote"
 
 
 class ApprovalPolicyError(ValueError):
@@ -198,7 +203,7 @@ def evaluate(
     promotion_ref: str | None = None,
     promotion_actor: str | None = None,
     promotion_actor_id: int | None = None,
-    mode: str = "drift",
+    mode: str = DEFAULT_MODE,
     now: datetime | None = None,
 ) -> dict:
     """Return the approval-gate verdict as a machine-readable evidence record.
@@ -434,8 +439,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mode",
         choices=MODES,
-        default="drift",
-        help="promote = enforcing path, requires the promotion identity; drift = read-only monitor",
+        default=DEFAULT_MODE,
+        help=(
+            "promote (default, fail-closed) = enforcing path, requires the promotion identity; "
+            "drift = read-only monitor, which omits the promotion checks and must be asked for"
+        ),
     )
     parser.add_argument("--evidence-out", type=Path, default=None)
     args = parser.parse_args(argv)
