@@ -19,7 +19,11 @@ Emits:
      same way once honua-evidence ingests it.
 
 Honesty (AGENTS.md): `geocoding-latency` is REPORT-ONLY (never fails — honua-server#2948, geocoding is
-known-broken pending VPC egress). Every other check/probe can genuinely fail. `--admin-api-key`
+known-broken pending VPC egress). Every other check/probe can genuinely fail — and a failure that is
+KNOWN and OWNED is quarantined, never deleted: `e2e/canary-quarantine.yaml` maps a probe to an owning
+issue, `e2e/quarantine.py` downgrades that probe's FAIL to `quarantined` (green run, issue linked in the
+step summary) until its `reviewBy` expires, and the live-canary envelope published to honua-evidence
+still reports it `red`. Quarantine moves a CI verdict, never an evidence verdict. `--admin-api-key`
 (or HONUA_DEMO_API_KEY) is optional; key-gated probes report BLOCKED — not FAIL — without it, mirroring
 the original demo-b-probes.sh's "skipped — no API key" behaviour.
 
@@ -46,6 +50,7 @@ sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
 from canonical_checks import CheckResult, make_fetch, run_canonical  # noqa: E402
+from quarantine import QUARANTINED, apply_quarantine, load_quarantine  # noqa: E402
 
 REPORT_PATH = E2E_DIR / "gate-report-demo-canary.json"
 ENVELOPE_PATH = E2E_DIR / "live-canary-evidence.json"
@@ -100,9 +105,18 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
                                       geocode_budget_ms=geocode_budget_ms)
     all_results = canonical + canary
 
+    # Issue-linked quarantine (honua-release#84, e2e/canary-quarantine.yaml): a KNOWN, OWNED failure is
+    # downgraded to `quarantined` so it neither reddens the run nor sits red and unowned — but the probe
+    # keeps running and keeps telling the truth. Expired entries fail the run again by design.
+    quarantine_entries = load_quarantine()
+    all_results, quarantine_audit = apply_quarantine(all_results, quarantine_entries)
+    n_canonical = len(canonical)
+    canonical, canary = all_results[:n_canonical], all_results[n_canonical:]
+
     failed = [r.name for r in all_results if r.status == "fail"]
+    quarantined = [r.name for r in all_results if r.status == QUARANTINED]
     blocked = [r.name for r in all_results if r.status == "blocked"]
-    overall = "fail" if failed else ("blocked" if blocked else "pass")
+    overall = "fail" if failed else ("blocked" if (blocked or quarantined) else "pass")
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     run_url = os.environ.get("HONUA_RUN_URL", "")
@@ -115,10 +129,12 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
         "evidence_url": run_url,
         "checks": _check_dicts(canonical),
         "canaryProbes": _check_dicts(canary),
+        "quarantine": quarantine_audit,
         "status": overall,
         "why": (f"FAILED checks: {failed}" if failed else
-                (f"blocked (no admin key configured / no seeded data for): {blocked}" if blocked else
-                 "all canonical + canary checks passed")),
+                ((f"quarantined (known, issue-owned): {quarantined}; " if quarantined else "") +
+                 (f"blocked (no admin key configured / no seeded data for): {blocked}" if blocked else
+                  ("no unowned failures" if quarantined else "all canonical + canary checks passed")))),
     }
 
     # honua-evidence#8 landed its producer contract (honua-io/honua-evidence#9,
@@ -128,7 +144,11 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
     # Probes without capabilityKeys are skipped by the ingester, so only capability-mapped
     # results are emitted here; the FULL check list (including unmapped operational checks
     # like security-headers/deploy-preflight) lives in the gate report above.
-    status_map = {"pass": "green", "fail": "red"}
+    # Quarantine is a CI-verdict concession, NOT an evidence concession: a quarantined probe is still a
+    # genuinely failing capability, so honua-evidence must see it as `red`. Downgrading it here would
+    # let a known gap render green on the public evidence site — the exact dishonesty quarantine exists
+    # to avoid. The owning issue travels with it in `detail`.
+    status_map = {"pass": "green", "fail": "red", QUARANTINED: "red"}
     probes = []
     for r in all_results:
         keys = PROBE_CAPABILITY_KEYS.get(r.name)
@@ -148,7 +168,8 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
         "targetEnvironment": "demo.honua.io" if "demo.honua.io" in base else base,
         "targetUrl": base,
         "runAt": generated_at,
-        "overallStatus": {"pass": "green", "fail": "red"}.get(overall, "partial"),
+        "overallStatus": ("partial" if quarantined else
+                          {"pass": "green", "fail": "red"}.get(overall, "partial")),
         "sourceRepo": "honua-io/honua-release",
         "sourceRef": os.environ.get("GITHUB_SHA", ""),
         "sourceRunUrl": run_url,
@@ -185,9 +206,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"   {report['why']}")
     print(f"   admin key configured: {report['adminKeyConfigured']}")
     for c in report["checks"]:
-        print(f"   [{c['status'].upper():7}] {c['name']}: {c['why']}")
+        print(f"   [{c['status'].upper():11}] {c['name']}: {c['why']}")
     for c in report["canaryProbes"]:
-        print(f"   canary [{c['status'].upper():7}] {c['name']}: {c['why']}")
+        print(f"   canary [{c['status'].upper():11}] {c['name']}: {c['why']}")
+    audit = report["quarantine"]
+    for e in audit["applied"]:
+        print(f"   quarantine: {e['probe']} is a known failure owned by {e['issue']} "
+              f"(since {e['since']}, review by {e['reviewBy']})")
+    for e in audit["expired"]:
+        print(f"   quarantine EXPIRED: {e['probe']} passed its reviewBy {e['reviewBy']} — "
+              f"failing the run again; fix or re-justify {e['issue']}")
+    for e in audit["stale"]:
+        print(f"   quarantine STALE: {e['probe']} is now {e['observedStatus']} — delete its entry from "
+              f"e2e/canary-quarantine.yaml so the next real regression is not hidden ({e['issue']})")
+    for e in audit["unknown"]:
+        print(f"   quarantine UNKNOWN: {e['probe']} is not a probe this canary emits (renamed?) "
+              f"— {e['issue']}")
     print(f"   (report written to {REPORT_PATH})")
     print(f"   (evidence envelope written to {ENVELOPE_PATH})")
 
