@@ -1,0 +1,100 @@
+# Repo-wide contract breaking-change SUPPRESSION register (honua-release#71).
+#
+# WHY THIS FILE EXISTS
+# honua-io/honua-server carries a repository variable, OPENAPI_ALLOW_BREAKING_CHANGES, that switches
+# off breaking-change enforcement in its OpenAPI Contract Governance workflow for EVERY pull request,
+# not just the one that needed it. Pre-publication that is harmless — the control-plane API has no
+# external consumers a break can harm. At publication it silently becomes a hole: a genuinely breaking
+# change to a consumed contract would merge with no signal anywhere in CI. The failure mode is
+# SILENCE, not a red check, so nothing would remind anyone at release time.
+#
+# This file is the release-engineering register of that suppression, and tools/check_contract_
+# suppression.py is the gate that reads it. The gate runs inside gate-contract (release gate `b`), so
+# the verdict lands in the certified candidate's gate-report.json — i.e. the check is recorded in
+# release evidence instead of being done ad hoc at cut time.
+#
+# GATE SEMANTICS (tools/check_contract_suppression.py)
+#   suppression OFF (variable absent or false) + register healthy  -> pass
+#   suppression ON                                                 -> blocked
+#   variable unreadable, or an unparseable value                   -> blocked (fail-closed)
+#   steady-state mechanism not declared landed                     -> blocked
+#   window audit missing / adverse / stale while the window is open-> blocked
+# gate-contract maps `blocked` to blocked under `bootstrap` (dry runs, nightly: loud but not red) and
+# to FAIL under `strict` (a real cut). That is the gate: suppression cannot survive into a published
+# release, and it can never be silent in the meantime.
+#
+# NON-GOAL (honua-release#71): this gate does NOT reset the variable, and nothing here should. While
+# the control-plane API is unpublished the current setting is correct — flipping it early just
+# re-blocks honest dead-path cleanup. The reset is the release lead's action immediately before the
+# first published control-plane API release; this gate is what makes forgetting it impossible.
+
+schemaVersion: 1
+
+suppression:
+  repository: honua-io/honua-server
+  variable: OPENAPI_ALLOW_BREAKING_CHANGES
+  # The workflow whose enforcement the variable suppresses.
+  enforced_by: .github/workflows/openapi-contract-governance.yml
+  # UTC instant the repo-wide suppression window opened (the variable's created_at).
+  window_opened_at: "2026-07-29T16:53:29Z"
+  tracking_issue: honua-io/honua-server#3065
+  release_gate_issue: honua-io/honua-release#71
+  why: >-
+    Set while the control-plane API is unpublished, after honua-io/honua-server#3064 (removal of six
+    dead admin paths from the #1035 cutover) and honua-io/honua-server#2822 tripped the checker on
+    routes that provably do not exist at runtime.
+
+# AC: "the steady-state mechanism is decided and documented". The gate refuses to pass unless a
+# landed, evidenced replacement exists — so the decision cannot stay a backlog note.
+steady_state_mechanism:
+  status: landed
+  mechanism: per-PR acknowledgement marker + required migration/deprecation documentation
+  summary: >-
+    honua-io/honua-server#3065 landed scripts/ci/openapi-breaking-change-policy.py: once the repo-wide
+    variable is false, an intentional break must be acknowledged on the PR that introduces it by
+    checking the exact `OPENAPI_BREAKING_CHANGE_APPROVED` task in the PR template AND updating one of
+    the breaking-change documents (control-plane migration guide, versioning-and-support, release
+    checklist). Acknowledgement is scoped to that one PR instead of globally pre-authorised.
+  evidence:
+    - honua-io/honua-server: scripts/ci/openapi-breaking-change-policy.py
+    - honua-io/honua-server: tests/python/unit/test_openapi_breaking_change_policy.py
+    - honua-io/honua-server: .github/workflows/openapi-contract-governance.yml
+  # The third option in honua-release#71 ("make suppression loud rather than silent") also landed and
+  # applies to BOTH acknowledgement sources, so a suppressed finding is never invisible.
+  suppression_is_loud: true
+  loud_evidence: >-
+    scripts/ci/validate-openapi-contracts.sh emits an Actions ::warning and a job-summary section
+    listing every suppressed finding, its acknowledgement source, and this release gate.
+
+# AC: "Confirm no breaking contract change merged WHILE THE FLAG WAS ON that should have been caught."
+# Re-run tools/check_contract_suppression.py's documented audit command (see
+# docs/CONTRACT-BREAKING-CHANGE-SUPPRESSION.md) to reproduce this record.
+window_audit:
+  verdict: no-genuine-break
+  completed_at: "2026-08-16T00:00:00Z"
+  covers_through: "2026-08-16T00:00:00Z"
+  # The gate refuses once the audit is older than this while the window is still open, so an
+  # ever-growing unaudited tail cannot accumulate behind a stale "audited once" claim.
+  max_audit_age_days: 30
+  method: >-
+    Replayed honua-io/honua-server's own scripts/ci/validate-openapi-contracts.sh with
+    OPENAPI_ALLOW_BREAKING_CHANGES=false for every trunk commit since window_opened_at that touched
+    docs/developer/api-specs/ (13 commits), each against its first parent. This reproduces exactly the
+    findings the checker would have reported had the variable been false.
+  findings:
+    - commit: 7c54ebef36b3fe3c52dd8810e298909a307d725a
+      pull_request: honua-io/honua-server#3077
+      detected: >-
+        Admin API paths '/connections/tables' and '/connections/{path}' removed from
+        docs/developer/api-specs/admin-api.json.
+      assessment: >-
+        Not a genuine break. Both are error-only guard routes with no success path — the first always
+        answers 400 ("Connection ID is required"), the second is the catch-all fallback that answers
+        400/404. The runtime routes were not removed; #3077 moved their documentation into the
+        declared-exclusion list while burning the undocumented-route backlog to zero. No consumable
+        response was ever advertised, so no consumer contract changed.
+  unflagged_commits: 12
+  scope_note: >-
+    The checker only diffs the curated api-specs documents, so this audit covers exactly what it would
+    have caught. Changes that alter runtime behaviour without touching those documents are the admin
+    OpenAPI drift gate's concern (honua-io/honua-server#3051 / #3063), not this suppression window.
