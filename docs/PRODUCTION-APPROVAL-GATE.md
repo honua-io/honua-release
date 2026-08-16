@@ -106,9 +106,14 @@ not be the one who dispatches `promote`**. In steady state the release automatio
 dispatches and the reviewer approves — "AI proposes, the pipeline disposes".
 
 A single-seat owner therefore cannot both dispatch and approve. That is the intended property, not a
-defect. If a human needs to dispatch promote personally, add a **second** human reviewer to the
-environment and to `approval.required_reviewer` first (see rotation), rather than disabling
-`prevent_self_review`.
+defect.
+
+**The gate requires exactly ONE reviewer.** `certification/production-approval.yaml` declares a single
+`required_reviewer`, and the checker refuses when the environment names any other set — more than one
+reviewer, a different login, a Team, or an app. A second concurrent reviewer is therefore **not**
+supported today; if a human needs to dispatch promote personally, **rotate** the required reviewer to
+another human (below) rather than adding one alongside, and never disable `prevent_self_review`.
+Supporting a declared multi-reviewer roster for continuity is tracked in honua-release#93.
 
 ## Reviewer rotation
 
@@ -129,11 +134,19 @@ which leaves durable evidence:
 
 1. File an incident issue in `honua-io/honua-release` **before** changing anything, recording who, why,
    and the intended window.
-2. Have an admin make the minimum change (typically adding a second reviewer so an available human can
-   approve). Do **not** delete the environment, disable `prevent_self_review`, or weaken the branch
-   policy — those are the properties the gate exists to protect, and the preflight will refuse anyway.
-3. Promote as normal. The approval, the deployment record, and
-   `production-approval-evidence.json` are the audit trail.
+2. **Rotate the required reviewer to an available human** — the only change the gate accepts. Because
+   the checker requires exactly the attested reviewer, this is *two* coordinated changes and both are
+   mandatory:
+   - an admin replaces the reviewer on the environment (`gh api -X PUT ... reviewers[][id]=<new id>`);
+   - a pull request updates `approval.required_reviewer.{id,login}` and `attestation.attested_at`,
+     linking the incident issue.
+
+   Do **not** add a second reviewer (the gate refuses more than one — see *Two-actor operation*),
+   delete the environment, disable `prevent_self_review`, or weaken the branch policy. Those are the
+   properties the gate exists to protect, and the preflight refuses them anyway; a mid-incident
+   attempt would simply produce a hard refusal.
+3. Promote as normal, with the new reviewer approving and someone else dispatching. The approval, the
+   deployment record, and `production-approval-evidence.json` are the audit trail.
 4. **Re-lock immediately after:** restore the environment to the declared settings, run the read-back
    in step 2 of the runbook, refresh `attestation.attested_at` in a pull request that links the
    incident issue, and confirm `repo-control-drift` is green. The gate is not re-locked until that

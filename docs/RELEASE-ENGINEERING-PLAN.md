@@ -182,8 +182,10 @@ trust model:
   if it were re-privatised. Do not weaken the preflight to work around a plan limitation.
 - `prevent_self_review` plus the preflight's independent-actor check means the required reviewer must
   not be the actor that dispatches `promote`: automation (or a second human) dispatches, the reviewer
-  approves. A single-seat owner who needs to dispatch personally must add a second human reviewer
-  rather than disable self-review protection.
+  approves. The gate requires exactly one declared reviewer, so a single-seat owner who needs to
+  dispatch personally must **rotate** the required reviewer to another human — never disable
+  self-review protection, and never add a second reviewer alongside (the checker refuses more than
+  one; multi-reviewer continuity is tracked in honua-release#93).
 - Full rationale, admin runbook, reviewer rotation, break-glass, and re-lock procedure:
   `docs/PRODUCTION-APPROVAL-GATE.md` (honua-release#44).
 

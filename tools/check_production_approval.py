@@ -33,6 +33,19 @@ from candidate_binding import validate_environment_metadata  # noqa: E402
 PASS = "pass"
 FAIL = "fail"
 
+# Protection-rule types that cannot approve a deployment by themselves. A custom
+# `deployment_protection_rule` (a GitHub App gate) CAN auto-approve, so the policy is not allowed to
+# allow-list one: it would turn the approval boundary into an automated one.
+KNOWN_SAFE_PROTECTION_RULE_TYPES = frozenset({"required_reviewers", "branch_policy", "wait_timer"})
+
+# An "attestation" that never expires is not an attestation.
+MAX_ATTESTATION_AGE_DAYS = 365
+
+# Modes: `promote` is the enforcing path and requires the promotion identity to be supplied, so those
+# checks cannot be skipped by simply not passing the arguments. `drift` is the read-only monitor,
+# where no promotion is in flight and those two checks legitimately do not apply.
+MODES = ("promote", "drift")
+
 
 class ApprovalPolicyError(ValueError):
     """Raised when the approval policy itself cannot be trusted."""
@@ -50,8 +63,32 @@ def _timestamp(value: object, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _require_true(block: dict, key: str, where: str) -> None:
+    """A control must be present and explicitly enabled — deleting the key is a weakening."""
+    if key not in block:
+        raise ApprovalPolicyError(
+            f"{where}.{key} is required — removing a control silently disables it"
+        )
+    if block[key] is not True:
+        raise ApprovalPolicyError(f"{where}.{key} must be true, got {block[key]!r}")
+
+
+def _require_text(block: dict, key: str, where: str) -> str:
+    value = block.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ApprovalPolicyError(f"{where}.{key} must be a non-empty string")
+    return value.strip()
+
+
 def load_policy(path: Path) -> dict:
-    """Load and structurally validate the approval policy."""
+    """Load and structurally validate the approval policy.
+
+    Every control this gate enforces must be declared HERE, present and explicitly enabled. A policy
+    that simply omits a key is REFUSED rather than defaulted away: deleting
+    `approval.require_prevent_self_review` (or the whole `promotion:` block) would otherwise disable a
+    control with no signal, which is exactly the "weakened configuration" the gate exists to catch —
+    only now weakened from inside its own settings-as-code instead of on the GitHub side.
+    """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -61,21 +98,74 @@ def load_policy(path: Path) -> dict:
 
     environment = raw.get("environment")
     approval = raw.get("approval")
+    promotion = raw.get("promotion")
     attestation = raw.get("attestation")
-    if not isinstance(environment, dict) or not isinstance(environment.get("name"), str):
-        raise ApprovalPolicyError("environment.name is required")
-    if not isinstance(approval, dict):
-        raise ApprovalPolicyError("approval block is required")
+    for name, block in (
+        ("environment", environment),
+        ("approval", approval),
+        ("promotion", promotion),
+        ("attestation", attestation),
+    ):
+        if not isinstance(block, dict):
+            raise ApprovalPolicyError(f"{name} block is required")
+
+    _require_text(environment, "name", "environment")
+    _require_text(environment, "repository", "environment")
+
+    # The declared deployment-branch policy must be exactly the one the checker enforces, so the file
+    # can never advertise a weaker (or merely different) intent than what is actually required.
+    declared_branch_policy = environment.get("deployment_branch_policy")
+    if declared_branch_policy != {"protected_branches": True, "custom_branch_policies": False}:
+        raise ApprovalPolicyError(
+            "environment.deployment_branch_policy must declare exactly "
+            "{protected_branches: true, custom_branch_policies: false}"
+        )
+
+    allowed_types = environment.get("allowed_protection_rule_types")
+    if not isinstance(allowed_types, list) or not allowed_types:
+        raise ApprovalPolicyError("environment.allowed_protection_rule_types must be a non-empty list")
+    unknown = sorted({str(kind) for kind in allowed_types} - KNOWN_SAFE_PROTECTION_RULE_TYPES)
+    if unknown:
+        raise ApprovalPolicyError(
+            f"environment.allowed_protection_rule_types may not allow {unknown} — only "
+            f"{sorted(KNOWN_SAFE_PROTECTION_RULE_TYPES)} are known not to approve automatically"
+        )
+    if "required_reviewers" not in allowed_types:
+        raise ApprovalPolicyError(
+            "environment.allowed_protection_rule_types must allow 'required_reviewers'"
+        )
+
     reviewer = approval.get("required_reviewer")
-    if not isinstance(reviewer, dict) or not isinstance(reviewer.get("id"), int):
-        raise ApprovalPolicyError("approval.required_reviewer.id is required")
+    if not isinstance(reviewer, dict):
+        raise ApprovalPolicyError("approval.required_reviewer is required")
+    reviewer_id = reviewer.get("id")
+    if not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0:
+        raise ApprovalPolicyError("approval.required_reviewer.id must be a positive integer")
+    _require_text(reviewer, "login", "approval.required_reviewer")
     if reviewer.get("kind") != "human":
         raise ApprovalPolicyError("approval.required_reviewer.kind must be 'human'")
-    if not isinstance(attestation, dict):
-        raise ApprovalPolicyError("attestation block is required")
+
+    _require_true(approval, "require_prevent_self_review", "approval")
+    _require_true(approval, "require_independent_promoting_actor", "approval")
+    principals = approval.get("automation_principals")
+    if not isinstance(principals, list) or any(
+        not isinstance(name, str) or not name.strip() for name in principals
+    ):
+        raise ApprovalPolicyError("approval.automation_principals must be a list of names")
+
+    _require_true(promotion, "require_protected_default_branch", "promotion")
+    _require_true(promotion, "require_promotion_from_default_branch", "promotion")
+
     _timestamp(attestation.get("attested_at"), "attestation.attested_at")
-    if not isinstance(attestation.get("max_attestation_age_days"), int):
-        raise ApprovalPolicyError("attestation.max_attestation_age_days must be an integer")
+    _require_text(attestation, "attested_by", "attestation")
+    max_age = attestation.get("max_attestation_age_days")
+    if not isinstance(max_age, int) or isinstance(max_age, bool) or not 0 < max_age <= MAX_ATTESTATION_AGE_DAYS:
+        raise ApprovalPolicyError(
+            "attestation.max_attestation_age_days must be a positive integer no greater than "
+            f"{MAX_ATTESTATION_AGE_DAYS} — a longer window is not an attestation"
+        )
+    if not isinstance(attestation.get("applied"), bool):
+        raise ApprovalPolicyError("attestation.applied must be true or false")
     return raw
 
 
@@ -108,13 +198,20 @@ def evaluate(
     promotion_ref: str | None = None,
     promotion_actor: str | None = None,
     promotion_actor_id: int | None = None,
+    mode: str = "drift",
     now: datetime | None = None,
 ) -> dict:
-    """Return the approval-gate verdict as a machine-readable evidence record."""
+    """Return the approval-gate verdict as a machine-readable evidence record.
+
+    Every control below is unconditional: `load_policy` has already refused a policy that omits one,
+    so a check can never disappear because a key was deleted from the settings-as-code file.
+    """
+    if mode not in MODES:
+        raise ApprovalPolicyError(f"mode must be one of {list(MODES)}, got {mode!r}")
     now = now or datetime.now(timezone.utc)
     env_policy = policy["environment"]
     approval = policy["approval"]
-    promotion_policy = policy.get("promotion") or {}
+    promotion_policy = policy["promotion"]
     attestation = policy["attestation"]
     reviewer_policy = approval["required_reviewer"]
     expected_name = env_policy["name"]
@@ -144,32 +241,32 @@ def evaluate(
         )
         record("environment-policy", ok, why)
 
-        allowed_types = env_policy.get("allowed_protection_rule_types")
-        if isinstance(allowed_types, list) and allowed_types:
-            rules = environment.get("protection_rules")
-            observed = [
-                rule.get("type") for rule in rules if isinstance(rule, dict)
-            ] if isinstance(rules, list) else []
-            unexpected = sorted({str(kind) for kind in observed if kind not in allowed_types})
-            record(
-                "protection-rule-types",
-                not unexpected,
-                f"unreviewed protection rule type(s) present: {unexpected} — a rule that is not in "
-                f"the policy could approve automatically"
-                if unexpected
-                else f"only reviewed protection rule types are configured: {sorted(set(observed))}",
-            )
+        allowed_types = env_policy["allowed_protection_rule_types"]
+        rules = environment.get("protection_rules")
+        observed = (
+            [rule.get("type") for rule in rules if isinstance(rule, dict)]
+            if isinstance(rules, list)
+            else []
+        )
+        unexpected = sorted({str(kind) for kind in observed if kind not in allowed_types})
+        record(
+            "protection-rule-types",
+            not unexpected,
+            f"unreviewed protection rule type(s) present: {unexpected} — a rule that is not in "
+            f"the policy could approve automatically"
+            if unexpected
+            else f"only reviewed protection rule types are configured: {sorted(set(observed))}",
+        )
 
         rule = _reviewer_rule(environment)
-        if approval.get("require_prevent_self_review"):
-            record(
-                "prevent-self-review",
-                bool(rule) and rule.get("prevent_self_review") is True,
-                "the required-reviewer rule must have prevent_self_review enabled so the actor that "
-                "starts a promotion cannot approve it"
-                if not (rule and rule.get("prevent_self_review") is True)
-                else "GitHub refuses an approval from the actor that started the deployment",
-            )
+        record(
+            "prevent-self-review",
+            bool(rule) and rule.get("prevent_self_review") is True,
+            "the required-reviewer rule must have prevent_self_review enabled so the actor that "
+            "starts a promotion cannot approve it"
+            if not (rule and rule.get("prevent_self_review") is True)
+            else "GitHub refuses an approval from the actor that started the deployment",
+        )
 
         reviewers = (rule or {}).get("reviewers")
         reviewer_logins = [
@@ -177,7 +274,7 @@ def evaluate(
             for entry in (reviewers if isinstance(reviewers, list) else [])
             if isinstance(entry, dict) and isinstance(entry.get("reviewer"), dict)
         ]
-        automation_principals = approval.get("automation_principals") or []
+        automation_principals = approval["automation_principals"]
         human_reviewers = [
             login
             for login in reviewer_logins
@@ -192,48 +289,57 @@ def evaluate(
             else f"required reviewer(s) are human accounts: {human_reviewers}",
         )
 
-        expected_login = reviewer_policy.get("login")
-        if isinstance(expected_login, str) and expected_login:
-            record(
-                "reviewer-matches-policy",
-                reviewer_logins == [expected_login],
-                f"live reviewer(s) {reviewer_logins} do not match the attested reviewer "
-                f"{[expected_login]} — settings drifted from certification/production-approval.yaml"
-                if reviewer_logins != [expected_login]
-                else f"live reviewer matches the attested reviewer {expected_login!r}",
-            )
+        expected_login = reviewer_policy["login"]
+        record(
+            "reviewer-matches-policy",
+            reviewer_logins == [expected_login],
+            f"live reviewer(s) {reviewer_logins} do not match the attested reviewer "
+            f"{[expected_login]} — settings drifted from certification/production-approval.yaml"
+            if reviewer_logins != [expected_login]
+            else f"live reviewer matches the attested reviewer {expected_login!r}",
+        )
 
     # ── branch restriction ────────────────────────────────────────────────────────────────────
-    if promotion_policy.get("require_protected_default_branch"):
-        default_branch = repository.get("default_branch") if isinstance(repository, dict) else None
-        protected = branch.get("protected") if isinstance(branch, dict) else None
-        named = branch.get("name") if isinstance(branch, dict) else None
-        ok = bool(default_branch) and named == default_branch and protected is True
+    default_branch = repository.get("default_branch") if isinstance(repository, dict) else None
+    protected = branch.get("protected") if isinstance(branch, dict) else None
+    named = branch.get("name") if isinstance(branch, dict) else None
+    ok = bool(default_branch) and named == default_branch and protected is True
+    record(
+        "protected-default-branch",
+        ok,
+        f"default branch {default_branch!r} is protected"
+        if ok
+        else "could not prove the repository default branch is protected "
+        f"(default={default_branch!r}, branch={named!r}, protected={protected!r})",
+    )
+
+    # In `promote` mode the promotion identity is mandatory: omitting the arguments must not be a way
+    # to skip the branch and two-actor checks. In `drift` mode no promotion is in flight, so they are
+    # legitimately not applicable.
+    if mode == "promote" and (promotion_ref is None or not str(promotion_ref).strip()):
+        record("promotion-ref", False, "promote mode requires the promotion ref, and none was supplied")
+    elif promotion_ref is not None:
         record(
-            "protected-default-branch",
-            ok,
-            f"default branch {default_branch!r} is protected"
-            if ok
-            else "could not prove the repository default branch is protected "
-            f"(default={default_branch!r}, branch={named!r}, protected={protected!r})",
+            "promotion-ref",
+            promotion_ref == default_branch,
+            f"promotion ran from {promotion_ref!r}, not the protected default branch "
+            f"{default_branch!r}"
+            if promotion_ref != default_branch
+            else f"promotion ran from the protected default branch {promotion_ref!r}",
         )
-        if promotion_policy.get("require_promotion_from_default_branch") and promotion_ref is not None:
-            record(
-                "promotion-ref",
-                promotion_ref == default_branch,
-                f"promotion ran from {promotion_ref!r}, not the protected default branch "
-                f"{default_branch!r}"
-                if promotion_ref != default_branch
-                else f"promotion ran from the protected default branch {promotion_ref!r}",
-            )
 
     # ── two-actor property ────────────────────────────────────────────────────────────────────
-    if approval.get("require_independent_promoting_actor") and (
-        promotion_actor is not None or promotion_actor_id is not None
+    if mode == "promote" and promotion_actor_id is None and (
+        promotion_actor is None or not str(promotion_actor).strip()
     ):
+        record(
+            "independent-promoting-actor",
+            False,
+            "promote mode requires the promoting actor, and none was supplied",
+        )
+    elif promotion_actor is not None or promotion_actor_id is not None:
         same_login = (
             isinstance(promotion_actor, str)
-            and isinstance(reviewer_policy.get("login"), str)
             and promotion_actor.strip().lower() == reviewer_policy["login"].strip().lower()
         )
         same_id = promotion_actor_id is not None and promotion_actor_id == reviewer_policy["id"]
@@ -290,11 +396,12 @@ def evaluate(
         "gate": "production-approval",
         "status": status,
         "why": why,
+        "mode": mode,
         "environment": expected_name,
-        "repository": env_policy.get("repository"),
+        "repository": env_policy["repository"],
         "expected_reviewer": {
             "id": reviewer_policy["id"],
-            "login": reviewer_policy.get("login"),
+            "login": reviewer_policy["login"],
         },
         "generatedAt": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "checks": checks,
@@ -324,6 +431,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--promotion-ref", default=None)
     parser.add_argument("--promotion-actor", default=None)
     parser.add_argument("--promotion-actor-id", type=int, default=None)
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        default="drift",
+        help="promote = enforcing path, requires the promotion identity; drift = read-only monitor",
+    )
     parser.add_argument("--evidence-out", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -341,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
             promotion_ref=args.promotion_ref,
             promotion_actor=args.promotion_actor,
             promotion_actor_id=args.promotion_actor_id,
+            mode=args.mode,
         )
     except ApprovalPolicyError as exc:
         evidence = {

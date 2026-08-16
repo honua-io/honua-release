@@ -79,6 +79,7 @@ jobs:
         run: |
           set -uo pipefail
           ARGS=(--policy certification/production-approval.yaml
+                --mode drift
                 --evidence-out production-approval-drift.json)
           if [ "${{ steps.read.outputs.environment_readable }}" = "1" ]; then
             ARGS+=(--environment-metadata environment.json)

@@ -303,3 +303,154 @@ def test_cli_fails_closed_on_an_untrustworthy_policy(tmp_path: Path):
     policy = tmp_path / "policy.yaml"
     policy.write_text("environment: []\n", encoding="utf-8")
     assert main(["--policy", str(policy)]) == 1
+
+
+# ── a policy that omits a control is a WEAKENED policy, not a smaller one ───────────────────────
+
+
+def _write(policy: dict, tmp_path: Path) -> Path:
+    path = tmp_path / "policy.yaml"
+    path.write_text(yaml.safe_dump(policy), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "delete",
+    [
+        ("approval", "require_prevent_self_review"),
+        ("approval", "require_independent_promoting_actor"),
+        ("approval", "automation_principals"),
+        ("environment", "allowed_protection_rule_types"),
+        ("environment", "deployment_branch_policy"),
+        ("environment", "repository"),
+        ("attestation", "applied"),
+        ("attestation", "attested_by"),
+    ],
+)
+def test_deleting_any_declared_control_is_refused(delete: tuple[str, str], tmp_path: Path):
+    """Every control must be present and explicitly enabled — omission cannot disable it silently."""
+    policy = _policy()
+    policy[delete[0]].pop(delete[1])
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize("block", ["environment", "approval", "promotion", "attestation"])
+def test_deleting_any_policy_block_is_refused(block: str, tmp_path: Path):
+    policy = _policy()
+    policy.pop(block)
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize(
+    "key", ["require_prevent_self_review", "require_independent_promoting_actor"]
+)
+@pytest.mark.parametrize("value", [False, "false", "no", 0, None])
+def test_a_control_set_to_anything_but_true_is_refused(key: str, value, tmp_path: Path):
+    policy = _policy()
+    policy["approval"][key] = value
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize(
+    "key", ["require_protected_default_branch", "require_promotion_from_default_branch"]
+)
+def test_a_disabled_promotion_control_is_refused(key: str, tmp_path: Path):
+    policy = _policy()
+    policy["promotion"][key] = False
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_allow_listing_an_auto_approving_protection_rule_type_is_refused(tmp_path: Path):
+    policy = _policy()
+    policy["environment"]["allowed_protection_rule_types"].append("deployment_protection_rule")
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_an_allow_list_without_required_reviewers_is_refused(tmp_path: Path):
+    policy = _policy()
+    policy["environment"]["allowed_protection_rule_types"] = ["wait_timer"]
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_a_weakened_declared_branch_policy_is_refused(tmp_path: Path):
+    policy = _policy()
+    policy["environment"]["deployment_branch_policy"] = {
+        "protected_branches": False,
+        "custom_branch_policies": True,
+    }
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize("days", [0, -1, 100000, 366, "180", True])
+def test_an_unbounded_attestation_window_is_refused(days, tmp_path: Path):
+    policy = _policy()
+    policy["attestation"]["max_attestation_age_days"] = days
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_the_shipped_policy_still_loads_after_all_of_that():
+    assert load_policy(POLICY_PATH)["environment"]["name"] == "production"
+
+
+# ── mode: the promotion identity cannot be skipped by omitting the arguments ────────────────────
+
+
+def test_promote_mode_requires_the_promotion_ref_and_actor():
+    result = evaluate(
+        _policy(),
+        environment=_environment(),
+        repository=_repository(),
+        branch=_branch(),
+        mode="promote",
+        now=NOW,
+    )
+    assert result["status"] == "fail"
+    assert "promotion-ref" in _failed(result)
+    assert "independent-promoting-actor" in _failed(result)
+
+
+def test_drift_mode_omits_the_promotion_checks_rather_than_faking_them():
+    result = evaluate(
+        _policy(),
+        environment=_environment(),
+        repository=_repository(),
+        branch=_branch(),
+        mode="drift",
+        now=NOW,
+    )
+    names = {check["check"] for check in result["checks"]}
+    assert "promotion-ref" not in names
+    assert "independent-promoting-actor" not in names
+    assert result["status"] == "pass"
+    assert result["mode"] == "drift"
+
+
+def test_an_unknown_mode_is_refused():
+    with pytest.raises(ApprovalPolicyError):
+        evaluate(_policy(), environment=_environment(), mode="whatever")
+
+
+def test_cli_promote_mode_without_an_actor_refuses(tmp_path: Path):
+    environment = tmp_path / "environment.json"
+    environment.write_text(json.dumps(_environment()), encoding="utf-8")
+    assert (
+        main(
+            [
+                "--policy",
+                str(POLICY_PATH),
+                "--mode",
+                "promote",
+                "--environment-metadata",
+                str(environment),
+            ]
+        )
+        == 1
+    )

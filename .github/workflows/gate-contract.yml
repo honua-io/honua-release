@@ -233,7 +233,15 @@ jobs:
           python tools/check_contract_suppression.py "${ARGS[@]}" | tee /tmp/suppression.log || true
           STATUS="$(jq -r .status suppression-evidence.json)"
           WHY="$(jq -r .why suppression-evidence.json)"
-          { echo "status=$STATUS"; echo "why=$WHY"; } >> "$GITHUB_ENV"
+          # `why` is assembled from the register's YAML and can be folded/multi-line; the delimiter
+          # form is the only safe way to put it in $GITHUB_ENV (a bare `k=v` would truncate it, or let
+          # a crafted scalar define extra environment variables).
+          {
+            echo "status=$STATUS"
+            echo "why<<HONUA_GATE_WHY_EOF"
+            printf '%s\n' "$WHY"
+            echo "HONUA_GATE_WHY_EOF"
+          } >> "$GITHUB_ENV"
           {
             echo "## Contract breaking-change suppression — $STATUS";
             echo ""; echo '```'; cat /tmp/suppression.log; echo '```';
@@ -274,6 +282,29 @@ jobs:
           pattern: con-gate-fragment-*
           path: fragments
           merge-multiple: true
+
+      # A gate whose stated failure mode is SILENCE must not be able to vanish from its own report.
+      # Assembling from `fragments/*.json` alone means a check job cancelled (or crashed) before its
+      # `Emit fragment` step would simply be absent, and the report would read green from the
+      # survivors. Every expected fragment is therefore required by name; a missing one is recorded as
+      # a FAIL, which is red under both enforcement modes.
+      - name: Require every expected gate fragment
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p fragments
+          for gate in contract-proto contract-rest-sdk contract-suppression; do
+            if [ ! -s "fragments/$gate.json" ]; then
+              echo "::error::no fragment was emitted for '$gate' — recording it as failed"
+              jq -n --arg gate "$gate" --arg run "$RUN_URL" \
+                '{gate:$gate, status:"fail", source:"missing",
+                  why:"no fragment was emitted — the check job was cancelled or crashed before recording a result",
+                  enforcement:"strict", evidence_url:$run}' > "fragments/$gate.json"
+            fi
+          done
+          ls -1 fragments
+
       - name: Assemble gate-report.json
         id: assemble
         env:
