@@ -454,3 +454,44 @@ def test_cli_promote_mode_without_an_actor_refuses(tmp_path: Path):
         )
         == 1
     )
+
+
+def test_the_default_mode_is_the_enforcing_one(tmp_path: Path):
+    """An omitted --mode must fail closed, not silently run the reduced drift check set."""
+    from check_production_approval import DEFAULT_MODE
+
+    assert DEFAULT_MODE == "promote"
+    environment = tmp_path / "environment.json"
+    environment.write_text(json.dumps(_environment()), encoding="utf-8")
+    repository = tmp_path / "repository.json"
+    repository.write_text(json.dumps(_repository()), encoding="utf-8")
+    branch = tmp_path / "branch.json"
+    branch.write_text(json.dumps(_branch()), encoding="utf-8")
+    evidence = tmp_path / "evidence.json"
+
+    # A fully healthy GitHub side, but no promotion identity and no --mode: still refused.
+    rc = main(
+        [
+            "--policy",
+            str(POLICY_PATH),
+            "--environment-metadata",
+            str(environment),
+            "--repository-metadata",
+            str(repository),
+            "--branch-metadata",
+            str(branch),
+            "--evidence-out",
+            str(evidence),
+        ]
+    )
+    assert rc == 1
+    record = json.loads(evidence.read_text(encoding="utf-8"))
+    assert record["mode"] == "promote"
+    failed = {check["check"] for check in record["checks"] if check["status"] != "pass"}
+    assert failed == {"promotion-ref", "independent-promoting-actor"}
+
+
+def test_evaluate_defaults_to_the_enforcing_mode():
+    result = evaluate(_policy(), environment=_environment(), repository=_repository(), branch=_branch(), now=NOW)
+    assert result["mode"] == "promote"
+    assert result["status"] == "fail"
