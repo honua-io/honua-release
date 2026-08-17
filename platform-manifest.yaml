@@ -90,10 +90,22 @@ components:
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:
-    version: "0.1.0-alpha.3"           # release tag v0.1.0-alpha.3 (reachable on trunk HEAD)
-    sha: "e15644173c173e4a75e6b5b2557cd8bad4ec5906"   # v0.1.0-alpha.3 tag; later trunk is wire-breaking
+    # MERGE PRECONDITION (honua-release#41): this pin names a release that the release lead must cut
+    # FIRST. Do not merge this manifest state until BOTH geospatial-grpc tags exist, because
+    # gate-contract's proto-breaking check resolves its buf `--against` baseline as the highest `v*`
+    # tag in geospatial-grpc — pinning the post-break sha while v0.1.0-alpha.3 is still the highest
+    # tag makes that gate fail. See docs/GRPC-0.2.0-ALPHA.1-CUT.md for the ordered procedure and the
+    # one-line precondition check.
+    #   v0.2.0-alpha.1                  -> advances the buf baseline; carries the conformance-fixtures release
+    #   geospatial-grpc-v0.2.0-alpha.1  -> the ONLY trigger for publish-dotnet-protocol.yml (the NuGet package)
+    # Both namespaces are load-bearing and were NOT both cut for 0.1.0-alpha.3, which is why that
+    # release has fixtures but no `Geospatial.Grpc` package and no consumer ever moved onto it.
+    version: "0.2.0-alpha.1"           # release tag v0.2.0-alpha.1 (pre-v1 sanctioned wire break, geospatial-grpc#48/#69)
+    sha: "73fc882b1ae00d0a4a348aeadfba9f48b1a0317c"   # trunk HEAD; proto+conformance identical to the break commit 21be085
     contractVersions:
-      grpc: v1                         # proto package geospatial.v1 (VERSIONING.md)
+      grpc: v1                         # proto package geospatial.v1 — UNCHANGED (VERSIONING.md Pre-1.0 Exception)
+    # NOTE: honua-server and honua-sdk-dotnet both still consume `Geospatial.Grpc 0.1.0-alpha.2` and
+    # cannot move until the package for this release is published. Tracked in the runbook above.
 
   geospatial-mcp:
     version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha

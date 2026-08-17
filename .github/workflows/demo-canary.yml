@@ -11,7 +11,13 @@
 # out-of-band, consume it with freshness bounds" shape as the honua-esri-compat lane.
 #
 # Honesty (AGENTS.md): geocoding-latency is REPORT-ONLY (honua-server#2948, known-broken pending VPC
-# egress) and never fails the run. Every other check/probe can genuinely fail. `HONUA_DEMO_API_KEY` is
+# egress) and never fails the run. Every other check/probe can genuinely fail — and a failure that is
+# KNOWN and OWNED is QUARANTINED, never deleted (honua-release#84): e2e/canary-quarantine.yaml maps the
+# probe to an owning issue, e2e/quarantine.py downgrades its FAIL to `quarantined` until the entry's
+# `reviewBy` expires (after which it reddens the run again), and the step summary below prints a table
+# linking every quarantined probe to its issue — so a remaining failure is owned, not silent. The
+# live-canary envelope published to honua-evidence still reports a quarantined probe `red`.
+# `HONUA_DEMO_API_KEY` is
 # an OPTIONAL repo secret — key-gated probes (metrics, admin-metrics-health, deploy-preflight, and the
 # `available=true` half of the capability-manifest check) report BLOCKED (not FAIL) without it, and the
 # run stays green (exit 0) as long as nothing GENUINELY fails. On a real FAIL, a single tracking issue
@@ -49,15 +55,15 @@ jobs:
     outputs:
       status: ${{ steps.canary.outputs.status }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install -r e2e/requirements.txt pytest
 
       # The check/probe logic's own correctness must be proven before we trust a live run against it.
-      - name: Self-test the canonical + canary probe logic
-        run: python -m pytest e2e/test_cloud.py e2e/test_canary_probes.py -q
+      - name: Self-test the canonical + canary probe + quarantine logic
+        run: python -m pytest e2e/test_cloud.py e2e/test_canary_probes.py e2e/test_quarantine.py -q
 
       - name: Run the demo canary
         id: canary
@@ -77,6 +83,32 @@ jobs:
             cat /tmp/canary.log;
             echo '```';
           } >> "$GITHUB_STEP_SUMMARY"
+          # honua-release#84 AC: every remaining failure carries an owning issue LINKED FROM THE RUN
+          # SUMMARY. Quarantined probes are real failures held green by e2e/canary-quarantine.yaml, so
+          # they get their own table rather than being buried in the log above. Registry rot (expired /
+          # stale / unknown entries) is surfaced as an annotation so nobody has to read the log to see it.
+          python - <<'PY' || true
+          import json, os, pathlib
+          audit = (json.loads(pathlib.Path("e2e/gate-report-demo-canary.json").read_text())
+                   .get("quarantine") or {})
+          lines = []
+          if audit.get("applied"):
+              lines += ["", "### Quarantined probes (failing, owned, not silenced)", "",
+                        "| probe | owning issue | since | review by | reason |", "|---|---|---|---|---|"]
+              lines += [f"| `{e['probe']}` | {e['issue']} | {e['since']} | {e['reviewBy']} | {e['reason']} |"
+                        for e in audit["applied"]]
+              lines += ["", "These are still reported `red` to honua-evidence — quarantine moves the CI "
+                        "verdict, never the evidence verdict."]
+          for kind, note in (("expired", "is past its reviewBy — the probe is failing the run again"),
+                             ("stale", "is no longer failing — delete the entry"),
+                             ("unknown", "is not a probe this canary emits (renamed?)")):
+              for e in audit.get(kind, []):
+                  lines += ["", f"> **Quarantine {kind}**: `{e['probe']}` {note} ({e['issue']})."]
+                  print(f"::warning title=demo-canary quarantine {kind}::{e['probe']} {note} — {e['issue']}")
+          if lines:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+                  fh.write("\n".join(lines) + "\n")
+          PY
           # A key-configured note so a red run is diagnosable at a glance (was the key even wired?).
           if [ -z "${HONUA_DEMO_API_KEY:-}" ]; then
             echo "::notice title=demo-canary::HONUA_DEMO_API_KEY is not set — key-gated probes (metrics, admin-metrics-health, deploy-preflight, capability-manifest available=true) report BLOCKED, not FAIL."
@@ -85,7 +117,7 @@ jobs:
 
       - name: Upload demo-canary gate-report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: demo-canary-gate-report
           path: e2e/gate-report-demo-canary.json
@@ -95,7 +127,7 @@ jobs:
       # the schema there is a PROPOSAL, since honua-evidence#8 had not defined one as of this writing).
       - name: Upload live-canary evidence envelope
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: live-canary-evidence
           path: e2e/live-canary-evidence.json
@@ -103,7 +135,7 @@ jobs:
 
       - name: Check out the evidence landing zone
         if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-evidence
           ref: trunk
@@ -172,9 +204,10 @@ jobs:
             const body = `## Demo Canary Alert
 
             The scheduled \`demo-canary\` run against \`${{ env.HONUA_DEMO_BASE_URL }}\` reported a
-            genuine FAIL (not just BLOCKED — see the run's step summary for the full per-check
-            breakdown; BLOCKED entries from missing \`HONUA_DEMO_API_KEY\` or the known geocoding gap
-            (honua-server#2948) do not trigger this alert).
+            genuine, UNOWNED FAIL — see the run's step summary for the full per-check breakdown.
+            BLOCKED entries (missing \`HONUA_DEMO_API_KEY\`, the known geocoding gap honua-server#2948)
+            and QUARANTINED entries (a known failure already owned by an issue in
+            \`e2e/canary-quarantine.yaml\`) do not trigger this alert.
 
             **Run**: ${runUrl}
 

@@ -1,8 +1,12 @@
 # Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
 #
 # This is the human/AI approval boundary: the `production` environment must carry the expected human
-# reviewer and allow only protected branches. The first job step verifies that policy through the
-# GitHub API, so a missing/unprotected environment cannot silently become a release path. Within the
+# reviewer and allow only protected branches. The declared configuration is settings-as-code in
+# certification/production-approval.yaml, and the first job step compares the LIVE environment against
+# it through the GitHub API (tools/check_production_approval.py, honua-release#44) — a missing,
+# unreadable, weakened, drifted, stale, or automation-only reviewer configuration, a promotion from a
+# branch other than the protected default, or a promotion started by the required reviewer all REFUSE
+# here, before any release work. Machine-readable evidence is uploaded for the release. Within the
 # gate it FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
 # gate-report is all-green — every gate `pass`, OR `skipped` while on the EXPLICIT allowed-skip list
 # (tools/finalize_release.ALLOWED_SKIP: the creds-gated cloud cert tier that self-skips when
@@ -47,23 +51,81 @@ jobs:
     runs-on: ubuntu-latest
     environment: production    # verified below; absent/unprotected configuration fails closed
     steps:
-      # Load the validator shipped with this promotion workflow. The checkout is replaced with the
-      # certifying commit immediately after the run metadata passes.
+      # Load the validators from the repository's DEFAULT BRANCH, not from the ref this run was
+      # dispatched on: the approval policy and the checkers must not be supplied by whoever started
+      # the promotion. `github.event.repository.default_branch` comes from the event payload, so it
+      # cannot be chosen by the dispatcher. (The workflow FILE itself is still the dispatch ref's —
+      # the environment's protected-branch deployment policy is the backstop there, and the gate below
+      # independently refuses a promotion whose ref is not the protected default branch.) The checkout
+      # is replaced with the certifying commit once the run metadata passes.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
-      - name: Verify the production environment approval policy
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      # honua-release#44: the approval gate is settings-as-code. certification/production-approval.yaml
+      # declares the environment GitHub must be enforcing; this step reads the LIVE configuration and
+      # refuses when it is missing, unreadable, weakened, drifted, stale, or names only an automation
+      # principal. It also proves this promotion is running from the protected default branch and was
+      # NOT started by the required reviewer, so the approval is independent of the request.
+      - name: Self-test the production approval decision core
+        run: python -m pytest tools/test_check_production_approval.py -q
+
+      - name: Verify the production approval gate
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           EXPECTED_ENVIRONMENT: production
-          EXPECTED_REVIEWER_ID: "12301237"
+          PROMOTION_REF: ${{ github.ref_name }}
+          PROMOTION_ACTOR: ${{ github.triggering_actor || github.actor }}
+          PROMOTION_ACTOR_ID: ${{ github.actor_id }}
         run: |
-          set -euo pipefail
-          gh api "repos/$REPOSITORY/environments/$EXPECTED_ENVIRONMENT" > environment.json
-          python tools/candidate_binding.py validate-environment \
-            --environment-metadata environment.json \
-            --expected-name "$EXPECTED_ENVIRONMENT" \
-            --expected-reviewer-id "$EXPECTED_REVIEWER_ID"
+          set -uo pipefail
+          ARGS=(--policy certification/production-approval.yaml
+                --mode promote
+                --evidence-out production-approval-evidence.json
+                --promotion-ref "$PROMOTION_REF"
+                --promotion-actor "$PROMOTION_ACTOR")
+          [ -n "${PROMOTION_ACTOR_ID:-}" ] && ARGS+=(--promotion-actor-id "$PROMOTION_ACTOR_ID")
+
+          # Only HTTP statuses are ever echoed from these calls — never a response body, which can
+          # carry configuration detail, and never a token.
+          if gh api "repos/$REPOSITORY/environments/$EXPECTED_ENVIRONMENT" > environment.json 2>/tmp/env.err; then
+            ARGS+=(--environment-metadata environment.json)
+          else
+            REASON="$(sed -n 's/.*\(HTTP [0-9][0-9]*\).*/\1/p' /tmp/env.err | head -n1)"
+            ARGS+=(--unreadable-reason "${REASON:-environment read failed}")
+          fi
+          if gh api "repos/$REPOSITORY" > repository.json 2>/dev/null; then
+            ARGS+=(--repository-metadata repository.json)
+            DEFAULT_BRANCH="$(python -c 'import json; print(json.load(open("repository.json"))["default_branch"])')"
+            ENCODED_BRANCH="$(python -c 'import sys; from urllib.parse import quote; print(quote(sys.argv[1], safe=""))' "$DEFAULT_BRANCH")"
+            gh api "repos/$REPOSITORY/branches/$ENCODED_BRANCH" > branch.json 2>/dev/null \
+              && ARGS+=(--branch-metadata branch.json)
+          fi
+
+          set +e
+          python tools/check_production_approval.py "${ARGS[@]}" | tee /tmp/approval.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          { echo "## Production approval gate"; echo ""; echo '```'; cat /tmp/approval.log; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::production approval gate REFUSED — promotion is blocked (honua-release#44)"
+            exit 1
+          fi
+
+      - name: Upload production approval evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-approval-evidence
+          path: production-approval-evidence.json
+          if-no-files-found: warn
 
       - name: Resolve and validate the certifying train run
         id: train
@@ -98,7 +160,7 @@ jobs:
         with:
           ref: ${{ steps.train.outputs.source_sha }}
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"

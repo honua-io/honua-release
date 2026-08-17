@@ -1,0 +1,126 @@
+# Read-only repository-control drift check (honua-release#44).
+#
+# The production approval gate is only as good as the repository configuration behind it, and that
+# configuration lives outside git. This workflow reads it — and ONLY reads it — comparing the live
+# `production` environment and default-branch protection against the settings-as-code declaration in
+# certification/production-approval.yaml, then publishes machine-readable evidence.
+#
+# It never writes: no environment is created, no protection rule is changed, no secret is read or
+# printed. The only API calls are GETs, the token has `contents: read` plus `actions: read` (the
+# environments endpoint), and only HTTP statuses — never response bodies — are echoed on failure.
+#
+# Finding drift here is the point: promotion already fails closed on the same comparison, so this is
+# the early-warning signal that someone weakened, rotated, or removed the approval boundary between
+# releases instead of discovering it mid-cut.
+
+name: repo-control-drift
+run-name: "repo-control-drift (${{ github.event_name }})"
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "certification/production-approval.yaml"
+      - "tools/check_production_approval.py"
+      - "tools/test_check_production_approval.py"
+      - ".github/workflows/repo-control-drift.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: repo-control-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.check.outputs.status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the approval decision core
+        run: python -m pytest tools/test_check_production_approval.py -q
+
+      - name: Read the live repository controls (read-only)
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          ENVIRONMENT="$(python -c "import yaml;print(yaml.safe_load(open('certification/production-approval.yaml'))['environment']['name'])")"
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$REPOSITORY/environments/$ENVIRONMENT" > environment.json 2>/tmp/env.err; then
+            echo "environment_readable=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment_readable=0" >> "$GITHUB_OUTPUT"
+            REASON="$(sed -n 's/.*\(HTTP [0-9][0-9]*\).*/\1/p' /tmp/env.err | head -n1)"
+            echo "reason=${REASON:-environment read failed}" >> "$GITHUB_OUTPUT"
+            echo "could not read environment '$ENVIRONMENT': ${REASON:-unknown}"
+          fi
+          gh api "repos/$REPOSITORY" > repository.json 2>/dev/null || true
+          if [ -s repository.json ]; then
+            DEFAULT_BRANCH="$(python -c 'import json; print(json.load(open("repository.json"))["default_branch"])')"
+            ENCODED_BRANCH="$(python -c 'import sys; from urllib.parse import quote; print(quote(sys.argv[1], safe=""))' "$DEFAULT_BRANCH")"
+            gh api "repos/$REPOSITORY/branches/$ENCODED_BRANCH" > branch.json 2>/dev/null || true
+          fi
+
+      - name: Compare against the settings-as-code declaration
+        id: check
+        run: |
+          set -uo pipefail
+          ARGS=(--policy certification/production-approval.yaml
+                --mode drift
+                --evidence-out production-approval-drift.json)
+          if [ "${{ steps.read.outputs.environment_readable }}" = "1" ]; then
+            ARGS+=(--environment-metadata environment.json)
+          else
+            ARGS+=(--unreadable-reason "${{ steps.read.outputs.reason }}")
+          fi
+          [ -s repository.json ] && ARGS+=(--repository-metadata repository.json)
+          [ -s branch.json ] && ARGS+=(--branch-metadata branch.json)
+
+          python tools/check_production_approval.py "${ARGS[@]}" | tee /tmp/drift.log || true
+          STATUS="$(python -c "import json;print(json.load(open('production-approval-drift.json'))['status'])")"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          { echo "## Repository-control drift — $STATUS"; echo ""; echo '```'; cat /tmp/drift.log; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload drift evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-approval-drift
+          path: production-approval-drift.json
+          if-no-files-found: warn
+
+      # Enforcement note: while `attestation.applied` is false the declared settings have knowingly not
+      # been applied to GitHub yet (creating the environment is an owner action outside git), so this
+      # EARLY-WARNING workflow reports the gap as a warning rather than a permanent red. That is a
+      # statement about this monitor only — promote.yml runs the identical check and REFUSES on the
+      # same finding, so the unapplied state can never let a release through. The moment `applied` is
+      # set true, any drift here is hard red.
+      - name: Enforce
+        run: |
+          set -euo pipefail
+          STATUS='${{ steps.check.outputs.status }}'
+          APPLIED="$(python -c "import yaml;print(bool((yaml.safe_load(open('certification/production-approval.yaml')).get('attestation') or {}).get('applied')))")"
+          echo "repository-control drift: $STATUS (settings applied: $APPLIED)"
+          if [ "$STATUS" = "pass" ]; then
+            exit 0
+          fi
+          if [ "$APPLIED" = "False" ]; then
+            echo "::warning title=Production approval settings not applied yet::the declared production environment has not been created in GitHub; promotion stays blocked by promote.yml (honua-release#44)"
+            exit 0
+          fi
+          echo "::error::production approval configuration does not match certification/production-approval.yaml — promotion is blocked until it does (honua-release#44)"
+          exit 1
