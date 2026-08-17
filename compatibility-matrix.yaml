@@ -33,7 +33,10 @@ contracts:
       honua-sdk-python: ">=0.1.4 <0.2.0"            # floor = oldest supported (shipped is 0.1.9); 0.x: ceiling = next minor
   grpc:
     version: v1        # proto package geospatial.v1 (geospatial-grpc VERSIONING.md; server advertises grpc v1)
-    # geospatial-grpc 0.1.0-alpha.3 is the schema source; SDK floors are where grpc clients live.
+    # geospatial-grpc 0.2.0-alpha.1 is the schema source; SDK floors are where grpc clients live.
+    # 0.2.0-alpha.1 is a sanctioned pre-v1 wire break (geospatial-grpc#48/#69) that does NOT change
+    # the proto package: the surface stays geospatial.v1, so no client floor moves. See
+    # docs/GRPC-0.2.0-ALPHA.1-CUT.md.
     clients:
       honua-sdk-dotnet: ">=1.3.0"                   # floor = oldest supported (shipped is 1.5.0)
       honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (shipped is 0.1.2-beta.0)
