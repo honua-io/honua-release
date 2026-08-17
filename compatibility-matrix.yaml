@@ -22,7 +22,7 @@
 contracts:
   geoservices:
     # WIRED (honua-release#83): the server now advertises this. Read from a running instance of the
-    # pinned image (ghcr.io/honua-io/honua-server:nightly-aot-f054e6f) on 2026-08-17 —
+    # pinned image (ghcr.io/honua-io/honua-server:nightly-aot-aa894e1) on 2026-08-17 —
     #   /api/v1/capabilities/manifest -> transports.items[id=geoservices-rest].contractVersion = 1.0.0
     # (it still deliberately does not emit ArcGIS `currentVersion`). Client floors below are NOT
     # tightened here: raising a floor drops support for older clients and validate_platform's drift
@@ -73,15 +73,15 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:f054e6fa5e2889af730e4a5722342330e7a1f64f"
+    deploysServerImage: "sha:aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:f054e6fa5e2889af730e4a5722342330e7a1f64f"
+    appVersion: "sha:aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"
 
 data:
   honua-server:
     # DB schema version = highest applied migration in the PINNED server source
-    # (src/Honua.Server/Migrations/, NNN_ prefix); max at f054e6f is
+    # (src/Honua.Server/Migrations/, NNN_ prefix); max at aa894e1 is
     # 106_CreateManagedUsersAndScimGroups.sql. DbUp journals to public.schema_versions (no single
     # constant) — verified by running the pinned image against postgres and reading that table:
     #   docker exec <pg> psql -U honua_user -d honua_dev -c \

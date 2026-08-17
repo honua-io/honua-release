@@ -28,26 +28,30 @@ components:
   honua-server:
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
     # PIN vs TRUNK HEAD — the one deliberate exception to "pins == origin/trunk" (honua-release#83).
-    # trunk HEAD at re-pin time was b3e7df470db733507034eaf18847640c80e5b1e8 (2026-08-16T23:33Z).
-    # f054e6f is 19 commits behind it and is the NEWEST commit with a published, immutable
-    # multi-arch AOT image (the 2026-08-16 06:00Z nightly-container-build). A sha with no matching
-    # published image is not a usable pin: gate-artifact-consume, gate-security and gate-upgrade all
-    # resolve `image@digest`, and the cloud tier mirrors that exact index into ECR. The 19 skipped
-    # commits are CI/shard-routing and test-infrastructure changes plus honua-server#3313
-    # (publishing: reject chartSpec on non-chart panels) and #3314 (review-gate CI); none of them
-    # touch a certified wire surface. Re-pinning forward is a one-line change once a nightly for a
-    # newer trunk sha publishes — but chasing HEAD exactly is not achievable while the merge train
-    # lands multiple times a day and an AOT multi-arch build takes ~90 minutes.
-    sha: "f054e6fa5e2889af730e4a5722342330e7a1f64f"   # published nightly AOT source commit
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-f054e6f"
-    # Digest of the immutable nightly-aot-f054e6f multi-arch index resolved from GHCR on 2026-08-17
-    # (`docker pull` reported this index digest; GHCR package version name matches).
-    digest: "sha256:322fea006bec504ad409c919d91ec245ca5490bf6895c646a7068692db0a3787"
+    # trunk HEAD at re-pin time was 8ebc2b42a12b2286169074cdae2da2f0ee3086c0 (2026-08-17T23:35Z).
+    # aa894e1 is 14 commits behind it and is the NEWEST commit with a published, immutable
+    # multi-arch AOT image (the 2026-08-17 06:00Z nightly-container-build; it is also what the
+    # floating :nightly-aot / :trunk-aot tags currently resolve to). A sha with no matching published
+    # image is not a usable pin: gate-artifact-consume, gate-security and gate-upgrade all resolve
+    # `image@digest`, and the cloud tier mirrors that exact index into ECR.
+    # The 14 skipped commits were enumerated, not assumed
+    # (`gh api repos/honua-io/honua-server/compare/aa894e1...8ebc2b42a`): every one is a `ci(...)` or
+    # `test(cloud)` change to CI shard routing, merge-train tooling, review-gate wiring or the
+    # dependabot action bump — honua-server#3325/#3328/#3329/#3330/#3331/#3332/#3333/#3334/#3336/
+    # #3337/#3338/#3339/#3340/#3341. None touch a certified wire surface, a migration or a runtime
+    # source path. Re-pinning forward is a one-line change once a nightly for a newer trunk sha
+    # publishes — but chasing HEAD exactly is not achievable while the merge train lands multiple
+    # times a day and an AOT multi-arch build takes ~90 minutes.
+    sha: "aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"   # published nightly AOT source commit
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-aa894e1"
+    # Digest of the immutable nightly-aot-aa894e1 multi-arch index resolved from GHCR on 2026-08-17
+    # (`docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-aot-aa894e1`).
+    digest: "sha256:3f0a7bf75662b1468c056bc7c2acb94a22d3eb187f5ae2996ff58fd674fc002a"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
     # exited 139 before readiness on native Fargate. That finding has NOT been re-established against
-    # this index's ARM64 child (sha256:865bf2b1b580db25920d4d7f36a6ca0875962dd0287d537c626cc4970e5facdd):
+    # this index's ARM64 child (sha256:935e9650a7a6c6735edb789e6d629aa41c3b998c7dc7106c9e3200f951c3e4d1):
     # re-testing needs a live Fargate task, i.e. the cloud-parity tier, which cannot run today
     # (honua-release#79 / missing IAM OIDC-provider actions on the CI role). x86_64 is therefore
     # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
@@ -55,18 +59,20 @@ components:
     awsEcsArchitecture: "x86_64"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-f054e6f-arm64"
-    awsLambdaDigest: "sha256:f45649b0d5787f4c248d8c48bb979b8df79b0992bfed1c5f389e7d116946d3fe"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-aa894e1-arm64"
+    awsLambdaDigest: "sha256:2425e518d96ceacc8c21d26ac4101f7038dca66fe99dc8eb58bbd33c362e4654"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
-    # same old-pin image into sha256:f1970f2a…). It is only knowable after a real mirror, which is
-    # why a re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate
-    # perform one bootstrap round trip (honua-release#99). The value below was produced that way, by
-    # e2e-cloud-aws run 31988258514 on 2026-08-17: the Lambda candidate was mirrored into
-    # 585192672263.dkr.ecr.us-east-1.amazonaws.com/honua-server:rc-2026.1-rc.1-lambda-aot-f054e6f-arm64
-    # and ECR's stored manifest was asserted to carry the same config digest as the GHCR source.
-    awsLambdaEcrDigest: "sha256:a33b06a85e88d3b099f375fa599bc0da7336223c4d7c85d0f698a806ca1e4bea"
+    # same image into sha256:f1970f2a…). It is only knowable after a real mirror, which is why a
+    # re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate perform
+    # one bootstrap round trip (honua-release#99).
+    # THIS PIN IS AT THE SENTINEL. The previous pin (f054e6f) had its value resolved by e2e-cloud-aws
+    # run 31988258514; moving to aa894e1 changes the source image, so that digest is now WRONG for
+    # this candidate and carrying it forward would be exactly the stale-digest failure #99 exists to
+    # prevent. It is deliberately NOT guessed: the next cloud-gate run mirrors, asserts ECR preserved
+    # the source config, and fails with the value to record here.
+    awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
@@ -83,21 +89,27 @@ components:
       # WIRED (honua-release#83, closes #32): the ADR-0058 registry now surfaces
       # GeoServicesContract/OgcContract/StacContract .Version in the capability envelope, so these are
       # no longer v0 placeholders. Values below were READ FROM A RUNNING SERVER — the pinned image
-      # itself (ghcr.io/honua-io/honua-server:nightly-aot-f054e6f) run locally against postgres+redis
-      # on 2026-08-17, NOT copied from source constants:
+      # itself (ghcr.io/honua-io/honua-server:nightly-aot-aa894e1) run locally against postgres via
+      # e2e/local-docker on 2026-08-17, NOT copied from source constants and NOT carried over from
+      # the previous pin — the read was repeated against this image:
       #   curl -s http://localhost:8080/api/v1/capabilities/manifest \
       #     | jq -c '.transports.items[] | select(.contractVersion) | {id, contractVersion}'
       #   {"id":"geoservices-rest","contractVersion":"1.0.0"}
       #   {"id":"ogc-http","contractVersion":"1.0.0"}
       #   {"id":"stac","contractVersion":"1.0.0"}
-      # The same envelope reported server.deploymentRevision = f054e6fa5e2889af730e4a5722342330e7a1f64f,
-      # proving the read came from exactly this pin. STAC still advertises the spec level separately
-      # (stac_version=1.0.0); the value here is the Honua contract rollup, not the spec level.
+      # The same envelope reported server.deploymentRevision = aa894e1481cd3b59b5c4fe8302cac2c42d6d888c,
+      # proving the read came from exactly this pin. `admin: v1` was likewise re-read live from
+      # /api/v1/admin/capabilities (compatibility.controlPlaneApi.major = 1, adminApiMajor = "v1").
+      # STAC still advertises the spec level separately (stac_version=1.0.0); the value here is the
+      # Honua contract rollup, not the spec level.
       geoservices: "1.0.0"   # transports[].id=geoservices-rest contractVersion
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
     # DB schema floor = highest applied migration on trunk (src/Honua.Server/Migrations/, NNN_ prefix).
-    # 106_CreateManagedUsersAndScimGroups.sql is the max in the pinned server source.
+    # 106_CreateManagedUsersAndScimGroups.sql is the max in the pinned server source, and the pinned
+    # image journalled exactly that on boot:
+    #   select scriptname from public.schema_versions order by scriptname desc limit 1;
+    #   -> Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql
     dbSchema: "106"
 
   honua-console:
