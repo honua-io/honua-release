@@ -55,7 +55,7 @@ jobs:
     outputs:
       status: ${{ steps.canary.outputs.status }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload demo-canary gate-report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: demo-canary-gate-report
           path: e2e/gate-report-demo-canary.json
@@ -127,7 +127,7 @@ jobs:
       # the schema there is a PROPOSAL, since honua-evidence#8 had not defined one as of this writing).
       - name: Upload live-canary evidence envelope
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: live-canary-evidence
           path: e2e/live-canary-evidence.json
@@ -135,7 +135,7 @@ jobs:
 
       - name: Check out the evidence landing zone
         if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-evidence
           ref: trunk
