@@ -139,19 +139,19 @@ jobs:
           if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
               raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
           # honua-release#99: the post-mirror ECR digest is only knowable by actually pushing to ECR
-          # (ECR re-serialises the OCI manifest as Docker schema 2). While no OIDC role is configured
-          # nothing is mirrored and the manifest may honestly say so with the documented sentinel.
-          # The moment a role exists — i.e. the mirror below really runs and really verifies — the
-          # sentinel is rejected, so it can never stand in for a verification that could have run.
+          # (ECR re-serialises the OCI manifest as Docker schema 2, so it differs from the GHCR
+          # digest and cannot be reproduced by a stock registry). On a re-pin the new value is
+          # therefore unknown until this job runs once. The manifest may say so with exactly one
+          # documented sentinel — never a stale digest from a previous pin, never an invented one.
+          # The mirror step below still runs on the sentinel: it pushes, resolves the real digest,
+          # asserts ECR preserved the source config, and then FAILS with the value to record. So the
+          # sentinel buys a bootstrap round-trip, not a skipped verification.
           pending_ecr_mirror = "pending-ecr-mirror"
-          if lambda_ecr_digest == pending_ecr_mirror and os.environ.get("HONUA_AWS_ROLE_ARN", ""):
-              raise SystemExit(
-                  "honua-server awsLambdaEcrDigest is the pending-ecr-mirror sentinel but "
-                  "HONUA_AWS_ROLE_ARN is set — mirror the Lambda candidate and record the real ECR "
-                  "digest (honua-release#99)"
-              )
           if lambda_ecr_digest != pending_ecr_mirror and not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
-              raise SystemExit("honua-server awsLambdaEcrDigest must be an exact sha256 digest")
+              raise SystemExit(
+                  "honua-server awsLambdaEcrDigest must be an exact sha256 digest or the literal "
+                  f"{pending_ecr_mirror!r} sentinel (honua-release#99)"
+              )
           if lambda_architecture not in {"arm64", "x86_64"}:
               raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
           pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
@@ -193,6 +193,33 @@ jobs:
           aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
           EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
             --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+
+          # honua-release#99 bootstrap: on a fresh honua-server pin the post-mirror ECR digest is not
+          # yet knowable, so the manifest carries the pending-ecr-mirror sentinel. Mirror anyway,
+          # verify ECR preserved the source config, then FAIL with the digest to record — the pin is
+          # not certified until the manifest declares it up front, but you only need one round trip.
+          if [ "$EXPECTED_ECR_DIGEST" = "pending-ecr-mirror" ]; then
+            if [ -z "$EXISTING" ] || [ "$EXISTING" = "None" ]; then
+              aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+              docker pull --platform "linux/${SOURCE_ARCHITECTURE/x86_64/amd64}" "$SOURCE_IMAGE"
+              docker tag "$SOURCE_IMAGE" "$TARGET"
+              docker push "$TARGET"
+              EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+            fi
+            BOOT_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+              --image-ids imageDigest="$EXISTING" \
+              --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0].imageManifest' --output text)"
+            BOOT_CONFIG="$(jq -er '.config.digest' <<<"$BOOT_MANIFEST")"
+            if [ "$BOOT_CONFIG" != "$SOURCE_CONFIG" ]; then
+              echo "::error::ECR Lambda config $BOOT_CONFIG does not match source config $SOURCE_CONFIG"
+              exit 1
+            fi
+            echo "::error::awsLambdaEcrDigest is the pending-ecr-mirror sentinel. ECR preserved the source config; record this in platform-manifest.yaml and re-run (honua-release#99): $EXISTING"
+            exit 1
+          fi
+
           if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
             echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $EXPECTED_ECR_DIGEST"
             exit 1
