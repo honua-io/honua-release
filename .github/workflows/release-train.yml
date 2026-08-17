@@ -197,6 +197,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      # Prove the exception ledger is well-formed (every entry names a real gate id and carries an
+      # issue link) BEFORE the report consumes it, so a typo cannot quietly annotate nothing.
+      - name: Self-test the gate-exception ledger
+        run: python -m pytest tools/test_gate_exceptions.py -q
 
       - name: Download the frozen candidate artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -288,14 +294,47 @@ jobs:
                   elif any(.[]; .status=="blocked") then "blocked"
                   else "pass" end)     # a `skipped` gate does not reduce overall below pass
               }' > out/gate-report.json
+
+          # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
+          # annotation: statuses, the summary counts and overallStatus above are already computed and
+          # are NOT touched here, so an exception can never turn a red gate green — it only records
+          # WHY it is red and where the fix is tracked. See certification/gate-exceptions.yaml.
+          python - <<'PY'
+          import json
+          import pathlib
+
+          import yaml
+
+          report_path = pathlib.Path("out/gate-report.json")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          exceptions = (yaml.safe_load(
+              pathlib.Path("certification/gate-exceptions.yaml").read_text(encoding="utf-8")
+          ) or {}).get("gates") or {}
+          before = json.dumps(
+              [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
+          )
+          for row in report["gates"]:
+              entry = exceptions.get(row["gate"])
+              if entry:
+                  row["exception"] = {"issue": entry.get("issue", ""),
+                                      "why": " ".join(str(entry.get("why", "")).split())}
+          after = json.dumps(
+              [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
+          )
+          assert before == after, "gate-exceptions must not alter any gate verdict"
+          report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          PY
+
           cat out/gate-report.json
           echo "overall=$(jq -r .overallStatus out/gate-report.json)" >> "$GITHUB_OUTPUT"
           {
             echo "## release-train $PLATFORM_LABEL — $(jq -r .overallStatus out/gate-report.json)";
             echo "";
-            echo "| gate | status |";
-            echo "|---|---|";
-            jq -r '.gates[] | "| \(.gate) | \(.status) |"' out/gate-report.json;
+            echo "| gate | status | documented exception |";
+            echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.status) | \(if .exception then .exception.issue else "" end) |"' out/gate-report.json;
+            echo "";
+            echo "An exception records WHY a gate is red and where the fix is tracked. It never changes a verdict.";
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Bind the report to the exact candidate and train identity

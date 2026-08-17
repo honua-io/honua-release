@@ -1,0 +1,75 @@
+# Documented exceptions for release-train gates that are currently RED.
+#
+# WHY THIS FILE EXISTS
+# honua-release#83 requires that a release-train cut is either fully green OR that every red gate
+# carries an issue link and an explicit exception — never a silent skip. Prose in a PR description
+# rots and is invisible to anyone reading `gate-report.json`. This file is the machine-readable
+# ledger the train's `report` job attaches to each gate row, so the artifact that downstream tooling
+# consumes says *why* a gate is red and *where* the work to fix it lives.
+#
+# WHAT AN EXCEPTION DOES — AND DOES NOT — DO
+# It attaches {issue, why} to the gate's row in gate-report.json and to the run summary. It does NOT
+# change the gate's verdict, does not downgrade `fail` to `blocked`, does not remove a gate from the
+# rollup, and does not affect `overallStatus`. A red gate with an exception is still red and still
+# fails the train. This is deliberate: an exception mechanism that could flip a verdict is a
+# green-washing mechanism, and per AGENTS.md a gate that can't fail is worse than no gate. If you
+# want a gate to stop failing, fix the gate.
+#
+# HARD GUARDRAIL (enforced by tools/test_gate_exceptions.py):
+#   * every entry names a gate id the train's report actually emits — a typo cannot silently do
+#     nothing, and a gate that is deleted or renamed leaves a dangling entry that fails the test;
+#   * every entry carries a resolvable honua-io issue URL and a non-empty `why`;
+#   * nothing in this file is consulted when deciding pass/fail.
+#
+# HOUSEKEEPING
+# Delete an entry the moment its gate goes green. A stale exception is a lie about the state of the
+# release, which is the exact failure mode this file is meant to prevent.
+
+gates:
+  build-test:
+    issue: https://github.com/honua-io/honua-release/issues/102
+    why: >-
+      Re-pinning every component to trunk HEAD (honua-release#83) imported red CI that the older,
+      hand-picked rc.1 pins did not carry. honua-sdk-dotnet @ f6c98c5cb has 5 red core lanes
+      (Analyze (csharp), Build DocFX site, Code Coverage, Contract Conformance (pinned), Security
+      Audit (NuGet)); honua-iac @ 7abdb07c8 has Static Terraform Validate red plus a scheduled IAM
+      sweep; honua-sdk-python @ 23e9dd3d7 has ephemeral-server-smoke red. None qualify for
+      env-gated-checks.yaml or rollup-checks.yaml — they are compile/analyse/validate lanes, and
+      those files' guardrails forbid listing them — so the gate is honestly red. #102 also raises
+      the underlying policy question: whether pins should be "newest trunk HEAD" or "newest trunk
+      commit whose CI is green".
+
+  artifact-consume:
+    issue: https://github.com/honua-io/honua-release/issues/102
+    why: >-
+      consume-nuget fails because `dotnet pack` of honua-sdk-dotnet @ f6c98c5cb fails restore with
+      NU1903: SSH.NET 2025.1.0 carries a known high-severity advisory (GHSA-q939-rpr3-3284) and the
+      solution treats audit warnings as errors. Same root cause as the Security Audit (NuGet) lane
+      in build-test. This is a real dependency problem in the pinned SDK, not a registry gap, so the
+      gate's tolerant path deliberately does not excuse it.
+
+  cloud-parity:
+    issue: https://github.com/honua-io/honua-release/issues/103
+    why: >-
+      aws-eks/redis-off and aws-eks/redis-on cannot be provisioned: honua-release#79 supplies the
+      missing helm-install + LoadBalancer-resolve step but is unmerged and conflicting, and per its
+      own description the CI role is missing IAM OIDC-provider actions — an account-owner action
+      that no change in this repo can substitute for. aws-ecs is expected to be fixed by #78
+      (merged e09071d82) but no full-scope run has confirmed it yet. aws-serverless and
+      cloud-iac-live pass.
+
+  docs:
+    issue: https://github.com/honua-io/honua-release/issues/100
+    why: >-
+      check_ga_surface reports FAIL: six capability keys are advertised as GA while carrying fewer
+      than the floor of 5 proving tests (ai.workflow-generation, analytics.viewshed, demo.showcase,
+      scene.catalog, serve.wms, serve.wmts). This is independent of the platform manifest — the gate
+      reads honua-evidence's matrix, whose server producer tracks honua-server trunk rather than the
+      pinned SHA — so a re-pin cannot fix it. scene.catalog overlaps honua-release#86.
+
+  evidence:
+    issue: https://github.com/honua-io/honua-release/issues/84
+    why: >-
+      The honua-evidence freshness ledger has non-green producers (server-keys stale by inactivity,
+      dr-drills never produced, live-canary blocked) — honua-release#89 enumerates them. Tracked as
+      part of the gate-evidence/demo-canary red in #84.
