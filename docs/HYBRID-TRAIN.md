@@ -67,6 +67,39 @@ honua-evidence to join — it is deliberately **not** wired as a `release-train.
 the public demo is a persistent, always-on deployment, not an ephemeral per-candidate cell the train
 provisions and tears down.
 
+### Probe quarantine — the only sanctioned way a canary failure stays green (honua-release#84)
+
+A live canary against a standing deployment eventually meets a failure that is real, known, and owned
+by someone else's backlog. There are three things you can do with it, and only one is honest:
+
+| Option | What it costs |
+|---|---|
+| Delete the probe | Destroys the signal permanently — the day the gap is fixed, nothing notices, and the day it regresses further, nothing notices either. |
+| Leave it red | Within a week nobody reads the canary, and the *next*, genuine regression is invisible inside a run that was already red. |
+| **Quarantine it** | Nothing, as long as the quarantine is owned and expires. |
+
+`e2e/canary-quarantine.yaml` maps a probe name to an owning issue, a reason, a `since` date and a hard
+`reviewBy`. `e2e/quarantine.py` (pure, unit-tested in `e2e/test_quarantine.py`) rewrites that probe's
+`fail` to `quarantined`, which keeps the run green and suppresses the auto-filed demo-canary issue —
+and `demo-canary.yml` prints a table in the step summary linking every quarantined probe to its issue,
+so a remaining failure is *owned*, never *silent*. Four properties keep it from rotting into a mute
+button:
+
+- **It only ever downgrades a `fail`.** A `pass` or `blocked` verdict is never rewritten.
+- **`reviewBy` is a hard expiry.** Past that date the entry stops applying and the probe reddens the
+  run again. A quarantine cannot become permanent through neglect — only through a deliberate re-dated
+  commit that a reviewer sees.
+- **The registry reports its own rot.** An entry whose probe now passes (`stale`) or whose probe no
+  longer exists (`unknown`) is surfaced as a workflow annotation, because a stale entry is exactly what
+  would hide the next genuine regression.
+- **Evidence is never quarantined.** The `live-canary-evidence.json` envelope published to
+  honua-evidence still reports a quarantined probe as `red`. Quarantine moves a CI verdict; it does not
+  move an evidence verdict. A known gap must not render green on the public evidence site.
+
+Quarantine is for a *failing* probe with a *named owner*. It is not the mechanism for a capability that
+is legitimately absent on the target (that is `blocked`), nor for a known-broken subsystem the probe
+itself declares report-only (that is `check_geocoding_latency`).
+
 ## What's genuinely hosted vs. genuinely local today
 
 | Lane | Where it runs | Why |

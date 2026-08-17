@@ -172,14 +172,22 @@ trust model:
 - Protect the current default branch, enforce the rule for administrators, require pull requests,
   and require the GitHub Actions `validate` check. `manifest-validate.yml` runs that stable check on
   every pull request so path filters cannot deadlock or bypass it.
-- Configure the `production` environment to allow only protected branches and require the expected
-  human reviewer. Required environment reviewers are unavailable to private repositories on GitHub
-  Team; this private repository therefore needs GitHub Enterprise (or a different external approval
-  control) before production promotion can be enabled. Do not weaken the preflight to work around the
-  plan limitation.
-- Enabling `prevent_self_review` gives a genuine two-actor approval when automation dispatches, but
-  a single-seat owner cannot then approve a manually dispatched run. Add a second human reviewer for
-  continuity before enabling that option.
+- Configure the `production` environment to allow only protected branches, require the expected human
+  reviewer, and enable `prevent_self_review`. The declared configuration is settings-as-code in
+  `certification/production-approval.yaml`; `promote.yml` compares the live environment against it and
+  refuses on anything missing, unreadable, weakened, drifted, or stale, and
+  `.github/workflows/repo-control-drift.yml` monitors the same comparison read-only between releases.
+  **This repository is now public**, so required environment reviewers are available on every plan —
+  the earlier Enterprise dependency applied to this repository while it was private and would return
+  if it were re-privatised. Do not weaken the preflight to work around a plan limitation.
+- `prevent_self_review` plus the preflight's independent-actor check means the required reviewer must
+  not be the actor that dispatches `promote`: automation (or a second human) dispatches, the reviewer
+  approves. The gate requires exactly one declared reviewer, so a single-seat owner who needs to
+  dispatch personally must **rotate** the required reviewer to another human — never disable
+  self-review protection, and never add a second reviewer alongside (the checker refuses more than
+  one; multi-reviewer continuity is tracked in honua-release#93).
+- Full rationale, admin runbook, reviewer rotation, break-glass, and re-lock procedure:
+  `docs/PRODUCTION-APPROVAL-GATE.md` (honua-release#44).
 
 ### Identity, least privilege, provenance
 - The AI acts as a dedicated **GitHub App** with scoped permissions: `actions:write` (dispatch) + `contents:read` + read checks/artifacts — **but no publish/sign/tag rights.** Tagging, publishing, and signing are done by the *workflow's own OIDC identity*, so the AI never holds signing keys and can't exfiltrate them. Keyless signing (OIDC → Sigstore/SLSA) ties provenance to the workflow, and every dispatch records the triggering actor (which AI/human).
