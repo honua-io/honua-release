@@ -58,16 +58,15 @@ components:
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-f054e6f-arm64"
     awsLambdaDigest: "sha256:f45649b0d5787f4c248d8c48bb979b8df79b0992bfed1c5f389e7d116946d3fe"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
-    # the post-mirror digest is NOT derivable from GHCR and NOT reproducible with a stock registry
-    # (verified: pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR
-    # turned it into sha256:f1970f2a… for the old pin). Producing the real value requires an actual
-    # push to ECR, i.e. AWS credentials this repo does not have. Rather than carry the old pin's now
-    # incorrect digest forward, invent a well-formed fake, or crash the resolve step, the field
-    # carries an explicit sentinel: validate_platform.py accepts ONLY sha256:<64hex> or this exact
-    # string, and e2e-cloud-aws.yml accepts it ONLY while HONUA_AWS_ROLE_ARN is unset — with a role
-    # configured the sentinel is a hard failure, so it can never mask a real red. See
-    # honua-release#99 for how to replace it.
-    awsLambdaEcrDigest: "pending-ecr-mirror"   # honua-release#99 — unknown until a real ECR mirror runs
+    # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
+    # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
+    # same old-pin image into sha256:f1970f2a…). It is only knowable after a real mirror, which is
+    # why a re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate
+    # perform one bootstrap round trip (honua-release#99). The value below was produced that way, by
+    # e2e-cloud-aws run 31988258514 on 2026-08-17: the Lambda candidate was mirrored into
+    # 585192672263.dkr.ecr.us-east-1.amazonaws.com/honua-server:rc-2026.1-rc.1-lambda-aot-f054e6f-arm64
+    # and ECR's stored manifest was asserted to carry the same config digest as the GHCR source.
+    awsLambdaEcrDigest: "sha256:a33b06a85e88d3b099f375fa599bc0da7336223c4d7c85d0f698a806ca1e4bea"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
