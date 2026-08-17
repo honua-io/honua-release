@@ -107,7 +107,7 @@ python tools/check_ga_surface.py --matrix path/to/capability-matrix.v1.json
 python -m pytest tools/test_check_ga_surface.py -q
 ```
 
-## `check_evidence_freshness.py` — freeze-phase gate: evidence lineage + freshness (honua-release#60)
+## `check_evidence_freshness.py` — freeze-phase gate: evidence lineage + freshness (honua-release#60, #84)
 
 Proves the honua-evidence capability matrix backing the claims above is actually ABOUT the release
 candidate's pinned honua-server SHA (`platform-manifest.yaml`) and isn't stale, before a candidate is
@@ -117,6 +117,21 @@ configured producer's age from the matrix's own `freshness` block against thresh
 `certification/evidence-freshness.yaml`. A missing matrix, undecidable lineage, or a producer absent
 from the freshness contract (honua-io/honua-evidence#8 pending) reports `blocked`; a genuinely
 diverged sha or stale producer is `fail` in both dry-run and real cuts.
+
+Two more checks landed with honua-release#84:
+
+- **`ledger`** — the matrix's own `generatedAt` against `ledger.maxAgeHours`. Every per-producer
+  verdict is computed from timestamps honua-evidence's aggregator stamps, so a *stalled* aggregator
+  freezes them all at whatever they last said. On 2026-08-16 exactly that happened for 42h
+  (honua-io/honua-evidence#17) and this gate stayed green the whole time, because the frozen
+  `server-matrix` `fetchedAt` was still inside its 48h window. Checking `generatedAt` directly names
+  the real failure instead of misattributing it to whichever producer ages out first.
+- **`producer:<name>`** — every producer the ledger carries, not just the two with thresholds. One
+  the ledger self-reports as `stale`/`missing` must be named in the config's `acknowledged:` block
+  with an owning issue and an unexpired `reviewBy`, or the gate goes red. Same contract, and the same
+  reason, as the demo canary's `e2e/canary-quarantine.yaml`: a known gap must be owned, never silent,
+  never deleted. An acknowledgement never overrides a real threshold, expires hard at `reviewBy`, and
+  is annotated as rot once its producer recovers.
 
 ```bash
 python tools/check_evidence_freshness.py --manifest platform-manifest.yaml \

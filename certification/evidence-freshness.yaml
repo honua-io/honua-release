@@ -34,3 +34,88 @@ producers:
     why: >-
       CITE suite runs are expensive and run on their own cadence (not per-commit), so a wider window
       than server-matrix is appropriate once honua-evidence#8 lands the per-suite freshness join.
+
+# ------------------------------------------------------------------------------------------------
+# LEDGER LIVENESS (honua-release#84)
+#
+# Every `producers:` threshold above is computed from a `fetchedAt` timestamp that honua-evidence's
+# aggregator stamps when it regenerates capability-matrix.v1.json. That makes the whole freshness
+# block only as live as the aggregator itself — and on 2026-08-16 the aggregator DIED: a scheduled
+# `aggregate` run parked in `waiting` on the `github-pages` environment with zero eligible reviewers
+# and held the `aggregate-pages` concurrency group (cancel-in-progress: false) for 42 hours, so every
+# later run queued behind it and was cancelled. The matrix froze at 2026-08-16T05:45Z. This gate
+# stayed GREEN throughout, because server-matrix's frozen fetchedAt was still inside its 48h window,
+# and would eventually have gone red blaming `server-matrix` — the wrong producer, the wrong repo,
+# the wrong fix. See honua-io/honua-evidence#17.
+#
+# So: check the ledger's own `generatedAt` directly. A dead aggregator is now its own named check
+# with the correct diagnosis, and it trips BEFORE the per-producer cascade it would otherwise be
+# misattributed to.
+ledger:
+  maxAgeHours: 36
+  why: >-
+    honua-evidence aggregates daily (cron 23 6 * * *) plus on every producer-updated dispatch, so a
+    healthy ledger is regenerated many times a day. 36h tolerates one entirely missed daily run
+    without flapping while still catching a stalled aggregator well inside the 48h server-matrix
+    window it would otherwise be misattributed to.
+
+# ------------------------------------------------------------------------------------------------
+# ACKNOWLEDGED NON-GREEN PRODUCERS (honua-release#84)
+#
+# The `producers:` block above only sees the two producers it names. Every OTHER producer in the
+# ledger — server-keys, sdk-dotnet, sdk-python, dr-drills, samples, open-issues, live-canary — was
+# completely invisible to this gate, including the ones the ledger itself marks `stale`/`missing`.
+# honua-release#84's AC-2 ("no stale/missing producer older than 7 days") was therefore unobservable
+# from the gate that exists to enforce evidence freshness.
+#
+# Now every producer present in the ledger is evaluated. One the ledger marks `stale`/`missing` must
+# be named here with an owning issue or the gate goes RED — the same contract as the demo canary's
+# e2e/canary-quarantine.yaml, and for the same reason: a known gap must be owned, never silent and
+# never deleted.
+#
+# CONTRACT (tools/check_evidence_freshness.py; tools/test_check_evidence_freshness.py)
+#   * Applies ONLY to producers the ledger self-reports as `stale`/`missing` AND that are not in
+#     `producers:` above. A producer with a real threshold is judged by that threshold, always.
+#   * An acknowledged producer reports `acknowledged` — printed with its issue link, surfaced in the
+#     workflow step summary, and NOT reddening the run.
+#   * `reviewBy` is a hard expiry. Past that date the entry stops applying and the producer FAILs.
+#   * An entry whose producer is green again is reported as stale — delete it.
+#   * An entry naming a producer the ledger does not carry is reported as unknown — usually a rename.
+#   * This changes a CI verdict, never an evidence verdict: honua-evidence's own ledger still says
+#     `stale`/`missing`, and the evidence site still renders it that way.
+#
+# Every field is required; `issue` must be a full URL so the run summary is one click from the owner.
+acknowledged:
+  server-keys:
+    issue: https://github.com/honua-io/honua-release/issues/89
+    reason: >-
+      Stale by inactivity, not by breakage: this producer ages off honua-server's
+      docs/gis/data/capability-keys.v1.json, which genuinely has not changed since 2026-07-24. The
+      open contract question — whether an unchanged upstream file should age into `stale` at all, or
+      whether freshness should key off the observation rather than the content — is #89's to settle.
+    since: "2026-08-17"
+    reviewBy: "2026-09-30"
+  sdk-dotnet:
+    issue: https://github.com/honua-io/honua-release/issues/89
+    reason: >-
+      Same stale-by-inactivity shape as server-keys: honua-sdk-dotnet's last observed commit is
+      2026-07-17 and the SDK has not shipped since, so the producer crossed honua-evidence's 30-day
+      window without anything breaking. Covered by #89's freshness-contract decision.
+    since: "2026-08-17"
+    reviewBy: "2026-09-30"
+  sdk-python:
+    issue: https://github.com/honua-io/honua-release/issues/89
+    reason: >-
+      Identical to sdk-dotnet — honua-sdk-python's last observed commit is 2026-07-17. Stale by
+      inactivity; covered by #89's freshness-contract decision.
+    since: "2026-08-17"
+    reviewBy: "2026-09-30"
+  dr-drills:
+    issue: https://github.com/honua-io/honua-release/issues/89
+    reason: >-
+      Never produced, as opposed to gone stale: honua-evidence's data/producers/dr-drills/ contains
+      only a README because no DR drill has pushed an evidence envelope yet. The producer belongs to
+      the IaC/DB side of the stateless-server DR split, so building it is #89's call, not a
+      honua-release change.
+    since: "2026-08-17"
+    reviewBy: "2026-09-30"
