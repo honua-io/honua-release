@@ -126,8 +126,26 @@ _SAMPLE_VALUE = r"(?:[0-9eE+.\-]+|[+-]?Inf|NaN)"
 _SAMPLE_TIMESTAMP = r"(?:\s+-?[0-9]+)?"
 
 
-def parse_metric_total(body: str, name: str) -> float | None:
-    """Sum every sample (across label sets) of a Prometheus series in an exposition `body`.
+_LABEL_PAIR = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"')
+_SELECTOR_TERM = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*(=~|=)\s*"((?:[^"\\]|\\.)*)"')
+
+
+def parse_label_selector(fragment: str) -> dict[str, str]:
+    """Turn a PromQL label-matcher fragment into {label: regex}.
+
+    Only the positive forms (``=`` and ``=~``) are supported, on purpose. A negative matcher is a
+    denylist, and a denylist silently re-opens a scope hole the moment a new label value appears —
+    which for an error-budget denominator means failing OPEN. Callers scope by allowlist instead.
+    """
+    filters: dict[str, str] = {}
+    for label, op, value in _SELECTOR_TERM.findall(fragment or ""):
+        filters[label] = value if op == "=~" else re.escape(value)
+    return filters
+
+
+def parse_metric_total(body: str, name: str,
+                       label_filters: dict[str, str] | None = None) -> float | None:
+    """Sum matching samples of a Prometheus series in an exposition `body`.
 
     `name` is the exposition series name, so histogram children work too: pass
     ``honua_serving_request_duration_ms_count`` to total a histogram's observation count (the
@@ -135,37 +153,64 @@ def parse_metric_total(body: str, name: str) -> float | None:
     ``honua_serving_request_duration_ms`` does not pick up its ``_count``/``_sum``/``_bucket``
     children.
 
+    `label_filters` maps a label name to a full-match regex, and is how a caller keeps a ratio's
+    denominator in the same SCOPE as its numerator. Summing every label set of a request counter
+    against a GeoServices-only error counter is a fail-open error budget: a 10% GeoServices error
+    rate measured against unscoped traffic reads as a fraction of a percent and passes.
+
+    Returns None when nothing matches — either the metric is absent or no sample is in scope. See
+    scrape_metric for why that is meaningful.
+
     Pure + side-effect free so it is unit-testable without a live server (see test_runner.py).
-    Returns None when the metric is absent entirely — see scrape_metric for why that is meaningful.
     """
     total = None
     pat = re.compile(
         rf"^{re.escape(name)}(\{{[^}}]*\}})?\s+({_SAMPLE_VALUE}){_SAMPLE_TIMESTAMP}\s*$"
     )
+    compiled = {k: re.compile(v) for k, v in (label_filters or {}).items()}
     for line in body.splitlines():
         if line.startswith("#"):
             continue
         m = pat.match(line.strip())
-        if m:
-            total = (total or 0.0) + float(m.group(2))
+        if not m:
+            continue
+        if compiled:
+            labels = dict(_LABEL_PAIR.findall(m.group(1) or ""))
+            if not all(rx.fullmatch(labels.get(k, "")) for k, rx in compiled.items()):
+                continue
+        total = (total or 0.0) + float(m.group(2))
     return total
 
 
-def scrape_metric(metrics_url: str, name: str) -> float | None:
-    """Sum all samples of a Prometheus counter. Returns None if the metric is absent.
+def scrape_metrics_body(metrics_url: str, timeout: int = 15) -> str | None:
+    """Fetch a Prometheus exposition. Returns None when it cannot be read.
+
+    The X-API-Key header is required, not optional: honua-server maps its scraping endpoint with
+    `.RequireAuthorization("Admin")` (Honua.ServiceDefaults/Extensions.cs), so an unauthenticated
+    GET returns 401. A caller that swallows that into "metric absent" reports a missing metric when
+    the real problem is a missing credential.
+    """
+    try:
+        request = urllib.request.Request(metrics_url)
+        request.add_header("X-API-Key", os.environ.get("HONUA_ADMIN_PASSWORD", "honua-console-dev-key"))
+        with urllib.request.urlopen(request, timeout=timeout) as r:
+            return r.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError):
+        return None
+
+
+def scrape_metric(metrics_url: str, name: str,
+                  label_filters: dict[str, str] | None = None) -> float | None:
+    """Sum matching samples of a Prometheus counter. Returns None if nothing matches.
 
     None is meaningful: if honua_geoservices_error_total is missing entirely, the in-band error metric
     isn't wired (the very blindness server#2243 is about) — the scenario treats that as a failure when
     real, BLOCKED while placeholder.
     """
-    try:
-        request = urllib.request.Request(metrics_url)
-        request.add_header("X-API-Key", os.environ.get("HONUA_ADMIN_PASSWORD", "honua-console-dev-key"))
-        with urllib.request.urlopen(request, timeout=5) as r:
-            body = r.read().decode("utf-8", "replace")
-    except (urllib.error.URLError, OSError):
+    body = scrape_metrics_body(metrics_url, timeout=5)
+    if body is None:
         return None
-    return parse_metric_total(body, name)
+    return parse_metric_total(body, name, label_filters)
 
 
 # --------------------------------------------------------------------------------------------------

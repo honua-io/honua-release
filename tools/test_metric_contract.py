@@ -84,12 +84,44 @@ def test_grouping_by_the_sanitized_label_name_passes():
     assert problems == []
 
 
-def test_matcher_label_from_the_wrong_series_fails():
-    # in_band lives on the error counter, not on the duration histogram.
-    rule = 'sum(rate(honua_serving_request_duration_ms_count{status_class="5xx"}[5m]))'
-    assert mc.check_sources(CONTRACT, {"a": rule})[0] == []
+def test_matcher_label_is_checked_against_the_series_it_is_written_on():
+    """A label that is real on ANOTHER metric in the same file must still fail here.
+
+    Pooling labels per file made this pass: `in_band` is a genuine label of the error counter, so a
+    file containing both metrics accepted it on the duration histogram too — where it matches
+    nothing and yields an empty vector.
+    """
+    ok = 'sum(rate(honua_serving_request_duration_ms_count{status_class="5xx"}[5m]))'
+    assert mc.check_sources(CONTRACT, {"a": ok})[0] == []
+
+    # in_band lives on honua_request_error_total, never on the histogram — and both appear here.
+    mixed = (
+        'sum(rate(honua_request_error_total{in_band="true"}[5m]))'
+        ' / sum(rate(honua_serving_request_duration_ms_count{in_band="true"}[5m]))'
+    )
+    problems = mc.check_sources(CONTRACT, {"a": mixed})[0]
+    assert any(
+        "honua_serving_request_duration_ms_count" in p and "in_band" in p for p in problems
+    ), problems
+    assert not any("honua_request_error_total' on label 'in_band" in p for p in problems), problems
+
+
+def test_matcher_label_present_on_no_series_fails():
     bad = 'sum(rate(honua_serving_request_duration_ms_count{status_code=~"5.."}[5m]))'
     assert any("status_code" in p for p in mc.check_sources(CONTRACT, {"a": bad})[0])
+
+
+def test_grafana_legend_label_drift_fails():
+    """A legend naming a label the rules no longer group by renders blank — silent, like the rest."""
+    panel = (
+        '{"expr": "sum by (honua_protocol) (rate(honua_serving_request_duration_ms_count[5m]))",'
+        ' "legendFormat": "p95 {{service}} {{protocol}}"}'
+    )
+    problems = mc.check_sources(CONTRACT, {"honua-devops/dash.json": panel})[0]
+    assert any("'protocol'" in p for p in problems), problems
+
+    fixed = panel.replace("{{protocol}}", "{{honua_protocol}}")
+    assert mc.check_sources(CONTRACT, {"honua-devops/dash.json": fixed})[0] == []
 
 
 def test_target_labels_applied_by_prometheus_are_allowed():
@@ -111,7 +143,9 @@ def test_helm_template_braces_are_not_read_as_label_matchers():
         "{{- $sel := trim (default \"\" (get $slo \"metricSelector\")) }}\n"
         'expr: \'sum(rate(honua_request_error_total{ {{- $inbandSel -}} }[{{ .window }}]))\''
     )
-    series, labels = mc.extract_references(tpl)
+    series, attached, unattributed = mc.extract_references(tpl)
+    labels = set().union(*attached.values()) if attached else set()
+    labels |= unattributed
     assert series == {"honua_request_error_total"}
     assert labels == set()
 
@@ -126,7 +160,7 @@ def test_metric_names_inside_helm_printf_actions_are_still_checked():
         '{{- $errRatio := printf "sum(rate(honua_request_error_total{%s}[%%s]))'
         ' / clamp_min(sum(rate(honua_http_requests_total{%s}[%%s])), 0.001)" $sel $sel }}'
     )
-    series, _ = mc.extract_references(tpl)
+    series, _, _ = mc.extract_references(tpl)
     assert "honua_http_requests_total" in series
     problems, _ = mc.check_sources(CONTRACT, {"honua-helm/prometheusrule.yaml": tpl})
     assert any("honua_http_requests_total" in p for p in problems), problems
@@ -135,25 +169,26 @@ def test_metric_names_inside_helm_printf_actions_are_still_checked():
 def test_github_actions_expressions_are_not_stripped_like_helm_actions():
     """The gate's own bad default lived inside ${{ ... }} — stripping it would hide the drift."""
     workflow = "      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_geoservices_requests_total' }}\n"
-    series, _ = mc.extract_references(workflow)
+    series, _, _ = mc.extract_references(workflow)
     assert series == {"honua_geoservices_requests_total"}
 
 
 def test_yaml_flow_mappings_are_not_read_as_label_matchers():
     yaml = "      platform_label: { required: false, type: string, default: 'dev-local' }\n"
-    _, labels = mc.extract_references(yaml)
+    _, attached, unattributed = mc.extract_references(yaml)
+    labels = (set().union(*attached.values()) if attached else set()) | unattributed
     assert labels == set()
 
 
 def test_recording_rule_names_are_not_series_references():
     # `honua:slo:...` recording-rule names are colon-separated and must not be checked as metrics.
-    series, _ = mc.extract_references("- record: honua:slo:error_rate:ratio_5m")
+    series, _, _ = mc.extract_references("- record: honua:slo:error_rate:ratio_5m")
     assert series == set()
 
 
 def test_extraction_finds_names_in_prose_comments():
     # Stale explanatory comments are drift too — values.yaml documents the rules to operators.
-    series, _ = mc.extract_references("# the server increments honua_request_error_total for them")
+    series, _, _ = mc.extract_references("# the server increments honua_request_error_total for them")
     assert series == {"honua_request_error_total"}
 
 

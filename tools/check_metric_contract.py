@@ -48,10 +48,20 @@ CONSUMER_GLOBS: dict[str, list[str]] = {
     "honua-helm": [
         "honua/templates/prometheusrule.yaml",
         "honua/values.yaml",
+        # The chart's own CI asserted the rendered denominator by name. That is a consumer of these
+        # names like any other, and while it pinned honua_http_requests_total it did not merely miss
+        # the drift, it ENFORCED it: the chart could not adopt a real metric without turning
+        # lint-chart red. A guard that skips the file which locks the bug in is not a guard.
+        ".github/workflows/ci.yml",
+        # Operator-facing docs describing which counters the alerts are built on.
+        "honua/README.md",
     ],
     "honua-devops": [
         "observability/prometheus/*.yml",
         "observability/prometheus/*.yaml",
+        # Dashboard panels reference the same series and labels, and a blank panel is exactly as
+        # silent as an alert that never fires.
+        "observability/grafana/*.json",
     ],
 }
 
@@ -73,7 +83,17 @@ _SERIES_WITH_MATCHER = re.compile(r"(honua_[a-z0-9_]+)\s*\{([^}]*)\}")
 # PromQL aggregation label lists.
 _GROUPING = re.compile(r"\b(?:by|without)\s*\(([^)]*)\)")
 _SERIES_TOKEN = re.compile(r"\bhonua_[a-z0-9_]+\b")
+# Grafana legendFormat label interpolation: a bare {{label}} and nothing else inside the braces.
+# Helm actions ({{ .Release.Namespace }}, {{ printf ... }}, {{- $sel -}}) do not match this shape.
+_TEMPLATE_LABEL = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 _LABEL_NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:=~|!~|!=|=)")
+# A label matcher term standing on its own, i.e. not written directly after a series name — Helm
+# assigns selector fragments to template variables and splices them in later.
+# Only the REGEX operators are recognised. `ident="value"` is ubiquitous in YAML, shell and Markdown
+# (ERR="$x", HONUA_ADMIN_PASSWORD="...") and treating those as PromQL matchers floods the report with
+# nonsense; `=~` and `!~` are effectively PromQL-only, and the Honua-prefixed labels that would
+# otherwise be misread as series names (honua_protocol, honua_operation) are always written with one.
+_BARE_MATCHER_TERM = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*(=~|!~)\s*\\?"([^"]*)')
 
 
 def load_contract(path: str) -> dict:
@@ -119,25 +139,47 @@ def split_comments(text: str) -> tuple[str, str]:
     return "\n".join(code), "\n".join(comments)
 
 
-def extract_references(text: str) -> tuple[set[str], set[str]]:
-    """Return (series names, label names) referenced by one consumer file.
+def extract_references(text: str) -> tuple[set[str], dict[str, set[str]], set[str]]:
+    """Return (series names, labels attached per series, unattributed label names).
+
+    A label used in a matcher is attributed to the SERIES it is written on, so it can be checked
+    against that series' own labels — `honua_serving_request_duration_ms_count{status_code=~"5.."}`
+    must fail even though `status_code` is a perfectly real label on some other metric. Labels from
+    `by (...)`/`without (...)` groupings and from Grafana `{{legend}}` fields cannot be attributed
+    without a full PromQL/dashboard parse, so they are returned separately and checked against the
+    union of the file's series.
 
     Pure and side-effect free so the extraction rules are unit-testable without any checkout.
     """
-    labels: set[str] = set()
-    for _, matcher in _SERIES_WITH_MATCHER.findall(text):
-        labels.update(_LABEL_NAME.findall(matcher))
-    for grouping in _GROUPING.findall(text):
-        labels.update(
+    attached: dict[str, set[str]] = {}
+    for series_name, matcher in _SERIES_WITH_MATCHER.findall(text):
+        attached.setdefault(series_name, set()).update(_LABEL_NAME.findall(matcher))
+
+    # Remove the attributed matchers first so their terms are not re-read as free-standing ones.
+    stripped = _SERIES_WITH_MATCHER.sub(lambda m: m.group(1) + " ", text)
+
+    unattributed: set[str] = set()
+    # Selector fragments that are not written against a series name: Helm assigns them to template
+    # variables ($geoServicesSel := "honua_protocol=~\"...\"") and splices them in later. Their label
+    # names must be recognised as labels, or `honua_protocol` reads as a metric that does not exist.
+    unattributed.update(label for label, _, _ in _BARE_MATCHER_TERM.findall(stripped))
+    stripped = _BARE_MATCHER_TERM.sub(" ", stripped)
+
+    for grouping in _GROUPING.findall(stripped):
+        unattributed.update(
             part.strip() for part in grouping.split(",") if part.strip() and part.strip().isidentifier()
         )
+    # Grafana legendFormat interpolates label names as bare {{label}}. A legend naming a label the
+    # rules no longer group by renders blank — the same silent failure, one layer up.
+    unattributed.update(_TEMPLATE_LABEL.findall(stripped))
 
-    # Strip the matcher/grouping blocks so label names are never mistaken for series names.
-    stripped = _SERIES_WITH_MATCHER.sub(lambda m: m.group(1) + " ", text)
+    # Strip the grouping/legend blocks too, so label names are never mistaken for series names — a
+    # legend that correctly renders {{honua_protocol}} must not be reported as a missing metric.
     stripped = _GROUPING.sub(" ", stripped)
+    stripped = _TEMPLATE_LABEL.sub(" ", stripped)
     series = set(_SERIES_TOKEN.findall(stripped))
 
-    return series, labels
+    return series, attached, unattributed
 
 
 def check_sources(contract: dict, sources: dict[str, str]) -> tuple[list[str], list[str]]:
@@ -151,8 +193,8 @@ def check_sources(contract: dict, sources: dict[str, str]) -> tuple[list[str], l
 
     for label, text in sorted(sources.items()):
         code, comments = split_comments(text)
-        series, used_labels = extract_references(code)
-        commented, _ = extract_references(comments)
+        series, attached_labels, unattributed_labels = extract_references(code)
+        commented, _, _ = extract_references(comments)
 
         for name in sorted(series):
             if name in emitted:
@@ -183,16 +225,35 @@ def check_sources(contract: dict, sources: dict[str, str]) -> tuple[list[str], l
                 f"Stale metric documentation is how the next author reintroduces the drift."
             )
 
-        allowed = set(external)
-        for name in series:
-            allowed |= labels_by_series.get(name, set())
-        for name in sorted(used_labels):
-            if name in allowed:
-                continue
+        # A matcher label is checked against the series it is WRITTEN ON. Pooling every label in a
+        # file against the union of its series lets `duration_count{status_code=~"5.."}` pass purely
+        # because some other metric in the same file has a status_code label.
+        for series_name in sorted(attached_labels):
+            series_allowed = set(external) | labels_by_series.get(series_name, set())
+            for name in sorted(attached_labels[series_name] - series_allowed):
+                problems.append(
+                    f"{label}: selects '{series_name}' on label '{name}', which that series does not "
+                    f"carry (its labels are "
+                    f"{sorted(labels_by_series.get(series_name, set())) or 'unknown — series not in contract'}). "
+                    f"Matching on a label a series does not have yields an EMPTY vector, so the rule "
+                    f"silently never fires."
+                )
+
+        # Grouping, legend and free-standing-selector labels cannot be attributed to one series
+        # without a full PromQL parse — and a dashboard querying `honua:slo:latency:p95_ms:5m`
+        # references no raw series at all, because the labels it groups by were inherited from a
+        # recording rule in another file. They are therefore checked against every label the
+        # contract knows about. That still catches the real class of bug (a label no Honua series
+        # carries, e.g. `protocol` instead of `honua_protocol`); attributing them precisely would
+        # need cross-file recording-rule resolution.
+        pooled = set(external) | (
+            set().union(*labels_by_series.values()) if labels_by_series else set()
+        )
+        for name in sorted(unattributed_labels - pooled):
             problems.append(
-                f"{label}: uses label '{name}', which is neither a contract label of the series it "
-                f"references nor a known target label. Selecting or grouping by a label the server "
-                f"does not attach silently collapses or empties the result instead of erroring."
+                f"{label}: groups or renders by label '{name}', which is neither a contract label of "
+                f"the series it references nor a known target label. Grouping by a label the server "
+                f"does not attach silently collapses the result instead of erroring."
             )
 
     return problems, notes

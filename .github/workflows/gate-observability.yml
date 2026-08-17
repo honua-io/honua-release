@@ -36,6 +36,9 @@ on:
       enforcement:    { required: false, type: string, default: bootstrap }
     secrets:
       RELEASE_GH_TOKEN: { required: false }
+      # Admin API key for the candidate's /metrics endpoint, which honua-server maps with
+      # .RequireAuthorization("Admin"). Without it the scrape is a 401 that reads as "metric absent".
+      HONUA_METRICS_API_KEY: { required: false }
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped"
@@ -56,12 +59,20 @@ jobs:
     env:
       HONUA_METRICS_URL: ${{ vars.HONUA_METRICS_URL }}
       ERROR_METRIC: "honua_geoservices_error_total"
-      # The canonical SLO denominator: the _count child of honua-server's serving-plane latency
-      # histogram — one sample per served request that classifies to a Honua protocol, and the only
-      # request-volume series the server exports. The previous default
+      # The denominator: the _count child of honua-server's serving-plane latency histogram, one
+      # sample per served request that classifies to a Honua protocol. The previous default
       # (honua_geoservices_requests_total) was an invented name; check_slo.py returns "blocked" when
       # request_total is None, so this gate was STRUCTURALLY incapable of returning `pass`.
       REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_serving_request_duration_ms_count' }}
+      # SCOPE IS NOT OPTIONAL. ERROR_METRIC counts GeoServices errors only, so the denominator must
+      # count GeoServices requests only. Summed across every label set it also carries OGC/OData/
+      # Admin traffic and — until honua-server stopped recording them — health probes and metric
+      # scrapes, which on a day-old candidate outnumber a smoke suite ~100:1. That turns a 10% real
+      # error rate into 0.09% and passes a 1% budget: fail-OPEN, worse than the no-signal state this
+      # gate replaced. The selector is read from honua-server's slo-metric-contract.json (generated
+      # from HonuaTelemetry.Protocols.GeoServicesFamily) so it cannot drift from the server. If it
+      # cannot be resolved the gate blocks rather than falling back to an unscoped denominator.
+      REQUEST_SELECTOR_KEY: "geoservices_protocols"
       MAX_ERROR_RATE: ${{ vars.HONUA_MAX_ERROR_RATE || '0.01' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,7 +144,56 @@ jobs:
           echo "why=${WHY:-see log}" >> "$GITHUB_OUTPUT"
           { echo "## Observability / metric contract — ${STATUS}"; echo ""; echo "${WHY:-see log}"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Scrape the candidate metrics + evaluate the error budget
+      # Scrape once and write each total to GITHUB_ENV as its own key. The previous
+      # `read -r ERR REQ < <(...)` split one whitespace-separated line, so it only empty-guarded the
+      # SECOND value: with the error metric absent and the request metric present, python printed
+      # " 1000.0", `read` stripped the leading IFS whitespace, and the REQUEST total landed in ERR
+      # while REQ went empty — inverting the ratio's inputs. Latent before, and activated the moment
+      # the request metric started resolving.
+      - name: Scrape the candidate metrics
+        env:
+          # honua-server maps /metrics with .RequireAuthorization("Admin"), so an unauthenticated
+          # GET is a 401 that the scraper would report as "metric absent". harness.scrape_metrics_body
+          # sends X-API-Key; this supplies it.
+          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY }}
+        run: |
+          set -uo pipefail
+          python - >> "$GITHUB_ENV" <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "e2e")
+          from runner.harness import scrape_metrics_body, parse_metric_total, parse_label_selector
+
+          url = os.environ.get("HONUA_METRICS_URL", "").strip()
+          body = scrape_metrics_body(url) if url else None
+
+          # The denominator's scope selector comes from the candidate server's own contract file.
+          # If it cannot be resolved we emit NO request total, so the gate blocks. Falling back to an
+          # unscoped denominator would be fail-open, which is the one outcome worse than no signal.
+          selector, selector_why = "", ""
+          contract = os.path.join(
+              os.environ.get("REPOS_ROOT", ""), "honua-server",
+              "observability", "slo-metric-contract.json")
+          try:
+              with open(contract, encoding="utf-8") as handle:
+                  selector = json.load(handle)["selectors"][os.environ["REQUEST_SELECTOR_KEY"]]
+          except (OSError, KeyError, ValueError) as exc:
+              selector_why = f"scope selector unavailable ({exc.__class__.__name__}) - {contract}"
+
+          def total(name, sel=None):
+              if body is None:
+                  return ""
+              value = parse_metric_total(body, name, parse_label_selector(sel) if sel else None)
+              return "" if value is None else repr(value)
+
+          # The numerator is GeoServices-scoped by construction (honua_geoservices_error_total is
+          # only incremented on GeoServices surfaces), so it takes no selector. The denominator must
+          # be narrowed to match it, and yields nothing at all when the selector is unresolved.
+          print(f"SCRAPED_ERR={total(os.environ['ERROR_METRIC'])}")
+          print(f"SCRAPED_REQ={total(os.environ['REQUEST_METRIC'], selector) if selector else ''}")
+          print(f"SCRAPED_SELECTOR={selector or selector_why}")
+          PY
+
+      - name: Evaluate the error budget
         id: eval
         env:
           CONTRACT_STATUS: ${{ steps.contract.outputs.status }}
@@ -141,24 +201,8 @@ jobs:
         run: |
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
-          # Reuse the e2e Prometheus parser; scrape the in-band error + request counters.
-          read -r ERR REQ < <(python - <<'PY'
-          import os, sys, urllib.request
-          sys.path.insert(0, "e2e")
-          from runner.harness import parse_metric_total
-          url = os.environ.get("HONUA_METRICS_URL", "").strip()
-          def scrape(name):
-              if not url: return ""
-              try:
-                  body = urllib.request.urlopen(url, timeout=15).read().decode("utf-8","replace")
-              except Exception:
-                  return ""
-              v = parse_metric_total(body, name)
-              return "" if v is None else repr(v)
-          print(scrape(os.environ["ERROR_METRIC"]), scrape(os.environ["REQUEST_METRIC"]) or '""')
-          PY
-          )
-          ERR="${ERR:-}"; REQ="${REQ:-}"
+          ERR="${SCRAPED_ERR:-}"; REQ="${SCRAPED_REQ:-}"
+          echo "scope selector: ${SCRAPED_SELECTOR:-<unresolved>}"
           echo "scraped error_total=${ERR:-<absent>} request_total=${REQ:-<absent>} (url=${HONUA_METRICS_URL:-<unset>})"
           # Raw verdict from the pure, unit-tested decision core (pass|fail|blocked). We evaluate WITHOUT
           # --require-real here and apply the enforcement policy below, so the honest dry-run skip is

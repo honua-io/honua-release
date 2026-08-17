@@ -12,6 +12,7 @@ Run: python -m pytest e2e/runner/test_runner.py    (or: python e2e/runner/test_r
 """
 from __future__ import annotations
 
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -118,6 +119,62 @@ def test_parse_metric_histogram_base_name_does_not_absorb_its_children():
     # Guards the denominator against double counting: the bare histogram name has no samples of its
     # own, so it must stay absent rather than silently summing _count + _sum + _bucket.
     assert harness.parse_metric_total(REAL_EXPOSITION, "honua_serving_request_duration_ms") is None
+
+
+# ---- scope selectors: the denominator must cover the numerator's population --------------------
+GEOSERVICES_SELECTOR = (
+    'honua_protocol=~"FeatureServer|MapServer|ImageServer|VectorTileServer|GPServer|NAServer|'
+    'GeometryService|PrintingTools|StaticMap"'
+)
+
+# A candidate that has been up for a day: probe traffic dwarfs the smoke suite.
+MIXED_TRAFFIC = (
+    'honua_serving_request_duration_ms_count{honua_protocol="Health"} 17280 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="Monitoring"} 5760 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="FeatureServer"} 180 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="MapServer"} 20 1786929468470\n'
+    'honua_geoservices_error_total{service_type="FeatureServer"} 20 1786929468470\n'
+)
+
+
+def test_parse_metric_label_selector_scopes_the_denominator():
+    filters = harness.parse_label_selector(GEOSERVICES_SELECTOR)
+    assert harness.parse_metric_total(
+        MIXED_TRAFFIC, "honua_serving_request_duration_ms_count", filters
+    ) == 200.0
+
+
+def test_unscoped_denominator_makes_a_ten_percent_error_rate_look_healthy():
+    """The fail-open regression this selector exists to prevent.
+
+    20 errors in 200 GeoServices calls is a 10% error rate. Divided by every label set — which
+    includes a day of health probes and metric scrapes — it reads as 0.09% and passes a 1% budget
+    with an order of magnitude to spare.
+    """
+    errors = harness.parse_metric_total(MIXED_TRAFFIC, "honua_geoservices_error_total")
+    unscoped = harness.parse_metric_total(MIXED_TRAFFIC, "honua_serving_request_duration_ms_count")
+    scoped = harness.parse_metric_total(
+        MIXED_TRAFFIC,
+        "honua_serving_request_duration_ms_count",
+        harness.parse_label_selector(GEOSERVICES_SELECTOR),
+    )
+    assert errors / unscoped < 0.01      # would PASS a 1% budget
+    assert errors / scoped == 0.10       # correctly BREACHES it
+
+
+def test_parse_metric_returns_none_when_no_sample_is_in_scope():
+    # "no in-scope traffic" must be indistinguishable from "absent" so the gate blocks rather than
+    # dividing by zero.
+    filters = harness.parse_label_selector('honua_protocol="OData"')
+    assert harness.parse_metric_total(
+        MIXED_TRAFFIC, "honua_serving_request_duration_ms_count", filters
+    ) is None
+
+
+def test_parse_label_selector_handles_equality_and_regex_terms():
+    assert harness.parse_label_selector('a="x",b=~"y|z"') == {"a": "x", "b": "y|z"}
+    # An equality value is escaped so regex metacharacters in a label value stay literal.
+    assert harness.parse_label_selector('a="x.y"') == {"a": re.escape("x.y")}
 
 
 def test_parse_metric_handles_special_float_literals():
