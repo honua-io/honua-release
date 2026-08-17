@@ -121,7 +121,7 @@ jobs:
       grpc_version: ${{ steps.pins.outputs.grpc_version }}
       grpc_sha: ${{ steps.pins.outputs.grpc_sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -183,7 +183,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
@@ -272,7 +272,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "8.0.x"
@@ -370,7 +370,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -468,7 +468,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
@@ -557,7 +557,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: "v3.14.4"
@@ -677,7 +677,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - name: Consume honua-server image
         id: consume
         env:
@@ -790,7 +790,7 @@ jobs:
     needs: resolve_pins
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v4.3.1 - for the local ./.github/actions/gate-fragment composite action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1      # v7.0.1 - for the local ./.github/actions/gate-fragment composite action
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           github_token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
