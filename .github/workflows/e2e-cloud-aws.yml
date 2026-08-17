@@ -99,6 +99,11 @@ jobs:
       - run: python -m pip install -r e2e/requirements.txt
       - name: Read exact cloud component SHAs from the platform manifest
         id: pins
+        env:
+          # Presence of the OIDC role decides whether the pending-ecr-mirror sentinel is acceptable:
+          # with no role nothing is mirrored (the cell self-skips), so an unknown post-mirror digest
+          # is honest. With a role configured the mirror DOES run and the sentinel is a hard failure.
+          HONUA_AWS_ROLE_ARN: ${{ vars.HONUA_AWS_ROLE_ARN }}
         run: |
           python - <<'PY'
           import os
@@ -133,7 +138,19 @@ jobs:
               raise SystemExit("honua-server awsLambdaImage must be an exact Honua GHCR tag")
           if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
               raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
-          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
+          # honua-release#99: the post-mirror ECR digest is only knowable by actually pushing to ECR
+          # (ECR re-serialises the OCI manifest as Docker schema 2). While no OIDC role is configured
+          # nothing is mirrored and the manifest may honestly say so with the documented sentinel.
+          # The moment a role exists — i.e. the mirror below really runs and really verifies — the
+          # sentinel is rejected, so it can never stand in for a verification that could have run.
+          pending_ecr_mirror = "pending-ecr-mirror"
+          if lambda_ecr_digest == pending_ecr_mirror and os.environ.get("HONUA_AWS_ROLE_ARN", ""):
+              raise SystemExit(
+                  "honua-server awsLambdaEcrDigest is the pending-ecr-mirror sentinel but "
+                  "HONUA_AWS_ROLE_ARN is set — mirror the Lambda candidate and record the real ECR "
+                  "digest (honua-release#99)"
+              )
+          if lambda_ecr_digest != pending_ecr_mirror and not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
               raise SystemExit("honua-server awsLambdaEcrDigest must be an exact sha256 digest")
           if lambda_architecture not in {"arm64", "x86_64"}:
               raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
