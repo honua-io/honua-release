@@ -4,12 +4,20 @@
 The audit found the platform blind to its own error rate: GeoServices returns errors as HTTP 200
 (server#2243), and the SLO release gate green-lit failing releases (devops#113). This gate makes the
 SLO decision *mechanical and able to fail*: given the in-band error counter
-(`honua_geoservices_error_total`) and the total request counter scraped from a deployed candidate,
+(`honua_geoservices_error_total`) and the request total scraped from a deployed candidate,
 the error rate must be within budget — else the gate is red.
 
+The request total comes from `honua_serving_request_duration_ms_count`, the Prometheus _count child
+of the server's serving-plane latency histogram — one sample per served request that classifies to a
+Honua protocol, and the only request-volume series honua-server exports. The gate previously
+defaulted to `honua_geoservices_requests_total`, which no Honua component has ever emitted; since
+`evaluate_slo` returns "blocked" when request_total is None, that made this gate structurally
+incapable of ever returning `pass` (honua-release#5). The names are now guarded across the repo
+seam by tools/check_metric_contract.py.
+
 The decision logic is pure + unit-tested here; the workflow scrapes the metrics and feeds them in.
-Until the server actually emits the in-band error metric (issue #5) and a staging candidate is
-deployed, the workflow reports BLOCKED — never a fake green.
+Until a staging candidate is deployed with a scrapeable HONUA_METRICS_URL, the workflow reports
+BLOCKED — never a fake green.
 
   evaluate_slo(error_total, request_total, max_error_rate) -> (status, why)
   python tools/check_slo.py --error-total N --request-total M [--max-error-rate 0.01]

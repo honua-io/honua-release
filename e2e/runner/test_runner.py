@@ -86,6 +86,46 @@ def test_parse_metric_does_not_match_prefixed_name():
     assert harness.parse_metric_total(body, "honua_geoservices_error_total") is None
 
 
+# ---- real honua-server exposition: trailing timestamps + histogram _count (honua-release#5) --------
+# Verbatim shape emitted by honua-server's OpenTelemetry Prometheus exporter. Every sample carries a
+# trailing millisecond timestamp; the pre-#5 parser anchored the value at end-of-line and therefore
+# returned None for ALL of these — the SLO gate could not have read a single metric off a live
+# candidate, and "unparseable" was indistinguishable from "metric absent".
+REAL_EXPOSITION = (
+    "# TYPE honua_geoservices_error_total counter\n"
+    'honua_geoservices_error_total{otel_scope_name="Honua",service_type="FeatureServer"} 3 1786929468470\n'
+    "# TYPE honua_serving_request_duration_ms histogram\n"
+    'honua_serving_request_duration_ms_bucket{honua_protocol="FeatureServer",le="+Inf"} 4 1786929468470\n'
+    'honua_serving_request_duration_ms_sum{honua_protocol="FeatureServer"} 42.5 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="FeatureServer"} 4 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="MapServer"} 6 1786929468470\n'
+)
+
+
+def test_parse_metric_reads_samples_with_a_trailing_timestamp():
+    assert harness.parse_metric_total(REAL_EXPOSITION, "honua_geoservices_error_total") == 3.0
+
+
+def test_parse_metric_totals_the_histogram_count_denominator():
+    # honua_serving_request_duration_ms_count is the canonical SLO denominator: summed across its
+    # protocol label sets it is the total number of classified serving-plane requests.
+    assert harness.parse_metric_total(
+        REAL_EXPOSITION, "honua_serving_request_duration_ms_count"
+    ) == 10.0
+
+
+def test_parse_metric_histogram_base_name_does_not_absorb_its_children():
+    # Guards the denominator against double counting: the bare histogram name has no samples of its
+    # own, so it must stay absent rather than silently summing _count + _sum + _bucket.
+    assert harness.parse_metric_total(REAL_EXPOSITION, "honua_serving_request_duration_ms") is None
+
+
+def test_parse_metric_handles_special_float_literals():
+    body = 'honua_x_total{a="b"} +Inf 123\nhonua_y_total 1.5\n'
+    assert harness.parse_metric_total(body, "honua_y_total") == 1.5
+    assert harness.parse_metric_total(body, "honua_x_total") == float("inf")
+
+
 def test_scrape_metric_uses_admin_key(monkeypatch):
     seen: dict[str, str] = {}
 

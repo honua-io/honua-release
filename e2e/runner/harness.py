@@ -115,14 +115,33 @@ def _wait_for_health(server_url: str, timeout_s: int) -> None:
 # --------------------------------------------------------------------------------------------------
 # Prometheus metric scrape (stdlib only) — ties the observability gate (server#2243)
 # --------------------------------------------------------------------------------------------------
+# A Prometheus sample value: an int/float (optionally in scientific notation) or one of the
+# special float literals the exposition format allows.
+_SAMPLE_VALUE = r"(?:[0-9eE+.\-]+|[+-]?Inf|NaN)"
+# The exposition format allows an OPTIONAL trailing millisecond timestamp after the value, and the
+# OpenTelemetry .NET Prometheus exporter emits one on every sample by default. The original pattern
+# anchored the value at end-of-line, so it silently returned None for every real Honua scrape —
+# indistinguishable from "the metric does not exist". Making the timestamp optional is what lets
+# this parser read an actual honua-server /metrics response (honua-release#5).
+_SAMPLE_TIMESTAMP = r"(?:\s+-?[0-9]+)?"
+
+
 def parse_metric_total(body: str, name: str) -> float | None:
-    """Sum every sample (across label sets) of a Prometheus counter in an exposition `body`.
+    """Sum every sample (across label sets) of a Prometheus series in an exposition `body`.
+
+    `name` is the exposition series name, so histogram children work too: pass
+    ``honua_serving_request_duration_ms_count`` to total a histogram's observation count (the
+    canonical Honua SLO denominator). Prefix collisions are still excluded — asking for
+    ``honua_serving_request_duration_ms`` does not pick up its ``_count``/``_sum``/``_bucket``
+    children.
 
     Pure + side-effect free so it is unit-testable without a live server (see test_runner.py).
     Returns None when the metric is absent entirely — see scrape_metric for why that is meaningful.
     """
     total = None
-    pat = re.compile(rf"^{re.escape(name)}(\{{[^}}]*\}})?\s+([0-9eE+.\-]+)\s*$")
+    pat = re.compile(
+        rf"^{re.escape(name)}(\{{[^}}]*\}})?\s+({_SAMPLE_VALUE}){_SAMPLE_TIMESTAMP}\s*$"
+    )
     for line in body.splitlines():
         if line.startswith("#"):
             continue

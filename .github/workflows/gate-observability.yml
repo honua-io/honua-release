@@ -1,10 +1,24 @@
-# Release gate (g) — observability / SLO. Evaluates the GeoServices in-band error rate against a
-# budget on a deployed candidate (PLAN §4g; retires server#2243/devops#113 at the gate level).
+# Release gate (g) — observability / SLO. Two independent checks (PLAN §4g; retires
+# server#2243/devops#113 at the gate level):
 #
-# The decision is mechanical (tools/check_slo.py, unit-tested) so it CANNOT green-light a failing
-# release the way the audited SLO gate did. Until the server emits honua_geoservices_error_total
-# (issue #5) and a candidate is deployed with a scrapeable metrics endpoint, it reports BLOCKED —
-# never a fake green. Set HONUA_METRICS_URL (repo var) to point at the candidate's /metrics.
+#  1. metric-contract — REAL and deployment-independent. Parses the platform's actual alert rules
+#     (honua-helm's PrometheusRule, honua-devops' recording/alert rules) and this gate's own metric
+#     names, and requires every Honua series they reference to be declared in honua-server's
+#     observability/slo-metric-contract.json — a contract the server integration-tests against its
+#     real /metrics exposition. This is the check that was missing when #5 was filed: three
+#     repositories divided by three different metrics that no Honua component has ever emitted, and
+#     nothing failed, because a PromQL ratio over an absent series is an EMPTY vector — no alert,
+#     no error, no signal. Silence, not noise.
+#
+#  2. slo — the error-budget evaluation itself. Mechanical (tools/check_slo.py, unit-tested) so it
+#     CANNOT green-light a failing release the way the audited SLO gate did. It needs a deployed
+#     candidate: set HONUA_METRICS_URL (repo var) to the candidate's /metrics endpoint. While that
+#     variable is unset there is genuinely nothing to scrape, and the gate reports BLOCKED (an
+#     honest skip in bootstrap, a hard FAIL under strict) — never a fake green.
+#
+# ERROR_METRIC / REQUEST_METRIC must be names the server actually EXPORTS, which is not the same as
+# the .NET instrument name — the OpenTelemetry Prometheus exporter rewrites names from the
+# instrument's declared unit. Check #1 is what keeps these two honest.
 
 name: gate-observability
 run-name: "gate-observability ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
@@ -20,6 +34,8 @@ on:
     inputs:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped"
@@ -40,7 +56,12 @@ jobs:
     env:
       HONUA_METRICS_URL: ${{ vars.HONUA_METRICS_URL }}
       ERROR_METRIC: "honua_geoservices_error_total"
-      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_geoservices_requests_total' }}
+      # The canonical SLO denominator: the _count child of honua-server's serving-plane latency
+      # histogram — one sample per served request that classifies to a Honua protocol, and the only
+      # request-volume series the server exports. The previous default
+      # (honua_geoservices_requests_total) was an invented name; check_slo.py returns "blocked" when
+      # request_total is None, so this gate was STRUCTURALLY incapable of returning `pass`.
+      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_serving_request_duration_ms_count' }}
       MAX_ERROR_RATE: ${{ vars.HONUA_MAX_ERROR_RATE || '0.01' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,8 +76,68 @@ jobs:
       - name: Self-test the SLO logic
         run: python -m pytest tools/test_slo_upgrade.py -q -k slo
 
+      # The metric-name guard must be able to fail, so its own extraction rules are unit-tested
+      # (tools/test_metric_contract.py), including the exact regression it exists to catch: an
+      # alert rule dividing by a metric honua-server does not emit.
+      - name: Self-test the metric-contract guard
+        run: python -m pytest tools/test_metric_contract.py e2e/runner/test_runner.py -q
+
+      - name: Clone the alert-rule consumers
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          ROOT="$RUNNER_TEMP/components"; mkdir -p "$ROOT"; echo "REPOS_ROOT=$ROOT" >> "$GITHUB_ENV"
+          # honua-server (owns the contract) and honua-helm (ships the PrometheusRule) are
+          # manifest-pinned components: check the CANDIDATE's alerting against the CANDIDATE's
+          # server, not against whatever is on trunk today.
+          for comp in honua-server honua-helm; do
+            sha="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('$comp',{})) or {}).get('sha','') or '')")"
+            echo "::group::checkout exact $comp @ ${sha:-<none>}"
+            if [ -n "$sha" ] && bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" "$comp" "$sha" "$ROOT/$comp" 2>/tmp/clone.log; then
+              echo "$comp exact checkout: $(git -C "$ROOT/$comp" rev-parse HEAD)"
+            else
+              echo "note: exact $comp checkout unavailable"; tail -n 3 /tmp/clone.log || true
+            fi
+            echo "::endgroup::"
+          done
+          # honua-devops is operator tooling, not a shipped platform component, so it has no
+          # manifest pin — take its default branch. If the token cannot reach it (private repo),
+          # its rules stay UNVERIFIED and the checker reports blocked rather than a partial pass.
+          echo "::group::checkout honua-devops (default branch)"
+          if git clone --quiet --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-devops.git" "$ROOT/honua-devops" 2>/tmp/devops.log; then
+            git -C "$ROOT/honua-devops" remote set-url origin "https://github.com/honua-io/honua-devops.git"
+            echo "honua-devops checkout: $(git -C "$ROOT/honua-devops" rev-parse HEAD)"
+          else
+            echo "note: honua-devops checkout unavailable"; tail -n 3 /tmp/devops.log || true
+          fi
+          echo "::endgroup::"
+
+      - name: Cross-repo metric-name contract
+        id: contract
+        run: |
+          set -uo pipefail
+          if OUT="$(python tools/check_metric_contract.py --repos-root "$REPOS_ROOT" --self . 2>&1)"; then
+            RC=0
+          else
+            RC=$?
+          fi
+          echo "$OUT"
+          case "$RC" in
+            0) STATUS=pass ;;
+            1) STATUS=fail ;;
+            *) STATUS=blocked ;;
+          esac
+          WHY="$(printf '%s\n' "$OUT" | sed -n 's/^metric-contract: //p' | head -n1)"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "why=${WHY:-see log}" >> "$GITHUB_OUTPUT"
+          { echo "## Observability / metric contract — ${STATUS}"; echo ""; echo "${WHY:-see log}"; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Scrape the candidate metrics + evaluate the error budget
         id: eval
+        env:
+          CONTRACT_STATUS: ${{ steps.contract.outputs.status }}
+          CONTRACT_WHY: ${{ steps.contract.outputs.why }}
         run: |
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
@@ -102,6 +183,23 @@ jobs:
                 STATUS=fail;    WHY="no live SLO source on a real cut — $RAW_WHY"; RC=1
               else
                 STATUS=skipped; WHY="no staging SLO source — dry run (HONUA_METRICS_URL unset / in-band error metric not wired): $RAW_WHY"; RC=0
+              fi ;;
+          esac
+          # Fold in the metric-name contract. It is deployment-independent and deterministic, so a
+          # DRIFT is a real, present defect — alerting that cannot fire — and overrides a green or
+          # skipped SLO verdict in BOTH modes. A BLOCKED contract (a consumer checkout was
+          # unavailable, or the manifest-pinned honua-server predates the contract file) is treated
+          # like every other missing source: honest skip in bootstrap, hard fail under strict.
+          case "${CONTRACT_STATUS:-blocked}" in
+            pass) ;;
+            fail)
+              STATUS=fail; WHY="metric-name contract drift — ${CONTRACT_WHY:-see log}"; RC=1 ;;
+            *)
+              if [ "$ENF" = "strict" ]; then
+                STATUS=fail; WHY="metric contract unverified on a real cut — ${CONTRACT_WHY:-see log}"; RC=1
+              else
+                [ "$STATUS" = "pass" ] && { STATUS=skipped; RC=0; }
+                WHY="$WHY (metric contract unverified: ${CONTRACT_WHY:-see log})"
               fi ;;
           esac
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
