@@ -60,6 +60,19 @@ gates:
       flight on gate/contract-rest-sdk-rc0-baseline and regenerating the same artifacts from a second
       branch would conflict with exactly the work that branch exists to do.
 
+  e2e:
+    issue: https://github.com/honua-io/honua-release/issues/105
+    why: >-
+      Slice-1's S2-mcp-tool-catalog scenario fails against the re-pinned server: tools/list no longer
+      advertises honua_validate_package (a criticalTools entry) or honua_validate_plan. It is the pin,
+      not the branch — slice1 passes on branches carrying the old 5cad074 pin and fails on all six
+      runs carrying f054e6f — and it is not a rename: ValidatePlanTool.cs declares the same ToolName
+      at both SHAs, and the harness already grants an Enterprise edition. Either the roster regressed
+      in honua-server or expected-tools.json is overdue for regeneration from manifest-gen now that
+      the Track A emitter has landed; #105 requires that question be answered rather than assumed.
+      Note this gate is SKIPPED, not run, in the current train — artifact-consume fails upstream of it
+      — so the red only shows in the per-PR e2e-local-docker check.
+
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
     why: >-
