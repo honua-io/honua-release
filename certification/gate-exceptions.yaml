@@ -48,6 +48,18 @@ gates:
       in build-test. This is a real dependency problem in the pinned SDK, not a registry gap, so the
       gate's tolerant path deliberately does not excuse it.
 
+  contract:
+    issue: https://github.com/honua-io/honua-release/issues/104
+    why: >-
+      rest-sdk-api diffs the pinned surfaces against contracts/baselines/2026.1, whose _meta.json
+      files all still record the pre-re-pin shas. honua-server and honua-sdk-dotnet extract
+      identically at the new pins and pass; honua-sdk-python (0 removed, 119 added) and honua-sdk-js
+      (2023 added, 5 apparent removals that are all declaration-site relocations still exported from
+      the same files) fail. The change is additive at the package level, so `contract_surface.py
+      update` is the fix — deliberately not run here because the rc.0 baseline is being reworked in
+      flight on gate/contract-rest-sdk-rc0-baseline and regenerating the same artifacts from a second
+      branch would conflict with exactly the work that branch exists to do.
+
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
     why: >-
