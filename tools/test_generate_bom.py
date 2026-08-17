@@ -45,7 +45,7 @@ def test_label_rc_is_stripped():
 
 
 def test_purl_for_npm_scoped_and_pypi():
-    assert gb._purl("npm:@honua-io/sdk-js", "0.0.14-alpha.0") == "pkg:npm/%40honua-io/sdk-js@0.0.14-alpha.0"
+    assert gb._purl("npm:@honua/sdk-js", "0.0.14-alpha.0") == "pkg:npm/%40honua/sdk-js@0.0.14-alpha.0"
     assert gb._purl("pypi:honua-sdk", "0.1.4") == "pkg:pypi/honua-sdk@0.1.4"
     assert gb._purl("nuget:Honua.Sdk", "1.3.0") == "pkg:nuget/Honua.Sdk@1.3.0"
     assert gb._purl("", "1.0.0") is None
@@ -53,7 +53,7 @@ def test_purl_for_npm_scoped_and_pypi():
 
 def test_pre_release_version_has_purl_without_version_suffix():
     # A library pinned at "pre-release" still gets a purl (name only) — version omitted, not faked.
-    assert gb._purl("npm:@honua-io/sdk-js", "pre-release") == "pkg:npm/%40honua-io/sdk-js"
+    assert gb._purl("npm:@honua/sdk-js", "pre-release") == "pkg:npm/%40honua/sdk-js"
 
 
 def test_container_component_carries_image_and_vcs_properties():

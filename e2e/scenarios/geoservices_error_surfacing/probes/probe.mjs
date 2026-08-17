@@ -1,4 +1,4 @@
-// GeoServices error-surfacing probe — JS SDK (@honua-io/sdk-js).
+// GeoServices error-surfacing probe — JS SDK (@honua/sdk-js).
 //
 // Forces the server to return HTTP 200 with a GeoServices `{ error: {...} }` body and asserts the SDK
 // REJECTS/throws rather than resolving with a success object. Regression test for sdk-js#309.
@@ -12,10 +12,9 @@ const SERVER = (process.env.HONUA_SERVER_URL || "").replace(/\/$/, "");
 
 let sdk;
 try {
-  // TODO(#7): confirm the real package export once @honua-io/sdk-js is published & version-pinned.
-  sdk = await import("@honua-io/sdk-js");
+  sdk = await import("@honua/sdk-js");
 } catch (e) {
-  console.log(`SKIP: @honua-io/sdk-js not importable: ${e}`);
+  console.log(`SKIP: @honua/sdk-js not importable: ${e}`);
   process.exit(2);
 }
 

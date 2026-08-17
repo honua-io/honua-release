@@ -32,7 +32,9 @@ def test_artifact_consume_never_uses_floating_staging_or_source_refs():
 def test_artifact_consume_pins_registry_versions_from_manifest():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "@honua-io/sdk-js@${SDK_JS_VERSION}" in workflow
+    assert 'npm install "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}"' in workflow
+    assert 'sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}' in workflow
+    assert "@honua-io/sdk-js" not in workflow
     assert 'Honua.Sdk --version "$SDK_DOTNET_VERSION"' in workflow
     assert "honua-sdk==${SDK_PYTHON_VERSION}" in workflow
     assert 'buf.build/honua-io/geospatial:v${GRPC_VERSION}' in workflow
@@ -74,6 +76,9 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}" in workflow
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
+    assert 'ecs_architecture = str(server.get("awsEcsArchitecture", ""))' in workflow
+    assert "HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}" in workflow
+    assert "matrix.target == 'aws-serverless' || matrix.target == 'aws-ecs'" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
     assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in workflow
     assert "inputs.target == '' || inputs.target == 'all'" in workflow

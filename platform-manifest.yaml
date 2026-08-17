@@ -29,6 +29,10 @@ components:
     image: "ghcr.io/honua-io/honua-server:nightly-aot-5cad074"
     # Digest of the immutable nightly-aot-5cad074 multi-arch index resolved from GHCR on 2026-07-31.
     digest: "sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd"
+    # The ARM64 child of this multi-arch index exits 139 before readiness on native Fargate and is
+    # explicitly excluded from this candidate. ECS certification and customer defaults use the
+    # healthy AMD64 child; ARM64 requires a separately proven server image before it can be restored.
+    awsEcsArchitecture: "x86_64"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-5cad074-arm64"
@@ -76,7 +80,7 @@ components:
   honua-sdk-js:
     version: "0.1.2-beta.0"            # release tag js-sdk-v0.1.2-beta.0 (reachable on trunk)
     sha: "416d83e4c45a686a5bc3a186cf7ac4a69599b1eb"   # branch: trunk; 13 bundles verified
-    artifact: "npm:@honua-io/sdk-js"
+    artifact: "npm:@honua/sdk-js"
     # companion package @honua-io/mcp-server is also tagged mcp-server-v0.1.2-beta.0.
 
   honua-sdk-python:
