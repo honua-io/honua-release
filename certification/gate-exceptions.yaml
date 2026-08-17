@@ -78,10 +78,3 @@ gates:
       scene.catalog, serve.wms, serve.wmts). This is independent of the platform manifest — the gate
       reads honua-evidence's matrix, whose server producer tracks honua-server trunk rather than the
       pinned SHA — so a re-pin cannot fix it. scene.catalog overlaps honua-release#86.
-
-  evidence:
-    issue: https://github.com/honua-io/honua-release/issues/84
-    why: >-
-      The honua-evidence freshness ledger has non-green producers (server-keys stale by inactivity,
-      dr-drills never produced, live-canary blocked) — honua-release#89 enumerates them. Tracked as
-      part of the gate-evidence/demo-canary red in #84.
