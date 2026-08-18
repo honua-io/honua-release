@@ -143,7 +143,16 @@ components:
     # 0.1.8-beta.0 is NOT on npm — pinning it would name a package version that cannot be installed,
     # so this re-pin takes the current PUBLISHED beta and #1321 moves it later.
     version: "0.1.7-beta.0"            # release tag js-sdk-v0.1.7-beta.0; published on npm
-    sha: "9d20f0cb4f33aef46dd0198584e582759739c145"   # branch: trunk HEAD at re-pin time
+    # PIN POLICY (honua-release#102, adopted in #109): newest trunk commit whose own CI is green,
+    # not literal trunk HEAD. 9d20f0cb4 was literal HEAD at the last re-pin with FIVE red lanes on
+    # it (a paginated census -- the API default page hides them -- showed 85 check-runs, 5 failing):
+    # two `Compare browser impact routing` (sdk-js#1349), `Sweep merged PRs for stranded merge
+    # commits` (sdk-js#1345), and the `benchmark-live` / `mcp-cert-scheduled` schedules (sdk-js#1351).
+    # `release-please-ci` then surfaced as a sixth (sdk-js#1357) once the others cleared. All are on
+    # trunk now. 7cb892e2d is the newest sha carrying the last of them. Verified green:
+    #   gh api --paginate repos/honua-io/honua-sdk-js/commits/7cb892e2d.../check-runs
+    #   -> 32 success, 2 skipped, 0 failure
+    sha: "7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6"   # branch: trunk, newest green
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
