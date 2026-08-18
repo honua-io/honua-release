@@ -16,6 +16,19 @@
 #     variable is unset there is genuinely nothing to scrape, and the gate reports BLOCKED (an
 #     honest skip in bootstrap, a hard FAIL under strict) — never a fake green.
 #
+#     ...AND the scraped instance must PROVE it is the candidate. Honua is not a SaaS: the one
+#     long-lived deployed environment (demo.honua.io, owned by honua-io/honua-demo-infra) doubles as
+#     demo and certification target, and it routinely runs a build older than the manifest pin —
+#     6ad71ac7 (2026-08-03) at the time this binding was written, against a much newer pinned
+#     honua-server. Aiming HONUA_METRICS_URL at it without a binding would compute a real,
+#     correct-looking error budget over the WRONG population and report it as the candidate's: the
+#     same class of defect as the fail-open denominator #5 already fixed once. So the gate reads the
+#     instance's advertised build identity from the PUBLIC capability manifest
+#     (GET /api/v1/capabilities/manifest -> $.server.deploymentRevision, with
+#     deploymentRevisionSource: commit-sha) and requires it to equal components.honua-server.sha in
+#     platform-manifest.yaml. Mismatched, unreadable or absent => BLOCKED (hard FAIL under strict).
+#     `pass` is unreachable for an instance whose identity was not confirmed.
+#
 # ERROR_METRIC / REQUEST_METRIC must be names the server actually EXPORTS, which is not the same as
 # the .NET instrument name — the OpenTelemetry Prometheus exporter rewrites names from the
 # instrument's declared unit. Check #1 is what keeps these two honest.
@@ -39,6 +52,12 @@ on:
       # Admin API key for the candidate's /metrics endpoint, which honua-server maps with
       # .RequireAuthorization("Admin"). Without it the scrape is a 401 that reads as "metric absent".
       HONUA_METRICS_API_KEY: { required: false }
+      # Fallback credential, wired but inert. The repo already holds HONUA_DEMO_API_KEY (demo-canary
+      # uses it); HONUA_METRICS_API_KEY does not exist yet. Accepting the existing secret means
+      # pointing this gate at a candidate needs no new secret — only HONUA_METRICS_URL. Inert today
+      # because that variable is deliberately left unset here: aiming the gate at demo is an act for
+      # AFTER demo is redeployed onto the pinned candidate, not a side effect of wiring a credential.
+      HONUA_DEMO_API_KEY: { required: false }
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped"
@@ -144,6 +163,65 @@ jobs:
           echo "why=${WHY:-see log}" >> "$GITHUB_OUTPUT"
           { echo "## Observability / metric contract — ${STATUS}"; echo ""; echo "${WHY:-see log}"; } >> "$GITHUB_STEP_SUMMARY"
 
+      # Bind the scrape to the pinned candidate BEFORE measuring anything. The identity comes from
+      # the same origin as HONUA_METRICS_URL by construction (check_slo.capability_manifest_url
+      # rewrites only the path), so there is no second variable that could drift to a different host.
+      # The capability manifest is PUBLIC — unlike /metrics, which is Admin-authorized — so identity
+      # is establishable even when the scrape credential is missing. The key is still sent when
+      # present, in case a candidate locks the endpoint down.
+      - name: Identify the scraped instance
+        env:
+          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
+        run: |
+          set -uo pipefail
+          python - >> "$GITHUB_ENV" <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+          sys.path.insert(0, "tools")
+          import yaml
+          from check_slo import capability_manifest_url, read_instance_revision
+
+          # The pin. An unreadable manifest yields "" and blocks — it is never defaulted.
+          try:
+              with open("platform-manifest.yaml", encoding="utf-8") as handle:
+                  pinned = ((yaml.safe_load(handle).get("components", {})
+                             .get("honua-server", {})) or {}).get("sha", "") or ""
+          except (OSError, AttributeError, ValueError, yaml.YAMLError) as exc:
+              pinned, note = "", f"platform-manifest.yaml unreadable ({exc.__class__.__name__})"
+          else:
+              note = ""
+
+          url = capability_manifest_url(os.environ.get("HONUA_METRICS_URL", ""))
+          revision = source = ""
+          if url is None:
+              note = note or "HONUA_METRICS_URL unset or not an http(s) URL - no instance to identify"
+          else:
+              request = urllib.request.Request(url)
+              request.add_header("Accept", "application/json")
+              key = os.environ.get("HONUA_ADMIN_PASSWORD", "")
+              if key:
+                  request.add_header("X-API-Key", key)
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      document = json.loads(response.read().decode("utf-8", "replace"))
+              except (urllib.error.URLError, OSError, ValueError) as exc:
+                  note = f"{url} unreadable ({exc.__class__.__name__})"
+              else:
+                  found, found_source = read_instance_revision(document)
+                  revision, source = found or "", found_source or ""
+                  if not revision:
+                      note = f"{url} advertised no deploymentRevision"
+
+          # Single-line, whitespace-free values only: these are shas, and GITHUB_ENV is line-oriented.
+          def clean(value):
+              return "".join(value.split())
+
+          print(f"PINNED_SHA={clean(pinned)}")
+          print(f"INSTANCE_REVISION={clean(revision)}")
+          print(f"INSTANCE_REVISION_SOURCE={clean(source)}")
+          print(f"IDENTITY_URL={clean(url or '')}")
+          print(f"IDENTITY_NOTE={' '.join(note.split())}")
+          PY
+
       # Scrape once and write each total to GITHUB_ENV as its own key. The previous
       # `read -r ERR REQ < <(...)` split one whitespace-separated line, so it only empty-guarded the
       # SECOND value: with the error metric absent and the request metric present, python printed
@@ -155,7 +233,7 @@ jobs:
           # honua-server maps /metrics with .RequireAuthorization("Admin"), so an unauthenticated
           # GET is a 401 that the scraper would report as "metric absent". harness.scrape_metrics_body
           # sends X-API-Key; this supplies it.
-          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY }}
+          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
         run: |
           set -uo pipefail
           python - >> "$GITHUB_ENV" <<'PY'
@@ -204,11 +282,19 @@ jobs:
           ERR="${SCRAPED_ERR:-}"; REQ="${SCRAPED_REQ:-}"
           echo "scope selector: ${SCRAPED_SELECTOR:-<unresolved>}"
           echo "scraped error_total=${ERR:-<absent>} request_total=${REQ:-<absent>} (url=${HONUA_METRICS_URL:-<unset>})"
+          echo "candidate identity: instance=${INSTANCE_REVISION:-<absent>} (source=${INSTANCE_REVISION_SOURCE:-<absent>}) pinned=${PINNED_SHA:-<unreadable>} via ${IDENTITY_URL:-<none>} ${IDENTITY_NOTE:+- $IDENTITY_NOTE}"
           # Raw verdict from the pure, unit-tested decision core (pass|fail|blocked). We evaluate WITHOUT
           # --require-real here and apply the enforcement policy below, so the honest dry-run skip is
           # explicit (mirrors gate-artifact-consume's dry-run-skip pattern: a publish/deploy-dependent
           # gate reports `skipped` — never a fake green — when its backing source genuinely doesn't exist).
-          OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE")"
+          # Identity is a PRECONDITION inside check_slo.evaluate_gate: an unconfirmed instance
+          # short-circuits to blocked and the error budget is never consulted, so no combination of
+          # scraped numbers can green this gate off an instance that is not the pinned candidate.
+          OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" \
+                   --max-error-rate "$MAX_ERROR_RATE" \
+                   --pinned-sha "${PINNED_SHA:-}" \
+                   --instance-revision "${INSTANCE_REVISION:-}" \
+                   --revision-source "${INSTANCE_REVISION_SOURCE:-}")"
           RAW="$(printf '%s\n' "$OUT" | sed -n 's/^status=//p')"
           RAW_WHY="$(printf '%s\n' "$OUT" | sed -n 's/^why=//p')"
           case "$RAW" in
@@ -219,14 +305,20 @@ jobs:
               # A genuine error-budget breach is RED in both modes (this is the gate's whole point).
               STATUS=fail;  WHY="$RAW_WHY"; RC=1 ;;
             *)
-              # blocked == no SLO source: HONUA_METRICS_URL unset / no scrapeable candidate / in-band
-              # error metric not wired (server#2243). In a dry-run bootstrap cut there is genuinely no
-              # staging deploy to scrape, so this is an honest SKIP (does not fake green, does not redden
-              # the train). A real cut (strict) MUST have a live SLO source, so there it stays a hard FAIL.
+              # blocked == no TRUSTWORTHY SLO source. Two ways to get here, and RAW_WHY says which:
+              #   * no source at all — HONUA_METRICS_URL unset / nothing scrapeable / in-band error
+              #     metric not wired (server#2243);
+              #   * a source that is not the candidate — the scraped instance's deploymentRevision
+              #     does not match the pinned honua-server.sha, or could not be read. RAW_WHY names
+              #     both shas. This is NOT a lesser outcome than "nothing deployed": a wrong-build
+              #     error budget is worse than no error budget, because it looks like an answer.
+              # In a dry-run bootstrap cut there is genuinely no candidate deploy, so this is an honest
+              # SKIP (does not fake green, does not redden the train). A real cut (strict) MUST have a
+              # live SLO source that proved it is the candidate, so there it stays a hard FAIL.
               if [ "$ENF" = "strict" ]; then
-                STATUS=fail;    WHY="no live SLO source on a real cut — $RAW_WHY"; RC=1
+                STATUS=fail;    WHY="no confirmed SLO source on a real cut — $RAW_WHY"; RC=1
               else
-                STATUS=skipped; WHY="no staging SLO source — dry run (HONUA_METRICS_URL unset / in-band error metric not wired): $RAW_WHY"; RC=0
+                STATUS=skipped; WHY="no confirmed staging SLO source — dry run: $RAW_WHY"; RC=0
               fi ;;
           esac
           # Fold in the metric-name contract. It is deployment-independent and deterministic, so a
