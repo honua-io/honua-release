@@ -123,7 +123,15 @@ components:
 
   honua-sdk-dotnet:
     version: "1.6.0"                   # release tag dotnet-sdk-v1.6.0 (reachable from the sha below)
-    sha: "f6c98c5cbff115f21f66c82bd4f4aae244f11190"   # branch: trunk HEAD at re-pin time
+    # PIN POLICY (honua-release#102): newest trunk commit whose own CI is green, not literal trunk
+    # HEAD. f6c98c5cb was literal HEAD at the last re-pin and its CI was red — NU1903 (SSH.NET
+    # 2025.1.0, GHSA-q939-rpr3-3284) failed restore under warnings-as-errors, reddening 5 core lanes
+    # and breaking consume-nuget. a5fb6f54a is the first trunk sha with that fixed
+    # (honua-sdk-dotnet#299, Testcontainers 4.14.0 -> SSH.NET 2026.0.0) AND with the scheduled moving
+    # canary unbound from trunk HEAD's build verdict (#302, honua-sdk-dotnet#300). Verified green:
+    #   gh api repos/honua-io/honua-sdk-dotnet/commits/a5fb6f54a.../check-runs
+    #   -> 29 success, 1 skipped, 0 failure
+    sha: "a5fb6f54a34524ea19e9e635e4c6aa258aec11c5"   # branch: trunk, newest green
     artifact: "nuget:Honua.Sdk"
     # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
     # resolves it from the staging feed and otherwise `dotnet pack`s this exact sha, so the version
@@ -144,7 +152,18 @@ components:
     # PyPI carries 0.1.10 only. Tag python-sdk-v0.1.11 exists but is NOT published, so the pin stays
     # on the highest version that can actually be installed.
     version: "0.1.10"                  # release tag python-sdk-v0.1.10; published on PyPI
-    sha: "23e9dd3d7da7ba460e150f0c08f2799e7918f88f"   # branch: trunk HEAD at re-pin time
+    # Same pin policy as honua-sdk-dotnet above. 23e9dd3d7 was literal HEAD at the last re-pin with
+    # ephemeral-server-smoke red: the SpatialJoin join-layer fixture was applied AFTER honua-server
+    # compiled and activated its metadata-v2 snapshot, so every spatial-join submit was rejected
+    # (HTTP 403, layer-read authorization) and the lane graded 48/50. Fixed in honua-sdk-python#200;
+    # 953f2b3ba is the first trunk sha carrying it. Verified:
+    #   gh api repos/honua-io/honua-sdk-python/commits/953f2b3ba.../check-runs
+    #   -> 25 success, 1 failure (staging-smoke ONLY)
+    # staging-smoke is already classified env-gated and is red for an unrelated, pre-existing reason
+    # (the client-compat binding's expiresAt has passed, red on trunk since 2026-08-16) — tracked as
+    # honua-sdk-python#203. It is named here rather than left implicit: "green apart from a lane we
+    # already excused" is only honest if the excuse is stated at the pin.
+    sha: "953f2b3ba2cbb2d947b13c8ac5848cebe1860a76"   # branch: trunk, newest green (see note)
     artifact: "pypi:honua-sdk"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
