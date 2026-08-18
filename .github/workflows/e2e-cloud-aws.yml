@@ -256,6 +256,19 @@ jobs:
     # (fail-fast off) so one skipped/blocked/red cell doesn't hide the others.
     strategy:
       fail-fast: false
+      # VPC QUOTA, not throughput tuning. Every cell stands up its own VPC in AWS_REGION, and the
+      # full matrix is 3 targets x 2 redis modes = 6 cells. With the account's default VPC that needs
+      # 7 VPC slots against a default per-region quota of 5 (L-F678F1CE), so an unthrottled matrix
+      # cannot pass in a stock account: the cells that lose the race die on
+      #   Error: creating EC2 VPC: api error VpcLimitExceeded: The maximum number of VPCs has been reached.
+      # which reads like a broken cell rather than a capacity ceiling. Observed on run 32193955519,
+      # where four cells took slots and the rest failed.
+      #
+      # max-parallel keeps concurrent VPC demand at 2 + the default VPC, leaving headroom for the
+      # demo VPC and any validation cell that has not been reaped yet (honua-iac#142). Raising the
+      # quota is the other half of the fix and is tracked separately; this is the half that does not
+      # depend on an AWS support ticket, and it stays correct afterwards.
+      max-parallel: 2
       matrix:
         target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
