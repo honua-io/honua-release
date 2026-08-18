@@ -173,9 +173,9 @@ def test_non_default_branch_train_metadata_is_refused():
     assert identity is None
 
 
-def test_production_environment_requires_expected_human_reviewer():
+def test_release_promotion_environment_requires_expected_human_reviewer():
     environment = {
-        "name": "production",
+        "name": "release-promotion",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
         "protection_rules": [
             {
@@ -189,7 +189,7 @@ def test_production_environment_requires_expected_human_reviewer():
     }
     ok, why = cb.validate_environment_metadata(
         environment,
-        expected_name="production",
+        expected_name="release-promotion",
         expected_reviewer_id=12301237,
     )
     assert ok, why
@@ -197,16 +197,16 @@ def test_production_environment_requires_expected_human_reviewer():
     environment["protection_rules"] = []
     ok, why = cb.validate_environment_metadata(
         environment,
-        expected_name="production",
+        expected_name="release-promotion",
         expected_reviewer_id=12301237,
     )
     assert not ok
     assert "required-reviewer" in why
 
 
-def test_production_environment_rejects_any_additional_reviewer():
+def test_release_promotion_environment_rejects_any_additional_reviewer():
     environment = {
-        "name": "production",
+        "name": "release-promotion",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
         "protection_rules": [
             {
@@ -222,7 +222,7 @@ def test_production_environment_rejects_any_additional_reviewer():
 
     ok, why = cb.validate_environment_metadata(
         environment,
-        expected_name="production",
+        expected_name="release-promotion",
         expected_reviewer_id=12301237,
     )
 

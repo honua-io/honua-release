@@ -1,9 +1,9 @@
 # Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
 #
-# This is the human/AI approval boundary: the `production` environment must carry the expected human
+# This is the human/AI approval boundary: the `release-promotion` environment must carry the expected human
 # reviewer and allow only protected branches. The declared configuration is settings-as-code in
-# certification/production-approval.yaml, and the first job step compares the LIVE environment against
-# it through the GitHub API (tools/check_production_approval.py, honua-release#44) — a missing,
+# certification/release-promotion-approval.yaml, and the first job step compares the LIVE environment against
+# it through the GitHub API (tools/check_release_promotion_approval.py, honua-release#44) — a missing,
 # unreadable, weakened, drifted, stale, or automation-only reviewer configuration, a promotion from a
 # branch other than the protected default, or a promotion started by the required reviewer all REFUSE
 # here, before any release work. Machine-readable evidence is uploaded for the release. Within the
@@ -49,7 +49,7 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    environment: production    # verified below; absent/unprotected configuration fails closed
+    environment: release-promotion    # verified below; absent/unprotected configuration fails closed
     steps:
       # Load the validators from the repository's DEFAULT BRANCH, not from the ref this run was
       # dispatched on: the approval policy and the checkers must not be supplied by whoever started
@@ -67,27 +67,27 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" pytest
 
-      # honua-release#44: the approval gate is settings-as-code. certification/production-approval.yaml
+      # honua-release#44: the approval gate is settings-as-code. certification/release-promotion-approval.yaml
       # declares the environment GitHub must be enforcing; this step reads the LIVE configuration and
       # refuses when it is missing, unreadable, weakened, drifted, stale, or names only an automation
       # principal. It also proves this promotion is running from the protected default branch and was
       # NOT started by the required reviewer, so the approval is independent of the request.
-      - name: Self-test the production approval decision core
-        run: python -m pytest tools/test_check_production_approval.py -q
+      - name: Self-test the release-promotion approval decision core
+        run: python -m pytest tools/test_check_release_promotion_approval.py -q
 
-      - name: Verify the production approval gate
+      - name: Verify the release-promotion approval gate
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          EXPECTED_ENVIRONMENT: production
+          EXPECTED_ENVIRONMENT: release-promotion
           PROMOTION_REF: ${{ github.ref_name }}
           PROMOTION_ACTOR: ${{ github.triggering_actor || github.actor }}
           PROMOTION_ACTOR_ID: ${{ github.actor_id }}
         run: |
           set -uo pipefail
-          ARGS=(--policy certification/production-approval.yaml
+          ARGS=(--policy certification/release-promotion-approval.yaml
                 --mode promote
-                --evidence-out production-approval-evidence.json
+                --evidence-out release-promotion-approval-evidence.json
                 --promotion-ref "$PROMOTION_REF"
                 --promotion-actor "$PROMOTION_ACTOR")
           [ -n "${PROMOTION_ACTOR_ID:-}" ] && ARGS+=(--promotion-actor-id "$PROMOTION_ACTOR_ID")
@@ -109,22 +109,22 @@ jobs:
           fi
 
           set +e
-          python tools/check_production_approval.py "${ARGS[@]}" | tee /tmp/approval.log
+          python tools/check_release_promotion_approval.py "${ARGS[@]}" | tee /tmp/approval.log
           RC=${PIPESTATUS[0]}
           set -e
-          { echo "## Production approval gate"; echo ""; echo '```'; cat /tmp/approval.log; echo '```'; } \
+          { echo "## Release-promotion approval gate"; echo ""; echo '```'; cat /tmp/approval.log; echo '```'; } \
             >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            echo "::error::production approval gate REFUSED — promotion is blocked (honua-release#44)"
+            echo "::error::release-promotion approval gate REFUSED — promotion is blocked (honua-release#44)"
             exit 1
           fi
 
-      - name: Upload production approval evidence
+      - name: Upload release-promotion approval evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-approval-evidence
-          path: production-approval-evidence.json
+          name: release-promotion-approval-evidence
+          path: release-promotion-approval-evidence.json
           if-no-files-found: warn
 
       - name: Resolve and validate the certifying train run

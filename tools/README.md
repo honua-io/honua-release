@@ -63,7 +63,7 @@ then requires all identity fields and both artifact digests to match before it p
 generates a BOM, signs anything, or creates a release. Missing protection and legacy reports without
 an explicit boolean `dry_run` field fail closed.
 
-Promotion also preflights the `production` environment. It requires a protected-branch deployment
+Promotion also preflights the `release-promotion` environment. It requires a protected-branch deployment
 policy and the configured human reviewer before doing release work. This is deliberately stricter
 than merely naming an environment in workflow YAML, because GitHub can otherwise create an
 unprotected environment implicitly.

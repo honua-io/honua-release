@@ -1,11 +1,11 @@
-"""The production approval gate must refuse every weakened configuration (honua-release#44).
+"""The release-promotion approval gate must refuse every weakened configuration (honua-release#44).
 
 Covers the AC test matrix: missing environment, absent reviewer, wrong reviewer, unprotected branch
 policy, self-approval, an automation-only reviewer, a stale/superseded attestation, an unreviewed
 protection-rule type, a non-default promotion ref, a self-dispatched promotion — and the one
 successful independent-approval configuration.
 
-Run: python -m pytest tools/test_check_production_approval.py -q
+Run: python -m pytest tools/test_check_release_promotion_approval.py -q
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_production_approval import (  # noqa: E402
+from check_release_promotion_approval import (  # noqa: E402
     ApprovalPolicyError,
     evaluate,
     load_policy,
@@ -26,7 +26,7 @@ from check_production_approval import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-POLICY_PATH = REPO_ROOT / "certification" / "production-approval.yaml"
+POLICY_PATH = REPO_ROOT / "certification" / "release-promotion-approval.yaml"
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
 REVIEWER_ID = 12301237
 REVIEWER_LOGIN = "mikemcdougall"
@@ -38,7 +38,7 @@ def _policy() -> dict:
 
 def _environment(**overrides) -> dict:
     environment = {
-        "name": "production",
+        "name": "release-promotion",
         "updated_at": "2026-08-15T00:00:00Z",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
         "protection_rules": [
@@ -86,7 +86,7 @@ def _failed(result: dict) -> list[str]:
 
 def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
     policy = load_policy(POLICY_PATH)
-    assert policy["environment"]["name"] == "production"
+    assert policy["environment"]["name"] == "release-promotion"
     assert policy["approval"]["required_reviewer"]["kind"] == "human"
     assert policy["approval"]["require_prevent_self_review"] is True
     assert policy["attestation"]["max_attestation_age_days"] > 0
@@ -98,12 +98,12 @@ def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
         {},
         {"environment": {}, "approval": {}, "attestation": {}},
         {
-            "environment": {"name": "production"},
+            "environment": {"name": "release-promotion"},
             "approval": {"required_reviewer": {"id": 1, "kind": "bot"}},
             "attestation": {"attested_at": "2026-01-01T00:00:00Z", "max_attestation_age_days": 30},
         },
         {
-            "environment": {"name": "production"},
+            "environment": {"name": "release-promotion"},
             "approval": {"required_reviewer": {"id": 1, "kind": "human"}},
             "attestation": {"attested_at": "nope", "max_attestation_age_days": 30},
         },
@@ -278,7 +278,7 @@ def test_evidence_is_machine_readable_and_carries_no_secret(tmp_path: Path):
     )
 
     record = json.loads(evidence.read_text(encoding="utf-8"))
-    assert record["gate"] == "production-approval"
+    assert record["gate"] == "release-promotion-approval"
     assert record["status"] in {"pass", "fail"}
     assert {check["check"] for check in record["checks"]} >= {
         "environment-readable",
@@ -397,7 +397,7 @@ def test_an_unbounded_attestation_window_is_refused(days, tmp_path: Path):
 
 
 def test_the_shipped_policy_still_loads_after_all_of_that():
-    assert load_policy(POLICY_PATH)["environment"]["name"] == "production"
+    assert load_policy(POLICY_PATH)["environment"]["name"] == "release-promotion"
 
 
 # ── mode: the promotion identity cannot be skipped by omitting the arguments ────────────────────
@@ -458,7 +458,7 @@ def test_cli_promote_mode_without_an_actor_refuses(tmp_path: Path):
 
 def test_the_default_mode_is_the_enforcing_one(tmp_path: Path):
     """An omitted --mode must fail closed, not silently run the reduced drift check set."""
-    from check_production_approval import DEFAULT_MODE
+    from check_release_promotion_approval import DEFAULT_MODE
 
     assert DEFAULT_MODE == "promote"
     environment = tmp_path / "environment.json"
