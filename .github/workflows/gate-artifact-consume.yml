@@ -14,7 +14,7 @@
 # Source resolution per artifact (the central design constraint while we bootstrap):
 #   1. STAGING  — install/pull the published artifact from the staging registry. This is the
 #                 production behaviour and the only mode that exercises the real publish path.
-#   2. LOCAL    — if staging has no such artifact yet (true today: nothing is published),
+#   2. LOCAL    — if staging has no such artifact for the pinned candidate yet,
 #                 fall back to building the component from source and consuming THAT. This is
 #                 still a real consume (a broken bundle/tarball/chart fails here too) — it just
 #                 sources the artifact locally instead of from the registry. Each step that
@@ -90,11 +90,10 @@ permissions:
   contents: read
   packages: read          # pull container images / OCI charts from ghcr staging
 
-# Staging coordinates. PLACEHOLDERS while Phase 0/1 publishing does not exist yet — every value
-# here points at where the staging artifact WILL live; until then each job's staging probe misses
-# and the LOCAL fallback runs. Once publishing lands, set these (or pass via repo/org variables).
+# Registry coordinates. The JS SDK is published to public npm through trusted publishing; remaining
+# components may still take their explicitly reported LOCAL fallback until their registry artifact lands.
 env:
-  STAGING_NPM_REGISTRY: "https://npm.pkg.github.com"        # @honua-io scope on GitHub Packages
+  STAGING_NPM_REGISTRY: "https://registry.npmjs.org"        # public trusted-publishing target
   STAGING_NUGET_SOURCE: "https://nuget.pkg.github.com/honua-io/index.json"
   STAGING_PYPI_INDEX:   "https://test.pypi.org/simple/"      # TestPyPI as the staging index
   STAGING_OCI_REGISTRY: "ghcr.io/honua-io"                   # server image + OCI helm chart
@@ -107,6 +106,7 @@ jobs:
     outputs:
       sdk_js_version: ${{ steps.pins.outputs.sdk_js_version }}
       sdk_js_sha: ${{ steps.pins.outputs.sdk_js_sha }}
+      sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}
       sdk_dotnet_version: ${{ steps.pins.outputs.sdk_dotnet_version }}
       sdk_dotnet_sha: ${{ steps.pins.outputs.sdk_dotnet_sha }}
       sdk_python_version: ${{ steps.pins.outputs.sdk_python_version }}
@@ -171,13 +171,18 @@ jobs:
               raise SystemExit("honua-server image is not an explicit GHCR tag")
           values.update(server_sha=server_sha, server_digest=server_digest, server_image=server_image)
 
+          sdk_js_artifact = str((components.get("honua-sdk-js") or {}).get("artifact", ""))
+          if not sdk_js_artifact.startswith("npm:") or not sdk_js_artifact.removeprefix("npm:"):
+              raise SystemExit("honua-sdk-js does not have an npm artifact coordinate")
+          values["sdk_js_package"] = sdk_js_artifact.removeprefix("npm:")
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for key, value in values.items():
                   print(f"{key}={value}", file=output)
           PY
 
   # ───────────────────────────────────────────────────────────────────────────
-  # npm — install @honua-io/sdk-js and actually import it. Retires sdk-js#310.
+  # npm — install the manifest-pinned @honua/sdk-js artifact and actually import it. Retires sdk-js#310.
   # ───────────────────────────────────────────────────────────────────────────
   consume-npm:
     needs: resolve_pins
@@ -188,26 +193,25 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Consume @honua-io/sdk-js
+      - name: Consume @honua/sdk-js
         id: consume
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           SDK_JS_VERSION: ${{ needs.resolve_pins.outputs.sdk_js_version }}
           SDK_JS_SHA: ${{ needs.resolve_pins.outputs.sdk_js_sha }}
+          SDK_JS_PACKAGE: ${{ needs.resolve_pins.outputs.sdk_js_package }}
         run: |
           set -uo pipefail
           GATE=npm; SOURCE=blocked; STATUS=blocked; WHY=""
-          # The import specifier of the artifact we consume. Staging publishes under @honua-io; the
-          # LOCAL fallback discovers the real name from the built package.json (it is @honua/sdk-js
-          # today — npm pack names the tarball after the actual scope, not an assumed one).
-          PKGNAME="@honua-io/sdk-js"
+          # The import specifier comes from the frozen manifest. The local fallback still reads the
+          # built package.json below so it proves that the source package uses the same coordinate.
+          PKGNAME="$SDK_JS_PACKAGE"
           WORK="$RUNNER_TEMP/npm-consume"; mkdir -p "$WORK"; cd "$WORK"
           npm init -y >/dev/null 2>&1
 
           echo "::group::Try STAGING (npm registry: $STAGING_NPM_REGISTRY)"
-          printf '@honua-io:registry=%s\n//npm.pkg.github.com/:_authToken=%s\n' \
-            "$STAGING_NPM_REGISTRY" "$GH_TOKEN" > .npmrc
-          if npm install "@honua-io/sdk-js@${SDK_JS_VERSION}" >/tmp/npm-staging.log 2>&1; then
+          if npm install "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}" \
+              --registry "$STAGING_NPM_REGISTRY" >/tmp/npm-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
             echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/npm-staging.log || true
@@ -219,7 +223,6 @@ jobs:
             # `npm pack` tarball — the same artifact `npm publish` would upload. A bundle that was
             # "never built" (sdk-js#310) fails right here.
             echo "::group::LOCAL fallback — build honua-sdk-js and consume npm pack tarball"
-            rm -f .npmrc
             if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-sdk-js "$SDK_JS_SHA" src >/tmp/npm-clone.log 2>&1; then
               ( cd src && npm ci >/tmp/npm-build.log 2>&1 && npm run build --if-present >>/tmp/npm-build.log 2>&1 && npm pack --pack-destination "$WORK" >>/tmp/npm-build.log 2>&1 ) \
                 && TARBALL="$(ls -1 "$WORK"/*.tgz 2>/dev/null | head -n1)" || TARBALL=""

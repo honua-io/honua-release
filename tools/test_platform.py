@@ -15,6 +15,8 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+import pytest
+
 import semver
 import validate_platform as vp
 
@@ -81,6 +83,38 @@ def test_structure_rejects_component_with_no_valid_pin():
     manifest["components"]["honua-sdk-js"] = {"version": "not-semver"}  # no sha either
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("neither a valid semver" in e for e in f.errors)
+
+
+def test_structure_requires_explicit_aws_runtime_architectures():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    del manifest["components"]["honua-server"]["awsEcsArchitecture"]
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
+
+
+# ---- awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else --------------------
+@pytest.mark.parametrize("value", [
+    "TBD-at-publish",                       # a hand-wave
+    "sha256:deadbeef",                      # well-shaped prefix, wrong length
+    "pending",                              # near-miss on the sentinel spelling
+    "",                                     # absent
+])
+def test_structure_rejects_non_digest_non_sentinel_ecr_digest(value):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"]["awsLambdaEcrDigest"] = value
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("awsLambdaEcrDigest" in e for e in f.errors)
+
+
+def test_structure_accepts_pending_ecr_mirror_sentinel_and_real_digests():
+    manifest, matrix = _real_files()
+    for value in (vp.PENDING_ECR_MIRROR, "sha256:" + "a" * 64):
+        candidate = copy.deepcopy(manifest)
+        candidate["components"]["honua-server"]["awsLambdaEcrDigest"] = value
+        f = vp.validate(candidate, matrix, None)
+        assert f.ok, f"{value!r} must be accepted, got: {f.errors}"
 
 
 # ---- coherence rules can fail ---------------------------------------------------------------------

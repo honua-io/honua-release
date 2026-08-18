@@ -37,7 +37,7 @@ def _base_label(label: str) -> str:
 
 
 def _purl(artifact: str, version: str) -> str | None:
-    """Build a Package URL from a manifest `artifact` coordinate (e.g. 'npm:@honua-io/sdk-js')."""
+    """Build a Package URL from a manifest `artifact` coordinate (e.g. 'npm:@honua/sdk-js')."""
     if not artifact or ":" not in artifact:
         return None
     kind, coord = artifact.split(":", 1)

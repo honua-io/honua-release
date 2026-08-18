@@ -217,7 +217,7 @@ def test_load_real_manifest_has_real_sdk_pins():
     # js/python/dotnet versions are real semver in the Phase 0 snapshot -> is_real True.
     for short in ("js", "python", "dotnet"):
         assert m.sdks[short].is_real, f"{short} pin should be real in the committed manifest"
-    assert m.sdks["js"].coord == "@honua-io/sdk-js"
+    assert m.sdks["js"].coord == "@honua/sdk-js"
     assert m.sdks["python"].coord == "honua-sdk"
 
 

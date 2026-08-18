@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -53,6 +54,12 @@ MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
 SHA_PREFIX = "sha:"
+
+# The only legal non-digest value for honua-server.awsLambdaEcrDigest. ECR re-serialises the OCI
+# manifest as Docker schema 2 on push, so that digest cannot be derived from GHCR (nor reproduced by
+# a stock `registry:2`, which preserves the source digest) — it is only knowable after a real mirror.
+# honua-release#99 tracks replacing it; e2e-cloud-aws.yml rejects it once HONUA_AWS_ROLE_ARN is set.
+PENDING_ECR_MIRROR = "pending-ecr-mirror"
 
 
 @dataclass
@@ -124,6 +131,26 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             )
         if kind == "sha" and not comp.get("sha"):
             f.error(f"manifest: component {name!r} is {PRERELEASE_SENTINEL} but has no sha")
+
+    server = components.get("honua-server") or {}
+    for field_name in ("awsEcsArchitecture", "awsLambdaArchitecture"):
+        architecture = str(server.get(field_name, "")).strip()
+        if architecture not in {"arm64", "x86_64"}:
+            f.error(
+                f"manifest: honua-server.{field_name} must explicitly select arm64 or x86_64, "
+                f"got {architecture!r}"
+            )
+
+    # awsLambdaEcrDigest is the digest ECR assigns AFTER the OCI->schema-2 conversion, so it can only
+    # be learned by actually pushing to ECR. Exactly two values are legal: a real digest, or the one
+    # documented sentinel (honua-release#99). Anything else — a stale digest from a previous pin, an
+    # invented one, "TBD" — is rejected here rather than sailing past the cloud gate's regex.
+    ecr_digest = str(server.get("awsLambdaEcrDigest", "")).strip()
+    if ecr_digest != PENDING_ECR_MIRROR and not re.fullmatch(r"sha256:[0-9a-f]{64}", ecr_digest):
+        f.error(
+            f"manifest: honua-server.awsLambdaEcrDigest must be an exact sha256:<64hex> digest or "
+            f"the literal {PENDING_ECR_MIRROR!r} sentinel, got {ecr_digest!r}"
+        )
 
     # Matrix ranges must parse, and every named client/component must exist in the manifest.
     for contract, body in (matrix.get("contracts") or {}).items():

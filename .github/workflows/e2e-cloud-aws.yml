@@ -88,6 +88,7 @@ jobs:
       helm_ref: ${{ steps.pins.outputs.helm_ref }}
       server_ref: ${{ steps.pins.outputs.server_ref }}
       server_image: ${{ steps.pins.outputs.server_image }}
+      ecs_architecture: ${{ steps.pins.outputs.ecs_architecture }}
       lambda_image: ${{ steps.lambda-ecr.outputs.lambda_image }}
       lambda_architecture: ${{ steps.pins.outputs.lambda_architecture }}
     steps:
@@ -98,6 +99,11 @@ jobs:
       - run: python -m pip install -r e2e/requirements.txt
       - name: Read exact cloud component SHAs from the platform manifest
         id: pins
+        env:
+          # Presence of the OIDC role decides whether the pending-ecr-mirror sentinel is acceptable:
+          # with no role nothing is mirrored (the cell self-skips), so an unknown post-mirror digest
+          # is honest. With a role configured the mirror DOES run and the sentinel is a hard failure.
+          HONUA_AWS_ROLE_ARN: ${{ vars.HONUA_AWS_ROLE_ARN }}
         run: |
           python - <<'PY'
           import os
@@ -120,6 +126,10 @@ jobs:
           if not image or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
               raise SystemExit("honua-server image and exact sha256 digest are required")
           pins["server_image"] = f"{image}@{digest}"
+          ecs_architecture = str(server.get("awsEcsArchitecture", ""))
+          if ecs_architecture not in {"arm64", "x86_64"}:
+              raise SystemExit("honua-server awsEcsArchitecture must be arm64 or x86_64")
+          pins["ecs_architecture"] = ecs_architecture
           lambda_image = str(server.get("awsLambdaImage", ""))
           lambda_digest = str(server.get("awsLambdaDigest", ""))
           lambda_ecr_digest = str(server.get("awsLambdaEcrDigest", ""))
@@ -128,8 +138,20 @@ jobs:
               raise SystemExit("honua-server awsLambdaImage must be an exact Honua GHCR tag")
           if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
               raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
-          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
-              raise SystemExit("honua-server awsLambdaEcrDigest must be an exact sha256 digest")
+          # honua-release#99: the post-mirror ECR digest is only knowable by actually pushing to ECR
+          # (ECR re-serialises the OCI manifest as Docker schema 2, so it differs from the GHCR
+          # digest and cannot be reproduced by a stock registry). On a re-pin the new value is
+          # therefore unknown until this job runs once. The manifest may say so with exactly one
+          # documented sentinel — never a stale digest from a previous pin, never an invented one.
+          # The mirror step below still runs on the sentinel: it pushes, resolves the real digest,
+          # asserts ECR preserved the source config, and then FAILS with the value to record. So the
+          # sentinel buys a bootstrap round-trip, not a skipped verification.
+          pending_ecr_mirror = "pending-ecr-mirror"
+          if lambda_ecr_digest != pending_ecr_mirror and not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
+              raise SystemExit(
+                  "honua-server awsLambdaEcrDigest must be an exact sha256 digest or the literal "
+                  f"{pending_ecr_mirror!r} sentinel (honua-release#99)"
+              )
           if lambda_architecture not in {"arm64", "x86_64"}:
               raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
           pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
@@ -171,6 +193,33 @@ jobs:
           aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
           EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
             --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+
+          # honua-release#99 bootstrap: on a fresh honua-server pin the post-mirror ECR digest is not
+          # yet knowable, so the manifest carries the pending-ecr-mirror sentinel. Mirror anyway,
+          # verify ECR preserved the source config, then FAIL with the digest to record — the pin is
+          # not certified until the manifest declares it up front, but you only need one round trip.
+          if [ "$EXPECTED_ECR_DIGEST" = "pending-ecr-mirror" ]; then
+            if [ -z "$EXISTING" ] || [ "$EXISTING" = "None" ]; then
+              aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+              docker pull --platform "linux/${SOURCE_ARCHITECTURE/x86_64/amd64}" "$SOURCE_IMAGE"
+              docker tag "$SOURCE_IMAGE" "$TARGET"
+              docker push "$TARGET"
+              EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+            fi
+            BOOT_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+              --image-ids imageDigest="$EXISTING" \
+              --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0].imageManifest' --output text)"
+            BOOT_CONFIG="$(jq -er '.config.digest' <<<"$BOOT_MANIFEST")"
+            if [ "$BOOT_CONFIG" != "$SOURCE_CONFIG" ]; then
+              echo "::error::ECR Lambda config $BOOT_CONFIG does not match source config $SOURCE_CONFIG"
+              exit 1
+            fi
+            echo "::error::awsLambdaEcrDigest is the pending-ecr-mirror sentinel. ECR preserved the source config; record this in platform-manifest.yaml and re-run (honua-release#99): $EXISTING"
+            exit 1
+          fi
+
           if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
             echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $EXPECTED_ECR_DIGEST"
             exit 1
@@ -218,6 +267,7 @@ jobs:
       HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}
       HONUA_LAMBDA_ARCHITECTURE: ${{ needs.candidate.outputs.lambda_architecture }}
       HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
+      HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -262,7 +312,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Resolve ephemeral runner database ingress
-        if: ${{ matrix.target == 'aws-serverless' && vars.HONUA_AWS_ROLE_ARN != '' }}
+        if: ${{ (matrix.target == 'aws-serverless' || matrix.target == 'aws-ecs') && vars.HONUA_AWS_ROLE_ARN != '' }}
         run: |
           set -euo pipefail
           export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"

@@ -34,8 +34,14 @@ class TfTargetSpec:
     # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
     # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
     ephemeral_vars: tuple[str, ...] = ()
+    # JSON var files preserve typed values that cannot be represented faithfully
+    # by Terraform's string-constrained `-var=name=value` coercion (notably null).
+    # Paths are relative to the honua-release repository root.
+    ephemeral_var_files: tuple[str, ...] = ()
     needs_runner_db_access: bool = False
     architecture_env: str = ""
+    architecture_var: str = ""
+    architecture_is_list: bool = False
 
 
 class TerraformTarget(DeployTarget):
@@ -103,6 +109,7 @@ class TerraformTarget(DeployTarget):
         )
         values = [
             "-input=false", "-no-color",
+            *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
             "-var=environment=it",
@@ -133,8 +140,23 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(
                     f"{self.name}: {self.spec.architecture_env} must be arm64 or x86_64, got {architecture!r}"
                 )
-            values.append(f'-var=lambda_architectures=["{architecture}"]')
+            if not self.spec.architecture_var:
+                raise ProvisionError(f"{self.name}: architecture_env requires architecture_var")
+            architecture_value = (
+                json.dumps([architecture], separators=(",", ":"))
+                if self.spec.architecture_is_list
+                else architecture.upper()
+            )
+            values.append(f"-var={self.spec.architecture_var}={architecture_value}")
         return values
+
+    @staticmethod
+    def _resolve_var_file(relative_path: str) -> Path:
+        repo_root = Path(__file__).resolve().parents[2]
+        path = (repo_root / relative_path).resolve()
+        if not path.is_file():
+            raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
+        return path
 
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
@@ -173,6 +195,8 @@ SERVERLESS_SPEC = TfTargetSpec(
     image_hint="ECR Lambda-AOT image (*-lambda-aot)",
     needs_runner_db_access=True,
     architecture_env="HONUA_LAMBDA_ARCHITECTURE",
+    architecture_var="lambda_architectures",
+    architecture_is_list=True,
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -180,7 +204,15 @@ ECS_SPEC = TfTargetSpec(
     image_env="HONUA_ECS_IMAGE",
     image_var="honua_image",
     image_hint="container image (ghcr or ECR; immutable tag/digest)",
+    # This is always a brand-new ephemeral deployment, so explicitly select the
+    # IAC root's null/new-key path. Existing deployments must supply their current
+    # key instead, but the release harness never adopts an existing ECS database.
+    # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
+    ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
+    needs_runner_db_access=True,
+    architecture_env="HONUA_ECS_ARCHITECTURE",
+    architecture_var="task_cpu_architecture",
 )
 
 
