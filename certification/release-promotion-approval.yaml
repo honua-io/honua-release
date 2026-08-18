@@ -67,15 +67,20 @@ promotion:
 # expired, or when GitHub reports the environment was modified AFTER it (someone changed the
 # release-promotion settings without re-attesting here).
 attestation:
-  attested_at: "2026-08-16T00:00:00Z"
+  attested_at: "2026-08-18T19:35:00Z"
   attested_by: mikemcdougall
   max_attestation_age_days: 180
-  # Set true once the release-promotion environment exists and has been configured per the runbook. While
-  # false the gate still fails closed on the missing environment — this only records that the
-  # settings-as-code entry has not yet been applied, so the drift check reports the honest reason.
-  applied: false
+  # True once the release-promotion environment exists and has been configured per the runbook.
+  # The gate still fails closed independently if the LIVE settings stop matching this file — this
+  # flag only records that the settings-as-code entry has been applied.
+  applied: true
   note: >-
-    The release-promotion environment does not exist yet in honua-io/honua-release (the API reports zero
-    environments). Promotion is therefore blocked, which is the intended safe state. Apply the runbook
-    in docs/RELEASE-PROMOTION-APPROVAL-GATE.md, then set applied: true and refresh attested_at in the same
-    commit.
+    Applied 2026-08-18. The release-promotion environment was created in honua-io/honua-release per
+    the runbook in docs/RELEASE-PROMOTION-APPROVAL-GATE.md, then read back and compared against this
+    file with tools/check_release_promotion_approval.py. Every check passed except
+    attestation-current, which is the expected refusal for an environment modified after the previous
+    attestation — this commit is that re-attestation. Verified live settings: single required
+    reviewer mikemcdougall (id 12301237, type User), prevent_self_review true, deployment branch
+    policy protected_branches true / custom_branch_policies false, protection rule types limited to
+    branch_policy + required_reviewers, and default branch trunk protected. Promotion remains
+    two-actor: the required reviewer must not be the actor that dispatches promote.
