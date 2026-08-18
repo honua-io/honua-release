@@ -228,3 +228,88 @@ def test_cli_fails_closed_on_an_unreadable_register(tmp_path: Path):
     register = tmp_path / "register.yaml"
     register.write_text("suppression: []\n", encoding="utf-8")
     assert main(["--policy", str(register)]) == 1
+
+
+# ── honua-release#92: losing the cross-repo read must be loud and distinguishable ────────────────
+# The gate's input is a CROSS-REPO read of honua-server's Actions variables, which this repository's
+# GITHUB_TOKEN cannot do — it needs RELEASE_GH_TOKEN. If that access is ever lost, the danger is that
+# the red reads as "suppression is on" (or worse, that some future edit reads absence as "off"). The
+# verdict must stay fail-closed AND the evidence must say which of the two it is.
+
+
+def test_unreadable_variables_report_unknown_not_off_and_never_read_as_not_suppressed():
+    result = _status(_policy(), None, unreadable_reason="HTTP 403")
+    assert result["status"] == "blocked"
+    assert result["variable_readable"] is False
+    assert result["suppression_state"] == "unknown"
+    assert result["suppression_active"] is True  # fail-closed reading of an unknown state
+    assert "no repo-wide breaking-change suppression is in effect" not in result["why"]
+
+
+def test_unreadable_variables_name_the_token_and_the_tracking_issue():
+    """A token-scope red must say so, so nobody triages it as a suppression problem."""
+    result = _status(_policy(), None, unreadable_reason="HTTP 404")
+    assert "RELEASE_GH_TOKEN" in result["why"]
+    assert "honua-io/honua-release#92" in result["why"]
+
+
+def test_a_readable_listing_reports_the_real_state():
+    off = _status(_policy(), _listing("false"))
+    assert off["variable_readable"] is True and off["suppression_state"] == "off"
+    on = _status(_policy(), _listing("true"))
+    assert on["variable_readable"] is True and on["suppression_state"] == "active"
+
+
+def test_an_unparseable_value_is_unknown_rather_than_active():
+    result = _status(_policy(), _listing("ture"))
+    assert result["suppression_state"] == "unknown"
+    assert result["suppression_active"] is True
+
+
+# ── the workflow wiring that feeds the decision core ─────────────────────────────────────────────
+# The core above cannot be fooled, but the gate-contract job could stop feeding it honestly (e.g. by
+# passing an empty listing on the failure path, or by defaulting the fragment to something other than
+# `blocked`). These assertions pin the fail-closed wiring in the workflow itself.
+
+GATE_CONTRACT = REPO_ROOT / ".github" / "workflows" / "gate-contract.yml"
+
+
+def _suppression_job() -> dict:
+    workflow = yaml.safe_load(GATE_CONTRACT.read_text(encoding="utf-8"))
+    return workflow["jobs"]["breaking-change-suppression"]
+
+
+def _step(job: dict, needle: str) -> dict:
+    for step in job["steps"]:
+        if needle in str(step.get("name", "")) or needle in str(step.get("id", "")):
+            return step
+    raise AssertionError(f"no step matching {needle!r} in the breaking-change-suppression job")
+
+
+def test_the_gate_job_self_tests_the_decision_core_before_trusting_it():
+    run = " ".join(str(s.get("run", "")) for s in _suppression_job()["steps"])
+    assert "test_check_contract_suppression.py" in run
+
+
+def test_the_variable_read_step_only_claims_readable_on_success():
+    read = _step(_suppression_job(), "Read the enforcing repository")["run"]
+    assert 'readable=1' in read and 'readable=0' in read
+    # the failure branch must never echo the response body — variable VALUES live there
+    assert "cat /tmp/vars.err" not in read
+    assert "jq -r '.variables[].name'" in read, "names only are ever printed"
+
+
+def test_the_evaluate_step_passes_an_unreadable_reason_when_the_read_failed():
+    evaluate_step = _step(_suppression_job(), "Evaluate the suppression register")["run"]
+    assert "--variable-listing variables.json" in evaluate_step
+    assert "--unreadable-reason" in evaluate_step
+    assert "steps.read.outputs.readable" in evaluate_step
+
+
+def test_the_fragment_defaults_to_blocked_and_the_job_cannot_be_soft_failed():
+    job = _suppression_job()
+    assert "continue-on-error" not in job
+    fragment = _step(job, "Emit fragment")
+    assert fragment["with"]["gate"] == "contract-suppression"
+    assert "blocked" in str(fragment["with"]["status"]), "a crashed job must not default to pass"
+    assert "continue-on-error" not in fragment

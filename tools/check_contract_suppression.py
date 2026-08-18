@@ -152,11 +152,16 @@ def evaluate(
         checks.append({"check": name, "status": PASS if ok else BLOCKED, "why": why})
 
     suppression_on = False
+    readable = True
     if variable_listing is None:
+        readable = False
         record(
             "variable-readable",
             False,
-            f"could not read {repository} repository variables: {unreadable_reason or 'unknown error'}",
+            f"could not read {repository} repository variables: {unreadable_reason or 'unknown error'}"
+            f" — the release token (RELEASE_GH_TOKEN) needs read access to {repository}'s Actions"
+            " variables for this gate to certify anything (honua-io/honua-release#92). Until it can,"
+            " the suppression state is UNKNOWN and is treated as active",
         )
         suppression_on = True  # fail closed: treat an unknown state as the dangerous one
     else:
@@ -164,6 +169,7 @@ def evaluate(
             suppression_on, why = read_variable_flag(variable_listing, variable)
             record("variable-readable", True, why)
         except SuppressionPolicyError as exc:
+            readable = False
             record("variable-readable", False, str(exc))
             suppression_on = True
 
@@ -201,7 +207,15 @@ def evaluate(
         "why": why,
         "repository": repository,
         "variable": variable,
+        # `suppression_active` is the FAIL-CLOSED reading: unknown counts as active, because a gate
+        # that cannot see the flag must not certify that the flag is off. `suppression_state` is the
+        # HONEST one — a reader (or a human triaging a red train) can tell "the suppression really is
+        # on" apart from "the release token lost its read access", which are the same `blocked` but
+        # very different actions (honua-io/honua-release#92).
         "suppression_active": suppression_on,
+        "suppression_state": ("active" if (readable and suppression_on)
+                              else "off" if readable else "unknown"),
+        "variable_readable": readable,
         "generatedAt": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "checks": checks,
     }
