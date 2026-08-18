@@ -307,7 +307,18 @@ components:
 
   honua-helm:
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
-    sha: "9dd42621b0da4a64a7c12cd1a655b5bef0de943c"   # branch: trunk HEAD at re-pin time (unchanged — 0 drift)
+    # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
+    # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the
+    # reason to move: the chart at the old pin ships PrometheusRule expressions over
+    # honua_http_requests_total, a series honua-server has NEVER exported. A PromQL expression over an
+    # absent series is an empty vector, so those alerts could not fire — and gate-observability's
+    # metric-name contract check reports exactly that as drift now that honua-server publishes
+    # observability/slo-metric-contract.json (added by honua-server#3353, absent at the previous
+    # server pin, which is why this was invisible until today). At 4c0a5d2 the retired name survives
+    # only inside comments, which the contract check permits. Verified green:
+    #   gh api --paginate repos/honua-io/honua-helm/commits/4c0a5d2.../check-runs
+    #   -> 9 success, 0 failure
+    sha: "4c0a5d2d4da17bc2c132e8aa7c5ba9fe8a66709c"   # branch: trunk, newest green
     artifact: "oci-chart:honua"
 
 # Experimental + disabled for this release (ADR-0059): present in the binary but deliberately gated
