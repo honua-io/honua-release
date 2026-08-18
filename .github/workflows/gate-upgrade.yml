@@ -82,7 +82,16 @@ jobs:
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
           if [ -z "${{ steps.prior.outputs.prev }}" ]; then
-            STATUS=blocked; WHY="no prior platform release to upgrade from (first release is the baseline)"; RC=0
+            # FIRST PLATFORM RELEASE. No honua-* release exists, so there is no upgrade path in
+            # existence to certify — not an unverified one, a non-existent one. Reporting `blocked`
+            # here made the first cut unpromotable by construction: finalize_release refuses any
+            # blocked gate, and this branch can only be true before the first tag, so nothing anyone
+            # did could ever clear it.
+            #
+            # This is SELF-LIMITING and that is what makes it safe: the moment any honua-* release is
+            # tagged, `prev` is non-empty forever and this branch can never be taken again. Every
+            # subsequent cut runs the real prior-vs-candidate comparison below and must pass it.
+            STATUS=pass; WHY="first platform release — no prior honua-* release exists, so there is no upgrade path to certify (self-limiting: the next cut compares against this one)"; RC=0
           elif [ "$ENF" = "strict" ]; then
             python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml --require-real; RC=$?
             if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
@@ -185,13 +194,17 @@ jobs:
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
           elif [ "$CROSS" = "no" ] && [ "$ENF" != "strict" ]; then
             # No prior platform release exists yet (prior == candidate): this is the baseline release,
-            # so there is genuinely NO cross-release upgrade to certify — exactly what the static-compat
-            # layer already reports blocked for. Degrading to a same-image lifecycle smoke would need a
+            # so there is genuinely NO cross-release upgrade to certify — the same fact the static-compat
+            # layer reports as a pass with its baseline reason. Degrading to a same-image lifecycle smoke would need a
             # fully-provisioned server (Redis + a coherent metadata-v2 snapshot + the chart's required
             # admin/master-key/redis secrets) which a no-infra dry-run does not stand up, so it cannot
-            # pass here. Self-skip honestly as blocked (never a fake green); a real cut (strict) with a
-            # published prior release still runs — and must pass — the full seed->upgrade->rollback smoke.
-            STATUS=blocked; WHY="no prior platform release — baseline (rc.x.0) has nothing to upgrade from; same-image lifecycle smoke needs Redis+snapshot+secrets infra absent in a dry run — kind smoke self-skipped"
+            # pass here. Self-skip honestly as `skipped` — not `blocked`, because nothing is obstructing
+            # it: there is simply no cross-release upgrade in existence yet. Note the `$ENF != strict`
+            # guard above: a real cut NEVER reaches this branch. Under strict it falls through and runs
+            # the full install->upgrade->health->rollback smoke (same-image when this is the baseline,
+            # prior-vs-candidate once a release exists), and must pass it. The report job also scores a
+            # `skipped` fragment as a hard fail under strict, so this can never soften a live cut.
+            STATUS=skipped; WHY="no prior platform release — baseline (rc.x.0) has nothing to upgrade from; same-image lifecycle smoke needs Redis+snapshot+secrets infra absent in a dry run — kind smoke self-skipped"
           else
             CHART="$(dirname "$(find _honua-helm -name Chart.yaml | head -n1)")"
             NS=honua-upgrade
