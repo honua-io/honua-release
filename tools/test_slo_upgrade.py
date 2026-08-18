@@ -12,8 +12,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "e2e"))
 import check_slo as slo  # noqa: E402
 import check_upgrade as up  # noqa: E402
+from runner import harness  # noqa: E402
 
 
 # ---- SLO -----------------------------------------------------------------------------------------
@@ -26,10 +28,67 @@ def test_slo_over_budget_fails():
     assert status == "fail" and "exceeds budget" in why
 
 
-def test_slo_absent_metric_is_blocked_not_pass():
-    # The server#2243 blindness: no metric => never a green.
+def test_slo_absent_denominator_is_blocked_not_pass():
+    # No denominator => no candidate / nothing scrapeable / no in-scope traffic => never a green.
     assert slo.evaluate_slo(None, None, 0.01)[0] == "blocked"
+    assert slo.evaluate_slo(5, None, 0.01)[0] == "blocked"
     assert slo.evaluate_slo(0, 0, 0.01)[0] == "blocked"      # no traffic
+
+
+def test_slo_absent_error_counter_with_live_traffic_is_zero_errors_not_blocked():
+    """A clean candidate exports no error counter at all — OTel omits a counter until its first
+    measurement. Blocking on that made the gate unable to pass a healthy release, and made strict
+    enforcement fail it outright."""
+    status, why = slo.evaluate_slo(None, 10000, 0.01)
+    assert status == "pass", why
+    assert "zero errors" in why
+
+
+def test_slo_absent_error_counter_still_blocks_without_a_denominator():
+    # Absent numerator only means zero once the denominator proves the candidate is serving.
+    assert slo.evaluate_slo(None, 0, 0.01)[0] == "blocked"
+
+
+# ---- end-to-end: scrape + verdict, the fail-open regression ---------------------------------------
+# A candidate up for 24h with liveness+readiness probes every 10s and a 15s Prometheus scrape, plus a
+# 200-call GeoServices smoke suite in which 20 calls returned an error envelope: a real 10% error
+# rate on the surface this gate exists to protect.
+_CANDIDATE_EXPOSITION = (
+    'honua_serving_request_duration_ms_count{honua_protocol="Health"} 17280 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="Monitoring"} 5760 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="FeatureServer"} 180 1786929468470\n'
+    'honua_serving_request_duration_ms_count{honua_protocol="MapServer"} 20 1786929468470\n'
+    'honua_geoservices_error_total{service_type="FeatureServer"} 20 1786929468470\n'
+)
+_GEOSERVICES_SELECTOR = (
+    'honua_protocol=~"FeatureServer|MapServer|ImageServer|VectorTileServer|GPServer|NAServer|'
+    'GeometryService|PrintingTools|StaticMap"'
+)
+
+
+def _slo_verdict(selector: str | None) -> str:
+    errors = harness.parse_metric_total(_CANDIDATE_EXPOSITION, "honua_geoservices_error_total")
+    requests = harness.parse_metric_total(
+        _CANDIDATE_EXPOSITION,
+        "honua_serving_request_duration_ms_count",
+        harness.parse_label_selector(selector) if selector else None,
+    )
+    return slo.evaluate_slo(errors, requests, 0.01)[0]
+
+
+def test_slo_gate_fails_a_ten_percent_geoservices_error_rate():
+    """The hard requirement: this gate must not wave through a badly broken release."""
+    assert _slo_verdict(_GEOSERVICES_SELECTOR) == "fail"
+
+
+def test_slo_gate_would_be_fail_open_without_a_scoped_denominator():
+    """Why the selector is mandatory rather than a nicety.
+
+    A GeoServices-only numerator over an unscoped denominator is not merely imprecise — it inverts
+    the gate's verdict on the exact scenario it exists to catch, which is worse than the no-signal
+    state it replaced. Kept as a test so nobody 'simplifies' the selector away.
+    """
+    assert _slo_verdict(None) == "pass"
 
 
 # ---- upgrade -------------------------------------------------------------------------------------
