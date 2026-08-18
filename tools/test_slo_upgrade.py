@@ -97,7 +97,7 @@ def test_slo_gate_would_be_fail_open_without_a_scoped_denominator():
 # an older build than the manifest pin — so a gate that scrapes without checking identity reports a
 # real, correct-looking number about the wrong population. Every test name here contains "slo"
 # because gate-observability self-tests this module with `pytest -k slo`.
-_PINNED = "aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"      # platform-manifest.yaml honua-server.sha
+_PINNED = "6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"      # platform-manifest.yaml honua-server.sha
 _DEMO = "6ad71ac701ca709ec671afd09257217e8d17a149"        # what demo.honua.io actually served (2026-08-18)
 
 # Verbatim shapes of the two public responses that carry the identity, both captured live.
