@@ -85,37 +85,26 @@ ledger:
 #     `stale`/`missing`, and the evidence site still renders it that way.
 #
 # Every field is required; `issue` must be a full URL so the run summary is one click from the owner.
-acknowledged:
-  server-keys:
-    issue: https://github.com/honua-io/honua-release/issues/89
-    reason: >-
-      Stale by inactivity, not by breakage: this producer ages off honua-server's
-      docs/gis/data/capability-keys.v1.json, which genuinely has not changed since 2026-07-24. The
-      open contract question — whether an unchanged upstream file should age into `stale` at all, or
-      whether freshness should key off the observation rather than the content — is #89's to settle.
-    since: "2026-08-17"
-    reviewBy: "2026-09-30"
-  sdk-dotnet:
-    issue: https://github.com/honua-io/honua-release/issues/89
-    reason: >-
-      Same stale-by-inactivity shape as server-keys: honua-sdk-dotnet's last observed commit is
-      2026-07-17 and the SDK has not shipped since, so the producer crossed honua-evidence's 30-day
-      window without anything breaking. Covered by #89's freshness-contract decision.
-    since: "2026-08-17"
-    reviewBy: "2026-09-30"
-  sdk-python:
-    issue: https://github.com/honua-io/honua-release/issues/89
-    reason: >-
-      Identical to sdk-dotnet — honua-sdk-python's last observed commit is 2026-07-17. Stale by
-      inactivity; covered by #89's freshness-contract decision.
-    since: "2026-08-17"
-    reviewBy: "2026-09-30"
-  dr-drills:
-    issue: https://github.com/honua-io/honua-release/issues/89
-    reason: >-
-      Never produced, as opposed to gone stale: honua-evidence's data/producers/dr-drills/ contains
-      only a README because no DR drill has pushed an evidence envelope yet. The producer belongs to
-      the IaC/DB side of the stateless-server DR split, so building it is #89's call, not a
-      honua-release change.
-    since: "2026-08-17"
-    reviewBy: "2026-09-30"
+#
+# CURRENTLY EMPTY, DELIBERATELY. All four entries this block was created with (server-keys,
+# sdk-dotnet, sdk-python, dr-drills — honua-release#89) are gone because the thing they were waiting
+# on actually happened, not because anyone got tired of them:
+#
+#   * server-keys / sdk-dotnet / sdk-python were "stale by inactivity" — their upstream files simply
+#     had not changed, while honua-evidence's aggregator pulled each of them successfully every day.
+#     honua-io/honua-evidence#21 settled the contract question #89 owned: freshness now keys off the
+#     OBSERVATION (the aggregator's own successful fetch) and reports upstream-artifact age as a
+#     separate informational `sourceAgeDays` field that can never set `stale` on its own. All three
+#     producers are `fresh` in the ledger again, so leaving their entries here would trip this
+#     guard's own "green again — delete it" rule.
+#   * dr-drills had never produced an envelope at all. Rather than acknowledge it forever — an
+#     acknowledgement with no path to green is a deletion nobody had to argue for — the same PR
+#     dropped it from the ledger entirely. It is declared in the matrix's `awaitingFirstEnvelope`
+#     array and its row returns automatically on the first envelope
+#     (honua-io/honua-evidence#20 tracks the producer work).
+#
+# An empty registry is the desired end state, not a disabled guard: any producer the ledger reports
+# as `stale`/`missing` without an entry here still FAILS this gate (see
+# test_unlisted_ledger_red_producer_fails_when_no_issue_owns_it). Add entries back the moment
+# something goes red and is genuinely owned.
+acknowledged: {}
