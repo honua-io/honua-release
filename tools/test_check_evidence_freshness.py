@@ -285,8 +285,12 @@ def test_acknowledgement_for_a_producer_the_ledger_does_not_carry_is_reported_un
 def test_committed_config_ledger_and_acknowledgements_parse():
     policy = ef.load_ledger_policy()
     assert policy["maxAgeHours"] > 0
+    # An EMPTY registry is the desired end state, not a hole: honua-release#89 retired all four
+    # original entries by fixing what they were waiting on (honua-io/honua-evidence#21). A red
+    # producer with no entry here still fails outright — see
+    # test_unlisted_ledger_red_producer_fails_when_no_issue_owns_it — so emptiness cannot hide one.
+    # What this asserts is that whatever IS committed is well-formed and still owned.
     acknowledged = ef.load_acknowledged()
-    assert acknowledged, "the committed config should own its known-red producers, not hide them"
     for name, entry in acknowledged.items():
         assert entry.issue.startswith("https://github.com/"), name
         assert not entry.expired(datetime.now(timezone.utc).date()), \
