@@ -57,20 +57,17 @@ gates:
       gate's tolerant path deliberately does not excuse it.
 
   contract:
-    issue: https://github.com/honua-io/honua-release/issues/104
+    issue: https://github.com/honua-io/honua-release/issues/71
     why: >-
-      rest-sdk-api diffs the pinned surfaces against contracts/baselines/2026.1, whose _meta.json
-      files all still record the pre-re-pin shas. honua-server and honua-sdk-dotnet extract
-      identically at the new pins and pass; honua-sdk-python (0 removed, 119 added) and honua-sdk-js
-      (2023 added, 5 apparent removals that are all declaration-site relocations still exported from
-      the same files) fail. The change is additive at the package level, so `contract_surface.py
-      update` is the fix — deliberately not run here because the rc.0 baseline is being reworked in
-      flight on gate/contract-rest-sdk-rc0-baseline and regenerating the same artifacts from a second
-      branch would conflict with exactly the work that branch exists to do.
-      The same gate additionally reports contract-suppression as BLOCKED: repo-wide breaking-change
-      suppression is still ACTIVE in honua-io/honua-server (window opened 2026-07-29T16:53:29Z) and
-      must be off, or replaced by the per-PR mechanism, before the first published control-plane API
-      release. That is honua-release#71 and is an owner action, not a manifest one.
+      rest-sdk-api is GREEN as of honua-release#104: the four baselines in contracts/baselines/2026.1
+      were re-extracted at the pins landed by #101 (honua-server and honua-sdk-dotnet extract
+      byte-identically; honua-sdk-python added 11 symbols and removed none; honua-sdk-js added 942
+      importable names and removed none once the TS extractor stopped keying symbols by declaring
+      file). What keeps this gate red is the OTHER check: contract-suppression reports BLOCKED
+      because repo-wide breaking-change suppression is still ACTIVE in honua-io/honua-server
+      (OPENAPI_ALLOW_BREAKING_CHANGES=true, window opened 2026-07-29T16:53:29Z). It must be off, or
+      replaced by the per-PR mechanism, before the first published control-plane API release. That is
+      an owner action tracked by honua-release#71, not something any change in this repo can fix.
 
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103

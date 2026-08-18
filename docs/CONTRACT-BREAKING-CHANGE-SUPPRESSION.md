@@ -42,6 +42,32 @@ API release — this gate is what makes forgetting it impossible.
 Reading is cross-repo, so it needs `RELEASE_GH_TOKEN` (a release token with read access to
 honua-server). Without one the gate reports `blocked`, never a fake pass.
 
+### The cross-repo read is verified (honua-release#92)
+
+`RELEASE_GH_TOKEN` **can** read `honua-io/honua-server`'s Actions variables. Confirmed by dispatching
+`gate-contract` with `enforcement: bootstrap` on 2026-08-18
+([run 32099588837](https://github.com/honua-io/honua-release/actions/runs/32099588837)): the *Read the
+enforcing repository's Actions variables* step listed 22 variable **names** rather than reporting an
+HTTP status, and the decision core recorded `[pass] variable-readable`. The gate's `blocked` verdict
+in that run is the honest one — `OPENAPI_ALLOW_BREAKING_CHANGES` really is set — not a token-scope
+artefact.
+
+That is a point-in-time fact about a token, so it is backed by a guard rather than by this paragraph.
+If the access is ever lost, the evidence record says which failure it is:
+
+| field | meaning |
+|---|---|
+| `variable_readable` | did the gate actually see the listing? |
+| `suppression_state` | `active` / `off` / `unknown` — the honest state |
+| `suppression_active` | the fail-closed reading: `unknown` counts as active |
+
+An unreadable listing produces `suppression_state: unknown` (never "not suppressed"), and its `why`
+names `RELEASE_GH_TOKEN` and honua-release#92 so a token-scope red is not triaged as a suppression
+problem. `tools/test_check_contract_suppression.py` pins both that behaviour and the workflow wiring
+that feeds it — the read step only claims success when `gh api` succeeded, the evaluate step passes
+`--unreadable-reason` on the failure path, and neither the job nor its fragment can be soft-failed
+into anything other than `blocked`.
+
 ## Steady-state mechanism (decided, and landed)
 
 "Flip a global variable per incident" does not scale past the first occurrence. The replacement is
