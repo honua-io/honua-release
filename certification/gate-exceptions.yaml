@@ -30,14 +30,22 @@ gates:
     issue: https://github.com/honua-io/honua-release/issues/102
     why: >-
       Re-pinning every component to trunk HEAD (honua-release#83) imported red CI that the older,
-      hand-picked rc.1 pins did not carry. honua-sdk-dotnet @ f6c98c5cb has 5 red core lanes
-      (Analyze (csharp), Build DocFX site, Code Coverage, Contract Conformance (pinned), Security
-      Audit (NuGet)); honua-iac @ 7abdb07c8 has Static Terraform Validate red plus a scheduled IAM
-      sweep; honua-sdk-python @ 23e9dd3d7 has ephemeral-server-smoke red. None qualify for
-      env-gated-checks.yaml or rollup-checks.yaml — they are compile/analyse/validate lanes, and
-      those files' guardrails forbid listing them — so the gate is honestly red. #102 also raises
-      the underlying policy question: whether pins should be "newest trunk HEAD" or "newest trunk
-      commit whose CI is green".
+      hand-picked rc.1 pins did not carry. Exact red lanes at the pinned shas, as of run
+      32082747764 (honua-server and honua-console are green and are NOT part of this exception):
+      honua-sdk-dotnet @ f6c98c5cb — Analyze (csharp), Build DocFX site, Code Coverage, Contract
+      Conformance (pinned), Contract Conformance (moving canary), Security Audit (NuGet); one root
+      cause drives most of them, NU1903 (SSH.NET 2025.1.0, GHSA-q939-rpr3-3284) failing restore
+      under warnings-as-errors, which is the same red as the artifact-consume entry below.
+      honua-sdk-js @ 9d20f0cb4 — Commit report + regenerate leaderboard, Demo + AWS live evidence,
+      Sweep merged PRs for stranded merge commits. honua-sdk-python @ 23e9dd3d7 —
+      ephemeral-server-smoke (staging-smoke is already env-gated). honua-iac @ 7abdb07c8 — Resolve
+      immutable candidate, Sweep orphaned validation IAM principals (the previously-noted Static
+      Terraform Validate has since gone green). Only the honua-sdk-dotnet set is a product-code red;
+      the rest are repo-ops/live-environment lanes. They are deliberately NOT excused here: an
+      exclusion is a per-component policy assertion about a specific lane, and making nine of them
+      at once across four repos to clear a gate is the green-washing this file exists to prevent.
+      #102 owns them, and also raises the underlying policy question: whether pins should be
+      "newest trunk HEAD" or "newest trunk commit whose CI is green".
 
   artifact-consume:
     issue: https://github.com/honua-io/honua-release/issues/102
@@ -59,6 +67,10 @@ gates:
       update` is the fix — deliberately not run here because the rc.0 baseline is being reworked in
       flight on gate/contract-rest-sdk-rc0-baseline and regenerating the same artifacts from a second
       branch would conflict with exactly the work that branch exists to do.
+      The same gate additionally reports contract-suppression as BLOCKED: repo-wide breaking-change
+      suppression is still ACTIVE in honua-io/honua-server (window opened 2026-07-29T16:53:29Z) and
+      must be off, or replaced by the per-PR mechanism, before the first published control-plane API
+      release. That is honua-release#71 and is an owner action, not a manifest one.
 
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
