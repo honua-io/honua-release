@@ -5,9 +5,30 @@
 # component build failure. If excluding an entry leaves no core CI lane, the component is BLOCKED.
 
 honua-server:
-  - name: "Publish SHA-bound Codex review attestation"
+  - name: "Publish SHA-bound review attestation"
     why: >-
       Review Gate Attestation inspects the triggering pull request's labels, review threads, and
       exact-head review evidence, then publishes a status. It performs no server restore, build, or
       test. On the immutable nightly source commit it is a workflow_run policy signal about the
-      originating PR, while the 56 server leaf build/test lanes remain decisive here.
+      originating PR, while the server leaf build/test lanes remain decisive here.
+      RENAMED UPSTREAM (honua-release#83): this entry used to read "Publish SHA-bound Codex review
+      attestation". honua-server#3340/#3341 dropped "Codex" from the job name when the Claude lane
+      was added as a second attesting reviewer — `.github/workflows/review-gate.yml:70` now reads
+      `name: Publish SHA-bound review attestation`, and the old string appears nowhere under
+      `.github/` at the pinned sha. The stale entry silently stopped matching, which is how the
+      re-pin turned honua-server from `all 20 core check-run(s) green` into `2/21 core red`. Name-
+      keyed exclusions are rename-fragile by construction; this is the maintenance that implies.
+  - name: "Audit trusted impact-routing observations"
+    why: >-
+      The only job of honua-server's "Impact Routing Evidence Ledger" workflow (added by
+      honua-server#3331/#3336). Its steps — bind the impact-routing cohort, collect bounded workflow
+      and artifact catalogs, download indexed observation receipts, reconcile them with the
+      authoritative exact-head image outcomes, retain a report-only ledger, fail closed on receipt
+      integrity errors — audit honua-server's OWN CI telemetry. It restores nothing, compiles
+      nothing, runs no test and produces no shipped artifact; its verdict is about whether CI
+      observation receipts reconcile, not about whether the pinned source builds or passes.
+      It is RED at the pinned sha (5 receipt-integrity failures, 19 native authoritative outcome
+      failures — run 32038145537). That is a real problem in honua-server's CI evidence system and is
+      reported as such in the gate explanation; it is excluded here because reporting it as a
+      component BUILD failure is precisely the misattribution this file exists to prevent. Every
+      product build/test lane on this sha is green.

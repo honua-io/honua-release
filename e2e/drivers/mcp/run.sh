@@ -33,8 +33,28 @@ else
 fi
 
 # ---- S2: tools/list vs manifest snapshot + critical tools/call -----------------------------------
-rpc tools/list '{}'
-LIVE="$(printf '%s' "$HTTP_BODY" | jq -c '[.result.tools[].name] | sort' 2>/dev/null || echo '[]')"
+# tools/list is PAGINATED (MCP cursor pagination; the server's page size is 50). Reading only the
+# first page silently truncates the advertised roster and reports the alphabetically-last tools as
+# "missing" — which is exactly how honua-release#105 was mis-diagnosed as a server regression when
+# the roster crossed 50 tools. Follow nextCursor to completion, with a page cap so a server that
+# never stops handing out cursors fails loudly instead of looping forever.
+LIVE_NAMES="[]"
+CURSOR=""
+PAGES=0
+MAX_PAGES=50
+while :; do
+  if [ -z "$CURSOR" ]; then rpc tools/list '{}'; else rpc tools/list "$(jq -nc --arg c "$CURSOR" '{cursor:$c}')"; fi
+  PAGE="$(printf '%s' "$HTTP_BODY" | jq -c '[.result.tools[].name]' 2>/dev/null || echo '[]')"
+  LIVE_NAMES="$(jq -nc --argjson acc "$LIVE_NAMES" --argjson page "$PAGE" '$acc + $page')"
+  CURSOR="$(jget '.result.nextCursor // empty')"
+  PAGES=$((PAGES + 1))
+  [ -z "$CURSOR" ] && break
+  if [ "$PAGES" -ge "$MAX_PAGES" ]; then
+    emit_scenario "S2-mcp-tool-catalog" fail "tools/list did not terminate after $MAX_PAGES pages (last cursor: $CURSOR)"
+    exit 0
+  fi
+done
+LIVE="$(jq -nc --argjson n "$LIVE_NAMES" '$n | sort')"
 WANT="$(jq -c '.tools | sort' "$EXPECTED")"
 MISSING="$(jq -nc --argjson live "$LIVE" --argjson want "$WANT" '$want - $live')"
 EXTRA="$(jq -nc --argjson live "$LIVE" --argjson want "$WANT" '$live - $want')"
