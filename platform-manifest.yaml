@@ -24,7 +24,7 @@
 #   - Experimental + disabled surfaces (ADR-0059) are held OUT of the certified `components` set and
 #     listed under `experimental:` so rc.1's certified deploy set excludes them.
 
-platformRelease: "2026.1-rc.1"         # calendar label; -rc.N until promoted
+platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
 snapshotDate: "2026-08-18"             # honua-server re-pin date; #83 re-pin was 2026-08-17, rc.1 freeze 2026-08-01
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
@@ -127,15 +127,19 @@ components:
     # same image into sha256:f1970f2a…). It is only knowable after a real mirror, which is why a
     # re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate perform
     # one bootstrap round trip (honua-release#99).
-    # THIS PIN IS AT THE SENTINEL, and stays there. The last pin to have a resolved value was
-    # f054e6f (e2e-cloud-aws run 31988258514); aa894e1 never resolved one because the cloud tier has
-    # not run green since, and 6b6d3b8 changes the source Lambda image again
-    # (sha256:2425e518… -> sha256:2bb6d764…). A post-mirror digest is a property of the image, so
-    # neither of those values is valid for this candidate — carrying one forward would be exactly the
-    # stale-digest failure #99 exists to prevent, and inventing one is worse. It is deliberately NOT
-    # guessed: the next cloud-gate run mirrors, asserts ECR preserved the source config, and fails
-    # with the value to record here.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # RESOLVED FOR THIS PIN (2026-08-18). e2e-cloud-aws run 32190131167 assumed the release role,
+    # mirrored ghcr.io/honua-io/honua-server:nightly-lambda-aot-6b6d3b8-arm64@sha256:2bb6d764… into
+    # ECR, asserted ECR preserved the source config, and reported the resulting digest — which is the
+    # bootstrap round trip #99 describes, working as intended:
+    #   ##[error] awsLambdaEcrDigest is the pending-ecr-mirror sentinel. ECR preserved the source
+    #             config; record this in platform-manifest.yaml and re-run (honua-release#99):
+    #             sha256:d755287079150570cfdd98a3a0b9a837a2059c51dfbbc87f35ae52330bc94317
+    # Note it differs from the GHCR digest (2bb6d764… -> d755287…): ECR re-serialises the OCI
+    # manifest as Docker schema 2, which is why this value is not derivable and must be recorded
+    # after a real push. It is a property of THIS image — any future re-pin returns it to the
+    # sentinel rather than carrying it forward, which is the stale-digest failure #99 exists to
+    # prevent.
+    awsLambdaEcrDigest: "sha256:d755287079150570cfdd98a3a0b9a837a2059c51dfbbc87f35ae52330bc94317"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
