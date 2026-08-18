@@ -1,9 +1,9 @@
-# Production approval gate — settings-as-code (honua-release#44).
+# Release-promotion approval gate — settings-as-code (honua-release#44).
 #
 # WHY THIS FILE EXISTS
 # promote.yml is the one place where a certified candidate becomes a signed, tagged, published
 # platform release. Artifact integrity (#42) proves WHAT is being released; this file and
-# tools/check_production_approval.py prove WHO authorised it — an authorisation boundary the release
+# tools/check_release_promotion_approval.py prove WHO authorised it — an authorisation boundary the release
 # automation cannot satisfy on its own. The settings live in git so the intended configuration is
 # reviewable, diffable, and comparable against the live repository by a read-only drift check
 # (.github/workflows/repo-control-drift.yml) rather than existing only in the GitHub UI.
@@ -15,7 +15,7 @@
 # PRIVATE repositories on GitHub Team — no longer applies. Approval authority therefore lives in
 # GitHub's deployment-protection layer, which the release automation's token cannot grant itself:
 # `GITHUB_TOKEN` and the release App can dispatch promote, but neither can approve the deployment.
-# See docs/PRODUCTION-APPROVAL-GATE.md for the full rationale, runbook, and break-glass procedure.
+# See docs/RELEASE-PROMOTION-APPROVAL-GATE.md for the full rationale, runbook, and break-glass procedure.
 #
 # IF THIS REPOSITORY EVER GOES PRIVATE AGAIN the required-reviewer rule stops being enforceable on a
 # Team plan. The gate does not silently degrade: the environment read would show the rule missing and
@@ -25,10 +25,10 @@
 schemaVersion: 1
 
 environment:
-  name: production
+  name: release-promotion
   repository: honua-io/honua-release
   # Deployments may only come from a protected branch — no custom branch list, which would let an
-  # arbitrary branch reach production.
+  # arbitrary branch reach the release-promotion gate.
   deployment_branch_policy:
     protected_branches: true
     custom_branch_policies: false
@@ -38,7 +38,7 @@ environment:
 
 approval:
   # Exactly one required-reviewer rule, naming exactly this human. Rotation = change these two fields
-  # and re-attest (docs/PRODUCTION-APPROVAL-GATE.md § Reviewer rotation).
+  # and re-attest (docs/RELEASE-PROMOTION-APPROVAL-GATE.md § Reviewer rotation).
   required_reviewer:
     id: 12301237
     login: mikemcdougall
@@ -57,25 +57,25 @@ approval:
   # regardless of this list.
 
 promotion:
-  # Production deployment is restricted to the repository's protected default branch, and the
+  # Release promotion is restricted to the repository's protected default branch, and the
   # certified train identity is verified separately by tools/candidate_binding.py validate-run.
   require_protected_default_branch: true
   require_promotion_from_default_branch: true
 
 # The live environment is compared against this file. `attested_at` is the moment a human last
 # reviewed the live settings and confirmed they match; the gate fails closed when the attestation has
-# expired, or when GitHub reports the environment was modified AFTER it (someone changed production
-# settings without re-attesting here).
+# expired, or when GitHub reports the environment was modified AFTER it (someone changed the
+# release-promotion settings without re-attesting here).
 attestation:
   attested_at: "2026-08-16T00:00:00Z"
   attested_by: mikemcdougall
   max_attestation_age_days: 180
-  # Set true once the production environment exists and has been configured per the runbook. While
+  # Set true once the release-promotion environment exists and has been configured per the runbook. While
   # false the gate still fails closed on the missing environment — this only records that the
   # settings-as-code entry has not yet been applied, so the drift check reports the honest reason.
   applied: false
   note: >-
-    The production environment does not exist yet in honua-io/honua-release (the API reports zero
+    The release-promotion environment does not exist yet in honua-io/honua-release (the API reports zero
     environments). Promotion is therefore blocked, which is the intended safe state. Apply the runbook
-    in docs/PRODUCTION-APPROVAL-GATE.md, then set applied: true and refresh attested_at in the same
+    in docs/RELEASE-PROMOTION-APPROVAL-GATE.md, then set applied: true and refresh attested_at in the same
     commit.

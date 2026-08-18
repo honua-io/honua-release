@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Enforceable production approval gate (honua-release#44).
+"""Enforceable release-promotion approval gate (honua-release#44).
 
 promote.yml turns a certified candidate into a signed, tagged, published platform release. Artifact
 integrity proves *what* is released; this decision core proves *who authorised it*, and does so in a
 way the release automation cannot satisfy on its own:
 
-  * the intended settings live in git (certification/production-approval.yaml) so they are reviewable
+  * the intended settings live in git (certification/release-promotion-approval.yaml) so they are reviewable
     and diffable, and the live environment is compared against them;
   * a designated HUMAN reviewer must be required by the GitHub environment, and neither a bot
     principal nor the actor that started the promotion may satisfy that requirement;
-  * production deployment is restricted to the repository's protected default branch;
+  * promotion is restricted to the repository's protected default branch;
   * every failure mode — missing environment, unreadable metadata, weakened rule, expired or
     superseded attestation, automation-only reviewer — is a REFUSAL, never a pass.
 
@@ -299,7 +299,7 @@ def evaluate(
             "reviewer-matches-policy",
             reviewer_logins == [expected_login],
             f"live reviewer(s) {reviewer_logins} do not match the attested reviewer "
-            f"{[expected_login]} — settings drifted from certification/production-approval.yaml"
+            f"{[expected_login]} — settings drifted from certification/release-promotion-approval.yaml"
             if reviewer_logins != [expected_login]
             else f"live reviewer matches the attested reviewer {expected_login!r}",
         )
@@ -364,7 +364,7 @@ def evaluate(
     record(
         "attestation-fresh",
         now <= expires,
-        f"the production approval attestation expired on {expires.date().isoformat()} — re-review "
+        f"the release-promotion approval attestation expired on {expires.date().isoformat()} — re-review "
         "the live settings and refresh attestation.attested_at"
         if now > expires
         else f"attestation from {attested_at.date().isoformat()} is valid until {expires.date().isoformat()}",
@@ -382,7 +382,7 @@ def evaluate(
                 record(
                     "attestation-current",
                     changed <= attested_at,
-                    f"the production environment was modified at {changed.isoformat()}, after the "
+                    f"the release-promotion environment was modified at {changed.isoformat()}, after the "
                     f"last attestation at {attested_at.isoformat()} — review the change and re-attest"
                     if changed > attested_at
                     else "the live environment has not been modified since the last attestation",
@@ -395,10 +395,10 @@ def evaluate(
     why = (
         "; ".join(check["why"] for check in failed)
         if failed
-        else f"environment {expected_name!r} enforces an independent human approval for production"
+        else f"environment {expected_name!r} enforces an independent human approval for release promotion"
     )
     return {
-        "gate": "production-approval",
+        "gate": "release-promotion-approval",
         "status": status,
         "why": why,
         "mode": mode,
@@ -466,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ApprovalPolicyError as exc:
         evidence = {
-            "gate": "production-approval",
+            "gate": "release-promotion-approval",
             "status": FAIL,
             "why": f"approval policy is not trustworthy: {exc}",
             "checks": [],
@@ -475,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.evidence_out is not None:
         args.evidence_out.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 
-    print(f"== production approval gate — {evidence['status'].upper()} ==")
+    print(f"== release-promotion approval gate — {evidence['status'].upper()} ==")
     for check in evidence.get("checks", []):
         print(f"  [{check['status']}] {check['check']}: {check['why']}")
     print(f"{'OK' if evidence['status'] == PASS else 'REFUSED'}: {evidence['why']}")

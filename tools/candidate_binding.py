@@ -159,7 +159,7 @@ def validate_environment_metadata(
     expected_name: str,
     expected_reviewer_id: int,
 ) -> tuple[bool, str]:
-    """Require a protected-branch production environment with the expected human reviewer."""
+    """Require a protected-branch release-promotion environment with the expected human reviewer."""
     if not isinstance(environment, dict):
         return False, "environment metadata must be an object"
     if environment.get("name") != expected_name:
@@ -167,22 +167,22 @@ def validate_environment_metadata(
 
     branch_policy = environment.get("deployment_branch_policy")
     if not isinstance(branch_policy, dict) or branch_policy.get("protected_branches") is not True:
-        return False, "production environment must allow deployments only from protected branches"
+        return False, "release-promotion environment must allow deployments only from protected branches"
     if branch_policy.get("custom_branch_policies") is not False:
-        return False, "production environment protected-branch policy is inconsistent"
+        return False, "release-promotion environment protected-branch policy is inconsistent"
 
     rules = environment.get("protection_rules")
     if not isinstance(rules, list):
-        return False, "production environment protection_rules must be a list"
+        return False, "release-promotion environment protection_rules must be a list"
     reviewer_rules = [rule for rule in rules if isinstance(rule, dict) and rule.get("type") == "required_reviewers"]
     if not reviewer_rules:
-        return False, "production environment has no required-reviewer protection rule"
+        return False, "release-promotion environment has no required-reviewer protection rule"
     if len(reviewer_rules) != 1:
-        return False, "production environment must have exactly one required-reviewer rule"
+        return False, "release-promotion environment must have exactly one required-reviewer rule"
 
     reviewers = reviewer_rules[0].get("reviewers")
     if not isinstance(reviewers, list) or len(reviewers) != 1:
-        return False, f"production environment must require exactly reviewer id {expected_reviewer_id}"
+        return False, f"release-promotion environment must require exactly reviewer id {expected_reviewer_id}"
     reviewer = reviewers[0]
     if not (
         isinstance(reviewer, dict)
@@ -190,11 +190,11 @@ def validate_environment_metadata(
         and isinstance(reviewer.get("reviewer"), dict)
         and reviewer["reviewer"].get("id") == expected_reviewer_id
     ):
-        return False, f"production environment does not require reviewer id {expected_reviewer_id}"
+        return False, f"release-promotion environment does not require reviewer id {expected_reviewer_id}"
 
     prevents_self_review = reviewer_rules[0].get("prevent_self_review") is True
     self_review = "disabled" if prevents_self_review else "allowed"
-    return True, f"production environment requires expected human reviewer; self-review is {self_review}"
+    return True, f"release-promotion environment requires expected human reviewer; self-review is {self_review}"
 
 
 def build_candidate_binding(

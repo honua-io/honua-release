@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_contract_suppression as ccs  # noqa: E402
-import check_production_approval as cpa  # noqa: E402
+import check_release_promotion_approval as cpa  # noqa: E402
 
 
 def _workflow(name: str) -> dict:
@@ -136,7 +136,7 @@ MUTATING_GH_COMMANDS = (
 def test_promote_preflights_environment_policy_before_release_steps():
     workflow = _workflow("promote.yml")
     promote = workflow["jobs"]["promote"]
-    assert promote["environment"] == "production"
+    assert promote["environment"] == "release-promotion"
     assert not _neutralised(promote), "the promote job must not be continue-on-error"
 
     steps = promote["steps"]
@@ -144,13 +144,13 @@ def test_promote_preflights_environment_policy_before_release_steps():
     joined = "\n".join(texts)
 
     # The gate runs, from settings-as-code, in its enforcing mode, with the promotion identity.
-    assert "tools/check_production_approval.py" in joined
-    assert "certification/production-approval.yaml" in joined
+    assert "tools/check_release_promotion_approval.py" in joined
+    assert "certification/release-promotion-approval.yaml" in joined
     assert "--mode promote" in joined
     assert "--promotion-ref" in joined and "--promotion-actor" in joined
 
     approval_index = next(
-        index for index, text in enumerate(texts) if "check_production_approval.py" in text
+        index for index, text in enumerate(texts) if "check_release_promotion_approval.py" in text
     )
     # A gate that is allowed to fail is not a gate.
     assert not _neutralised(steps[approval_index]), "the approval gate step must not be continue-on-error"
@@ -172,7 +172,7 @@ def test_every_promote_step_that_can_refuse_is_allowed_to_refuse():
         text = _step_text(step)
         if any(
             guard in text
-            for guard in ("check_production_approval.py", "candidate_binding.py", "finalize_release.py")
+            for guard in ("check_release_promotion_approval.py", "candidate_binding.py", "finalize_release.py")
         ):
             assert not _neutralised(step), f"guard step is neutralised: {step.get('name')}"
 
@@ -183,7 +183,7 @@ def test_repo_control_drift_check_is_read_only():
 
     jobs = workflow["jobs"].values()
     commands = "\n".join(_step_text(step) for job in jobs for step in job["steps"])
-    assert "tools/check_production_approval.py" in commands
+    assert "tools/check_release_promotion_approval.py" in commands
     assert "--mode drift" in commands
 
     assert_read_only(commands, "the drift monitor")
@@ -230,22 +230,22 @@ READ_ONLY_COMMANDS = (
     'gh api "repos/$REPOSITORY/actions/variables" --paginate > variables.json',
     'gh api "repos/$O/$R" --jq .default_branch',
     'if [ -f repository.json ]; then gh api "repos/$O/$R" > branch.json; fi',
-    'gh api \\\n  "repos/$O/$R/environments/production" \\\n  --jq .name',
+    'gh api \\\n  "repos/$O/$R/environments/release-promotion" \\\n  --jq .name',
 )
 
 MUTATING_COMMANDS = (
     # the two evasions the re-review found
-    'gh api \\\n  --method PUT \\\n  "repos/$O/$R/environments/production"',
-    'gh api "repos/$O/$R/environments/production" -fwait_timer=0',
+    'gh api \\\n  --method PUT \\\n  "repos/$O/$R/environments/release-promotion"',
+    'gh api "repos/$O/$R/environments/release-promotion" -fwait_timer=0',
     # and the forms the literal list already covered, re-proven through the new scanner
-    'gh api -X PATCH "repos/$O/$R/environments/production"',
-    'gh api --method DELETE "repos/$O/$R/environments/production"',
-    'gh api -f prevent_self_review=false "repos/$O/$R/environments/production"',
-    'gh api -F reviewers[][id]=1 "repos/$O/$R/environments/production"',
+    'gh api -X PATCH "repos/$O/$R/environments/release-promotion"',
+    'gh api --method DELETE "repos/$O/$R/environments/release-promotion"',
+    'gh api -f prevent_self_review=false "repos/$O/$R/environments/release-promotion"',
+    'gh api -F reviewers[][id]=1 "repos/$O/$R/environments/release-promotion"',
     'gh api --field key=value "repos/$O/$R"',
     'gh api --raw-field key=value "repos/$O/$R"',
-    'gh api --input payload.json "repos/$O/$R/environments/production"',
-    'gh api \\\n  "repos/$O/$R/environments/production" \\\n  -Fprevent_self_review=false',
+    'gh api --input payload.json "repos/$O/$R/environments/release-promotion"',
+    'gh api \\\n  "repos/$O/$R/environments/release-promotion" \\\n  -Fprevent_self_review=false',
     'gh secret set RELEASE_GH_TOKEN --body "$X"',
     'gh variable set OPENAPI_ALLOW_BREAKING_CHANGES --body true',
     'gh release create honua-2026.1',
@@ -275,8 +275,8 @@ def test_logical_lines_join_continuations():
 # release, which is the worst possible moment to find out.
 
 SHIPPED_REGISTERS = {
-    "tools/check_production_approval.py": (
-        "certification/production-approval.yaml",
+    "tools/check_release_promotion_approval.py": (
+        "certification/release-promotion-approval.yaml",
         cpa.load_policy,
     ),
     "tools/check_contract_suppression.py": (

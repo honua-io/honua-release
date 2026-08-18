@@ -1,8 +1,16 @@
-# Production approval gate
+# Release-promotion approval gate
 
-*honua-release#44. Settings-as-code: `certification/production-approval.yaml`. Decision core:
-`tools/check_production_approval.py`. Enforced by `promote.yml`; monitored by
+*honua-release#44. Settings-as-code: `certification/release-promotion-approval.yaml`. Decision core:
+`tools/check_release_promotion_approval.py`. Enforced by `promote.yml`; monitored by
 `.github/workflows/repo-control-drift.yml`.*
+
+## Why the environment is called `release-promotion`
+
+The GitHub environment behind `promote.yml` gates **tagging, signing, and publishing a release** — it
+is an authorisation boundary, not a deployment target. Nothing is ever deployed to it. Honua is not a
+hosted service: customers run Honua in their own environments, so this repository has no production
+estate for an environment to represent. It was originally named `production`, which implied one. The
+name is `release-promotion` so that what the approval actually authorises is what it is called.
 
 ## What must be true
 
@@ -39,10 +47,10 @@ promotion fails closed — but the design must be re-chosen (Enterprise, or an e
 
 | layer | enforces |
 |---|---|
-| `production` environment protection rules | a named human must approve before the promote job runs |
-| `deployment_branch_policy: protected_branches` | production deploys only from a protected branch |
+| `release-promotion` environment protection rules | a named human must approve before the promote job runs |
+| `deployment_branch_policy: protected_branches` | promotion may only run from a protected branch |
 | `prevent_self_review` | the actor that started the deployment cannot approve it |
-| `tools/check_production_approval.py` (promote preflight) | the live configuration still matches the attested settings-as-code, promotion ran from the protected default branch, and the promoting actor is not the required reviewer |
+| `tools/check_release_promotion_approval.py` (promote preflight) | the live configuration still matches the attested settings-as-code, promotion ran from the protected default branch, and the promoting actor is not the required reviewer |
 | `tools/candidate_binding.py validate-run` | the exact certified train identity: a successful live `release-train` run from the protected default branch of this repository |
 | `tools/finalize_release.py` | every gate green (or an explicitly allow-listed skip) before anything is tagged |
 
@@ -61,31 +69,31 @@ Everything the preflight refuses on:
 - promotion **started by the required reviewer** (approval would not be independent of the request);
 - the attestation **expired**, or the environment **modified after** the last attestation.
 
-Each check is emitted to `production-approval-evidence.json` (uploaded by the promote run) as
+Each check is emitted to `release-promotion-approval-evidence.json` (uploaded by the promote run) as
 `{check, status, why}`. The evidence records names, ids, and outcomes only — never a token, a secret,
 or an approval credential, and the workflows echo HTTP statuses rather than API response bodies.
 
 ## Admin runbook — configuring the environment (reproducible)
 
 Run once, as a repository admin. `<repo>` is `honua-io/honua-release`; the reviewer id and the
-protection settings must match `certification/production-approval.yaml` exactly, or the preflight and
+protection settings must match `certification/release-promotion-approval.yaml` exactly, or the preflight and
 the drift check will refuse.
 
 ```bash
 # 1. Create the environment with protected-branch-only deployments, a single required human
 #    reviewer, and self-review disabled.
-gh api -X PUT repos/<repo>/environments/production \
+gh api -X PUT repos/<repo>/environments/release-promotion \
   -F "prevent_self_review=true" \
   -F "reviewers[][type]=User" -F "reviewers[][id]=12301237" \
   -F "deployment_branch_policy[protected_branches]=true" \
   -F "deployment_branch_policy[custom_branch_policies]=false"
 
 # 2. Read it back and confirm it matches the declaration (this is exactly what CI does).
-gh api repos/<repo>/environments/production > /tmp/environment.json
+gh api repos/<repo>/environments/release-promotion > /tmp/environment.json
 gh api repos/<repo> > /tmp/repository.json
 gh api repos/<repo>/branches/trunk > /tmp/branch.json
-python3 tools/check_production_approval.py \
-  --policy certification/production-approval.yaml \
+python3 tools/check_release_promotion_approval.py \
+  --policy certification/release-promotion-approval.yaml \
   --environment-metadata /tmp/environment.json \
   --repository-metadata /tmp/repository.json \
   --branch-metadata /tmp/branch.json \
@@ -108,7 +116,7 @@ dispatches and the reviewer approves — "AI proposes, the pipeline disposes".
 A single-seat owner therefore cannot both dispatch and approve. That is the intended property, not a
 defect.
 
-**The gate requires exactly ONE reviewer.** `certification/production-approval.yaml` declares a single
+**The gate requires exactly ONE reviewer.** `certification/release-promotion-approval.yaml` declares a single
 `required_reviewer`, and the checker refuses when the environment names any other set — more than one
 reviewer, a different login, a Team, or an app. A second concurrent reviewer is therefore **not**
 supported today; if a human needs to dispatch promote personally, **rotate** the required reviewer to
@@ -117,8 +125,8 @@ Supporting a declared multi-reviewer roster for continuity is tracked in honua-r
 
 ## Reviewer rotation
 
-1. Add the new reviewer to the `production` environment (step 1 above, with the new id).
-2. Update `approval.required_reviewer.{id,login}` in `certification/production-approval.yaml` and
+1. Add the new reviewer to the `release-promotion` environment (step 1 above, with the new id).
+2. Update `approval.required_reviewer.{id,login}` in `certification/release-promotion-approval.yaml` and
    refresh `attestation.attested_at` in the same pull request.
 3. Remove the outgoing reviewer from the environment.
 4. Confirm `repo-control-drift` is green.
@@ -128,7 +136,7 @@ review — the drift check reports the mismatch, and promotion refuses while it 
 
 ## Emergency release (break-glass)
 
-There is no bypass in the workflow, and none should be added. If production must be released while the
+There is no bypass in the workflow, and none should be added. If a release must be cut while the
 approval boundary is unavailable, the only legitimate path is an **admin change to the environment**,
 which leaves durable evidence:
 
@@ -146,18 +154,18 @@ which leaves durable evidence:
    properties the gate exists to protect, and the preflight refuses them anyway; a mid-incident
    attempt would simply produce a hard refusal.
 3. Promote as normal, with the new reviewer approving and someone else dispatching. The approval, the
-   deployment record, and `production-approval-evidence.json` are the audit trail.
+   deployment record, and `release-promotion-approval-evidence.json` are the audit trail.
 4. **Re-lock immediately after:** restore the environment to the declared settings, run the read-back
    in step 2 of the runbook, refresh `attestation.attested_at` in a pull request that links the
    incident issue, and confirm `repo-control-drift` is green. The gate is not re-locked until that
    check passes.
 
-Never weaken `tools/check_production_approval.py`, `tools/candidate_binding.py`, or
+Never weaken `tools/check_release_promotion_approval.py`, `tools/candidate_binding.py`, or
 `tools/finalize_release.py` to make a release pass — a gate that can't fail is worse than no gate.
 
 ## Current state
 
-`certification/production-approval.yaml` records `attestation.applied: false`: the `production`
+`certification/release-promotion-approval.yaml` records `attestation.applied: false`: the `release-promotion`
 environment **does not exist yet** in this repository, so promotion is blocked. That is the intended
 safe state (#43, #44). Applying the runbook above and committing the attestation is the remaining
 owner action; the repo-side gate, evidence, drift check, and tests are in place and enforcing.
@@ -169,9 +177,9 @@ unapplied state can never let a release through. Once `applied` is true, any dri
 ## Verify locally
 
 ```bash
-python3 -m pytest tools/test_check_production_approval.py -q
+python3 -m pytest tools/test_check_release_promotion_approval.py -q
 # --mode defaults to the enforcing `promote`; the read-only monitor's reduced check set must be
 # asked for explicitly with --mode drift.
-python3 tools/check_production_approval.py --policy certification/production-approval.yaml \
+python3 tools/check_release_promotion_approval.py --policy certification/release-promotion-approval.yaml \
   --mode drift --unreadable-reason "environment not configured"   # expect REFUSED, exit 1
 ```

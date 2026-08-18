@@ -8,7 +8,7 @@ policy-enforcing tools over the GHA release-train surface:
 
 The MCP server holds the GitHub App credentials + policy (who may cut, freeze flag, required-approval state)
 and checks them **server-side** before dispatching. The AI calls tools; it never holds tokens, never touches
-gates directly, and cannot bypass the `production` environment approval. Autonomy expands inward-out
+gates directly, and cannot bypass the `release-promotion` environment approval. Autonomy expands inward-out
 (RC+staging first, prod gated) as gates earn trust.
 
 Stub — see docs/RELEASE-ENGINEERING-PLAN.md §15. Natural to host alongside geospatial-mcp tooling.
