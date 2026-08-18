@@ -21,13 +21,17 @@
 # Each rule: a contract surface at a version, and the component version ranges that satisfy it.
 contracts:
   geoservices:
-    # WIRED (honua-release#83): the server now advertises this. Read from a running instance of the
-    # pinned image (ghcr.io/honua-io/honua-server:nightly-aot-aa894e1) on 2026-08-17 —
+    # WIRED (honua-release#83): the server advertises this. RE-READ on 2026-08-18 from a running
+    # instance of the CURRENT pinned image (ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8,
+    # index sha256:4fd2c1be…), not carried forward from the aa894e1 pin —
     #   /api/v1/capabilities/manifest -> transports.items[id=geoservices-rest].contractVersion = 1.0.0
+    #   (same envelope: server.deploymentRevision = 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1)
     # (it still deliberately does not emit ArcGIS `currentVersion`). Client floors below are NOT
     # tightened here: raising a floor drops support for older clients and validate_platform's drift
     # check treats that as breaking, so floors stay at the phase-0 baseline until the SDKs actually
-    # negotiate on this version.
+    # negotiate on this version. Nothing in honua-server#3347/#3349/#3352/#3353 moved a floor: the
+    # only advertised-surface change in that range is a capability-ID set (#3349), which is not a
+    # client support window.
     version: "1.0.0"
     clients:
       honua-sdk-js:     ">=0.0.14-alpha.0 <0.2.0"   # widened through browser-verified 0.1.2-beta.0
@@ -73,18 +77,20 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"
+    deploysServerImage: "sha:6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:aa894e1481cd3b59b5c4fe8302cac2c42d6d888c"
+    appVersion: "sha:6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"
 
 data:
   honua-server:
     # DB schema version = highest applied migration in the PINNED server source
-    # (src/Honua.Server/Migrations/, NNN_ prefix); max at aa894e1 is
-    # 106_CreateManagedUsersAndScimGroups.sql. DbUp journals to public.schema_versions (no single
-    # constant) — verified by running the pinned image against postgres and reading that table:
-    #   docker exec <pg> psql -U honua_user -d honua_dev -c \
+    # (src/Honua.Server/Migrations/, NNN_ prefix); max at 6b6d3b8 is
+    # 106_CreateManagedUsersAndScimGroups.sql — RE-VERIFIED at this pin, not carried forward (none of
+    # honua-server#3347/#3349/#3352/#3353 adds a migration). DbUp journals to public.schema_versions
+    # (no single constant), so the filename list is not the verdict; the pinned image was run against
+    # postgres and the journal read back:
+    #   docker exec <pg> psql -U honua -d honua -c \
     #     "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   -> Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql
     requiresDbSchema: ">=106"

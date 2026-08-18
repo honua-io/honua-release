@@ -96,6 +96,9 @@
       },
       "CollectionInfo": {
         "properties": {
+          "attribution": {
+            "type": "string"
+          },
           "crs": {
             "items": {
               "type": "string"
@@ -326,6 +329,9 @@
       "Link": {
         "properties": {
           "href": {
+            "type": "string"
+          },
+          "hreflang": {
             "type": "string"
           },
           "rel": {
