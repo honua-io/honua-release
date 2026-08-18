@@ -82,9 +82,20 @@
         "ServiceSettingsResponse",
         "ServiceSummary",
         "StyleEncoding",
+        "TOOLBOX_TRANSLATION_ARTIFACT_VERSION",
+        "TOOLBOX_TRANSLATION_MANIFEST_KIND",
+        "TOOLBOX_TRANSLATION_REPORT_KIND",
         "TableDiscoveryResponse",
         "TableInfo",
         "TimeInfoResponse",
+        "ToolboxParameterBinding",
+        "ToolboxParameterMapping",
+        "ToolboxToolDescriptor",
+        "ToolboxToolTranslation",
+        "ToolboxTranslationIssue",
+        "ToolboxTranslationManifest",
+        "ToolboxTranslationReport",
+        "ToolboxTranslationSummary",
         "UpdateSecureConnectionRequest",
         "__version__",
         "evaluate_admin_compatibility",
@@ -960,6 +971,11 @@
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'EncryptionValidationResult'"
             },
+            "validate_toolbox_translation": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, manifest: 'ToolboxTranslationManifest', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ToolboxTranslationReport'"
+            },
             "with_options": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | None' = None, max_retries: 'int | None' = None, base_url: 'str | None' = None) -> 'AsyncHonuaAdminClient'"
@@ -1293,6 +1309,10 @@
             "validate_encryption": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'EncryptionValidationResult'"
+            },
+            "validate_toolbox_translation": {
+              "kind": "method",
+              "signature": "(self, manifest: 'ToolboxTranslationManifest', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ToolboxTranslationReport'"
             },
             "with_options": {
               "kind": "method",
@@ -3494,6 +3514,21 @@
           "type": "_LiteralGenericAlias",
           "value": "typing.Literal['mapbox-style', 'sld-1.0', 'sld-1.1']"
         },
+        "TOOLBOX_TRANSLATION_ARTIFACT_VERSION": {
+          "kind": "constant",
+          "type": "str",
+          "value": "'1.0'"
+        },
+        "TOOLBOX_TRANSLATION_MANIFEST_KIND": {
+          "kind": "constant",
+          "type": "str",
+          "value": "'honua.migration.toolbox-translation'"
+        },
+        "TOOLBOX_TRANSLATION_REPORT_KIND": {
+          "kind": "constant",
+          "type": "str",
+          "value": "'honua.migration.toolbox-translation-report'"
+        },
         "TableDiscoveryResponse": {
           "fields": [
             {
@@ -3579,6 +3614,304 @@
           "module": "honua_admin._models",
           "qualname": "TimeInfoResponse",
           "signature": "(start_time_field: 'str | None', end_time_field: 'str | None', track_id_field: 'str | None') -> None"
+        },
+        "ToolboxParameterBinding": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "source_name"
+            },
+            {
+              "annotation": "str",
+              "name": "target_parameter"
+            },
+            {
+              "annotation": "str",
+              "name": "value_type"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "name": "required"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ToolboxParameterBinding'"
+            },
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxParameterBinding",
+          "signature": "(source_name: 'str', target_parameter: 'str', value_type: 'str', required: 'bool' = False) -> None"
+        },
+        "ToolboxParameterMapping": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "source_name"
+            },
+            {
+              "annotation": "str",
+              "name": "target_parameter"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "source_data_type"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxParameterMapping",
+          "signature": "(source_name: 'str', target_parameter: 'str', source_data_type: 'str | None' = None) -> None"
+        },
+        "ToolboxToolDescriptor": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "tool_name"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "display_name"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "target_process_id"
+            },
+            {
+              "annotation": "list[ToolboxParameterMapping]",
+              "defaultFactory": "list",
+              "name": "parameter_mappings"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "unsupported_constructs"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxToolDescriptor",
+          "signature": "(tool_name: 'str', display_name: 'str | None' = None, target_process_id: 'str | None' = None, parameter_mappings: 'list[ToolboxParameterMapping]' = <factory>, unsupported_constructs: 'list[str]' = <factory>) -> None"
+        },
+        "ToolboxToolTranslation": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "tool_name"
+            },
+            {
+              "annotation": "str",
+              "name": "classification"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "process_id"
+            },
+            {
+              "annotation": "list[ToolboxParameterBinding]",
+              "defaultFactory": "list",
+              "name": "parameter_bindings"
+            },
+            {
+              "annotation": "list[ToolboxTranslationIssue]",
+              "defaultFactory": "list",
+              "name": "issues"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ToolboxToolTranslation'"
+            },
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxToolTranslation",
+          "signature": "(tool_name: 'str', classification: 'str', process_id: 'str | None' = None, parameter_bindings: 'list[ToolboxParameterBinding]' = <factory>, issues: 'list[ToolboxTranslationIssue]' = <factory>) -> None"
+        },
+        "ToolboxTranslationIssue": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "parameter_name"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ToolboxTranslationIssue'"
+            },
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxTranslationIssue",
+          "signature": "(code: 'str', message: 'str', parameter_name: 'str | None' = None) -> None"
+        },
+        "ToolboxTranslationManifest": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "toolbox_name"
+            },
+            {
+              "annotation": "str",
+              "name": "source_format"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "source_label"
+            },
+            {
+              "annotation": "list[ToolboxToolDescriptor]",
+              "defaultFactory": "list",
+              "name": "tools"
+            },
+            {
+              "annotation": "str",
+              "default": "'honua.migration.toolbox-translation'",
+              "name": "artifact_kind"
+            },
+            {
+              "annotation": "str",
+              "default": "'1.0'",
+              "name": "artifact_version"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxTranslationManifest",
+          "signature": "(toolbox_name: 'str', source_format: 'str', source_label: 'str | None' = None, tools: 'list[ToolboxToolDescriptor]' = <factory>, artifact_kind: 'str' = 'honua.migration.toolbox-translation', artifact_version: 'str' = '1.0') -> None"
+        },
+        "ToolboxTranslationReport": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "toolbox_name"
+            },
+            {
+              "annotation": "str",
+              "name": "source_format"
+            },
+            {
+              "annotation": "ToolboxTranslationSummary",
+              "defaultFactory": "honua_admin._models.ToolboxTranslationSummary",
+              "name": "summary"
+            },
+            {
+              "annotation": "list[ToolboxToolTranslation]",
+              "defaultFactory": "list",
+              "name": "tools"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "artifact_kind"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "artifact_version"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ToolboxTranslationReport'"
+            },
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxTranslationReport",
+          "signature": "(toolbox_name: 'str', source_format: 'str', summary: 'ToolboxTranslationSummary' = <factory>, tools: 'list[ToolboxToolTranslation]' = <factory>, artifact_kind: 'str | None' = None, artifact_version: 'str | None' = None) -> None"
+        },
+        "ToolboxTranslationSummary": {
+          "fields": [
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "tool_count"
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "translated_count"
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "partially_translated_count"
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "unsupported_count"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ToolboxTranslationSummary'"
+            },
+            "to_dict": {
+              "kind": "method",
+              "signature": "(self) -> 'dict[str, Any]'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ToolboxTranslationSummary",
+          "signature": "(tool_count: 'int' = 0, translated_count: 'int' = 0, partially_translated_count: 'int' = 0, unsupported_count: 'int' = 0) -> None"
         },
         "UpdateSecureConnectionRequest": {
           "fields": [

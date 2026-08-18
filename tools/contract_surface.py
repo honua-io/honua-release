@@ -17,8 +17,11 @@ so re-extracting in CI reproduces the committed baseline byte-for-byte:
   honua-sdk-dotnet  a syntactic C# public-surface digest (public/protected declarations under src/,
                     namespace-qualified, tests excluded). Not a full apicompat run — a deterministic,
                     diffable surface descriptor that catches added/removed public API.
-  honua-sdk-js      a syntactic TypeScript export-surface digest (top-level `export` declarations and
-                    re-exports under src/, tests excluded).
+  honua-sdk-js      a syntactic TypeScript export-surface digest resolved from the package's
+                    published entry points: every name importable from a package.json `exports`
+                    subpath, expanded through `export ... from` / `export *` re-exports. Keyed by
+                    subpath, NOT by declaring file, so moving a declaration and re-exporting it is
+                    not mistaken for a removal (honua-release#104).
 
 Semantics (mirrors the proto half + the repo's bootstrap/strict enforcement model):
 
@@ -202,6 +205,12 @@ _TS_NAMED = re.compile(r"export\s*(type\s*)?\{([^}]*)\}", re.DOTALL)
 
 
 def _ts_export_surface(root: Path) -> list[str]:
+    """FALLBACK digest keyed by DECLARING FILE — used only when no package entry point resolves.
+
+    Prefer `_ts_entry_point_surface`: this view reports a file move plus re-export as a removal
+    (honua-release#104), so it exists only so an unresolvable layout still produces a real surface
+    instead of an empty one.
+    """
     exports: set[str] = set()
     for ts in sorted(root.rglob("*.ts")):
         rel = ts.as_posix().lower()
@@ -233,16 +242,300 @@ def _ts_export_surface(root: Path) -> list[str]:
     return sorted(exports)
 
 
+# ── TypeScript: entry-point (import-reachable) export surface ───────────────
+# A TypeScript package's contract is what a consumer can `import` from a published subpath, NOT the
+# file a declaration happens to live in. Keying the surface by declaring file (the original
+# `_ts_export_surface`, kept below as the fallback) reports a pure file move + re-export as a public
+# API REMOVAL — honua-release#104: five names in honua-sdk-js "disappeared" at the re-pin while every
+# one of them was still exported from the same subpath. A gate that over-reports breakage teaches
+# people to ignore it, so the surface is resolved from package.json `exports` instead: each entry
+# point is expanded through `export ... from`, `export *`, and `export * as ns` until it names what
+# `import { X } from "@scope/pkg/subpath"` actually yields.
+#
+# Kind is recorded as the refactor-stable pair value/type rather than the declaration keyword:
+# `interface X` re-exported as `export type { X }` is the same thing to a consumer, but a type-only
+# export can NOT be imported as a value, so that distinction is kept.
+
+_TS_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_TS_TYPE_KEYWORDS = frozenset({"interface", "type"})
+_TS_EXT_CANDIDATES = (".ts", ".tsx", ".mts", ".cts", ".d.ts")
+
+_TS_ANY_DECL = re.compile(
+    r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+    r"(class|function|const|let|var|interface|type|enum|namespace)\s+\*?\s*([A-Za-z0-9_$]+)"
+)
+_TS_EXPORT_DEFAULT = re.compile(r"^\s*export\s+default\b")
+_TS_NAMED_ANY = re.compile(
+    r"\bexport\s+(type\s+)?\{([^}]*)\}\s*(?:from\s*['\"]([^'\"]+)['\"])?", re.DOTALL
+)
+_TS_IMPORT_NAMED = re.compile(
+    r"\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]", re.DOTALL
+)
+
+
+def _ts_strip_comments(text: str) -> str:
+    """Drop block comments and comment-only lines so documentation examples are not read as exports."""
+    text = _TS_BLOCK_COMMENT.sub("", text)
+    keep = [ln for ln in text.splitlines() if not ln.lstrip().startswith(("//", "*"))]
+    return "\n".join(keep)
+
+
+def _ts_split_specifier(token: str) -> tuple[str, str, bool] | None:
+    """`A as B` / `type A` -> (original, alias, type_only); None when the token is not a name."""
+    tok = token.strip()
+    if not tok:
+        return None
+    type_only = False
+    if tok.startswith("type ") or tok.startswith("type\t"):
+        type_only = True
+        tok = tok[4:].strip()
+    parts = re.split(r"\s+as\s+", tok)
+    original = parts[0].strip()
+    alias = parts[-1].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_$]+", original) or not re.fullmatch(r"[A-Za-z0-9_$]+", alias):
+        return None
+    return (original, alias, type_only)
+
+
+def _ts_parse_module(text: str) -> dict:
+    """Parse one TypeScript module into the pieces the export resolver needs."""
+    text = _ts_strip_comments(text)
+    declared: dict[str, str] = {}        # every declaration in the file (exported or not) -> kind
+    exported: dict[str, str] = {}        # `export <decl> Name` -> kind
+    reexports: list[tuple[str, str, str | None, bool]] = []  # (original, alias, spec|None, type_only)
+    stars: list[str] = []                # `export * from "spec"`
+    star_ns: list[tuple[str, str]] = []  # `export * as ns from "spec"`
+    imports: dict[str, tuple[str, str]] = {}  # local name -> (spec, original)
+    has_default = False
+
+    for line in text.splitlines():
+        m = _TS_ANY_DECL.match(line)
+        if m:
+            kind = "type" if m.group(1) in _TS_TYPE_KEYWORDS else "value"
+            declared[m.group(2)] = kind
+            if line.lstrip().startswith("export"):
+                exported[m.group(2)] = kind
+        if _TS_EXPORT_DEFAULT.match(line):
+            has_default = True
+        s = _TS_STAR.match(line)
+        if s:
+            if s.group(1):
+                star_ns.append((s.group(1), s.group(2)))
+            else:
+                stars.append(s.group(2))
+
+    for m in _TS_IMPORT_NAMED.finditer(text):
+        for tok in m.group(1).split(","):
+            parsed = _ts_split_specifier(tok)
+            if parsed:
+                original, alias, _type_only = parsed
+                imports[alias] = (m.group(2), original)
+
+    for m in _TS_NAMED_ANY.finditer(text):
+        block_type_only = bool(m.group(1))
+        spec = m.group(3)
+        for tok in m.group(2).split(","):
+            parsed = _ts_split_specifier(tok)
+            if not parsed:
+                continue
+            original, alias, tok_type_only = parsed
+            reexports.append((original, alias, spec, block_type_only or tok_type_only))
+
+    return {
+        "declared": declared,
+        "exported": exported,
+        "reexports": reexports,
+        "stars": stars,
+        "star_ns": star_ns,
+        "imports": imports,
+        "has_default": has_default,
+    }
+
+
+def _ts_resolve_module(root: Path, importer: str, spec: str) -> str | None:
+    """Resolve a relative module specifier to a root-relative .ts path (ESM `.js` specifiers included)."""
+    if not spec.startswith("."):
+        return None  # bare specifier: an external package, not part of this repo's source tree
+    base = (Path(importer).parent / spec).as_posix()
+    # normalise ./ and ../ without touching the filesystem
+    stack: list[str] = []
+    for part in base.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not stack:
+                return None
+            stack.pop()
+            continue
+        stack.append(part)
+    target = "/".join(stack)
+    stem = re.sub(r"\.(js|mjs|cjs|jsx)$", "", target)
+    candidates = [stem + ext for ext in _TS_EXT_CANDIDATES]
+    candidates += [f"{stem}/index{ext}" for ext in _TS_EXT_CANDIDATES]
+    if target != stem:
+        candidates.append(target)
+    for candidate in candidates:
+        if (root / candidate).is_file():
+            return candidate
+    return None
+
+
+def _ts_module_exports(root: Path, module: str, cache: dict[str, dict[str, str]],
+                       stack: frozenset[str] = frozenset()) -> dict[str, str]:
+    """Names importable from `module`, resolved through re-exports. -> {name: value|type|star}."""
+    if module in cache:
+        return cache[module]
+    if module in stack:
+        return {}  # import cycle: the other frame owns these names
+    stack = stack | {module}
+    try:
+        text = (root / module).read_text(encoding="utf-8", errors="replace")
+    except OSError:  # pragma: no cover
+        return {}
+    rec = _ts_parse_module(text)
+    out: dict[str, str] = {}
+
+    for spec in rec["stars"]:
+        target = _ts_resolve_module(root, module, spec)
+        if target is None:
+            # An un-resolvable star (an external package) is recorded verbatim rather than dropped:
+            # its names are real surface this build-free extractor cannot enumerate.
+            out[f"* from {spec}"] = "star"
+            continue
+        for name, kind in _ts_module_exports(root, target, cache, stack).items():
+            if name != "default":
+                out[name] = kind
+
+    for ns, _spec in rec["star_ns"]:
+        out[ns] = "value"
+
+    for original, alias, spec, type_only in rec["reexports"]:
+        kind: str | None = "type" if type_only else None
+        if kind is None:
+            if spec is not None:
+                target = _ts_resolve_module(root, module, spec)
+                if target is not None:
+                    kind = _ts_module_exports(root, target, cache, stack).get(original)
+            else:
+                kind = rec["declared"].get(original)
+                if kind is None and original in rec["imports"]:
+                    imp_spec, imp_original = rec["imports"][original]
+                    target = _ts_resolve_module(root, module, imp_spec)
+                    if target is not None:
+                        kind = _ts_module_exports(root, target, cache, stack).get(imp_original)
+        out[alias] = kind or "value"
+
+    out.update(rec["exported"])
+    if rec["has_default"]:
+        out["default"] = "value"
+
+    cache[module] = out
+    return out
+
+
+def _ts_entry_points(package: dict, root: Path) -> dict[str, str]:
+    """package.json `exports` (or types/main) -> {public subpath: root-relative source module}."""
+    def _first_target(node: object) -> str | None:
+        if isinstance(node, str):
+            return node
+        if isinstance(node, dict):
+            for key in ("types", "typings", "default", "import", "module", "node", "require"):
+                if key in node:
+                    found = _first_target(node[key])
+                    if found:
+                        return found
+            for value in node.values():
+                found = _first_target(value)
+                if found:
+                    return found
+        if isinstance(node, list):
+            for value in node:
+                found = _first_target(value)
+                if found:
+                    return found
+        return None
+
+    def _to_source(target: str | None) -> str | None:
+        if not target:
+            return None
+        rel = target.lstrip("./")
+        for prefix in ("dist/src/", "dist/", "src/", "lib/"):
+            if rel.startswith(prefix):
+                rel = rel[len(prefix):]
+                break
+        stem = re.sub(r"\.(d\.ts|d\.mts|ts|tsx|js|mjs|cjs|jsx)$", "", rel)
+        for candidate in [stem + ext for ext in _TS_EXT_CANDIDATES] + \
+                         [f"{stem}/index{ext}" for ext in _TS_EXT_CANDIDATES]:
+            if (root / candidate).is_file():
+                return candidate
+        return None
+
+    entries: dict[str, str] = {}
+    exports = package.get("exports")
+    if isinstance(exports, dict):
+        for subpath, node in exports.items():
+            if not isinstance(subpath, str) or subpath.endswith("package.json"):
+                continue
+            module = _to_source(_first_target(node))
+            if module is not None:
+                entries[subpath] = module
+    elif isinstance(exports, str):
+        module = _to_source(exports)
+        if module is not None:
+            entries["."] = module
+    if not entries:
+        module = _to_source(package.get("types") or package.get("typings") or package.get("main"))
+        if module is None:
+            module = _to_source("index.ts")
+        if module is not None:
+            entries["."] = module
+    return entries
+
+
+def _ts_entry_point_surface(root: Path, package: dict) -> tuple[dict[str, str], list[str]]:
+    """({subpath: module}, ["<subpath>: <kind> <name>", ...]) — what consumers can import."""
+    entries = _ts_entry_points(package, root)
+    cache: dict[str, dict[str, str]] = {}
+    surface: set[str] = set()
+    for subpath, module in entries.items():
+        for name, kind in _ts_module_exports(root, module, cache).items():
+            surface.add(f"{subpath}: {kind} {name}")
+    return entries, sorted(surface)
+
+
 def _extract_js(repo: Path, sha: str) -> dict[str, str]:
+    package_text = _git_show(repo, sha, "package.json")
+    package: dict = {}
+    if package_text:
+        try:
+            loaded = json.loads(package_text)
+            package = loaded if isinstance(loaded, dict) else {}
+        except json.JSONDecodeError as exc:  # pragma: no cover
+            raise ValueError(f"package.json at {sha[:12]} is not valid JSON: {exc}") from exc
     with tempfile.TemporaryDirectory() as td:
         src = _git_archive_tree(repo, sha, "src", Path(td))
         if src is None:
             raise ValueError(f"no src/ tree at {sha[:12]} for honua-sdk-js")
-        exports = _ts_export_surface(src)
+        entries, exports = _ts_entry_point_surface(src, package)
+        if exports:
+            mode = "entry-points"
+            note = ("names importable from each package.json `exports` subpath, resolved through "
+                    "re-exports (honua-release#104); a declaration that moves between files but stays "
+                    "exported from the same subpath is NOT a surface change")
+        else:
+            # Never emit an empty surface: if the entry points cannot be resolved (no package.json in
+            # the archive, an unexpected layout), fall back to the declaring-file digest rather than
+            # silently certifying "this package exports nothing".
+            mode = "declaration-files"
+            note = ("FALLBACK: package entry points could not be resolved, so this is the "
+                    "declaring-file digest of top-level `export`s under src/ (tests excluded)")
+            entries = {}
+            exports = _ts_export_surface(src)
     payload = {
         "kind": "typescript-export-surface",
-        "note": "top-level `export` declarations + re-exports under src/ (tests excluded); "
-                "deterministic diffable digest",
+        "mode": mode,
+        "note": note,
+        "entryPoints": sorted(entries),
         "count": len(exports),
         "exports": exports,
     }
