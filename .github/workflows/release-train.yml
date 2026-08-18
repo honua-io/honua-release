@@ -147,6 +147,7 @@ jobs:
     with:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit            # RELEASE_GH_TOKEN for the cross-repo metric-contract checkout
 
   gate_docs:                   # h) advertised-vs-actual + advertised-GA ⊆ evidenced-GA (#59). Phase 3.
     needs: gate_conformance
