@@ -9,6 +9,7 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -723,9 +724,16 @@ class _StubTarget:
 
 
 def _run_with_stub(monkeypatch, stub):
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
-    monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
-    return run_cloud.run("stub", require_real=False, reference_endpoint=None, redis_enabled=True)
+    # Restored explicitly rather than left to monkeypatch: this module is also runnable standalone
+    # (`python e2e/test_cloud.py`, the Makefile's no-pytest fallback), where nothing undoes a patch.
+    registry = run_cloud.REGISTRY
+    try:
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+        return run_cloud.run("stub", require_real=False, reference_endpoint=None, redis_enabled=True)
+    finally:
+        run_cloud.REGISTRY = registry
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
 
 
 def test_run_cloud_tears_down_after_a_failed_provision(monkeypatch):
