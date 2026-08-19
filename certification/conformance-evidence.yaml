@@ -61,4 +61,14 @@ esri:
   # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
   # honua-server image at evaluation time, so the bundle is bound to the exact build being released.
   # Evidence about a different build is worse than no evidence, because it reads as a pass.
-  {}
+  #
+  # The evidence PRODUCER is pinned here rather than in platform-manifest.yaml. It belongs in the
+  # manifest conceptually -- that is the release's pin ledger -- but `components:` is iterated by
+  # the BOM generator and the upgrade-diff gate, and honua-esri-compat ships no consumable artifact,
+  # so adding it there is a separate change with its own blast radius (honua-release#136). Pinning
+  # it here keeps the evidence version-bound today without a fake artifact entry.
+  #
+  # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
+  # is the backstop: a bundle for the wrong image fails rather than silently certifying.
+  evidenceRepo: honua-io/honua-esri-compat
+  evidenceRef: 9b1bca47bf52a289ed5d5ac0145991d5fd041899   # evidence/certified/2026.1-rc.2 (#66)
