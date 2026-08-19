@@ -31,6 +31,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -45,6 +46,12 @@ import yaml
 from .base import Availability, DeployTarget, ProvisionError
 
 EKS_ROOT = "infrastructure/terraform/examples/aws-eks"
+
+# honua-iac's aws-eks root variable that switches the cluster's secret-encryption CMK on/off. Named
+# once here because BOTH the declared-variable probe and the `-var` flag have to agree on the spelling
+# — a typo in either would silently stop disabling the key (honua-release#127).
+SECRET_ENCRYPTION_VAR = "cluster_secret_encryption_enabled"
+
 NAMESPACE = "honua-cert"
 RELEASE = "honua"
 SECRET_NAME = "honua-runtime"
@@ -96,6 +103,37 @@ class AwsEksTarget(DeployTarget):
             return None
         root = Path(base) / EKS_ROOT
         return root if root.is_dir() else None
+
+    def _root_declares(self, variable: str) -> bool:
+        """True when the honua-iac root this cell will apply actually declares `variable`.
+
+        Terraform is fail-closed about input it was not told to expect: `-var=foo=...` for a variable
+        the ROOT module does not declare is a hard error ("Value for undeclared variable"), not a
+        warning — the same trap the ECS cell's `alb_deletion_protection` var sits next to, where the
+        serverless root must never be passed it. That matters here because honua-release does not
+        float honua-iac: the tree is checked out at the exact 40-char sha pinned in
+        platform-manifest.yaml (`components.honua-iac.sha`, re-read by e2e-cloud-aws.yml), and a
+        human can point HONUA_IAC_DIR at an even older working copy. So a var introduced on the iac
+        side is NOT available to this harness the moment it is merged there — only once the pin moves.
+
+        Rather than couple the two merges (and break every EKS cell during the window between them),
+        the flag is emitted only when the checked-out root declares it. The probe is a cheap read of
+        the root's own .tf files — it does not recurse into modules, because `-var` binds to root
+        variables and nothing else. Absent tree, absent file, unreadable file => False, i.e. behave
+        exactly as this harness did before the flag existed.
+        """
+        root = self._iac_root()
+        if root is None:
+            return False
+        pattern = re.compile(r'^\s*variable\s+"' + re.escape(variable) + r'"\s*\{', re.MULTILINE)
+        for tf_file in sorted(root.glob("*.tf")):
+            try:
+                body = tf_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if pattern.search(body):
+                return True
+        return False
 
     def _chart_root(self) -> Path | None:
         """The chart directory inside the manifest-pinned honua-helm checkout (repo root or /honua)."""
@@ -202,7 +240,7 @@ class AwsEksTarget(DeployTarget):
             raise ProvisionError(
                 f"{self.name}: HONUA_AWS_RUNNER_CIDR must be the runner's single IPv4 /32"
             )
-        return [
+        values = [
             "-input=false", "-no-color",
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
@@ -214,6 +252,25 @@ class AwsEksTarget(DeployTarget):
             # The OIDC role that applies this is the identity that must be able to install the chart.
             "-var=enable_cluster_creator_admin_permissions=true",
         ]
+        # No customer-managed KMS key for an ephemeral cell (honua-release#127). EKS envelope-encrypts
+        # Kubernetes Secrets with a CMK, and `terraform destroy` cannot delete that key — it can only
+        # SCHEDULE deletion, and AWS's minimum window is 7 days with no way to shorten it. The key
+        # keeps billing (~$1/key/month) for that whole week after the cell it belonged to is gone, and
+        # the matrix runs two EKS cells (redis on + off) per dispatch, so every full run adds two more
+        # keys to a rolling week-long balance that grows with release-train cadence rather than with
+        # anything the release proves. It went unnoticed precisely because nothing is stuck: the drip
+        # is the teardown working correctly.
+        #
+        # Turning it off is safe because no parity assertion depends on it: neither the canonical set
+        # (canonical_checks.py) nor the canary probes nor certification/ nor compatibility-matrix.yaml
+        # asserts anything about secret-at-rest encryption, so these cells are not certifying that
+        # behaviour and disabling it removes cost without removing coverage. If they ever should
+        # certify it, do NOT re-enable the per-cell key — set the iac root's
+        # `cluster_secret_encryption_key_arn` to one long-lived CMK created outside the harness, which
+        # exercises the same encryption path at a fixed, one-key cost.
+        if self._root_declares(SECRET_ENCRYPTION_VAR):
+            values.append(f"-var={SECRET_ENCRYPTION_VAR}=false")
+        return values
 
     # --- kubernetes fixtures -------------------------------------------------------------------
     def _apply(self, manifest: dict) -> None:
