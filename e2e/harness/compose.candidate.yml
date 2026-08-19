@@ -39,6 +39,12 @@ services:
       redis: { condition: service_healthy }
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      # STAC and OGC API are link-driven: the landing page advertises absolute hrefs that clients
+      # follow. Without an explicit public base URL the server advertises its own container address
+      # (e.g. http://[::ffff:172.20.0.3]:8080), which is unroutable from the runner, so a validator
+      # fails on transport rather than on conformance. Harmless for direct-URL probes, fatal for any
+      # client that follows links.
+      Public__BaseUrl: "${HONUA_PUBLIC_BASE_URL:-http://localhost:8080}"
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
       ConnectionStrings__Redis: "redis:6379"
       HONUA_ADMIN_PASSWORD: "${E2E_API_KEY:-honua-console-dev-key}"
