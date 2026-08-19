@@ -97,7 +97,9 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 Each cell reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
 dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable image (`HONUA_LAMBDA_IMAGE_URI`
 = ECR Lambda-AOT for serverless; `HONUA_ECS_IMAGE` for ECS/EKS), the honua-iac tree (`HONUA_IAC_DIR`), and
-for EKS also kubectl/helm + the chart (`HONUA_HELM_DIR`). `--require-real` (the train on a real cut / a
+for EKS also the aws/kubectl/helm CLIs, the chart (`HONUA_HELM_DIR`) and the runner's own /32
+(`HONUA_AWS_RUNNER_CIDR`, the only address its API server and load balancer are opened
+to). `--require-real` (the train on a real cut / a
 real nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is
 unit-tested (`make test`) so the gate is trustworthy with zero cloud.
 

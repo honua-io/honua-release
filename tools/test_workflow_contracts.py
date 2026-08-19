@@ -308,3 +308,45 @@ def test_workflows_point_their_checkers_at_the_shipped_register(workflow_name: s
         assert referenced == {register}, (
             f"{workflow_name} runs {script} against {referenced}, not the shipped {register}"
         )
+
+
+def test_cloud_teardown_reaper_is_fail_closed():
+    # honua-iac#142: a cell that provisioned real AWS infrastructure and could not clean it up must
+    # redden the run. A swallowed reaper turns a stranded VPC/cluster into a silent monthly bill.
+    workflow = _workflow("e2e-cloud-aws.yml")
+    steps = workflow["jobs"]["parity"]["steps"]
+    parity = next(step for step in steps if str(step.get("name", "")).startswith("Run ${{ matrix.target }}"))
+    reaper = next(step for step in steps if step.get("name") == "Teardown reaper (backstop)")
+
+    marker = parity["env"]["HONUA_CLOUD_PROVISION_MARKER"]
+    assert marker and reaper["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
+    assert reaper["if"] == "always()"
+    assert '-f "$HONUA_CLOUD_PROVISION_MARKER"' in reaper["run"]
+    assert reaper["run"].index('-f "$HONUA_CLOUD_PROVISION_MARKER"') < reaper["run"].index(
+        "python e2e/reap_cloud.py"
+    )
+    assert "|| true" not in reaper["run"]
+
+
+def test_cloud_parity_resolves_the_runner_cidr_for_every_target():
+    # The EKS cell publishes its API server and its load balancer to the runner's /32 and nothing
+    # else, so the address has to be resolved for every cell, not just the RDS-backed ones.
+    workflow = _workflow("e2e-cloud-aws.yml")
+    steps = workflow["jobs"]["parity"]["steps"]
+    ingress = next(step for step in steps if str(step.get("name", "")).startswith("Resolve the ephemeral runner"))
+
+    assert "matrix.target" not in str(ingress.get("if", ""))
+    assert "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" in ingress["run"]
+    assert "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" in ingress["run"]
+
+
+def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test():
+    workflow = _workflow("e2e-cloud-aws.yml")
+    steps = workflow["jobs"]["parity"]["steps"]
+    install_index = next(index for index, step in enumerate(steps)
+                         if step.get("name") == "Install cloud runner dependencies")
+    self_test_index = next(index for index, step in enumerate(steps)
+                           if step.get("name") == "Self-test the cloud parity logic")
+
+    assert "-r e2e/requirements.txt" in steps[install_index]["run"]
+    assert install_index < self_test_index

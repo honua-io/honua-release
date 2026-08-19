@@ -60,6 +60,21 @@ def _cloud_creds_present() -> bool:
     return any(os.environ.get(v) for v in _CLOUD_CRED_ENV)
 
 
+def _mark_provision_attempt() -> None:
+    """Record that this cell is about to create real cloud resources.
+
+    The workflow's backstop reaper runs even when the parity step is cancelled mid-apply, where no
+    report exists to consult. The marker is what tells it the difference between "nothing was ever
+    deployed" and "something may be half-applied and MUST be destroyed".
+    """
+    marker = os.environ.get("HONUA_CLOUD_PROVISION_MARKER")
+    if not marker:
+        return
+    path = Path(marker)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
 def _check_dicts(results) -> list[dict]:
     return [{"name": r.name, "status": r.status, "why": r.why, **({"evidence": r.evidence} if r.evidence else {})}
             for r in results]
@@ -129,6 +144,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     checks = []
     canary_results = []
     try:
+        _mark_provision_attempt()
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         fetch = make_fetch(timeout=10.0)
@@ -144,9 +160,20 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
-        return report
     finally:
-        target.teardown()
+        # Teardown ALWAYS runs, including on the failure path: a cell that created real AWS
+        # infrastructure and then failed must not strand it (honua-iac#142 — orphaned VPCs/clusters
+        # bill until someone reaps them by hand). A teardown that cannot complete is itself a hard
+        # failure of the cell, because the orphan is real — it is never swallowed.
+        try:
+            target.teardown(redis_enabled=redis_enabled)
+        except ProvisionError as e:
+            prior = report.get("why")
+            report["status"] = "fail"
+            report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
+
+    if report.get("status") == "fail":
+        return report
 
     # Extended seam scenarios (MCP / Studio / GP-execute / top-demo). BLOCKED until the cloud harness
     # image (honua-release#35) drives the real drivers here; require_real promotes that to FAIL so cloud

@@ -37,12 +37,24 @@ DEMO_SERVICE_ID = "maui-roads"
 DEMO_TILE_LAYER_ID = 3
 DEMO_ASSERT_STAC_NON_EMPTY = True
 
-_SECURITY_HEADERS = (
-    ("strict-transport-security", None),
+# The security-header baseline splits by transport, because one of these headers is only meaningful
+# over TLS. RFC 6797 §7.2 requires a user agent to IGNORE Strict-Transport-Security when it arrives
+# over plain HTTP, and honua-server implements exactly that: SecurityHeadersMiddleware emits HSTS only
+# when `HstsHttpsOnly` is off or `Request.IsHttps` is true, with a code comment citing the same RFC.
+#
+# So an endpoint's scheme decides what this probe can honestly assert. The serverless cell (API
+# Gateway, https://) proves the whole baseline. A cell whose endpoint is a plain-HTTP cloud load
+# balancer — the EKS cell's Service LoadBalancer, the ECS cell's ALB — cannot prove HSTS at all: the
+# only way to make it appear there is to configure the server to emit a header the standard says the
+# client must discard, which would be manufacturing the evidence rather than earning it.
+_TRANSPORT_INDEPENDENT_HEADERS = (
     ("x-frame-options", "deny"),
     ("cross-origin-opener-policy", None),
     ("x-content-type-options", "nosniff"),
     ("referrer-policy", None),
+)
+_TLS_ONLY_HEADERS = (
+    ("strict-transport-security", None),
 )
 
 
@@ -62,16 +74,32 @@ def check_health_live_ready(fetch: Fetcher, base: str) -> CheckResult:
 
 
 def check_security_headers(fetch: Fetcher, base: str) -> CheckResult:
-    """Beat 2 (demo-b-probes.sh): the security header baseline on the root response."""
-    r = fetch(base.rstrip("/") + "/")
+    """Beat 2 (demo-b-probes.sh): the security header baseline on the root response.
+
+    Asserts every header the endpoint's transport can carry, and says which one it did not assert
+    when the transport cannot carry it — see the header tables above for why HSTS is scheme-bound.
+    """
+    endpoint = base.rstrip("/")
+    r = fetch(endpoint + "/")
     if r.status == 0:
         return CheckResult("security-headers", "blocked", "endpoint unreachable")
-    missing = [name for name, want in _SECURITY_HEADERS
+    over_tls = endpoint.lower().startswith("https://")
+    expected = _TRANSPORT_INDEPENDENT_HEADERS + (_TLS_ONLY_HEADERS if over_tls else ())
+    missing = [name for name, want in expected
               if name not in r.headers or (want is not None and want.lower() not in r.headers[name].lower())]
     if missing:
         return CheckResult("security-headers", "fail", f"missing/incorrect headers: {missing}",
-                           {"headers": r.headers})
-    return CheckResult("security-headers", "pass", "all baseline security headers present")
+                           {"headers": r.headers, "hstsAsserted": over_tls})
+    if over_tls:
+        return CheckResult("security-headers", "pass", "all baseline security headers present",
+                           {"hstsAsserted": True})
+    return CheckResult(
+        "security-headers", "pass",
+        "all transport-independent baseline security headers present; strict-transport-security was "
+        "NOT asserted because this endpoint is plain HTTP, where RFC 6797 §7.2 requires clients to "
+        "ignore it — only an https:// endpoint proves HSTS",
+        {"hstsAsserted": False},
+    )
 
 
 def check_metrics_gated(fetch: Fetcher, base: str, admin_fetch: Fetcher | None = None) -> CheckResult:

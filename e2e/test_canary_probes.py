@@ -49,13 +49,39 @@ def test_health_live_ready():
 
 def test_security_headers():
     ok = _fetcher([("/", cc.HttpResponse(200, "", dict(_SEC_HEADERS)))])
+    assert canary.check_security_headers(ok, "https://x").status == "pass"
     assert canary.check_security_headers(ok, "http://x").status == "pass"
     missing = dict(_SEC_HEADERS)
-    del missing["strict-transport-security"]
+    del missing["x-content-type-options"]
     bad = _fetcher([("/", cc.HttpResponse(200, "", missing))])
-    r = canary.check_security_headers(bad, "http://x")
-    assert r.status == "fail" and "strict-transport-security" in r.why
+    for endpoint in ("https://x", "http://x"):
+        r = canary.check_security_headers(bad, endpoint)
+        assert r.status == "fail" and "x-content-type-options" in r.why, endpoint
     assert canary.check_security_headers(_fetcher([]), "http://x").status == "blocked"
+
+
+def test_security_headers_asserts_hsts_only_where_the_transport_can_carry_it():
+    # RFC 6797 §7.2: a client MUST ignore Strict-Transport-Security received over plain HTTP, and
+    # honua-server deliberately does not emit it there. A parity cell behind a plain-HTTP cloud load
+    # balancer therefore cannot prove HSTS — and must not be able to "pass" by having the server
+    # configured to emit a header the standard discards. Over TLS the assertion stays mandatory.
+    without_hsts = {k: v for k, v in _SEC_HEADERS.items() if k != "strict-transport-security"}
+    fetch = _fetcher([("/", cc.HttpResponse(200, "", without_hsts))])
+
+    over_tls = canary.check_security_headers(fetch, "https://x")
+    assert over_tls.status == "fail"
+    assert "strict-transport-security" in over_tls.why
+    assert over_tls.evidence["hstsAsserted"] is True   # over TLS it WAS asserted, and it failed
+
+    plain = canary.check_security_headers(fetch, "http://x")
+    assert plain.status == "pass"
+    # The pass must SAY what it did not prove, so a green cell never reads as "HSTS verified".
+    assert "strict-transport-security was NOT asserted" in plain.why
+    assert "RFC 6797" in plain.why
+    assert plain.evidence["hstsAsserted"] is False
+
+    with_hsts = _fetcher([("/", cc.HttpResponse(200, "", dict(_SEC_HEADERS)))])
+    assert canary.check_security_headers(with_hsts, "https://x").evidence["hstsAsserted"] is True
 
 
 def test_metrics_gated():
