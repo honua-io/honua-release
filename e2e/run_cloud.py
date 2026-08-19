@@ -202,13 +202,20 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     # here keeps the diagnosis at the top of the report instead of leaving the reader to infer it from
     # twenty identical timeouts.
     unreached = [c.name for c in list(checks) + list(canary_results) if is_endpoint_unreachable(c)]
-    if unreached or not report.get("readiness", {}).get("ready", True):
+    never_ready = not report.get("readiness", {}).get("ready", True)
+    if unreached or never_ready:
+        reasons = []
+        if never_ready:
+            reasons.append("the readiness poll never got a 200 from /healthz/ready within its full "
+                           f"budget ({report['readiness'].get('attempts')} attempts, last status "
+                           f"{report['readiness'].get('status')})")
+        if unreached:
+            reasons.append(f"these checks could not reach it at all: {unreached}")
         report["status"] = "fail"
         report["why"] = (
-            f"{cell}: terraform provisioned {endpoint} but it never served — readiness poll "
-            f"{'never returned 200' if not report.get('readiness', {}).get('ready') else 'succeeded'}, "
-            f"and these checks could not reach the endpoint: {unreached or '[]'}. The endpoint is the "
-            f"thing under test, so this is a cell failure, not a skip (honua-release#128)."
+            f"{cell}: terraform provisioned {endpoint} but it never served — " + "; ".join(reasons)
+            + ". The endpoint is the thing under test, so this is a cell failure, not a skip "
+              "(honua-release#128)."
         )
         return report
 
