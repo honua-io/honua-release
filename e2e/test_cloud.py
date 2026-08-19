@@ -550,6 +550,10 @@ def test_eks_exposes_the_chart_service_through_a_load_balancer(monkeypatch):
     assert values["secret.name"] == "honua-runtime"
     # The chart's PostgreSQL subchart is development-only and carries no PostGIS.
     assert values["postgresql.enabled"] == "false"
+    # The chart's pre-install hook makes Redis mandatory for every non-development environment, which
+    # the redis-off dimension exists to disprove, and pre-install-probes its own not-yet-created Redis
+    # Service in the redis-on cell. It gates nothing this tier certifies.
+    assert values["preflight.enabled"] == "false"
 
 
 def test_eks_threads_the_redis_dimension_through_the_chart(monkeypatch):

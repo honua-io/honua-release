@@ -353,6 +353,18 @@ class AwsEksTarget(DeployTarget):
             "--set-string", f"secret.name={SECRET_NAME}",
             # The chart's PostgreSQL subchart is development-only and carries no PostGIS.
             "--set", "postgresql.enabled=false",
+            # The chart's pre-install reachability hook cannot run for either cell here, and neither
+            # reason is something this harness can configure around:
+            #   * redis-off — the hook treats Redis as MANDATORY for every non-development
+            #     environment, so it fails on the missing connection string before anything is
+            #     installed. Whether the platform behaves correctly WITHOUT its cache is precisely
+            #     what this dimension exists to certify, so the cell cannot supply one.
+            #   * redis-on  — the hook is a pre-install hook, so it TCP-probes the chart's own Redis
+            #     Service before the subchart that creates it exists.
+            # It is a convenience pre-check over reachability, not part of the wire surface this tier
+            # certifies: the canonical checks and canary probes run against the deployed candidate
+            # either way. Tracked for honua-helm alongside the withdrawn Redis image above.
+            "--set", "preflight.enabled=false",
             "--set", f"redis.enabled={'true' if redis_enabled else 'false'}",
         ]
         if redis_enabled:
