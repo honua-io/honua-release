@@ -59,7 +59,7 @@ POSTGIS_IMAGE = "postgis/postgis:16-3.4"
 # remain published under `bitnamilegacy`. Pointing the subchart there is the only way to install the
 # chart's OWN Redis path today (every chart version inside honua's `>=18 <21` dependency range points
 # at a withdrawn tag), so the redis-on cell keeps exercising the chart instead of a hand-rolled
-# bypass. Tracked for honua-helm: the chart should re-pin or replace the dependency.
+# bypass. Tracked as honua-helm#62: the chart should re-pin or replace the dependency.
 REDIS_IMAGE_REPOSITORY = "bitnamilegacy/redis"
 
 
@@ -363,7 +363,7 @@ class AwsEksTarget(DeployTarget):
             #     Service before the subchart that creates it exists.
             # It is a convenience pre-check over reachability, not part of the wire surface this tier
             # certifies: the canonical checks and canary probes run against the deployed candidate
-            # either way. Tracked for honua-helm alongside the withdrawn Redis image above.
+            # either way. Tracked as honua-helm#62 alongside the withdrawn Redis image above.
             "--set", "preflight.enabled=false",
             # PARITY WITH THE ECS CELL, not a convenience. honua-iac's aws example root — the root
             # the aws-ecs cell deploys — passes exactly these three through `additional_env`:
