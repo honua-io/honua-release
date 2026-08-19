@@ -306,7 +306,7 @@ components:
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
-    sha: "7abdb07c85c7a389a9c3cc97583e534f6c636a3b"   # branch: trunk HEAD at re-pin time
+    sha: "cace70f7b592a583a478ed6f002c7de17b053282"   # branch: trunk HEAD at re-pin time (honua-iac#144: aws-eks secret-encryption toggle)
     artifact: "terraform-registry:honua"
 
   honua-helm:
