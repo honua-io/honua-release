@@ -211,9 +211,19 @@ jobs:
       - name: Federate Esri GeoServices certification evidence
         run: |
           set -uo pipefail
+          # Read the CERTIFIED bundle for this label, never the whole evidence/ tree. Scanning
+          # everything would also judge evidence/samples/ -- curated fixtures that may legitimately
+          # contain failing cases -- and fail the release on a sample. Narrow, then fall back.
           BUNDLE=""
-          if [ -d "_conformance/esri-compat/evidence" ]; then
-            BUNDLE="_conformance/esri-compat/evidence"
+          for CANDIDATE in \
+            "_conformance/esri-compat/evidence/certified/${{ inputs.platform_label }}" \
+            "_conformance/esri-compat/evidence/certified"; do
+            if [ -d "$CANDIDATE" ] && [ -n "$(find "$CANDIDATE" -name '*.cert.json' -print -quit)" ]; then
+              BUNDLE="$CANDIDATE"; break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "no certified Esri bundle found for ${{ inputs.platform_label }}" >&2
           fi
           ARGS=(--manifest platform-manifest.yaml --sections esri --json-out _conformance/esri.json)
           [ -n "$BUNDLE" ] && ARGS+=(--esri-bundle "$BUNDLE")
