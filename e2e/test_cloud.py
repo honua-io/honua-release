@@ -43,10 +43,11 @@ def _fetcher(routes):
     return fetch
 
 
-def test_health_pass_fail_blocked():
+def test_health_pass_fail_unreachable():
     assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(200, "ok"))])).status == "pass"
     assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(503, "down"))])).status == "fail"
-    assert cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(0, "conn refused"))])).status == "blocked"
+    unreached = cc.check_health("http://x", _fetcher([("/healthz", cc.HttpResponse(0, "conn refused"))]))
+    assert unreached.status == "fail" and cc.is_endpoint_unreachable(unreached)
 
 
 def test_health_falls_back_to_live_ready_on_404():
@@ -77,7 +78,7 @@ def test_health_falls_back_to_live_ready_on_404():
             return cc.HttpResponse(404, "")
         return cc.HttpResponse(0, "conn refused")
 
-    assert cc.check_health("http://x", unreachable_fallback).status == "blocked"
+    assert cc.check_health("http://x", unreachable_fallback).status == "fail"
 
 
 def test_geoservices_error_envelope_detection():
@@ -89,7 +90,7 @@ def test_geoservices_error_envelope_detection():
     # bool code must NOT be treated as an envelope (mirrors the SDK guards).
     boolcode = cc.HttpResponse(200, '{"error":{"code":true}}')
     assert cc.check_geoservices_error_surfacing("http://x", _fetcher([("/query", boolcode)])).status == "fail"
-    assert cc.check_geoservices_error_surfacing("http://x", _fetcher([])).status == "blocked"
+    assert cc.check_geoservices_error_surfacing("http://x", _fetcher([])).status == "fail"
 
 
 def test_service_catalog():
@@ -103,7 +104,7 @@ def test_admin_capabilities():
     assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", ok)])).status == "pass"
     assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", cc.HttpResponse(200, "no"))])).status == "fail"
     assert cc.check_admin_capabilities("http://x", _fetcher([("/api/v1/admin/capabilities", cc.HttpResponse(404, ""))])).status == "fail"
-    assert cc.check_admin_capabilities("http://x", _fetcher([])).status == "blocked"
+    assert cc.check_admin_capabilities("http://x", _fetcher([])).status == "fail"
 
 
 def test_geoprocessing_catalog():
@@ -112,7 +113,7 @@ def test_geoprocessing_catalog():
     # catalog reachable but no GP advertised => blocked (honest), never a fake pass.
     nogp = cc.HttpResponse(200, '{"services":[{"name":"roads","type":"FeatureServer"}]}')
     assert cc.check_geoprocessing("http://x", _fetcher([("/rest/services", nogp)])).status == "blocked"
-    assert cc.check_geoprocessing("http://x", _fetcher([])).status == "blocked"
+    assert cc.check_geoprocessing("http://x", _fetcher([])).status == "fail"
 
 
 def test_capability_manifest_pass_unauthenticated():
@@ -151,8 +152,9 @@ def test_capability_manifest_fail_on_wrong_schema_version():
     assert r.status == "fail" and "schemaVersion" in r.why
 
 
-def test_capability_manifest_blocked_when_unreachable():
-    assert cc.check_capability_manifest("http://x", _fetcher([])).status == "blocked"
+def test_capability_manifest_fails_when_unreachable():
+    r = cc.check_capability_manifest("http://x", _fetcher([]))
+    assert r.status == "fail" and cc.is_endpoint_unreachable(r)
 
 
 def test_load_expected_ga_returns_none_for_missing_or_malformed_file():
@@ -274,6 +276,7 @@ def test_prefix_distinct_per_redis_mode_no_collision(monkeypatch):
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     for factory in (serverless, ecs):
@@ -302,6 +305,7 @@ def test_ecs_forces_alb_deletion_protection_off_serverless_has_no_alb(monkeypatc
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     assert _tf_vars(ecs(run_id="r1")._vars(False)).get("alb_deletion_protection") == "false"
@@ -312,6 +316,7 @@ def test_ecs_uses_the_proven_x86_64_aot_manifest(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
 
     values = _tf_vars(ecs(run_id="r1")._vars(False))
 
@@ -327,6 +332,7 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     args = ecs(run_id="r1")._vars(False)
     var_files = [Path(a.removeprefix("-var-file=")) for a in args if a.startswith("-var-file=")]
     assert len(var_files) == 1
@@ -339,6 +345,7 @@ def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
     monkeypatch.delenv("HONUA_ADMIN_PASSWORD", raising=False)
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     password = _tf_vars(serverless(run_id="r1")._vars(False))["honua_admin_password"]
     assert len(password) >= 32
@@ -352,6 +359,7 @@ def test_aws_tf_targets_expose_only_runner_ip_for_postgis_bootstrap(monkeypatch)
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     for factory in (serverless, ecs):
@@ -372,6 +380,7 @@ def test_serverless_rejects_broad_db_ingress(monkeypatch):
 def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     target = serverless(run_id="run123456")
     monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
@@ -751,6 +760,7 @@ def test_terraform_target_teardown_fails_closed(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     target = ecs(run_id="r1")
     monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
     monkeypatch.setattr(target, "_tf", lambda root, *a, **k:
@@ -835,6 +845,135 @@ def test_reaper_retries_only_state_lock_contention_then_fails_closed():
     else:  # pragma: no cover - the reaper must never swallow a real strand
         raise AssertionError("a non-lock teardown failure must fail closed")
     assert broken.calls == 1
+
+
+# ---- honua-release#128: the ECS cell's ALB must admit the runner, and an unreachable endpoint is red
+def test_ecs_opens_the_alb_to_the_runner_only(monkeypatch):
+    # The aws-ecs module defaults its ALB security group to VPC-only HTTP ingress when neither
+    # allow_http_ingress_cidrs nor a certificate is supplied, so the GitHub runner's requests were
+    # dropped at the security group and every probe timed out (honua-release#128). The cell must open
+    # the ALB to the ephemeral runner's own /32 — and to nothing wider.
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+
+    ecs_vars = _tf_vars(ecs(run_id="r1")._vars(False))
+    assert json.loads(ecs_vars["allow_http_ingress_cidrs"]) == ["192.0.2.10/32"]
+
+    # Serverless has no ALB and its root does not declare the var — passing it would be a tf error.
+    assert "allow_http_ingress_cidrs" not in _tf_vars(serverless(run_id="r1")._vars(False))
+
+
+def test_ecs_rejects_a_broad_alb_ingress(monkeypatch):
+    # A plain-HTTP ALB on 0.0.0.0/0 is exactly what the module's own http_ingress_requires_https check
+    # exists to discourage; the harness must never be the thing that opens it.
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "0.0.0.0/0")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    with __import__("pytest").raises(ProvisionError, match="single IPv4 /32"):
+        ecs(run_id="r1")._vars(False)
+
+
+def test_ecs_requires_the_runner_cidr(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.delenv("HONUA_AWS_RUNNER_CIDR", raising=False)
+    avail = ecs(run_id="r1").availability()
+    assert not avail.ok and any("HONUA_AWS_RUNNER_CIDR" in m for m in avail.missing)
+
+
+class _ServingStub:
+    """A target that provisions an endpoint; what that endpoint *serves* is the patched fetch's job."""
+    name = "stub"
+
+    def __init__(self, endpoint: str = "http://stub.example.invalid"):
+        self.endpoint = endpoint
+        self.torn_down = 0
+
+    def availability(self):
+        from targets.base import Availability
+        return Availability(True, "stub ready")
+
+    def provision(self, redis_enabled: bool = False) -> str:
+        return self.endpoint
+
+    def teardown(self, redis_enabled: bool | None = None) -> None:
+        self.torn_down += 1
+
+
+def _run_serving(monkeypatch, *, ready_status, checks, canary):
+    """Drive run_cloud.run() against a stub that provisions, with canned probe verdicts."""
+    stub = _ServingStub()
+    registry = run_cloud.REGISTRY
+    attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
+    try:
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+        monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+        monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+        monkeypatch.setattr(run_cloud, "make_fetch",
+                            lambda **kwargs: (lambda _url: cc.HttpResponse(ready_status, "")))
+        monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: checks)
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: canary)
+        report = run_cloud.run("stub", require_real=False, reference_endpoint=None, redis_enabled=True)
+    finally:
+        run_cloud.REGISTRY = registry
+        run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS = attempts, delay
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
+    return stub, report
+
+
+def test_run_cloud_fails_a_cell_whose_endpoint_never_served(monkeypatch):
+    # THE honua-release#128 regression. The aws-ecs cells reported a passing verdict in every run they
+    # ever had while their ALB dropped every request: readiness never returned 200, all six canonical
+    # checks and every reachability probe reported `blocked: endpoint unreachable`, and the cell's own
+    # summary line read "canonical set passed". A cell that provisioned an endpoint which then never
+    # answered is a FAILED cell.
+    checks = [cc.unreachable("health", "endpoint unreachable (transport error: timed out)"),
+              cc.CheckResult("service-catalog", "blocked", "endpoint unreachable")]
+    canary = [cc.unreachable("security-headers"), cc.unreachable("metrics-gated")]
+    stub, report = _run_serving(monkeypatch, ready_status=0, checks=checks, canary=canary)
+
+    assert report["status"] == "fail"
+    assert report["readiness"]["ready"] is False
+    assert "security-headers" in report["why"] and "health" in report["why"]
+    assert "stub.example.invalid" in report["why"]
+    assert stub.torn_down == 1  # a failed cell still must not strand its infrastructure
+
+
+def test_run_cloud_fails_an_unreachable_cell_even_when_readiness_squeaked_through(monkeypatch):
+    # Readiness is one 200 on one route; the probes are the broader evidence. If they cannot reach the
+    # endpoint the cell is still not serving, whatever the readiness poll happened to catch.
+    _stub, report = _run_serving(monkeypatch, ready_status=200,
+                                 checks=[cc.CheckResult("health", "pass", "ok")],
+                                 canary=[cc.unreachable("security-headers")])
+    assert report["status"] == "fail" and "security-headers" in report["why"]
+
+
+def test_run_cloud_still_passes_when_the_only_blocks_are_missing_inputs(monkeypatch):
+    # The other half of honua-release#128: do NOT redden cells that are legitimately skipping. A probe
+    # with no admin key and a probe with no seeded service id are missing an INPUT we chose not to
+    # supply — they say nothing about the candidate and must stay blocked, not fail.
+    checks = [cc.CheckResult("health", "pass", "ok")]
+    canary = [cc.CheckResult("metrics-gated", "blocked", "no admin API key configured"),
+              cc.CheckResult("render-query-smoke", "blocked", "no demo service id configured to probe"),
+              cc.CheckResult("security-headers", "pass", "all baseline security headers present")]
+    _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=canary)
+    assert report["status"] == "pass", report["why"]
+
+
+def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
+    # The sentence that hid #128: a cell whose canonical set was entirely blocked still said
+    # "canonical set passed" in the job log.
+    checks = [cc.CheckResult("geoprocessing", "blocked", "no GPServer catalogued")]
+    _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=[])
+    assert report["status"] == "blocked"
+    assert "passed" not in report["why"] and "geoprocessing" in report["why"]
 
 
 if __name__ == "__main__":

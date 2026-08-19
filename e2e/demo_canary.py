@@ -33,7 +33,9 @@ the original demo-b-probes.sh's "skipped — no API key" behaviour.
       [--geocode-budget-ms 3000] [--candidate-sha SHA]
 
 Exit code 0 only when overall status is "pass" or "blocked" (a blocked run is surfaced, not silently
-green, but does not redden CI by itself — a genuine "fail" always does).
+green, but does not redden CI by itself — a genuine "fail" always does). Since honua-release#128 an
+unreachable demo.honua.io is one of those genuine fails rather than a blocked run: `blocked` here means
+"no admin key / no seeded data", never "the site did not answer".
 """
 from __future__ import annotations
 

@@ -337,6 +337,10 @@ jobs:
           echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
           # EKS: the runner drives kubectl/helm from outside the VPC, so the cluster's public API
           # endpoint and the chart's load balancer are opened to THIS runner and nothing else.
+          # ECS: same address, same reason, for the ALB security group — the aws-ecs module defaults
+          # to VPC-only HTTP ingress, which silently made every probe on that cell unreachable
+          # (honua-release#128). The probes run from this runner, so this is the address that must
+          # get in, and it is the only one that does.
           echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
 
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
