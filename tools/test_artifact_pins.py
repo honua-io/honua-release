@@ -78,7 +78,10 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
     assert 'ecs_architecture = str(server.get("awsEcsArchitecture", ""))' in workflow
     assert "HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}" in workflow
-    assert "matrix.target == 'aws-serverless' || matrix.target == 'aws-ecs'" in workflow
+    # The runner's own /32 is resolved for EVERY cell: serverless/ECS use it for RDS ingress, and the
+    # EKS cell publishes both its API server and its load balancer to that address and nothing else.
+    assert "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" in workflow
+    assert "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in workflow
     assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in workflow
     assert "inputs.target == '' || inputs.target == 'all'" in workflow
