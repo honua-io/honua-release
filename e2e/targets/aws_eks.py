@@ -365,6 +365,16 @@ class AwsEksTarget(DeployTarget):
             # certifies: the canonical checks and canary probes run against the deployed candidate
             # either way. Tracked for honua-helm alongside the withdrawn Redis image above.
             "--set", "preflight.enabled=false",
+            # PARITY WITH THE ECS CELL, not a convenience. honua-iac's aws example root — the root
+            # the aws-ecs cell deploys — passes exactly these three through `additional_env`:
+            # host validation is off because the endpoint IS a generated cloud load-balancer DNS
+            # name, which the server otherwise rejects with 400 "Invalid Host header" (it allows the
+            # configured hosts, Public:BaseUrl's host, or the connection's own IP, and a load
+            # balancer's hostname is none of those). Without this, every canonical check on this cell
+            # would 400 for a reason that has nothing to do with the candidate.
+            "--set-string", "config.env.HostValidation__Enabled=false",
+            "--set-string", "config.env.HONUA_SERVE_ADMIN_UI=true",
+            "--set-string", "config.env.HONUA_ADMIN_UI=true",
             "--set", f"redis.enabled={'true' if redis_enabled else 'false'}",
         ]
         if redis_enabled:

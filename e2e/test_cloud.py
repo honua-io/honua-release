@@ -554,6 +554,12 @@ def test_eks_exposes_the_chart_service_through_a_load_balancer(monkeypatch):
     # the redis-off dimension exists to disprove, and pre-install-probes its own not-yet-created Redis
     # Service in the redis-on cell. It gates nothing this tier certifies.
     assert values["preflight.enabled"] == "false"
+    # Same runtime env the aws-ecs cell's honua-iac root passes, so the two cells differ in deploy
+    # shape and nothing else. Host validation rejects a load balancer's generated DNS name with 400,
+    # which would fail every canonical check for a reason unrelated to the candidate.
+    assert values["config.env.HostValidation__Enabled"] == "false"
+    assert values["config.env.HONUA_SERVE_ADMIN_UI"] == "true"
+    assert values["config.env.HONUA_ADMIN_UI"] == "true"
 
 
 def test_eks_threads_the_redis_dimension_through_the_chart(monkeypatch):
