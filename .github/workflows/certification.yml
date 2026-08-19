@@ -171,17 +171,66 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Esri GeoServices conformance (blocked without candidate server)
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Install gate dependencies
+        run: pip install --quiet pyyaml
+
+      # The manifest pins honua-esri-compat, so the evidence we federate is read from THAT sha --
+      # never from its default branch. A bundle from a different revision of the harness measures a
+      # different denominator and must not certify this candidate.
+      - name: Resolve the pinned honua-esri-compat revision
+        id: pin
+        run: |
+          set -euo pipefail
+          SHA="$(python - <<'PY'
+          import yaml
+          m = yaml.safe_load(open("platform-manifest.yaml"))
+          c = (m.get("components") or {}).get("honua-esri-compat") or {}
+          print(c.get("sha") or c.get("commit") or "")
+          PY
+          )"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pinned honua-esri-compat: ${SHA:-<unpinned>}"
+
+      # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
+      # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
+      - name: Check out the pinned Esri certification evidence
+        id: evidence
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-esri-compat
+          ref: ${{ steps.pin.outputs.sha }}
+          path: _conformance/esri-compat
+          token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || github.token }}
+
+      - name: Federate Esri GeoServices certification evidence
         run: |
           set -uo pipefail
-          if [ -n "${HONUA_SERVER_URL:-}" ]; then
-            WHY="HONUA_SERVER_URL set but the esri-compat lane runner is not yet wired here (TODO #3 follow-up)"
-          else
-            WHY="no candidate server / Esri toolchain in CI — set HONUA_SERVER_URL and run on a licensed runner to certify the honua-esri-compat lanes"
+          BUNDLE=""
+          if [ -d "_conformance/esri-compat/evidence" ]; then
+            BUNDLE="_conformance/esri-compat/evidence"
           fi
+          ARGS=(--manifest platform-manifest.yaml --sections esri --json-out _conformance/esri.json)
+          [ -n "$BUNDLE" ] && ARGS+=(--esri-bundle "$BUNDLE")
+          set +e
+          python tools/check_conformance_evidence.py "${ARGS[@]}" | tee _conformance/esri.log
+          RC=$?
+          set -e
+          STATUS="$(python -c "import json;print(json.load(open('_conformance/esri.json'))['overallStatus'])" 2>/dev/null || echo blocked)"
+          WHY="$(python -c "
+          import json
+          rows = json.load(open('_conformance/esri.json'))['rows']
+          bad = [r for r in rows if r['status'] != 'pass'] or rows
+          print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
+          " 2>/dev/null || echo 'Esri evidence could not be evaluated')"
           {
-            echo "status=blocked"
-            echo "source=blocked"
+            echo "status=$STATUS"
+            echo "source=federated:honua-esri-compat@${{ steps.pin.outputs.sha }}"
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
@@ -190,7 +239,7 @@ jobs:
         with:
           gate: conformance-esri-geoservices
           status: ${{ env.status || 'blocked' }}
-          source: blocked
+          source: ${{ env.source || 'blocked' }}
           why: ${{ env.why || 'blocked' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: cert-
@@ -202,13 +251,122 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: OGC/STAC conformance (blocked without candidate server)
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Install gate dependencies
+        run: pip install --quiet pyyaml stac-api-validator
+
+      # OGC half: federate honua-server's authoritative CITE snapshot. docs/cite-status.md is the
+      # single canonical record of per-suite TEAM Engine pass rates (and is what honua-evidence
+      # ingests as the `cite` producer), so gate and evidence ledger read the same source.
+      - name: Fetch the honua-server CITE snapshot
+        id: cite
         run: |
           set -uo pipefail
+          mkdir -p _conformance
+          URL="https://raw.githubusercontent.com/honua-io/honua-server/trunk/docs/cite-status.md"
+          if curl -fsSL "$URL" -o _conformance/cite-status.md; then
+            echo "fetched=true" >> "$GITHUB_OUTPUT"
+            SHA="$(grep -oE '[0-9a-f]{40}' _conformance/cite-status.md | head -1)"
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Lineage is a VCS question, so the shim answers it and hands the relation in as a plain
+      # value -- the decision module stays pure. Ancestor/descendant/identical all mean the evidence
+      # shares this release's history; only a genuine fork is a failure.
+      - name: Determine CITE-to-candidate ancestry
+        id: lineage
+        if: steps.cite.outputs.fetched == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          CANDIDATE="$(python - <<'PY'
+          import yaml
+          m = yaml.safe_load(open("platform-manifest.yaml"))
+          print(((m.get("components") or {}).get("honua-server") or {}).get("sha", ""))
+          PY
+          )"
+          CITE="${{ steps.cite.outputs.sha }}"
+          if [ -z "$CANDIDATE" ] || [ -z "$CITE" ]; then
+            echo "relation=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$CANDIDATE" = "$CITE" ]; then
+            echo "relation=identical" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # An unreachable compare API must leave the relation EMPTY so the gate reports blocked,
+          # never guess a relation it could not observe.
+          STATUS="$(gh api "repos/honua-io/honua-server/compare/${CITE}...${CANDIDATE}" --jq .status 2>/dev/null || echo "")"
+          case "$STATUS" in
+            ahead)     echo "relation=ancestor"   >> "$GITHUB_OUTPUT" ;;
+            behind)    echo "relation=descendant" >> "$GITHUB_OUTPUT" ;;
+            identical) echo "relation=identical"  >> "$GITHUB_OUTPUT" ;;
+            diverged)  echo "relation=diverged"   >> "$GITHUB_OUTPUT" ;;
+            *)         echo "relation="           >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # STAC half: CITE covers OGC API/OWS and never certifies STAC, so validate STAC directly
+      # against a booted candidate. Public__BaseUrl is required -- without it the landing page
+      # advertises the container's own address and every link-following client (STAC is entirely
+      # link-driven) chases an unroutable host.
+      - name: Boot the candidate and validate STAC
+        id: stac
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # boot.sh reads the pinned image from platform-manifest.yaml itself (source of truth) and
+          # exits non-zero if the candidate cannot be pulled or never becomes ready -- in which case
+          # this step's continue-on-error leaves no stac.json and the gate reports BLOCKED, honestly.
+          export HONUA_PUBLIC_BASE_URL="http://localhost:8080"
+          if ! bash e2e/harness/boot.sh up; then
+            echo "STAC validation skipped: candidate did not boot" >&2
+            exit 1
+          fi
+          COLLECTION="$(curl -sf http://localhost:8080/stac/collections | python -c "import sys,json;print((json.load(sys.stdin).get('collections') or [{}])[0].get('id',''))" || echo "")"
+          ARGS=(--root-url http://localhost:8080/stac --conformance core --conformance collections)
+          [ -n "$COLLECTION" ] && ARGS+=(--collection "$COLLECTION")
+          stac-api-validator "${ARGS[@]}" > _conformance/stac-raw.txt 2>&1
+          python - <<'PY'
+          import json, re, urllib.request
+          raw = open("_conformance/stac-raw.txt").read()
+          body = json.load(urllib.request.urlopen("http://localhost:8080/stac/conformance"))
+          errors = []
+          block = re.search(r"^Errors:\s*(.*)$", raw, re.M | re.S)
+          if block and block.group(1).strip().lower() not in ("none", ""):
+              errors = [line.strip("- ").strip() for line in block.group(1).splitlines() if line.strip().startswith("-")]
+          json.dump({"conformsTo": body.get("conformsTo", []), "errors": errors}, open("_conformance/stac.json", "w"))
+          PY
+
+      - name: Tear down the candidate stack
+        if: always()
+        run: bash e2e/harness/boot.sh down || true
+
+      - name: Federate OGC + STAC conformance evidence
+        run: |
+          set -uo pipefail
+          ARGS=(--manifest platform-manifest.yaml --sections cite,stac --json-out _conformance/ogc-stac.json)
+          [ -f _conformance/cite-status.md ] && ARGS+=(--cite-status _conformance/cite-status.md)
+          [ -n "${{ steps.lineage.outputs.relation }}" ] && ARGS+=(--cite-lineage "${{ steps.lineage.outputs.relation }}")
+          [ -f _conformance/stac.json ] && ARGS+=(--stac-report _conformance/stac.json)
+          set +e
+          python tools/check_conformance_evidence.py "${ARGS[@]}" | tee _conformance/ogc-stac.log
+          set -e
+          STATUS="$(python -c "import json;print(json.load(open('_conformance/ogc-stac.json'))['overallStatus'])" 2>/dev/null || echo blocked)"
+          WHY="$(python -c "
+          import json
+          rows = json.load(open('_conformance/ogc-stac.json'))['rows']
+          bad = [r for r in rows if r['status'] != 'pass'] or rows
+          print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
+          " 2>/dev/null || echo 'OGC/STAC evidence could not be evaluated')"
           {
-            echo "status=blocked"
-            echo "source=blocked"
-            echo "why=no candidate server in CI — OGC API (CITE) + STAC conformance run against a deployed candidate (Phase B); set HONUA_SERVER_URL to enable"
+            echo "status=$STATUS"
+            echo "source=federated:cite+stac"
+            echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
         if: always()
@@ -216,7 +374,7 @@ jobs:
         with:
           gate: conformance-ogc-stac
           status: ${{ env.status || 'blocked' }}
-          source: blocked
+          source: ${{ env.source || 'blocked' }}
           why: ${{ env.why || 'blocked' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: cert-
