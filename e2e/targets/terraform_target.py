@@ -39,6 +39,22 @@ class TfTargetSpec:
     # Paths are relative to the honua-release repository root.
     ephemeral_var_files: tuple[str, ...] = ()
     needs_runner_db_access: bool = False
+    # honua-release#128 — the ECS cell's ALB security group.
+    #
+    # The aws-ecs module's ALB is internet-facing (`internal = false`, public subnets) so its DNS name
+    # resolves from anywhere, but its SECURITY GROUP is not: with allow_http_ingress_cidrs and
+    # allow_https_ingress_cidrs both unset and no certificate configured, the module falls back to
+    #     http_ingress_cidrs = [vpc_cidr_block]
+    # (modules/aws-ecs/main.tf locals; its README says so out loud: "the ALB listener defaults to
+    # VPC-only ingress using the active VPC CIDR"). The GitHub-hosted runner is not in that VPC, so
+    # every SYN to the ALB was dropped and every probe timed out — which is the whole of #128.
+    #
+    # The runner's own /32 is the correct opening: it is the same ephemeral address the PostGIS
+    # bootstrap already opens RDS to, and the same one the EKS cell publishes its API server and load
+    # balancer to. It admits exactly the caller doing the certifying and nothing else, so the cell gets
+    # a reachable endpoint without ever putting a plain-HTTP ALB on 0.0.0.0/0 (which the module's own
+    # `http_ingress_requires_https` check exists to discourage).
+    needs_runner_alb_access: bool = False
     architecture_env: str = ""
     architecture_var: str = ""
     architecture_is_list: bool = False
@@ -80,6 +96,8 @@ class TerraformTarget(DeployTarget):
             missing.append("HONUA_IAC_DIR pointing at the honua-iac terraform tree")
         if self.spec.needs_runner_db_access and not os.environ.get("HONUA_AWS_DB_INGRESS_CIDR"):
             missing.append("HONUA_AWS_DB_INGRESS_CIDR (ephemeral runner /32 for PostGIS bootstrap)")
+        if self.spec.needs_runner_alb_access and not os.environ.get("HONUA_AWS_RUNNER_CIDR"):
+            missing.append("HONUA_AWS_RUNNER_CIDR (ephemeral runner /32 for ALB ingress)")
         if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
             missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
         if missing:
@@ -119,21 +137,15 @@ class TerraformTarget(DeployTarget):
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]
         if self.spec.needs_runner_db_access:
-            raw_cidr = os.environ.get("HONUA_AWS_DB_INGRESS_CIDR", "").strip()
-            try:
-                cidr = ipaddress.ip_network(raw_cidr, strict=True)
-            except ValueError as exc:
-                raise ProvisionError(
-                    f"{self.name}: HONUA_AWS_DB_INGRESS_CIDR must be a valid runner CIDR, got {raw_cidr!r}"
-                ) from exc
-            if cidr.version != 4 or cidr.prefixlen != 32:
-                raise ProvisionError(
-                    f"{self.name}: HONUA_AWS_DB_INGRESS_CIDR must be a single IPv4 /32, got {raw_cidr!r}"
-                )
+            raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
                 "-var=db_publicly_accessible=true",
                 f"-var=db_additional_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
             ])
+        if self.spec.needs_runner_alb_access:
+            raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
+            values.append(
+                f"-var=allow_http_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}")
         if self.spec.architecture_env:
             architecture = os.environ.get(self.spec.architecture_env, "").strip()
             if architecture not in {"arm64", "x86_64"}:
@@ -149,6 +161,26 @@ class TerraformTarget(DeployTarget):
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
         return values
+
+    def _runner_cidr(self, env_name: str) -> str:
+        """The ephemeral runner's own address, validated as a single IPv4 /32.
+
+        A /32 is the point: these vars punch a hole in a security group, and the only caller that has
+        any business coming through it is the one runner doing the certifying. Anything wider is
+        rejected rather than quietly applied.
+        """
+        raw_cidr = os.environ.get(env_name, "").strip()
+        try:
+            cidr = ipaddress.ip_network(raw_cidr, strict=True)
+        except ValueError as exc:
+            raise ProvisionError(
+                f"{self.name}: {env_name} must be a valid runner CIDR, got {raw_cidr!r}"
+            ) from exc
+        if cidr.version != 4 or cidr.prefixlen != 32:
+            raise ProvisionError(
+                f"{self.name}: {env_name} must be a single IPv4 /32, got {raw_cidr!r}"
+            )
+        return raw_cidr
 
     @staticmethod
     def _resolve_var_file(relative_path: str) -> Path:
@@ -219,6 +251,7 @@ ECS_SPEC = TfTargetSpec(
     ephemeral_vars=("alb_deletion_protection=false",),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
+    needs_runner_alb_access=True,
     architecture_env="HONUA_ECS_ARCHITECTURE",
     architecture_var="task_cpu_architecture",
 )

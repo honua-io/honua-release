@@ -10,6 +10,11 @@ GetCapabilities, tile.json). Honesty rule (AGENTS.md): when no id is configured 
 reports BLOCKED ("no <thing> id configured to probe"), never a fake pass and never a fake fail — a
 bare/ephemeral cloud cell with no seeded data is legitimately unprovable here, not broken.
 
+That rule is about a missing INPUT, and it stops there. When the ENDPOINT itself does not answer these
+probes FAIL (`canonical_checks.unreachable`, honua-release#128): the deployment is the subject of the
+test, so "I could not reach it" is a finding, not an excuse. See the note on `unreachable` for the
+aws-ecs cell that reported green for its whole life on the strength of the other reading.
+
 Ported/corrected from honua-server's docs/internal/demo/scripts/demo-b-probes.sh (Beats 1-3, 6:
 health/security-headers/admin-gate/telemetry/deploy-preflight), reusing `canonical_checks.HttpResponse`
 / `Fetcher` / `make_fetch` so both modules share one HTTP implementation. `fetch` is always the plain
@@ -26,7 +31,7 @@ from __future__ import annotations
 import json
 import time
 
-from canonical_checks import CheckResult, Fetcher
+from canonical_checks import CheckResult, Fetcher, unreachable
 
 # Demo-specific defaults (docs/internal/demo runbook fixtures on https://demo.honua.io) — NOT used by
 # default for the generic/cloud-tier invocation (run_cloud.py), which passes no ids and gets honest
@@ -65,7 +70,7 @@ def check_health_live_ready(fetch: Fetcher, base: str) -> CheckResult:
     live = fetch(base.rstrip("/") + "/healthz/live")
     ready = fetch(base.rstrip("/") + "/healthz/ready")
     if live.status == 0 or ready.status == 0:
-        return CheckResult("health-live-ready", "blocked", "endpoint unreachable")
+        return unreachable("health-live-ready")
     if live.status == 200 and ready.status == 200:
         return CheckResult("health-live-ready", "pass", "/healthz/live + /healthz/ready -> 200")
     return CheckResult("health-live-ready", "fail",
@@ -82,7 +87,7 @@ def check_security_headers(fetch: Fetcher, base: str) -> CheckResult:
     endpoint = base.rstrip("/")
     r = fetch(endpoint + "/")
     if r.status == 0:
-        return CheckResult("security-headers", "blocked", "endpoint unreachable")
+        return unreachable("security-headers")
     over_tls = endpoint.lower().startswith("https://")
     expected = _TRANSPORT_INDEPENDENT_HEADERS + (_TLS_ONLY_HEADERS if over_tls else ())
     missing = [name for name, want in expected
@@ -107,7 +112,7 @@ def check_metrics_gated(fetch: Fetcher, base: str, admin_fetch: Fetcher | None =
     url = base.rstrip("/") + "/metrics"
     no_key = fetch(url)
     if no_key.status == 0:
-        return CheckResult("metrics-gated", "blocked", "endpoint unreachable")
+        return unreachable("metrics-gated")
     if no_key.status != 401:
         return CheckResult("metrics-gated", "fail", f"/metrics without a key -> {no_key.status} (want 401)")
     if admin_fetch is None:
@@ -130,7 +135,7 @@ def check_admin_metrics_health(admin_fetch: Fetcher | None, base: str) -> CheckR
         return CheckResult("admin-metrics-health", "blocked", "no admin API key configured")
     r = admin_fetch(base.rstrip("/") + "/api/v1/metrics/health")
     if r.status == 0:
-        return CheckResult("admin-metrics-health", "blocked", "endpoint unreachable")
+        return unreachable("admin-metrics-health")
     if r.status != 200:
         return CheckResult("admin-metrics-health", "fail", f"-> {r.status} (want 200)")
     return CheckResult("admin-metrics-health", "pass", "/api/v1/metrics/health -> 200")
@@ -148,7 +153,7 @@ def check_render_query_smoke(fetch: Fetcher, base: str, service_id: str | None =
     png = fetch(base.rstrip("/") + f"/rest/services/{service_id}/MapServer/export"
                "?bbox=-180,-90,180,90&size=200,200&format=png&f=image")
     if png.status == 0:
-        return CheckResult("render-query-smoke", "blocked", "endpoint unreachable")
+        return unreachable("render-query-smoke")
     if png.status != 200:
         return CheckResult("render-query-smoke", "fail", f"MapServer export -> {png.status} (want 200 PNG)")
     cnt = fetch(base.rstrip("/") + f"/rest/services/{service_id}/FeatureServer/{layer_id}/query"
@@ -166,7 +171,7 @@ def check_deploy_preflight(fetch: Fetcher, base: str, admin_fetch: Fetcher | Non
     url = base.rstrip("/") + "/api/v1/admin/deploy/preflight"
     no_key = fetch(url)
     if no_key.status == 0:
-        return CheckResult("deploy-preflight", "blocked", "endpoint unreachable")
+        return unreachable("deploy-preflight")
     if no_key.status != 401:
         return CheckResult("deploy-preflight", "fail", f"without a key -> {no_key.status} (want 401)")
     if admin_fetch is None:
@@ -197,7 +202,7 @@ def check_stac_collections(fetch: Fetcher, base: str, assert_non_empty: bool = F
     the 2026-07-20 audit found (empty STAC on a deployment that should have data)."""
     r = fetch(base.rstrip("/") + "/stac/collections")
     if r.status == 0:
-        return CheckResult("stac-collections", "blocked", "endpoint unreachable")
+        return unreachable("stac-collections")
     if r.status != 200:
         return CheckResult("stac-collections", "fail", f"-> {r.status} (want 200)")
     try:
@@ -225,7 +230,7 @@ def check_ogc_service_capabilities(fetch: Fetcher, base: str, service_id: str | 
         return CheckResult(name, "blocked", f"no service id configured to probe {kind.upper()} capabilities")
     r = fetch(base.rstrip("/") + f"/ogc/services/{service_id}/{kind}")
     if r.status == 0:
-        return CheckResult(name, "blocked", "endpoint unreachable")
+        return unreachable(name)
     if r.status != 200:
         return CheckResult(name, "fail", f"{service_id}/{kind} -> {r.status} (want 200)")
     return CheckResult(name, "pass", f"{service_id}/{kind} GetCapabilities -> 200")
@@ -235,7 +240,7 @@ def check_edr_collections(fetch: Fetcher, base: str) -> CheckResult:
     """GET /edr/collections -> 200 + JSON (reachability; EDR collections may legitimately be empty)."""
     r = fetch(base.rstrip("/") + "/edr/collections")
     if r.status == 0:
-        return CheckResult("edr-collections", "blocked", "endpoint unreachable")
+        return unreachable("edr-collections")
     if r.status != 200:
         return CheckResult("edr-collections", "fail", f"-> {r.status} (want 200)")
     try:
@@ -249,7 +254,7 @@ def check_odata_service_document(fetch: Fetcher, base: str) -> CheckResult:
     """GET /odata -> 200 + the OData v4 service document (@odata.context + value[])."""
     r = fetch(base.rstrip("/") + "/odata")
     if r.status == 0:
-        return CheckResult("odata-service-document", "blocked", "endpoint unreachable")
+        return unreachable("odata-service-document")
     if r.status == 404 and "odata is not enabled for any available service" in r.body.lower():
         return CheckResult(
             "odata-service-document",
@@ -271,7 +276,7 @@ def check_ogc_features_collections(fetch: Fetcher, base: str) -> CheckResult:
     """GET /ogc/features/collections -> 200 + collections[] (OGC API Features)."""
     r = fetch(base.rstrip("/") + "/ogc/features/collections")
     if r.status == 0:
-        return CheckResult("ogc-features-collections", "blocked", "endpoint unreachable")
+        return unreachable("ogc-features-collections")
     if r.status != 200:
         return CheckResult("ogc-features-collections", "fail", f"-> {r.status} (want 200)")
     try:
@@ -291,7 +296,7 @@ def check_tiles_tilejson(fetch: Fetcher, base: str, layer_id: int | None = None)
         return CheckResult("tiles-tilejson", "blocked", "no numeric layer id configured to probe")
     r = fetch(base.rstrip("/") + f"/tiles/{layer_id}/tile.json")
     if r.status == 0:
-        return CheckResult("tiles-tilejson", "blocked", "endpoint unreachable")
+        return unreachable("tiles-tilejson")
     if r.status != 200:
         return CheckResult("tiles-tilejson", "fail", f"layer {layer_id} -> {r.status} (want 200)")
     try:

@@ -68,6 +68,32 @@ class CheckResult:
 
 Fetcher = Callable[[str], HttpResponse]
 
+# honua-release#128 — the endpoint-unreachable verdict.
+#
+# This harness uses `blocked` for exactly one thing: a probe that had no INPUT to work with — no admin
+# API key, no seeded service/tile id, no cloud harness image. That is an honest "unprovable here",
+# because the missing thing is ours to supply and its absence says nothing about the candidate.
+#
+# An endpoint that does not answer is a different animal. The deployment IS the subject of the test, so
+# a probe that cannot reach it has not failed to run — it has found a defect. Reporting that as
+# `blocked` makes a broken deployment indistinguishable from a deliberately unconfigured probe, which
+# is how the aws-ecs cell reported a passing verdict for its entire life while asserting nothing: its
+# ALB security group never admitted the runner, every probe timed out, every probe said `blocked`, and
+# the cell went green. So unreachability is a FAIL, and it carries a machine-readable evidence flag so
+# a caller can tell this failure ("the thing under test never answered") from a behavioural one
+# ("it answered wrongly") without parsing prose.
+ENDPOINT_UNREACHABLE_EVIDENCE = "endpointUnreachable"
+
+
+def unreachable(name: str, why: str = "endpoint unreachable", **evidence) -> CheckResult:
+    """A FAIL for `name` because the endpoint under test never answered. See the note above."""
+    return CheckResult(name, "fail", why, {ENDPOINT_UNREACHABLE_EVIDENCE: True, **evidence})
+
+
+def is_endpoint_unreachable(result: CheckResult) -> bool:
+    """True when `result` failed because the endpoint never answered, not because it misbehaved."""
+    return bool(result.evidence.get(ENDPOINT_UNREACHABLE_EVIDENCE))
+
 
 def make_fetch(headers: dict[str, str] | None = None, timeout: float = 15.0) -> Fetcher:
     """A `Fetcher` factory that attaches request headers (e.g. an admin `X-API-Key`) and captures
@@ -130,7 +156,7 @@ def check_health(endpoint: str, fetch: Fetcher) -> CheckResult:
     if r.status == 200:
         return CheckResult("health", "pass", "GET /healthz -> 200")
     if r.status == 0:
-        return CheckResult("health", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("health", f"endpoint unreachable ({r.body})")
     if r.status == 404:
         # Plain /healthz is Development-only (Honua.ServiceDefaults MapDefaultEndpoints) — a
         # Production/Staging deploy (any real cloud cell, or https://demo.honua.io) 404s here by
@@ -139,7 +165,7 @@ def check_health(endpoint: str, fetch: Fetcher) -> CheckResult:
         live = fetch(base + "/healthz/live")
         ready = fetch(base + "/healthz/ready")
         if live.status == 0 or ready.status == 0:
-            return CheckResult("health", "blocked", "endpoint unreachable on /healthz/live or /healthz/ready")
+            return unreachable("health", "endpoint unreachable on /healthz/live or /healthz/ready")
         if live.status == 200 and ready.status == 200:
             return CheckResult("health", "pass",
                                "GET /healthz -> 404 (Development-only route) but "
@@ -156,7 +182,7 @@ def check_geoservices_error_surfacing(endpoint: str, fetch: Fetcher) -> CheckRes
     url = endpoint.rstrip("/") + "/rest/services/__honua_parity_missing__/FeatureServer/0/query?where=1%3D1))&f=json"
     r = fetch(url)
     if r.status == 0:
-        return CheckResult("geoservices-error", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("geoservices-error", f"endpoint unreachable ({r.body})")
     if r.status == 200 and _is_esri_error_envelope(r.body):
         return CheckResult("geoservices-error", "pass", "invalid query -> HTTP 200 + {error} envelope (Esri convention)")
     if _is_esri_error_envelope(r.body):
@@ -171,7 +197,7 @@ def check_geoservices_error_surfacing(endpoint: str, fetch: Fetcher) -> CheckRes
 def check_service_catalog(endpoint: str, fetch: Fetcher) -> CheckResult:
     r = fetch(endpoint.rstrip("/") + "/rest/services?f=json")
     if r.status == 0:
-        return CheckResult("service-catalog", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("service-catalog", f"endpoint unreachable ({r.body})")
     if r.status != 200:
         return CheckResult("service-catalog", "fail", f"GET /rest/services -> {r.status}", {"status": r.status})
     try:
@@ -189,7 +215,7 @@ def check_admin_capabilities(endpoint: str, fetch: Fetcher) -> CheckResult:
     coherent MCP layer — this is the target-agnostic HTTP proxy for 'MCP is wireable here'."""
     r = fetch(endpoint.rstrip("/") + "/api/v1/admin/capabilities?f=json")
     if r.status == 0:
-        return CheckResult("capabilities", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("capabilities", f"endpoint unreachable ({r.body})")
     if r.status != 200:
         return CheckResult("capabilities", "fail", f"GET /api/v1/admin/capabilities -> {r.status}",
                            {"status": r.status})
@@ -208,7 +234,7 @@ def check_geoprocessing(endpoint: str, fetch: Fetcher) -> CheckResult:
     is reachable but GP isn't exposed on this deploy), never a fake pass."""
     r = fetch(endpoint.rstrip("/") + "/rest/services?f=json")
     if r.status == 0:
-        return CheckResult("geoprocessing", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("geoprocessing", f"endpoint unreachable ({r.body})")
     if r.status != 200:
         return CheckResult("geoprocessing", "fail", f"GET /rest/services -> {r.status}", {"status": r.status})
     body_l = r.body.lower()
@@ -234,7 +260,7 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     url = endpoint.rstrip("/") + "/api/v1/capabilities/manifest"
     r = fetch(url)
     if r.status == 0:
-        return CheckResult("capability-manifest", "blocked", f"endpoint unreachable ({r.body})")
+        return unreachable("capability-manifest", f"endpoint unreachable ({r.body})")
     if r.status != 200:
         return CheckResult("capability-manifest", "fail",
                            f"GET /api/v1/capabilities/manifest -> {r.status}", {"status": r.status})

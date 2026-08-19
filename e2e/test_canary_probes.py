@@ -44,7 +44,8 @@ def test_health_live_ready():
     assert canary.check_health_live_ready(ok, "http://x").status == "pass"
     bad = _fetcher([("/healthz/live", cc.HttpResponse(200, "")), ("/healthz/ready", cc.HttpResponse(503, ""))])
     assert canary.check_health_live_ready(bad, "http://x").status == "fail"
-    assert canary.check_health_live_ready(_fetcher([]), "http://x").status == "blocked"
+    unreached = canary.check_health_live_ready(_fetcher([]), "http://x")
+    assert unreached.status == "fail" and cc.is_endpoint_unreachable(unreached)
 
 
 def test_security_headers():
@@ -57,7 +58,9 @@ def test_security_headers():
     for endpoint in ("https://x", "http://x"):
         r = canary.check_security_headers(bad, endpoint)
         assert r.status == "fail" and "x-content-type-options" in r.why, endpoint
-    assert canary.check_security_headers(_fetcher([]), "http://x").status == "blocked"
+    # honua-release#128: the endpoint under test not answering is a FAIL, not a neutral skip.
+    unreached = canary.check_security_headers(_fetcher([]), "http://x")
+    assert unreached.status == "fail" and cc.is_endpoint_unreachable(unreached)
 
 
 def test_security_headers_asserts_hsts_only_where_the_transport_can_carry_it():
@@ -164,7 +167,7 @@ def test_stac_collections():
     assert canary.check_stac_collections(empty, "http://x").status == "blocked"
     assert canary.check_stac_collections(empty, "http://x", assert_non_empty=True).status == "fail"
 
-    assert canary.check_stac_collections(_fetcher([]), "http://x").status == "blocked"
+    assert canary.check_stac_collections(_fetcher([]), "http://x").status == "fail"
 
 
 def test_ogc_service_capabilities():
@@ -182,7 +185,7 @@ def test_ogc_service_capabilities():
 def test_edr_odata_ogc_features():
     assert canary.check_edr_collections(
         _fetcher([("/edr/collections", cc.HttpResponse(200, "{}"))]), "http://x").status == "pass"
-    assert canary.check_edr_collections(_fetcher([]), "http://x").status == "blocked"
+    assert canary.check_edr_collections(_fetcher([]), "http://x").status == "fail"
 
     ok_odata = _fetcher([("/odata", cc.HttpResponse(200, json.dumps({"@odata.context": "x", "value": []})))])
     assert canary.check_odata_service_document(ok_odata, "http://x").status == "pass"

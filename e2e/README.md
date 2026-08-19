@@ -127,6 +127,24 @@ to). `--require-real` (the train on a real cut / a
 real nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is
 unit-tested (`make test`) so the gate is trustworthy with zero cloud.
 
+### What BLOCKED means — and what it does not (honua-release#128)
+BLOCKED means **a probe had no input to work with**: no admin API key, no seeded service/tile id, no
+cloud harness image. The missing thing is ours to supply and its absence says nothing about the
+candidate, so it is reported and does not gate.
+
+An **unreachable endpoint is not that**. The deployment is the subject of the test, so a probe that
+cannot reach it has found a defect, and it FAILS — on every target, whatever `--require-real` says. A
+cell that provisioned an endpoint which then never served is failed as one fact ("terraform
+provisioned X but it never served") rather than as twenty identical timeouts.
+
+This distinction was not free: the `aws-ecs` cells reported a passing verdict in every run they ever
+had. Their ALB's security group defaults to VPC-only ingress unless `allow_http_ingress_cidrs` is set
+(honua-iac `modules/aws-ecs`), so nothing from the GitHub runner ever reached them — every canonical
+check and every reachability probe timed out, said `blocked`, and the cell summarised itself as
+"canonical set passed". The cell now opens the ALB to the ephemeral runner's own /32 (the same address
+the PostGIS bootstrap already uses, and nothing wider), and unreachability can no longer be mistaken
+for a skip.
+
 ## Phase B.1 — scheduled demo canary (honua-release#61)
 
 `.github/workflows/demo-canary.yml` runs `demo_canary.py` every 6 hours (+ `workflow_dispatch`) against
@@ -148,7 +166,9 @@ HONUA_DEMO_API_KEY=... python e2e/demo_canary.py --base https://demo.honua.io   
 `geocoding-latency` is REPORT-ONLY (honua-server#2948 — geocoding is known-broken pending VPC egress) and
 never fails the run. Every other check/probe can genuinely fail; key-gated probes (`metrics-gated`,
 `admin-metrics-health`, `deploy-preflight`, and the manifest check's `available=true` assertion) report
-BLOCKED — not FAIL — when `HONUA_DEMO_API_KEY` isn't configured.
+BLOCKED — not FAIL — when `HONUA_DEMO_API_KEY` isn't configured. A demo that does not answer at all is
+a FAIL, not a blocked run (honua-release#128) — an unreachable site is the loudest thing a canary can
+find, and it used to be the quietest.
 
 ### Probe exit-code contract (every language probe)
 

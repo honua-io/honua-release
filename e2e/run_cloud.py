@@ -22,6 +22,10 @@ probes are reported but do not gate, since the ephemeral cloud cells have no see
 (distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
 pending the driver harness image, honua-release#35).
 
+An UNREACHABLE endpoint is not in that tolerated set (honua-release#128). "Nothing was seeded" is a
+missing input; "the deployment never answered" is a missing subject, and a cell that provisioned an
+endpoint which then never served fails outright, whatever --require-real says.
+
   python e2e/run_cloud.py --target aws-serverless [--require-real] [--reference-endpoint URL]
 
 Exit code 0 only when the assembled status is "pass".
@@ -39,7 +43,8 @@ E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
-from canonical_checks import make_fetch, run_canonical, run_extended  # noqa: E402
+from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical,  # noqa: E402
+                              run_extended)
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -148,7 +153,10 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         fetch = make_fetch(timeout=10.0)
-        ready, readiness = _wait_for_endpoint(endpoint, fetch)
+        # The budget is read from the module globals at CALL time so a test can shorten it; the
+        # defaults on _wait_for_endpoint are bound at def time and cannot be monkeypatched.
+        ready, readiness = _wait_for_endpoint(endpoint, fetch, attempts=_READY_ATTEMPTS,
+                                              delay_seconds=_READY_DELAY_SECONDS)
         report["readiness"] = {"ready": ready, **readiness}
         checks = run_canonical(endpoint, fetch)
         report["checks"] = _check_dicts(checks)
@@ -186,6 +194,31 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     canary_failed = [c.name for c in canary_results if c.status == "fail"]
     blocked = [c.name for c in checks if c.status == "blocked"]
     ext_blocked = [c.name for c in extended if c.status in ("blocked", "fail")]
+
+    # honua-release#128: a cell whose terraform applied but whose endpoint never served is a FAILED
+    # cell, and it is reported as that one fact rather than as a wall of derived probe failures. The
+    # readiness poll above already spent its full budget on /healthz/ready; if it never got a 200 and
+    # the probes then could not reach the endpoint either, the deployment did not come up. Naming it
+    # here keeps the diagnosis at the top of the report instead of leaving the reader to infer it from
+    # twenty identical timeouts.
+    unreached = [c.name for c in list(checks) + list(canary_results) if is_endpoint_unreachable(c)]
+    never_ready = not report.get("readiness", {}).get("ready", True)
+    if unreached or never_ready:
+        reasons = []
+        if never_ready:
+            reasons.append("the readiness poll never got a 200 from /healthz/ready within its full "
+                           f"budget ({report['readiness'].get('attempts')} attempts, last status "
+                           f"{report['readiness'].get('status')})")
+        if unreached:
+            reasons.append(f"these checks could not reach it at all: {unreached}")
+        report["status"] = "fail"
+        report["why"] = (
+            f"{cell}: terraform provisioned {endpoint} but it never served — " + "; ".join(reasons)
+            + ". The endpoint is the thing under test, so this is a cell failure, not a skip "
+              "(honua-release#128)."
+        )
+        return report
+
     if failed or canary_failed:
         report["status"] = "fail"
         report["why"] = f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}"
@@ -211,8 +244,12 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
             return report
 
     report["status"] = "blocked" if (blocked and not require_real) else "pass"
-    report["why"] = report.get("why") or f"{cell}: canonical set passed" + (
-        " + parity ok" if reference_endpoint else " (parity skipped: no reference endpoint)")
+    # Say what actually happened. The old wording claimed "canonical set passed" even for a cell whose
+    # canonical set was entirely BLOCKED — the sentence that made honua-release#128 invisible in the
+    # job log for as long as it existed.
+    report["why"] = report.get("why") or (
+        f"{cell}: canonical set " + (f"blocked on {blocked}" if blocked else "passed")
+        + (" + parity ok" if reference_endpoint else " (parity skipped: no reference endpoint)"))
     return report
 
 
