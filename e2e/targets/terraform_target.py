@@ -176,14 +176,22 @@ class TerraformTarget(DeployTarget):
         return url
 
     def teardown(self, redis_enabled: bool | None = None) -> None:
+        # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
+        # (honua-iac#142), so it raises instead of being swallowed. The caller (run_cloud / the
+        # backstop reaper) turns that into a red cell, which is the only honest verdict for a cell
+        # that stranded its own infrastructure.
         root = self._workdir or self._iac_root()
         if root is None:
             return
+        mode = False if redis_enabled is None else redis_enabled
         try:
-            mode = False if redis_enabled is None else redis_enabled
-            self._tf(root, "destroy", "-auto-approve", *(self._last_vars or self._vars(mode)), check=False)
-        except Exception:  # noqa: BLE001 - best-effort reaper
-            pass
+            destroy = self._tf(root, "destroy", "-auto-approve",
+                               *(self._last_vars or self._vars(mode)), check=False)
+        except OSError as error:
+            raise ProvisionError(f"{self.name} teardown failed: {error}") from error
+        if destroy.returncode != 0:
+            detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
+            raise ProvisionError(f"{self.name} teardown failed: {detail}")
 
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).

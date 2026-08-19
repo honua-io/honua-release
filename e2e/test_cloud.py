@@ -9,6 +9,7 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,7 +25,8 @@ from targets.terraform_target import ecs, serverless  # noqa: E402
 
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
             "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
-            "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE")
+            "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE",
+            "HONUA_AWS_RUNNER_CIDR")
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -371,7 +373,12 @@ def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
     target = serverless(run_id="run123456")
     monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
     calls = []
-    monkeypatch.setattr(target, "_tf", lambda root, *args, **kwargs: calls.append(args))
+
+    def _record(root, *args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_tf", _record)
     target.teardown(redis_enabled=True)
     values = _tf_vars(calls[0])
     assert values["redis_enabled"] == "true"
@@ -475,6 +482,241 @@ def test_cloud_endpoint_readiness_preserves_final_failure_evidence():
     assert evidence["attempts"] == 2
     assert evidence["body_head"] == '{"message":"Not Found"}'
     assert evidence["headers"]["server"] == "AmazonAPIGateway"
+
+
+# ---- EKS: the chart + LoadBalancer cell ------------------------------------------------------------
+_EKS_IMAGE = "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8@sha256:" + "a" * 64
+
+
+def _eks_env(monkeypatch, *, image: str = _EKS_IMAGE, cidr: str = "192.0.2.10/32"):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", image)
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", cidr)
+    return REGISTRY["aws-eks"](run_id="run1234567890")
+
+
+def _helm_sets(command):
+    """Parse the `--set`/`--set-string` pairs out of a helm command line."""
+    values = {}
+    for flag, pair in zip(command, command[1:]):
+        if flag in ("--set", "--set-string"):
+            key, _, value = pair.partition("=")
+            values[key] = value
+    return values
+
+
+def test_eks_requires_the_runner_cidr(monkeypatch):
+    for var in _AWS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    avail = REGISTRY["aws-eks"]().availability()
+    assert not avail.ok
+    assert any("HONUA_AWS_RUNNER_CIDR" in m for m in avail.missing)
+
+
+def test_eks_publishes_the_api_server_to_the_runner_only(monkeypatch):
+    values = _tf_vars(_eks_env(monkeypatch)._tf_vars(True))
+    assert values["cluster_endpoint_public_access"] == "true"
+    assert json.loads(values["cluster_endpoint_public_access_cidrs"]) == ["192.0.2.10/32"]
+    # kubectl/helm run as the role that created the cluster; without the access entry it has no
+    # Kubernetes identity at all and the whole cell is unusable.
+    assert values["enable_cluster_creator_admin_permissions"] == "true"
+    assert values["name_prefix"].startswith("honuaeksr")
+
+
+def test_eks_rejects_a_broad_api_server_cidr(monkeypatch):
+    target = _eks_env(monkeypatch, cidr="0.0.0.0/0")
+    with __import__("pytest").raises(ProvisionError, match="IPv4 /32"):
+        target._tf_vars(False)
+
+
+def test_eks_helm_pins_the_exact_manifest_image_by_digest(monkeypatch):
+    target = _eks_env(monkeypatch)
+    values = _helm_sets(target._helm_command(False, Path("/chart")))
+    assert values["image.repository"] == "ghcr.io/honua-io/honua-server"
+    assert values["image.digest"] == "sha256:" + "a" * 64
+    assert values["image.tag"] == ""          # digest-pinned: the chart renders repository@digest
+    # A tag-only reference stays a tag-only reference; a bare repository is not a usable pin.
+    assert target._image_values("ghcr.io/x/y:tag") == ("ghcr.io/x/y", "tag", "")
+    with __import__("pytest").raises(ProvisionError, match="tag or digest"):
+        target._image_values("ghcr.io/x/y")
+
+
+def test_eks_exposes_the_chart_service_through_a_load_balancer(monkeypatch):
+    values = _helm_sets(_eks_env(monkeypatch)._helm_command(False, Path("/chart")))
+    # The cell's endpoint is a real AWS load balancer in front of the chart's own Service — that is
+    # what the canonical checks and canary probes are pointed at.
+    assert values["service.type"] == "LoadBalancer"
+    # Credentials live in an externally managed Secret, never in the release values.
+    assert values["secret.create"] == "false"
+    assert values["secret.name"] == "honua-runtime"
+    # The chart's PostgreSQL subchart is development-only and carries no PostGIS.
+    assert values["postgresql.enabled"] == "false"
+
+
+def test_eks_threads_the_redis_dimension_through_the_chart(monkeypatch):
+    target = _eks_env(monkeypatch)
+    on = _helm_sets(target._helm_command(True, Path("/chart")))
+    off = _helm_sets(target._helm_command(False, Path("/chart")))
+    # redis-on must exercise the CHART's Redis path, not a bypass around it.
+    assert on["redis.enabled"] == "true"
+    assert on["redis.auth.enabled"] == "true"
+    assert on["redis.auth.password"] == target._redis_password
+    assert on["redis.master.persistence.enabled"] == "false"   # no CSI driver: a PVC never binds
+    assert off["redis.enabled"] == "false"
+    assert "redis.auth.password" not in off
+
+
+def test_eks_runtime_secret_carries_redis_only_when_the_cell_enables_it(monkeypatch):
+    target = _eks_env(monkeypatch)
+    applied = []
+    monkeypatch.setattr(target, "_apply", lambda manifest: applied.append(manifest))
+
+    target._install_runtime_secret(True)
+    on = applied[-1]["stringData"]
+    assert on["ConnectionStrings__redis"].startswith("honua-redis-master:6379,password=")
+    assert target._db_password in on["ConnectionStrings__DefaultConnection"]
+    # The chart's preflight enforces these; a cell that cannot install is not a cert.
+    assert len(on["HONUA_ADMIN_PASSWORD"]) >= 16
+    assert len(on["Security__ConnectionEncryption__MasterKey"]) >= 32
+
+    target._install_runtime_secret(False)
+    assert "ConnectionStrings__redis" not in applied[-1]["stringData"]
+
+
+def test_eks_teardown_deletes_load_balancers_before_terraform_destroys_the_vpc(monkeypatch):
+    target = _eks_env(monkeypatch)
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
+    order = []
+
+    def _run(command, **kwargs):
+        order.append(command[:3])
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def _kubectl(*args, **kwargs):
+        order.append(["kubectl", *args[:2]])
+        if args[:2] == ("get", "services"):
+            body = {"items": [{"metadata": {"name": "honua", "namespace": "honua-cert"},
+                               "spec": {"type": "LoadBalancer"}},
+                              {"metadata": {"name": "postgis", "namespace": "honua-cert"},
+                               "spec": {"type": "ClusterIP"}}]}
+            return subprocess.CompletedProcess(args, 0, json.dumps(body), "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_run", _run)
+    monkeypatch.setattr(target, "_kubectl", _kubectl)
+    monkeypatch.setattr(target, "_tf", lambda root, *a, **k: order.append(["terraform", a[0]])
+                        or subprocess.CompletedProcess(a, 0, "", ""))
+
+    target.teardown(redis_enabled=True)
+
+    flat = [" ".join(entry) for entry in order]
+    delete = flat.index("kubectl delete service")
+    destroy = flat.index("terraform destroy")
+    # A surviving ELB holds the subnets and strands the whole VPC (honua-iac#142).
+    assert delete < destroy
+    assert "kubectl delete namespace" in flat
+    # ...and only the LoadBalancer Service is chased; ClusterIP services die with the namespace.
+    assert flat.count("kubectl delete service") == 1
+
+
+def test_eks_teardown_fails_closed_when_the_vpc_cannot_be_destroyed(monkeypatch):
+    target = _eks_env(monkeypatch)
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
+    monkeypatch.setattr(target, "_run", lambda command, **kwargs:
+                        subprocess.CompletedProcess(command, 1, "", "no cluster"))
+    monkeypatch.setattr(target, "_tf", lambda root, *a, **k:
+                        subprocess.CompletedProcess(a, 1, "", "DependencyViolation"))
+    with __import__("pytest").raises(ProvisionError, match="teardown failed"):
+        target.teardown(redis_enabled=False)
+
+
+def test_eks_never_leaks_a_generated_credential_into_a_failure(monkeypatch):
+    target = _eks_env(monkeypatch)
+    leaked = f"connection refused for Password={target._db_password}"
+    assert target._db_password not in target._redact(leaked)
+    assert "***" in target._redact(leaked)
+
+
+def test_terraform_target_teardown_fails_closed(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    target = ecs(run_id="r1")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
+    monkeypatch.setattr(target, "_tf", lambda root, *a, **k:
+                        subprocess.CompletedProcess(a, 1, "", "DependencyViolation: ALB in use"))
+    with __import__("pytest").raises(ProvisionError, match="teardown failed"):
+        target.teardown(redis_enabled=False)
+
+
+# ---- teardown always runs, and a strand is a red cell ----------------------------------------------
+class _StubTarget:
+    name = "stub"
+
+    def __init__(self, *, provision_error=None, teardown_error=None):
+        self._provision_error = provision_error
+        self._teardown_error = teardown_error
+        self.torn_down = 0
+
+    def availability(self):
+        from targets.base import Availability
+        return Availability(True, "stub ready")
+
+    def provision(self, redis_enabled: bool = False) -> str:
+        raise ProvisionError(self._provision_error or "boom")
+
+    def teardown(self, redis_enabled: bool | None = None) -> None:
+        self.torn_down += 1
+        if self._teardown_error:
+            raise ProvisionError(self._teardown_error)
+
+
+def _run_with_stub(monkeypatch, stub):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+    return run_cloud.run("stub", require_real=False, reference_endpoint=None, redis_enabled=True)
+
+
+def test_run_cloud_tears_down_after_a_failed_provision(monkeypatch):
+    # honua-iac#142: a cell that failed mid-provision has real, billing AWS resources behind it.
+    stub = _StubTarget(provision_error="terraform apply died")
+    report = _run_with_stub(monkeypatch, stub)
+    assert stub.torn_down == 1
+    assert report["status"] == "fail" and "terraform apply died" in report["why"]
+
+
+def test_run_cloud_reddens_a_cell_that_stranded_its_infrastructure(monkeypatch):
+    stub = _StubTarget(provision_error="apply died", teardown_error="destroy died")
+    report = _run_with_stub(monkeypatch, stub)
+    assert report["status"] == "fail"
+    assert "apply died" in report["why"] and "teardown failed: destroy died" in report["why"]
+
+
+def test_reaper_retries_only_state_lock_contention_then_fails_closed():
+    import reap_cloud
+
+    class _Locked:
+        def __init__(self, failures, message):
+            self.failures = failures
+            self.message = message
+            self.calls = 0
+
+        def teardown(self, redis_enabled=None):
+            self.calls += 1
+            if self.calls <= self.failures:
+                raise ProvisionError(self.message)
+
+    locked = _Locked(2, "Error acquiring the state lock: ConditionalCheckFailedException")
+    reap_cloud.reap(locked, redis_enabled=True, sleep=lambda _s: None)
+    assert locked.calls == 3
+
+    broken = _Locked(1, "DependencyViolation: subnet still in use")
+    try:
+        reap_cloud.reap(broken, redis_enabled=False, sleep=lambda _s: None)
+    except ProvisionError:
+        pass
+    else:  # pragma: no cover - the reaper must never swallow a real strand
+        raise AssertionError("a non-lock teardown failure must fail closed")
+    assert broken.calls == 1
 
 
 if __name__ == "__main__":

@@ -310,7 +310,10 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
-      - run: python -m pip install pytest
+      - name: Install cloud runner dependencies
+        # PyYAML (canary quarantine, the EKS cell's chart dependency resolution) is a declared runner
+        # dependency, so install the declared set rather than assuming the runner image carries it.
+        run: python -m pip install -r e2e/requirements.txt pytest
 
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic
@@ -324,18 +327,23 @@ jobs:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Resolve ephemeral runner database ingress
-        if: ${{ (matrix.target == 'aws-serverless' || matrix.target == 'aws-ecs') && vars.HONUA_AWS_ROLE_ARN != '' }}
+      - name: Resolve the ephemeral runner's own /32
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
         run: |
           set -euo pipefail
           export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
           python -c 'import ipaddress,os; ipaddress.IPv4Address(os.environ["RUNNER_IP"])'
+          # serverless/ECS: PostGIS bootstrap reaches RDS from here.
           echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          # EKS: the runner drives kubectl/helm from outside the VPC, so the cluster's public API
+          # endpoint and the chart's load balancer are opened to THIS runner and nothing else.
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
 
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
@@ -350,13 +358,18 @@ jobs:
         if: always()
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           # run_cloud already tears down; reconstruct this exact matrix cell's variables so the backstop
           # can safely destroy partial state after cancellation without prompting for required inputs.
-          if [ -n "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
-            python e2e/reap_cloud.py --target "${{ matrix.target }}" --redis "${{ matrix.redis }}" || true
-          else
+          # It is FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step
+          # goes red instead of leaving an orphaned VPC/cluster billing (honua-iac#142).
+          if [ -f "$HONUA_CLOUD_PROVISION_MARKER" ]; then
+            python e2e/reap_cloud.py --target "${{ matrix.target }}" --redis "${{ matrix.redis }}"
+          elif [ -z "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
             echo "::notice title=cloud-cert self-skipped::no HONUA_AWS_ROLE_ARN — nothing was deployed to reap"
+          else
+            echo "::notice title=cloud-cert not provisioned::provisioning never started — nothing was deployed to reap"
           fi
 
       - name: Upload cloud gate-report (per cell)
