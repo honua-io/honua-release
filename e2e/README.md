@@ -93,6 +93,30 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
 `teardown()` + a backstop reaper (sweeping every example root) always run.
 
+### Cells leave nothing billing — including what `terraform destroy` cannot delete
+Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's
+one case of that is the cluster's secret-encryption CMK: `terraform destroy` can only *schedule* a KMS
+key for deletion, AWS's minimum window is **7 days** and cannot be shortened, so a key minted per cell
+kept billing (~$1/key/month) for a week after its cluster was gone — two per full matrix dispatch,
+growing with release-train cadence (honua-release#127).
+
+The parity suite asserts nothing about secret-at-rest encryption (not `canonical_checks.py`, not
+`canary_probes.py`, not `certification/`, not `compatibility-matrix.yaml`), so the cells were paying
+for a property they never certified. `aws_eks.py` therefore applies the honua-iac aws-eks root with
+`cluster_secret_encryption_enabled=false` and no key is created at all. Production keeps envelope
+encryption: the iac default is `true`, and only this harness turns it off.
+
+**If the cells ever need to certify secret encryption**, do not go back to a key per cell — that
+recreates the drip. Create ONE long-lived CMK outside the harness and pass its ARN as the root's
+`cluster_secret_encryption_key_arn` (leaving `cluster_secret_encryption_enabled=true`): the encryption
+path is exercised on every cell at a fixed one-key cost, with nothing scheduled for deletion at teardown.
+
+honua-iac is pinned **by sha** (`platform-manifest.yaml` → `components.honua-iac.sha`), and terraform
+hard-errors on a `-var` the root does not declare, so the cell emits the flag only when the
+checked-out root actually declares the variable (`AwsEksTarget._root_declares`). That keeps the
+harness working against an older pin or an older local `HONUA_IAC_DIR` instead of failing every EKS
+cell until the pin moves.
+
 ### A gate that can FAIL — and is honestly BLOCKED until infra exists
 Each cell reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
 dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable image (`HONUA_LAMBDA_IMAGE_URI`

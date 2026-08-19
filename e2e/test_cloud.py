@@ -8,10 +8,12 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 E2E_DIR = Path(__file__).resolve().parent
@@ -521,6 +523,62 @@ def test_eks_publishes_the_api_server_to_the_runner_only(monkeypatch):
     # Kubernetes identity at all and the whole cell is unusable.
     assert values["enable_cluster_creator_admin_permissions"] == "true"
     assert values["name_prefix"].startswith("honuaeksr")
+
+
+def _fake_eks_iac_root(monkeypatch, stack, *, declares_secret_encryption: bool):
+    """A throwaway honua-iac tree at HONUA_IAC_DIR whose aws-eks root may or may not declare the
+    secret-encryption variable — the two sides of the pin bump the harness has to survive."""
+    base = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+    root = base / "infrastructure" / "terraform" / "examples" / "aws-eks"
+    root.mkdir(parents=True)
+    body = 'variable "region" {\n  type = string\n}\n'
+    if declares_secret_encryption:
+        body += 'variable "cluster_secret_encryption_enabled" {\n  type    = bool\n  default = true\n}\n'
+    (root / "variables.tf").write_text(body, encoding="utf-8")
+    monkeypatch.setenv("HONUA_IAC_DIR", str(base))
+    # The standalone runner's monkeypatch shim mutates os.environ for real, so the pointer must not
+    # outlive the directory it points at.
+    stack.callback(lambda: monkeypatch.delenv("HONUA_IAC_DIR", raising=False))
+    return base
+
+
+def test_eks_mints_no_per_cell_kms_key_when_the_root_supports_it(monkeypatch):
+    # honua-release#127: the cluster's secret-encryption CMK cannot be deleted by `terraform destroy`
+    # — only SCHEDULED for deletion on AWS's 7-day minimum window — so each ephemeral cell left a key
+    # billing for a week after the cell was gone (two per full matrix dispatch, forever). Nothing in
+    # the parity suite asserts secret-at-rest encryption, so the cells are not certifying it and the
+    # key is pure cost: the cell must switch it off.
+    with contextlib.ExitStack() as stack:
+        _fake_eks_iac_root(monkeypatch, stack, declares_secret_encryption=True)
+        values = _tf_vars(_eks_env(monkeypatch)._tf_vars(True))
+    assert values["cluster_secret_encryption_enabled"] == "false"
+
+
+def test_eks_omits_the_kms_var_when_the_pinned_iac_root_does_not_declare_it(monkeypatch):
+    # Ordering guard. honua-iac is pinned BY SHA (platform-manifest.yaml components.honua-iac.sha), so
+    # this repo can be ahead of the tree it applies — and terraform HARD-ERRORS on `-var` for an
+    # undeclared root variable ("Value for undeclared variable"), which would break every EKS cell in
+    # the window between the two merges. The flag must therefore appear only once the checked-out root
+    # actually declares it, and stay absent (not "true", not present) before that.
+    with contextlib.ExitStack() as stack:
+        _fake_eks_iac_root(monkeypatch, stack, declares_secret_encryption=False)
+        values = _tf_vars(_eks_env(monkeypatch)._tf_vars(True))
+    assert "cluster_secret_encryption_enabled" not in values
+
+    # No honua-iac tree at all (the BLOCKED path) must not synthesise the var either.
+    monkeypatch.delenv("HONUA_IAC_DIR", raising=False)
+    assert "cluster_secret_encryption_enabled" not in _tf_vars(_eks_env(monkeypatch)._tf_vars(True))
+
+
+def test_eks_teardown_passes_the_same_kms_var_it_applied(monkeypatch):
+    # `terraform destroy` re-evaluates the root, so it must be handed the identical var set — a
+    # destroy that omitted the flag would re-plan a key the apply never made.
+    with contextlib.ExitStack() as stack:
+        _fake_eks_iac_root(monkeypatch, stack, declares_secret_encryption=True)
+        target = _eks_env(monkeypatch)
+        target._prefix = "honuaeksrrun123"
+        assert target._tf_vars(True) == target._tf_vars(True)
+        assert "-var=cluster_secret_encryption_enabled=false" in target._tf_vars(False)
 
 
 def test_eks_rejects_a_broad_api_server_cidr(monkeypatch):
