@@ -1,11 +1,13 @@
 {
   "schemaVersion": "honua.expected-ga-manifest.v1",
-  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). Seeded from a real fetch of https://demo.honua.io/api/v1/capabilities/manifest (schemaVersion honua.capability_manifest.v1, 29 ids, all supported=true) minus two deliberately-gated ids listed in `excluded`. `expectedGa` (minus `excluded`) is the id set every deployed candidate must advertise as supported=true; when the check runs authenticated (an admin X-API-Key) it also asserts available=true for the same set. Update this file (with a fresh sourceSnapshot) when the server adds/removes a GA capability id or when an excluded id's gating status changes.",
+  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). `expectedGa` (minus `excluded`) is the id set every deployed candidate must advertise as supported=true; when the check runs authenticated (an admin X-API-Key) it also asserts available=true for the same set. REFRESH RULE: this file is asserted against a LIVE deployment, so it must only be refreshed from a deployment that is actually running the manifest-pinned candidate — refreshing it from a stale environment would red a live canary to green a candidate, or vice versa. This snapshot was taken from demo.honua.io while it served deploymentRevision 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1, the sha pinned in platform-manifest.yaml, immediately after that redeploy. Versus the previous 2026-07-21 snapshot it removes ai.workflow-generation (retired by honua-server ADR-0076 / #3255 / #3264) and adds sync.offline and temporal.animation-api.",
   "sourceSnapshot": {
     "target": "https://demo.honua.io/api/v1/capabilities/manifest",
     "manifestSchemaVersion": "honua.capability_manifest.v1",
-    "fetchedAt": "2026-07-21T10:11:22Z",
-    "totalCapabilities": 29
+    "fetchedAt": "2026-08-19T02:13:20Z",
+    "totalCapabilities": 29,
+    "deploymentRevision": "6b6d3b898f4abb6b34833d953b50d44f3d38c6c1",
+    "deploymentRevisionSource": "commit-sha"
   },
   "expectedGa": [
     "package.metadata-v2",
@@ -17,11 +19,13 @@
     "temporal.extent-discovery",
     "temporal.histogram",
     "temporal.time-series-tiles",
+    "temporal.animation-api",
+    "sync.offline",
     "realtime.feature-streams",
+    "alerts.geofence",
     "jobs.runner",
     "ai.spec-apply",
     "ai.grounding",
-    "ai.workflow-generation",
     "gitops.release-manifest",
     "transport.grpc",
     "transport.grpc-web",
@@ -34,14 +38,12 @@
     "publication.metadata-release",
     "upload.file",
     "edit.features",
-    "operate.status",
-    "alerts.geofence",
-    "security.mtls"
+    "operate.status"
   ],
   "excluded": [
     {
       "id": "security.mtls",
-      "reason": "Gated: Enterprise-edition mTLS client-certificate auth, disabled-by-configuration on public/demo deployments. honua-server#2958 will reclassify this capability from GA to experimental — tracked there, not asserted as universally-GA here."
+      "reason": "No longer advertised as a capability id at all on this candidate (it survives as the `mtls` TRANSPORT, reported available=false / disabled-by-configuration). Previously it was advertised supported=true but gated; honua-server#2958 tracks the reclassification. Kept here so the exclusion's history is legible if the id returns."
     },
     {
       "id": "alerts.geofence",
