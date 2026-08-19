@@ -72,17 +72,21 @@ gates:
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
     why: >-
-      aws-eks/redis-off and aws-eks/redis-on cannot be provisioned: honua-release#79 supplies the
-      missing helm-install + LoadBalancer-resolve step but is unmerged and conflicting, and per its
-      own description the CI role is missing IAM OIDC-provider actions — an account-owner action
-      that no change in this repo can substitute for. aws-ecs is expected to be fixed by #78
-      (merged e09071d82) but no full-scope run has confirmed it yet. aws-serverless and
-      cloud-iac-live pass. The 2026-08-17 re-pin to honua-server aa894e1 additionally sets
-      awsLambdaEcrDigest to the documented `pending-ecr-mirror` sentinel (honua-release#99): the
-      post-mirror ECR digest is a property of the image, so the previous pin's resolved value is not
-      valid for this one and is deliberately not carried forward. The next cloud-gate run mirrors,
-      asserts ECR preserved the source config, and fails with the digest to record.
-
+      THE aws-eks CELLS ARE FIXED AND PASS. honua-release#79 wires the helm-install +
+      LoadBalancer-resolve step the checked-in target used to stop at, and run 32235601866 shows
+      aws-eks/redis-off and aws-eks/redis-on both `pass`: all six canonical checks plus the canary
+      set, against a real EKS-deployed candidate reached through the chart's Service LoadBalancer,
+      each cell torn down clean (reaper green, no VPC/cluster/ELB/ENI left behind). Two claims in
+      the previous version of this entry are DISPROVEN and must not be carried forward: the CI role
+      is not missing IAM OIDC-provider actions — the cluster applies with the role as it stands
+      (runs 32219953698 and 32235601866) — and #79 is neither unmerged nor conflicting.
+      What keeps this gate off green on a REAL (non-dry-run) cut is no longer EKS and is not any one
+      cell: `require_real` promotes the MCP/Studio/GP/top-demo extended scenarios, which are
+      hardcoded BLOCKED pending the cloud driver harness (honua-release#35), to FAIL — and that
+      reddens EVERY cloud cell, the passing ones included. Under a dry run (require_real off)
+      aws-eks and aws-serverless report `pass`; aws-ecs reports `blocked` because a canonical check
+      blocks there, and its security-headers canary has never actually reached the endpoint
+      (`endpoint unreachable` in every run inspected) — a separate, pre-existing ECS gap.
   docs:
     issue: https://github.com/honua-io/honua-release/issues/100
     why: >-
