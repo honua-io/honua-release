@@ -179,22 +179,19 @@ jobs:
       - name: Install gate dependencies
         run: pip install --quiet pyyaml
 
-      # The manifest pins honua-esri-compat, so the evidence we federate is read from THAT sha --
-      # never from its default branch. A bundle from a different revision of the harness measures a
-      # different denominator and must not certify this candidate.
-      - name: Resolve the pinned honua-esri-compat revision
+      # The evidence producer is pinned in certification/conformance-evidence.yaml, so the bundle we
+      # federate is read from THAT revision -- never from its default branch. A bundle built by a
+      # different revision of the harness measures a different denominator and must not certify this
+      # candidate. (Why not platform-manifest.yaml: see the note in that config file / #136.)
+      - name: Resolve the pinned evidence revision
         id: pin
         run: |
           set -euo pipefail
-          SHA="$(python - <<'PY'
-          import yaml
-          m = yaml.safe_load(open("platform-manifest.yaml"))
-          c = (m.get("components") or {}).get("honua-esri-compat") or {}
-          print(c.get("sha") or c.get("commit") or "")
-          PY
-          )"
+          SHA="$(python -c "import yaml;print((yaml.safe_load(open('certification/conformance-evidence.yaml')).get('esri') or {}).get('evidenceRef') or '')")"
+          REPO="$(python -c "import yaml;print((yaml.safe_load(open('certification/conformance-evidence.yaml')).get('esri') or {}).get('evidenceRepo') or 'honua-io/honua-esri-compat')")"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "pinned honua-esri-compat: ${SHA:-<unpinned>}"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "pinned evidence source: $REPO@${SHA:-<unpinned>}"
 
       # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
       # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
@@ -203,7 +200,7 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: honua-io/honua-esri-compat
+          repository: ${{ steps.pin.outputs.repo }}
           ref: ${{ steps.pin.outputs.sha }}
           path: _conformance/esri-compat
           token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || github.token }}
@@ -240,7 +237,7 @@ jobs:
           " 2>/dev/null || echo 'Esri evidence could not be evaluated')"
           {
             echo "status=$STATUS"
-            echo "source=federated:honua-esri-compat@${{ steps.pin.outputs.sha }}"
+            echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}"
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
