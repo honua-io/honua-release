@@ -628,6 +628,48 @@ def test_eks_teardown_deletes_load_balancers_before_terraform_destroys_the_vpc(m
     assert flat.count("kubectl delete service") == 1
 
 
+def test_eks_teardown_sweeps_the_leaked_node_enis_and_retries_the_destroy(monkeypatch):
+    # OBSERVED on run 32219953698: both cells stranded their VPC. The VPC CNI's secondary ENIs
+    # survive the node group's deletion detached-but-alive, and a detached ENI holds its subnet and
+    # security group, so terraform fails with
+    #   DependencyViolation: resource sg-... has a dependent object
+    #   DependencyViolation: The subnet 'subnet-...' has dependencies and cannot be deleted.
+    # and the whole VPC keeps its quota slot forever (honua-iac#142).
+    target = _eks_env(monkeypatch)
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
+    monkeypatch.setattr(target, "_kubectl", lambda *a, **k: subprocess.CompletedProcess(a, 1, "", ""))
+    aws = []
+
+    def _run(command, **kwargs):
+        aws.append(command)
+        if command[:3] == ["aws", "ec2", "describe-vpcs"]:
+            return subprocess.CompletedProcess(command, 0, "vpc-0eks\n", "")
+        if command[:3] == ["aws", "ec2", "describe-network-interfaces"]:
+            leaked = "eni-0leaked\tavailable\n" if not any(
+                c[:3] == ["aws", "ec2", "delete-network-interface"] for c in aws) else ""
+            return subprocess.CompletedProcess(command, 0, leaked, "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    destroys = []
+
+    def _tf(root, *args, **kwargs):
+        if args[0] == "destroy":
+            destroys.append(args)
+            code = 1 if len(destroys) == 1 else 0
+            return subprocess.CompletedProcess(args, code, "", "DependencyViolation: subnet ...")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_run", _run)
+    monkeypatch.setattr(target, "_tf", _tf)
+    target.teardown(redis_enabled=False)
+
+    assert len(destroys) == 2, "the destroy must be retried once the leaked ENIs are gone"
+    deleted = [c for c in aws if c[:3] == ["aws", "ec2", "delete-network-interface"]]
+    assert [c[-1] for c in deleted] == ["eni-0leaked"]
+    # The sweep must happen between the two attempts, never before the first.
+    assert aws.index(deleted[0]) > 0
+
+
 def test_eks_teardown_fails_closed_when_the_vpc_cannot_be_destroyed(monkeypatch):
     target = _eks_env(monkeypatch)
     monkeypatch.setattr(target, "_iac_root", lambda: Path("."))

@@ -529,6 +529,63 @@ class AwsEksTarget(DeployTarget):
                           "-n", str(metadata.get("namespace")),
                           "--wait=true", "--timeout=10m", check=False)
 
+    def _vpc_id(self, prefix: str) -> str | None:
+        """The cell's VPC, resolved from the deterministic Name tag the module applies rather than
+        from Terraform state, so the standalone backstop reaper can find it too."""
+        result = self._run([
+            "aws", "ec2", "describe-vpcs", "--region", self.region,
+            "--filters", f"Name=tag:Name,Values={prefix}-it-eks-vpc",
+            "--query", "Vpcs[].VpcId", "--output", "text",
+        ], check=False)
+        if result.returncode != 0:
+            return None
+        vpc_ids = result.stdout.split()
+        return vpc_ids[0] if vpc_ids else None
+
+    def _vpc_network_interfaces(self, vpc_id: str) -> list[tuple[str, str]]:
+        result = self._run([
+            "aws", "ec2", "describe-network-interfaces", "--region", self.region,
+            "--filters", f"Name=vpc-id,Values={vpc_id}",
+            "--query", "NetworkInterfaces[].[NetworkInterfaceId,Status]", "--output", "text",
+        ], check=False)
+        if result.returncode != 0:
+            return []
+        interfaces = []
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                interfaces.append((fields[0], fields[1]))
+        return interfaces
+
+    def _sweep_detached_network_interfaces(self, prefix: str, timeout_seconds: float = 240.0) -> int:
+        """Delete the ENIs EKS leaves behind, so the retried destroy can finish.
+
+        The VPC CNI attaches secondary ENIs to every node. Deleting the managed node group detaches
+        them but does NOT delete them, and a detached ENI still holds its subnet and its security
+        group — so Terraform's subnet/security-group delete fails with DependencyViolation (after
+        retrying for many minutes) and leaves the entire VPC behind. That is exactly honua-iac#142's
+        orphan: the expensive resources are gone, the VPC keeps its quota slot forever, and the next
+        run dies on VpcLimitExceeded. Every ENI in this VPC belongs to this run-scoped cell, so any
+        one that is no longer attached is ours to remove.
+        """
+        vpc_id = self._vpc_id(prefix)
+        if vpc_id is None:
+            return 0
+        swept = 0
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            interfaces = self._vpc_network_interfaces(vpc_id)
+            for interface_id, status in interfaces:
+                if status != "available":
+                    continue
+                if self._run(["aws", "ec2", "delete-network-interface", "--region", self.region,
+                              "--network-interface-id", interface_id], check=False).returncode == 0:
+                    swept += 1
+            still_attaching = [i for i, status in interfaces if status != "available"]
+            if not still_attaching or time.monotonic() >= deadline:
+                return swept
+            time.sleep(15)
+
     def teardown(self, redis_enabled: bool | None = None) -> None:
         root = self._workdir or self._iac_root()
         if root is None:
@@ -552,5 +609,13 @@ class AwsEksTarget(DeployTarget):
 
         destroy = self._tf(root, "destroy", "-auto-approve", *self._tf_vars(mode), check=False)
         if destroy.returncode != 0:
-            detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
-            raise ProvisionError(f"{self.name} teardown failed: {self._redact(detail)}")
+            # One retry, and only after removing the specific thing that makes this destroy fail:
+            # the node ENIs the VPC CNI leaks. Anything else is a genuine strand and stays red.
+            swept = self._sweep_detached_network_interfaces(prefix)
+            destroy = self._tf(root, "destroy", "-auto-approve", *self._tf_vars(mode), check=False)
+            if destroy.returncode != 0:
+                detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
+                raise ProvisionError(
+                    f"{self.name} teardown failed after sweeping {swept} detached network "
+                    f"interface(s): {self._redact(detail)}"
+                )
