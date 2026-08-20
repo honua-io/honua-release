@@ -13,7 +13,7 @@ except Exception as exc:  # noqa: BLE001
 
 try:
     with HonuaClient(SERVER) as client:
-        result = client.query_features("test", 0, where="__release_missing_field__=1")
+        result = client.query_features("__honua_parity_missing__", 0, where="1=1))")
 except HonuaHttpError as exc:
     print(f"PASS: Python SDK raised HonuaHttpError on 200+{{error}}: {exc}")
     sys.exit(0)

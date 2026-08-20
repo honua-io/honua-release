@@ -57,11 +57,22 @@ def run(ctx: Ctx) -> Result:
             failures.append(f"{short}: SDK pin is not a real frozen version")
             continue
 
+        probe_before_raw = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+        probe_before = probe_before_raw if probe_before_raw is not None else 0.0
         pr = run_probe(short, path, ctx)
+        probe_after = None
+        for attempt in range(3):
+            probe_after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+            if probe_after is not None and probe_after - probe_before >= 1:
+                break
+            if attempt < 2:
+                time.sleep(1)
         evidence["probes"][short] = {
             "exit": pr.exit_code,
             "stdout": pr.stdout.strip()[-500:],
             "stderr": pr.stderr.strip()[-500:],
+            "metric_before": probe_before_raw,
+            "metric_after": probe_after,
         }
         if pr.skipped:
             failures.append(f"{short}: frozen SDK was not installed/importable")
@@ -71,6 +82,11 @@ def run(ctx: Ctx) -> Result:
         if pr.failed:
             # The audit bug: SDK returned success on a 200+{error}.
             failures.append(f"{short}: SDK did not raise its typed error on 200+{{error}}")
+        if probe_after is None or probe_after - probe_before < 1:
+            failures.append(
+                f"{short}: {ERROR_METRIC} did not increment for its 200+{{error}} request "
+                f"(before={probe_before_raw}, after={probe_after})"
+            )
 
     # If no probe could actually run against a real SDK, this is BLOCKED, not a pass — we refuse to
     # manufacture a green (AGENTS.md: a gate that can't fail is worse than no gate).
