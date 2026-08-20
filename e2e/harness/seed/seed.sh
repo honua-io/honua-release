@@ -35,6 +35,23 @@ INSERT INTO honua_data.e2e_src_fs (name, geom) VALUES
  ('alpha', ST_SetSRID(ST_MakePoint(-156.33,20.75),4326)),
  ('bravo', ST_SetSRID(ST_MakePoint(-156.45,20.88),4326));
 
+-- Source table for the honua-console live suite (S4). Its services-layers spec drives the console's
+-- publish UI to create the service `e2e_src_fs` out of this table, and every other live spec (Studio
+-- results, service settings) targets that service. Shape must match honua-console's own testbed seed
+-- (e2e/initdb/01-seed.sql): integer PK, polygon geometry in EPSG:3857, exactly 3 features — the spec
+-- asserts the published layer serves all three back in that SRID. Lives in `public` (not honua_data)
+-- for the same reason: that is where the console spec looks for it.
+DROP TABLE IF EXISTS public.e2e_layer_src;
+CREATE TABLE public.e2e_layer_src (
+  id   integer PRIMARY KEY,
+  name text    NOT NULL,
+  geom geometry(Polygon, 3857) NOT NULL
+);
+INSERT INTO public.e2e_layer_src (id, name, geom) VALUES
+ (1, 'alpha', ST_SetSRID(ST_MakeEnvelope(  0,   0, 100, 100, 3857), 3857)),
+ (2, 'beta',  ST_SetSRID(ST_MakeEnvelope(200, 200, 300, 300, 3857), 3857)),
+ (3, 'gamma', ST_SetSRID(ST_MakeEnvelope(400, 400, 500, 500, 3857), 3857));
+
 DROP TABLE IF EXISTS honua_data.maui_zoning;
 CREATE TABLE honua_data.maui_zoning (
   gid       serial PRIMARY KEY,

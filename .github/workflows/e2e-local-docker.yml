@@ -197,3 +197,19 @@ jobs:
           name: e2e-slice1-gate-report
           path: e2e/gate-report.json
           if-no-files-found: warn
+
+      # S4's failure message is `see .../e2e/out/console-live.log`, but that file was never uploaded,
+      # so a red S4 was undebuggable from CI. Upload the Playwright log plus the traces/screenshots
+      # the driver now writes under e2e/out/console-playwright. Kept as its OWN artifact, deliberately
+      # scoped to those two paths: the release train consumes `e2e-slice1-gate-report` and must not
+      # have to download a Playwright trace bundle to read one JSON file.
+      - name: Upload S4 console live-suite log + Playwright traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-console-live
+          path: |
+            e2e/out/console-live.log
+            e2e/out/console-playwright/**
+          if-no-files-found: ignore
+          retention-days: 14
