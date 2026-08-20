@@ -157,6 +157,20 @@ async function probePage(context, url, { starveShim = false } = {}) {
       } catch (_error) {
         connect = "blocked";
       }
+      // What the SHIPPED shim's rebase() actually does to a set of look-alike hosts. Asserted in
+      // case (c) below; null when the external shim is absent (the starved case).
+      let rebased = null;
+      if (window.HonuaDemoBackend && typeof window.HonuaDemoBackend.rebase === "function") {
+        const rebase = (value) => window.HonuaDemoBackend.rebase(value);
+        rebased = {
+          exact: rebase("https://demo.honua.io"),
+          path: rebase("https://demo.honua.io/rest/services"),
+          lookalikeSuffix: rebase("https://demo.honua.io.evil.com/x"),
+          embedded: rebase("https://evil.com/https://demo.honua.io"),
+          userinfo: rebase("https://demo.honua.io@evil.com/x"),
+          nested: rebase({ server: { baseUrl: "https://demo.honua.io" }, hostile: "https://demo.honua.io.evil.com/x" }),
+        };
+      }
       return {
         metaCount: metas.length,
         policy: metas[0] ?? null,
@@ -164,6 +178,7 @@ async function probePage(context, url, { starveShim = false } = {}) {
         externalShim: typeof window.HonuaDemoBackend !== "undefined",
         origin: window.HONUA_DEMO_BACKEND_ORIGIN ?? null,
         connect,
+        rebased,
       };
     }, BASE);
   } finally {
@@ -201,10 +216,36 @@ async function checkShimSecurity(context) {
       if (!connectSrc.includes(origin)) problems.push(`${demo}: connect-src was not widened (${connectSrc})`);
       if (accepted.connect !== "allowed") problems.push(`${demo}: the widened policy still blocked the connect`);
 
+      // (d) rebase() must match on an ORIGIN BOUNDARY, not a prefix. A host that merely starts with
+      // the default origin ("https://demo.honua.io.evil.com") is a DIFFERENT host and must be left
+      // alone; rewriting it would invent "<override>.evil.com", a host the allow-list never
+      // approved. The emitted CSP would block the request either way, which is exactly why this is
+      // asserted here rather than left to the policy to hide
+      // (CodeQL js/incomplete-url-substring-sanitization).
+      const r = accepted.rebased;
+      if (!r) {
+        problems.push(`${demo}: the shim exposed no rebase() to check`);
+      } else {
+        const expected = {
+          exact: origin,
+          path: `${origin}/rest/services`,
+          lookalikeSuffix: "https://demo.honua.io.evil.com/x",
+          embedded: "https://evil.com/https://demo.honua.io",
+          userinfo: "https://demo.honua.io@evil.com/x",
+        };
+        for (const [name, want] of Object.entries(expected)) {
+          if (r[name] !== want) problems.push(`${demo}: rebase(${name}) = ${r[name]} (expected ${want})`);
+        }
+        if (r.nested?.server?.baseUrl !== origin || r.nested?.hostile !== expected.lookalikeSuffix) {
+          problems.push(`${demo}: rebase() mis-rewrote a nested config (${JSON.stringify(r.nested)})`);
+        }
+      }
+
       evidence[demo] = {
         shimUnavailable: { metaCount: starved.metaCount, bootstrapRan: starved.bootstrapRan, externalShim: starved.externalShim, connect: starved.connect },
         hostileOverride: { origin: refused.origin, connect: refused.connect },
         allowListedOverride: { origin: accepted.origin, connect: accepted.connect, connectSrc },
+        rebaseOriginBoundary: accepted.rebased,
       };
     }
 
@@ -217,7 +258,9 @@ async function checkShimSecurity(context) {
       "pass",
       `all ${DEMO_PAGES.length} demo pages: the CSP binds even when backend-override.js cannot be fetched, ` +
         `a non-allow-listed ?apiBase is refused with the policy unwidened and the connect blocked, ` +
-        `and the allow-listed origin is honoured and admitted by connect-src`,
+        `the allow-listed origin is honoured and admitted by connect-src, ` +
+        `and rebase() rewrites only on an origin boundary (a look-alike host such as ` +
+        `https://demo.honua.io.evil.com is left untouched)`,
       evidence
     );
   } catch (error) {
