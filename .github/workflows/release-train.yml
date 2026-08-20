@@ -25,6 +25,10 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+      protocol_matrix_url:
+        description: "Immutable URL for the exact-candidate honua.protocol-certification/v1 ledger"
+        required: true
+        type: string
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -40,6 +44,9 @@ permissions:
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
     runs-on: ubuntu-latest
+    outputs:
+      server_sha: ${{ steps.candidate.outputs.server_sha }}
+      server_digest: ${{ steps.candidate.outputs.server_digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -52,6 +59,7 @@ jobs:
       # and publishes it as the run's `candidate-manifest` artifact the downstream gates certify. This
       # is a real, fail-able step (a malformed/incoherent manifest stops the train here), not an echo.
       - name: Validate + publish the candidate manifest
+        id: candidate
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
@@ -69,6 +77,13 @@ jobs:
           python tools/generate_evidence_index.py --out release-evidence-pins.json
           echo "candidate platform_label (input): ${{ inputs.platform_label }}"
           echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import yaml
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          server = manifest["components"]["honua-server"]
+          print(f"server_sha={server['sha']}")
+          print(f"server_digest={server['digest']}")
+          PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-manifest
@@ -187,6 +202,16 @@ jobs:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
+  gate_protocol_certification: # normalized canonical-client cells for the exact candidate
+    needs: [freeze, gate_conformance]
+    uses: ./.github/workflows/gate-protocol-certification.yml
+    with:
+      matrix_url: ${{ inputs.protocol_matrix_url }}
+      tier: release
+      expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
+      expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -204,6 +229,7 @@ jobs:
       - gate_docs
       - gate_upgrade
       - gate_evidence
+      - gate_protocol_certification
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -257,6 +283,7 @@ jobs:
           S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
           S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
+          S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -277,6 +304,7 @@ jobs:
           docs|$S_DOCS
           upgrade|$S_UPGRADE
           evidence|$S_EVIDENCE
+          protocol-certification|$S_PROTOCOL
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
