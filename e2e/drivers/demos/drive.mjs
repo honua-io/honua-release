@@ -109,69 +109,119 @@ async function waitForAttr(page, selector, attr, value, timeout = STEP) {
   );
 }
 
-/* ── 0. shim security: the allow-list actually rejects, and the CSP actually binds ──────────── */
+/* ── 0. shim security ──────────────────────────────────────────────────────────────────────────
+ *
+ * honua.io is served by GitHub Pages, which cannot set response headers, so each demo page's own
+ * <meta> CSP is the ONLY policy it has. Three properties have to hold on EVERY demo page, and all
+ * three are load-bearing for a public site:
+ *
+ *   a) the policy binds even when the external assets/demos/backend-override.js cannot be fetched
+ *      (adblocker / network blip / partial deploy). This is the one case that is deliberately
+ *      simulated with request interception — everywhere else in this driver the demos run
+ *      untouched. A page that loses its CSP because a fetch failed is a regression against the
+ *      parser-read <meta> it replaced.
+ *   b) a non-allow-listed ?apiBase= is refused: no override, no widened policy, and the connect it
+ *      would have enabled is still blocked.
+ *   c) an allow-listed ?apiBase= IS honoured and lands in connect-src.
+ *
+ * The probe used for (a) and (b) is E2E_BASE — the candidate server, which really is reachable and
+ * really does answer, so "blocked" can only mean the policy blocked it rather than a dead socket.
+ * (c) proves that discrimination directly: the same fetch from the same page succeeds once the
+ * policy admits the origin.
+ */
 
-async function checkShimSecurity(context) {
+const DEMO_PAGES = [
+  "demo-two-protocols.html",
+  "demo-geoprocessing.html",
+  "demo-editing.html",
+  "demo-esri-leaflet.html",
+  "demo-analyst-workbench.html",
+];
+
+async function probePage(context, url, { starveShim = false } = {}) {
   const page = await newPage(context);
   try {
-    // A hostile ?apiBase= must be refused outright: no override, and no widened CSP.
-    const hostile = new URL("demo-two-protocols.html", SITE);
-    hostile.searchParams.set("apiBase", "https://evil.example.com");
-    await page.goto(hostile.toString(), { waitUntil: "domcontentloaded", timeout: STEP });
-    const rejected = await page.evaluate(() => ({
-      base: window.HONUA_DEMO_BASE_URL,
-      policy: window.HonuaDemoBackend?.policy || "",
-    }));
-    if (rejected.base !== null) {
-      record("shim-security", "fail", `?apiBase=https://evil.example.com was honoured (base=${rejected.base})`);
-      return;
+    if (starveShim) {
+      await page.route("**/backend-override.js", (route) => route.abort("failed"));
     }
-    if (rejected.policy.includes("evil.example.com")) {
-      record("shim-security", "fail", "CSP was widened for a rejected origin");
-      return;
-    }
-
-    // ...and the emitted CSP is a real, enforced policy: a connect to a non-allow-listed origin
-    // must be blocked by the browser, not merely absent from the demo code.
-    const blocked = await page.evaluate(async (base) => {
+    await page.goto(url, { waitUntil: "commit", timeout: STEP });
+    await page.waitForFunction(() => document.readyState !== "loading", null, { timeout: STEP })
+      .catch(() => {});
+    return await page.evaluate(async (probe) => {
+      const metas = [...document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')]
+        .map((m) => m.getAttribute("content"));
+      let connect = "allowed";
       try {
-        await fetch(base + "/healthz/ready", { mode: "cors" });
-        return "not-blocked";
-      } catch (error) {
-        return String(error && error.message).slice(0, 120);
+        const res = await fetch(probe + "/healthz/ready", { mode: "cors" });
+        await res.text();
+      } catch (_error) {
+        connect = "blocked";
       }
+      return {
+        metaCount: metas.length,
+        policy: metas[0] ?? null,
+        bootstrapRan: typeof window.HONUA_DEMO_CSP === "string",
+        externalShim: typeof window.HonuaDemoBackend !== "undefined",
+        origin: window.HONUA_DEMO_BACKEND_ORIGIN ?? null,
+        connect,
+      };
     }, BASE);
-    if (blocked === "not-blocked") {
-      record("shim-security", "fail", `the re-emitted CSP did not block a connect to ${BASE} on a page with no valid override`);
-      return;
-    }
-
-    // The allow-listed override, by contrast, must be accepted and widen the policy.
-    await page.goto(demoUrl("demo-two-protocols.html"), { waitUntil: "domcontentloaded", timeout: STEP });
-    const accepted = await page.evaluate(() => ({
-      base: window.HONUA_DEMO_BASE_URL,
-      policy: window.HonuaDemoBackend?.policy || "",
-    }));
-    const origin = new URL(BASE).origin;
-    if (accepted.base !== origin) {
-      record("shim-security", "fail", `allow-listed ?apiBase=${BASE} was not honoured (base=${accepted.base})`);
-      return;
-    }
-    const connectSrc = (accepted.policy.split(";").find((d) => d.trim().startsWith("connect-src")) || "").trim();
-    if (!connectSrc.includes(origin)) {
-      record("shim-security", "fail", `connect-src was not widened for the accepted origin: ${connectSrc}`);
-      return;
-    }
-    record("shim-security", "pass", "hostile ?apiBase rejected (CSP unwidened + connect blocked); allow-listed origin accepted and added to connect-src", {
-      rejectedBase: rejected.base,
-      blockedError: blocked,
-      acceptedBase: accepted.base,
-      connectSrc,
-    });
-  } catch (error) {
-    record("shim-security", "fail", `shim security check threw: ${error.message}`, diag(page));
   } finally {
     await page.close();
+  }
+}
+
+async function checkShimSecurity(context) {
+  const origin = new URL(BASE).origin;
+  const problems = [];
+  const evidence = {};
+  try {
+    for (const demo of DEMO_PAGES) {
+      const base = new URL(demo, SITE).toString();
+
+      // (a) the external shim cannot be fetched — the policy must still bind.
+      const starved = await probePage(context, base, { starveShim: true });
+      if (!(starved.bootstrapRan && starved.metaCount === 1 && starved.externalShim === false && starved.connect === "blocked")) {
+        problems.push(`${demo}: with backend-override.js unavailable the policy did not bind ` +
+          `(meta=${starved.metaCount} bootstrap=${starved.bootstrapRan} externalShim=${starved.externalShim} connect=${starved.connect})`);
+      }
+
+      // (b) a hostile override is refused outright.
+      const hostile = new URL(demo, SITE);
+      hostile.searchParams.set("apiBase", "https://evil.example.com");
+      const refused = await probePage(context, hostile.toString());
+      if (refused.origin !== null) problems.push(`${demo}: hostile ?apiBase was honoured (origin=${refused.origin})`);
+      if ((refused.policy || "").includes("evil.example.com")) problems.push(`${demo}: CSP was widened for a rejected origin`);
+      if (refused.connect !== "blocked") problems.push(`${demo}: the emitted CSP did not block a connect to ${origin} with no valid override`);
+
+      // (c) the allow-listed override is honoured, and the same connect then succeeds.
+      const accepted = await probePage(context, demoUrl(demo));
+      const connectSrc = ((accepted.policy || "").split(";").find((d) => d.trim().startsWith("connect-src")) || "").trim();
+      if (accepted.origin !== origin) problems.push(`${demo}: allow-listed ?apiBase=${BASE} was not honoured (origin=${accepted.origin})`);
+      if (!connectSrc.includes(origin)) problems.push(`${demo}: connect-src was not widened (${connectSrc})`);
+      if (accepted.connect !== "allowed") problems.push(`${demo}: the widened policy still blocked the connect`);
+
+      evidence[demo] = {
+        shimUnavailable: { metaCount: starved.metaCount, bootstrapRan: starved.bootstrapRan, externalShim: starved.externalShim, connect: starved.connect },
+        hostileOverride: { origin: refused.origin, connect: refused.connect },
+        allowListedOverride: { origin: accepted.origin, connect: accepted.connect, connectSrc },
+      };
+    }
+
+    if (problems.length > 0) {
+      record("shim-security", "fail", problems.slice(0, 4).join(" | "), evidence);
+      return;
+    }
+    record(
+      "shim-security",
+      "pass",
+      `all ${DEMO_PAGES.length} demo pages: the CSP binds even when backend-override.js cannot be fetched, ` +
+        `a non-allow-listed ?apiBase is refused with the policy unwidened and the connect blocked, ` +
+        `and the allow-listed origin is honoured and admitted by connect-src`,
+      evidence
+    );
+  } catch (error) {
+    record("shim-security", "fail", `shim security check threw: ${error.message}`, evidence);
   }
 }
 

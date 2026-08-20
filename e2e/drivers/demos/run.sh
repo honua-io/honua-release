@@ -56,10 +56,16 @@ fi
 if [ ! -f "$SITE_DIR/demo-two-protocols.html" ]; then
   block_all "E2E_SITE_DIR=$SITE_DIR is not a honua-site checkout"; exit 0
 fi
-if [ ! -f "$SITE_DIR/assets/demos/backend-override.js" ]; then
-  block_all "honua-site checkout at $SITE_DIR predates the backend-override shim (assets/demos/backend-override.js) — the demos are still pinned to demo.honua.io by their CSP"
-  exit 0
-fi
+# The shim is two files: the inline CSP bootstrap (canonical source, copied into each demo page's
+# head) and the config-rewriting half. Without them the demos are still locked to demo.honua.io by
+# their page CSP and nothing here can drive them — say so, naming the pinned revision, rather than
+# reporting a green about a revision that cannot possibly have produced one.
+for shim in assets/demos/csp-bootstrap.js assets/demos/backend-override.js; do
+  if [ ! -f "$SITE_DIR/$shim" ]; then
+    block_all "honua-site${E2E_SITE_SHA:+@${E2E_SITE_SHA}} at $SITE_DIR predates the backend-override shim (missing $shim) — the demos are still pinned to demo.honua.io by their CSP"
+    exit 0
+  fi
+done
 
 # ── Playwright (cached outside the repo; CI warms the same cache) ──────────────────────────────
 PW_HOME="${E2E_PW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/honua-e2e-playwright}"

@@ -14,6 +14,8 @@ on:
   pull_request:
     paths:
       - "e2e/**"
+      # bumping the pinned honua-site revision changes what S9 certifies, so re-run the gate for it
+      - "certification/conformance-evidence.yaml"
       - "platform-manifest.yaml"
       - "compatibility-matrix.yaml"
       - ".github/workflows/e2e-local-docker.yml"
@@ -162,19 +164,37 @@ jobs:
           ref: ${{ steps.console_pin.outputs.sha }}
           path: _console
 
-      # S9-demos drives the five honua-site demos against the seeded candidate. honua-site is the
-      # thing under test here, so it is checked out rather than vendored. It carries no manifest pin
-      # (it is a static site, not a shipped artifact), so the default branch is the candidate. When
-      # the checkout fails, or when the checked-out revision predates the backend-override shim, the
+      # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
+      # thing under test, so they are checked out at a PINNED sha, never a floating branch: evidence
+      # taken from a moving ref attests demos that may already have changed, and makes the scenario
+      # non-reproducible across re-runs of the same train. The pin lives beside the esri evidence
+      # producer in certification/conformance-evidence.yaml (see the rationale there and
+      # honua-release#136).
+      - name: Resolve the pinned honua-site revision
+        id: site_pin
+        run: |
+          set -euo pipefail
+          # awk, not PyYAML: this job installs no python packages, and the console/server pins are
+          # already read exactly this way. One idiom, no new dependency.
+          SHA="$(awk '
+            $0 ~ /^demos:/ {inblk=1; next}
+            inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
+            inblk && $1=="sourceRef:" {print $2; exit}
+          ' certification/conformance-evidence.yaml)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pinned honua-site: ${SHA:-<unpinned>}"
+
+      # When the checkout fails, or the pinned revision predates the backend-override shim, the
       # driver reports its own honest BLOCKED naming the missing piece — and require_real promotes
-      # that to FAIL.
-      - name: Check out honua-site (S9 demos)
+      # that to FAIL. An unpinned ref is left EMPTY on purpose so the checkout fails loudly rather
+      # than silently falling back to a branch.
+      - name: Check out the pinned honua-site (S9 demos)
         id: site
         continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-site
-          ref: trunk
+          ref: ${{ steps.site_pin.outputs.sha }}
           path: _site
 
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
@@ -189,6 +209,9 @@ jobs:
           E2E_CONSOLE_SHA: ${{ steps.console_pin.outputs.sha }}
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
+          # Quoted back in the driver's BLOCKED message so a failure never cites a different
+          # revision than the one under test.
+          E2E_SITE_SHA: ${{ steps.site_pin.outputs.sha }}
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
