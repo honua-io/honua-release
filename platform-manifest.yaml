@@ -26,7 +26,7 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-08-18"             # honua-server re-pin date; #83 re-pin was 2026-08-17, rc.1 freeze 2026-08-01
+snapshotDate: "2026-08-20"             # honua-server re-pin date; #83 re-pin was 2026-08-17, rc.1 freeze 2026-08-01
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
@@ -91,8 +91,8 @@ components:
     #   * #3349 changes an advertised CAPABILITY-ID set, not a contract version (see the
     #     contractVersions block below). The wire contract versions were re-read from this image and
     #     are unchanged.
-    sha: "6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"   # origin/trunk HEAD == published nightly AOT source commit
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8"
+    sha: "84ee2a5a563e924e4db0608f77ef9e65449b1693"   # origin/trunk HEAD == published nightly AOT source commit
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-84ee2a5"
     # Digest of the immutable nightly-aot-6b6d3b8 multi-arch index resolved from GHCR on 2026-08-18:
     #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8
     #   Digest: sha256:4fd2c1be4eeaac090282257adfc9fa57218b41a392f31e2fe7801a33140ae866
@@ -101,7 +101,7 @@ components:
     # The floating :nightly-aot, :trunk-aot and :nightly-aot-20260818 tags all resolve to this same
     # index digest (checked with `--format '{{.Manifest.Digest}}'`), so the immutable per-sha tag and
     # the floating tags agree — this is the artifact those tags currently serve.
-    digest: "sha256:4fd2c1be4eeaac090282257adfc9fa57218b41a392f31e2fe7801a33140ae866"
+    digest: "sha256:0be0a32bcf2885676ba2b93962d12697934943bee60c84573a4762c49ad1f9aa"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -119,8 +119,8 @@ components:
     #       ghcr.io/honua-io/honua-server:nightly-lambda-aot-6b6d3b8-arm64
     #   MediaType: application/vnd.oci.image.manifest.v1+json
     #   Digest:    sha256:2bb6d76479847b3c72e19869c0819558ae1c57e6a0007b102dda400ac25fa6a3
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-6b6d3b8-arm64"
-    awsLambdaDigest: "sha256:2bb6d76479847b3c72e19869c0819558ae1c57e6a0007b102dda400ac25fa6a3"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-84ee2a5-arm64"
+    awsLambdaDigest: "sha256:5907abbab80a8bfdca1130406f092319c0a5fb04ca2044829122e4622d1fb9b1"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -139,7 +139,7 @@ components:
     # after a real push. It is a property of THIS image — any future re-pin returns it to the
     # sentinel rather than carrying it forward, which is the stale-digest failure #99 exists to
     # prevent.
-    awsLambdaEcrDigest: "sha256:d755287079150570cfdd98a3a0b9a837a2059c51dfbbc87f35ae52330bc94317"
+    awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "arm64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities

@@ -77,10 +77,10 @@ deploy:
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
-    deploysServerImage: "sha:6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"
+    deploysServerImage: "sha:84ee2a5a563e924e4db0608f77ef9e65449b1693"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    appVersion: "sha:6b6d3b898f4abb6b34833d953b50d44f3d38c6c1"
+    appVersion: "sha:84ee2a5a563e924e4db0608f77ef9e65449b1693"
 
 data:
   honua-server:
