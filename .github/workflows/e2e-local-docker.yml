@@ -126,7 +126,8 @@ jobs:
       # review-visible literal. The resolver below compares it with platform-manifest.yaml and fails
       # closed on drift, preserving the manifest as the release source of truth while preventing an
       # unreviewed revision from reaching npm or MSBuild.
-      - name: Set up .NET (console live suite)        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - name: Set up .NET (console live suite)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
 
@@ -139,12 +140,13 @@ jobs:
       # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
       # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
       # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
-      # â€” not its default branch â€” so the console driven here is the one this release ships.
+      # - not its default branch - so the console driven here is the one this release ships.
       - name: Resolve the pinned honua-console revision
         id: console_pin
         run: |
           set -euo pipefail
-          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"`n          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
+          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"
+          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
           SHA="$(awk '
@@ -152,7 +154,11 @@ jobs:
             inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
             inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
           ' platform-manifest.yaml)"
-          if [ "$SHA" != "$TRUSTED_SHA" ]; then`n            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"`n            exit 1`n          fi`n          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
       - name: Check out the pinned honua-console
@@ -161,7 +167,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-console
-          # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.`n          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
+          # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
+          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -181,7 +188,7 @@ jobs:
             inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
             inblk && $1=="sourceRef:" {print $2; exit}
           ' certification/conformance-evidence.yaml)"
-          if [ "$SHA" != "$TRUSTED_SHA" ]; then`n            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"`n            exit 1`n          fi`n          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-site: ${SHA:-<unpinned>}"
 
       # When the checkout fails, or the pinned revision predates the backend-override shim, the
