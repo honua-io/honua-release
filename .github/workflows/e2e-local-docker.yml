@@ -34,6 +34,9 @@ on:
       require_real:
         type: boolean
         default: false
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -60,10 +63,55 @@ jobs:
           node-version: "20"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
+
+      # Static refs mirror the manifest and prevent mutable checkout injection.
+      - name: Check out the pinned Python SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-python
+          ref: 953f2b3ba2cbb2d947b13c8ac5848cebe1860a76
+          path: _e2e-sdk-python
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Check out the pinned .NET SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-dotnet
+          ref: a5fb6f54a34524ea19e9e635e4c6aa258aec11c5
+          path: _e2e-sdk-dotnet
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Install runner deps
         run: python -m pip install -r e2e/requirements.txt pytest
+
+      - name: Install the frozen SDK artifacts for the seam probes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import yaml
+          components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
+          expected = {
+              "honua-sdk-js": ("7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6", "0.1.7-beta.0"),
+              "honua-sdk-python": ("953f2b3ba2cbb2d947b13c8ac5848cebe1860a76", "0.1.10"),
+              "honua-sdk-dotnet": ("a5fb6f54a34524ea19e9e635e4c6aa258aec11c5", "1.6.0"),
+          }
+          for name, (sha, version) in expected.items():
+              actual = components[name]
+              if (actual.get("sha"), str(actual.get("version"))) != (sha, version):
+                  raise SystemExit(f"{name} seam pin drift")
+          PY
+          npm install --prefix e2e --no-save --registry https://registry.npmjs.org @honua/sdk-js@0.1.7-beta.0
+          python -m pip install ./_e2e-sdk-python/packages/honua-sdk
+          WORK="$RUNNER_TEMP/e2e-dotnet-sdk"
+          mkdir -p "$WORK/feed"
+          dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
+            --store-password-in-clear-text --configfile _e2e-sdk-dotnet/NuGet.config
+          dotnet pack _e2e-sdk-dotnet -c Release -o "$WORK/feed"
+          dotnet add e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.csproj \
+            package Honua.Sdk.GeoServices --version 1.6.0 --source "$WORK/feed"
 
       # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)

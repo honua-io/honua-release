@@ -41,16 +41,18 @@ def run(ctx: Ctx) -> Result:
     evidence["metric_before"] = before
 
     erroring_calls = 0
-    any_real_assertion = False
+    completed_probes = 0
     failures: list[str] = []
 
     for short, path in PROBES.items():
         if not ctx.sdk_available(short):
             evidence["probes"][short] = "skipped: toolchain unavailable"
+            failures.append(f"{short}: required SDK toolchain unavailable")
             continue
         if not ctx.manifest.sdks[short].is_real:
             # SDK pin is a placeholder — the probe would have nothing real to import.
             evidence["probes"][short] = "blocked: SDK version is a placeholder (TBD)"
+            failures.append(f"{short}: SDK pin is not a real frozen version")
             continue
 
         pr = run_probe(short, path, ctx)
@@ -60,19 +62,20 @@ def run(ctx: Ctx) -> Result:
             "stderr": pr.stderr.strip()[-500:],
         }
         if pr.skipped:
+            failures.append(f"{short}: frozen SDK was not installed/importable")
             continue
-        any_real_assertion = True
+        completed_probes += 1
         erroring_calls += 1
         if pr.failed:
             # The audit bug: SDK returned success on a 200+{error}.
-            failures.append(f"{short}: SDK did not raise on 200+{{error}}")
+            failures.append(f"{short}: SDK did not raise its typed error on 200+{{error}}")
 
     # If no probe could actually run against a real SDK, this is BLOCKED, not a pass — we refuse to
     # manufacture a green (AGENTS.md: a gate that can't fail is worse than no gate).
-    if not any_real_assertion:
+    if completed_probes == 0:
         return Result(
             scenario=META["name"], status=Status.BLOCKED, seeded_from=META["seeded_from"],
-            why="no SDK probe ran against a real staged SDK (placeholder pins / missing toolchains)",
+            why="no certified SDK probe ran against the candidate",
             evidence=evidence,
         )
 
@@ -100,6 +103,6 @@ def run(ctx: Ctx) -> Result:
         )
     return Result(
         scenario=META["name"], status=Status.PASS, seeded_from=META["seeded_from"],
-        why=f"all {erroring_calls} SDK(s) raised; {ERROR_METRIC} incremented",
+        why=f"all three frozen SDKs raised typed errors; {ERROR_METRIC} incremented by at least {erroring_calls}",
         evidence=evidence,
     )

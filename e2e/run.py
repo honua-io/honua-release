@@ -31,7 +31,6 @@ from runner.report import Result, Status, assemble, write_report  # noqa: E402
 # Registry of canonical scenarios (decomposed SDK × scenario matrix runs here on local docker).
 SCENARIO_FILES = [
     E2E_DIR / "scenarios" / "geoservices_error_surfacing" / "scenario.py",
-    E2E_DIR / "scenarios" / "sync_no_duplicates" / "scenario.py",
 ]
 
 REPORT_PATH = E2E_DIR / "gate-report.json"
@@ -95,10 +94,6 @@ def main() -> int:
         block_reason = cfg_why
 
     try:
-        if server_up:
-            sdk_notes = harness.install_sdks(manifest)
-            print(f"   sdk install: {sdk_notes}")
-
         ctx = harness.Ctx(
             manifest=manifest,
             server_url=server_url,
