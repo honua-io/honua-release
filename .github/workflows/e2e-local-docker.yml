@@ -1,4 +1,4 @@
-# Phase A — local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
+# Phase A â€” local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
 # Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
 # uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
 #
@@ -65,12 +65,12 @@ jobs:
       - name: Install runner deps
         run: python -m pip install -r e2e/requirements.txt pytest
 
-      # Static gates — always run, can FAIL with no images (broken compose / scenario syntax).
+      # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)
         working-directory: e2e
         run: make check
 
-      # Unit-test the runner's verdict logic + parsers — an untested gate can stop gating silently.
+      # Unit-test the runner's verdict logic + parsers â€” an untested gate can stop gating silently.
       - name: Unit-test the runner
         working-directory: e2e
         run: make test
@@ -91,7 +91,7 @@ jobs:
           path: e2e/gate-report.json
           if-no-files-found: warn
 
-  # ── Slice 1 — zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
+  # â”€â”€ Slice 1 â€” zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
   #    drive MCP, AI Studio, GP, three-protocol parity, and per-format coverage against it. Cheap,
   #    PR-runnable. Nightly / release-train runs set require_real so BLOCKED becomes a hard FAIL.
   slice1:
@@ -102,7 +102,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Static gates first — these ALWAYS run and can FAIL on a broken edit even with no image
+      # Static gates first â€” these ALWAYS run and can FAIL on a broken edit even with no image
       # (compose validity, shell syntax, python compile, manifest-snapshot validity).
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
@@ -121,20 +121,12 @@ jobs:
       # follow another repository's code onto the disk. The driver shells out to `dotnet` and
       # `npx playwright` and reports BLOCKED when either is absent, so both toolchains must exist.
       #
-      # NOTE, accurately: this ordering does NOT clear CodeQL's
-      # actions/cache-poisoning/poisonable-step. The alert follows the step that actually executes
-      # third-party code -- the harness step below, which runs `npm ci` inside the console checkout
-      # and therefore executes that repo's package scripts. Reordering moved the finding; it did not
-      # remove it, and an earlier version of this comment wrongly claimed otherwise.
-      #
-      # Assessed exposure is minimal and worth stating rather than implying: this workflow reads and
-      # writes NO Actions cache (no actions/cache, no `cache:` input anywhere in it), its permissions
-      # are `contents: read` + `packages: read` with no write scope, and honua-console is first-party
-      # and checked out at the sha platform-manifest.yaml pins. The remaining finding is structural
-      # -- setup-* actions CAN populate tool caches on a default-branch trigger -- rather than a live
-      # vector. Removing it entirely would mean not running the console suite in this job at all.
-      - name: Set up .NET (console live suite)
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      # The Console checkout is executed host-side by S4, so a dynamically selected ref would let
+      # that code inherit the default-branch runner's cache capability. Keep the executable ref a
+      # review-visible literal. The resolver below compares it with platform-manifest.yaml and fails
+      # closed on drift, preserving the manifest as the release source of truth while preventing an
+      # unreviewed revision from reaching npm or MSBuild.
+      - name: Set up .NET (console live suite)        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
 
@@ -147,12 +139,12 @@ jobs:
       # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
       # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
       # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
-      # — not its default branch — so the console driven here is the one this release ships.
+      # â€” not its default branch â€” so the console driven here is the one this release ships.
       - name: Resolve the pinned honua-console revision
         id: console_pin
         run: |
           set -euo pipefail
-          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
+          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"`n          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
           SHA="$(awk '
@@ -160,7 +152,7 @@ jobs:
             inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
             inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
           ' platform-manifest.yaml)"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then`n            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"`n            exit 1`n          fi`n          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
       - name: Check out the pinned honua-console
@@ -169,7 +161,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-console
-          ref: ${{ steps.console_pin.outputs.sha }}
+          # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.`n          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -189,11 +181,11 @@ jobs:
             inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
             inblk && $1=="sourceRef:" {print $2; exit}
           ' certification/conformance-evidence.yaml)"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then`n            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"`n            exit 1`n          fi`n          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-site: ${SHA:-<unpinned>}"
 
       # When the checkout fails, or the pinned revision predates the backend-override shim, the
-      # driver reports its own honest BLOCKED naming the missing piece — and require_real promotes
+      # driver reports its own honest BLOCKED naming the missing piece â€” and require_real promotes
       # that to FAIL. An unpinned ref is left EMPTY on purpose so the checkout fails loudly rather
       # than silently falling back to a branch.
       - name: Check out the pinned honua-site (S9 demos)
@@ -229,7 +221,7 @@ jobs:
           f=e2e/gate-report.json
           [ -f "$f" ] || { echo "no gate-report"; exit 0; }
           {
-            echo "## e2e Slice-1 — $(jq -r .status "$f")";
+            echo "## e2e Slice-1 â€” $(jq -r .status "$f")";
             echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
             jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
             echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";
