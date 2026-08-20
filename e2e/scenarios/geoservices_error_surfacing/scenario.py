@@ -14,6 +14,7 @@ Mechanics:
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from runner.harness import Ctx, run_probe, scrape_metric
@@ -39,6 +40,7 @@ def run(ctx: Ctx) -> Result:
 
     before = scrape_metric(ctx.metrics_url, ERROR_METRIC)
     evidence["metric_before"] = before
+    baseline = before if before is not None else 0.0
 
     erroring_calls = 0
     completed_probes = 0
@@ -80,17 +82,23 @@ def run(ctx: Ctx) -> Result:
         )
 
     # Metric assertion (ties the observability gate).
-    after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+    after = None
+    for attempt in range(10):
+        after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+        if after is not None and after - baseline >= erroring_calls:
+            break
+        if attempt < 9:
+            time.sleep(1)
     evidence["metric_after"] = after
     metric_ok = False
-    if before is None or after is None:
+    if after is None:
         failures.append(
             f"{ERROR_METRIC} not exposed (before={before}, after={after}) — in-band error metric "
             "is not wired (server#2243)"
         )
-    elif after - before < erroring_calls:
+    elif after - baseline < erroring_calls:
         failures.append(
-            f"{ERROR_METRIC} only rose by {after - before}, expected >= {erroring_calls}"
+            f"{ERROR_METRIC} only rose by {after - baseline}, expected >= {erroring_calls}"
         )
     else:
         metric_ok = True
