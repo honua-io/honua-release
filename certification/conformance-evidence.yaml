@@ -96,4 +96,4 @@ demos:
   #
   # Bump this ref whenever the demos change in a way this cut should certify.
   sourceRepo: honua-io/honua-site
-  sourceRef: d7cda78b148a40e283b0352df8b93bae2884abb7   # demos/backend-override-shim @ honua-site#245 (RE-PIN to the merge commit when #245 lands)
+  sourceRef: 4c41504b94f54fc95c53fb0975522d24726faa6e   # demos/backend-override-shim @ honua-site#245 (RE-PIN to the merge commit when #245 lands)

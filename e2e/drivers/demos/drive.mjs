@@ -247,7 +247,23 @@ async function checkShimSecurity(context) {
         }
       }
 
+      // (e) malformed input must not cost the page its policy. decodeURIComponent throws a URIError
+      // on "%", and a throw anywhere before the <meta> is appended leaves the page with NO CSP at
+      // all (the <noscript> copy is inert while scripting is on) — strictly worse than the override
+      // the input was trying to obtain. Every malformed form must land on the canonical policy.
+      const malformed = {};
+      for (const query of ["apiBase=%", "apiBase=%zz", "apiBase=%E0%A4%A", "bad=%&apiBase=%C3"]) {
+        const probe = await probePage(context, `${new URL(demo, SITE).toString()}?${query}`);
+        malformed[query] = { metaCount: probe.metaCount, origin: probe.origin, canonical: probe.policy === starved.policy };
+        if (probe.metaCount !== 1 || !probe.bootstrapRan) {
+          problems.push(`${demo}: "?${query}" left the page without a CSP (meta=${probe.metaCount} bootstrap=${probe.bootstrapRan})`);
+        }
+        if (probe.origin !== null) problems.push(`${demo}: "?${query}" resolved an override (${probe.origin})`);
+        if (probe.policy !== starved.policy) problems.push(`${demo}: "?${query}" did not emit the canonical policy`);
+      }
+
       evidence[demo] = {
+        malformedInput: malformed,
         shimUnavailable: { metaCount: starved.metaCount, bootstrapRan: starved.bootstrapRan, externalShim: starved.externalShim, connect: starved.connect },
         hostileOverride: { origin: refused.origin, connect: refused.connect },
         allowListedOverride: { origin: accepted.origin, connect: accepted.connect, connectSrc },
@@ -265,8 +281,9 @@ async function checkShimSecurity(context) {
       `all ${DEMO_PAGES.length} demo pages: the CSP binds even when backend-override.js cannot be fetched, ` +
         `a non-allow-listed ?apiBase is refused with the policy unwidened and the connect blocked, ` +
         `the allow-listed origin is honoured and admitted by connect-src, ` +
-        `and rebase() rewrites only on an origin boundary (a look-alike host such as ` +
-        `https://demo.honua.io.evil.com is left untouched)`,
+        `rebase() rewrites only on an origin boundary (a look-alike host such as ` +
+        `https://demo.honua.io.evil.com is left untouched), and malformed percent-encoding ` +
+        `("?apiBase=%") still emits the canonical policy instead of dropping it`,
       evidence
     );
   } catch (error) {
@@ -571,11 +588,13 @@ async function runWorkbenchLane(context, lane) {
   });
   await page.goto(
     demoUrl("demo-analyst-workbench.html", {
-      // demo-analyst-workbench.html loads the published spatial-analytics-workbench SDK sample,
-      // which already reads its own live-lane parameters. ?apiBase= is what widens the page CSP so
-      // those requests are allowed to leave the page at all.
+      // demo-analyst-workbench.html loads the published spatial-analytics-workbench SDK sample.
+      // `baseUrl` is deliberately NOT passed: the sample resolves its backend from that parameter
+      // alone (it reads no window global and knows nothing about apiBase), so leaving it out is what
+      // proves the shim actually redirects this demo rather than the driver hand-feeding it. `mode`
+      // and the dataset selectors are the sample's own lane/dataset choices, which the shim does not
+      // and should not guess.
       mode: "live",
-      baseUrl: BASE,
       protocol: "geoservices-feature-service",
       serviceId: workbench.service,
       layerId: workbench.layerId,
@@ -626,9 +645,12 @@ async function runWorkbenchLane(context, lane) {
         : null,
     };
   });
-  const diagnostics = diag(page, { lane, ...observed, backendCalls: backendCalls.slice(-3) });
+  // The whole point of not passing `baseUrl`: if the shim did not mirror the resolved origin into
+  // the parameter the sample reads, the sample would have no backend and never touch the candidate.
+  const reachedCandidate = backendCalls.some((call) => call.includes(`/rest/services/${workbench.service}/`));
+  const diagnostics = diag(page, { lane, ...observed, reachedCandidate, backendCalls: backendCalls.slice(-3) });
   await page.close();
-  return { lane, observed, backendCalls, diagnostics, service: workbench };
+  return { lane, observed, backendCalls, reachedCandidate, diagnostics, service: workbench };
 }
 
 /* The workbench's DEFAULT execution policy is "GeoServices remote pushdown" — that is the demo's
@@ -638,6 +660,16 @@ async function runWorkbenchLane(context, lane) {
 async function checkAnalystWorkbench(context) {
   try {
     const primary = await runWorkbenchLane(context, "remote-pushdown");
+    if (!primary.reachedCandidate) {
+      record(
+        "analyst-workbench",
+        "fail",
+        `the workbench never queried the candidate — ?apiBase= did not reach the sample's own baseUrl ` +
+          `parameter, so whatever it did was not against ${BASE}`,
+        { ...primary.observed, backendCalls: primary.backendCalls.slice(-3) }
+      );
+      return;
+    }
     const rows = primary.observed.aggregateRows;
     if (!primary.observed.executionError && Array.isArray(rows) && rows.length > 0) {
       record(
@@ -667,7 +699,7 @@ async function checkAnalystWorkbench(context) {
           ? `The same demo's bounded-local lane DID execute live on the same seeded layer (${fallbackRows.length} aggregate rows), so the shim and the seed are correct and the fault is server-side.`
           : `The demo's bounded-local lane did not execute either (${fallback?.observed?.executionError || "no output artifact"}).`),
       {
-        remotePushdown: { ...primary.observed, backendCalls: primary.backendCalls.slice(-3) },
+        remotePushdown: { ...primary.observed, reachedCandidate: primary.reachedCandidate, backendCalls: primary.backendCalls.slice(-3) },
         boundedLocalDiagnostic: fallback?.observed ?? null,
       }
     );
