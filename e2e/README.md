@@ -57,6 +57,20 @@ candidate's Console receipt and joins it to the manifest digest. The release
 checker additionally requires both AI execution of the Esri-compatible GP task
 and native direct analysis, plus the Studio/Console/final-URL receipt joins.
 
+`certification/ai-delivery-arc.yaml` names two certifying targets. Local Docker
+must carry the candidate-pinned SDK journey. AWS ECS must supply both the
+candidate-bound Terraform provision/handoff receipt and a second receipt proving
+that the same full admin to GP to Studio to Console to public-share arc ran on
+the ECS target. A healthy ECS apply alone cannot satisfy the release gate.
+
+Every external receipt must declare its target and an explicit set of `checks`,
+all `passed`. The required checks include real-model map, app, and dashboard
+compose/save/reopen evidence and, on ECS, the complete downstream journey. The
+checker also rejects a live SDK action marked passed without kind-appropriate
+execution evidence or without its planned identity captures. The terminal share
+check must be HTTP 200 on a public HTTPS URL; loopback, private-address, and
+plain-HTTP receipts cannot certify publication.
+
 ```bash
 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
 E2E_REQUIRE_REAL=1 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
@@ -107,6 +121,11 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 **nightly** + on `workflow_dispatch`, and is `workflow_call`-able by the release train's
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
 `teardown()` + a backstop reaper (sweeping every example root) always run.
+
+The parity workflow does not yet produce `aws-ecs-ai-delivery-arc`; its current
+extended MCP/Studio/GP coverage is explicitly blocked. Until the provisioned ECS
+endpoint is driven by the manifest-pinned SDK journey while the environment is
+still live, a strict 2026.1 train must remain red.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

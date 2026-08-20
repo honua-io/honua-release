@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
@@ -16,6 +17,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 try:
     import yaml
@@ -103,6 +105,21 @@ def _contains_template(value: Any, template: str) -> bool:
     return False
 
 
+def _is_public_https_url(value: Any) -> bool:
+    try:
+        parsed = urlparse(str(value))
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or not host or host == "localhost" or host.endswith(".local"):
+            return False
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return not (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved)
+    except ValueError:
+        return False
+
+
 def _git_head(path: Path) -> str | None:
     try:
         return subprocess.run(
@@ -161,6 +178,40 @@ def validate_contract(
     if not (components.get("honua-sdk-js") or {}).get("artifact"):
         findings.blockers.append("candidate component honua-sdk-js has no artifact coordinate")
 
+    target_ids = [target.get("id") for target in contract.get("executionTargets") or []]
+    if target_ids != ["local-docker", "aws-ecs"]:
+        findings.errors.append(
+            f"AI delivery-arc targets are {target_ids!r}; expected ['local-docker', 'aws-ecs']"
+        )
+    external_by_id = {
+        receipt.get("id"): receipt for receipt in contract.get("externalReceipts") or []
+    }
+    external_ids = set(external_by_id)
+    for target in contract.get("executionTargets") or []:
+        if not target.get("requiredChecks"):
+            findings.errors.append(f"execution target {target.get('id')} has no required full-arc checks")
+        for key in ("provisionReceipt", "journeyReceipt"):
+            receipt_id = target.get(key)
+            if receipt_id and receipt_id != "sdk-zero-to-map" and receipt_id not in external_ids:
+                findings.errors.append(
+                    f"execution target {target.get('id')} references unknown {key} {receipt_id}"
+                )
+            if key == "journeyReceipt" and receipt_id in external_by_id:
+                claimed_checks = set(
+                    ((external_by_id[receipt_id].get("claims") or {}).get("requiredChecks") or [])
+                )
+                missing_checks = set(target.get("requiredChecks") or []) - claimed_checks
+                if missing_checks:
+                    findings.errors.append(
+                        f"execution target {target.get('id')} journey receipt {receipt_id} "
+                        f"omits checks {sorted(missing_checks)}"
+                    )
+        for receipt_id in target.get("supportingReceipts") or []:
+            if receipt_id not in external_ids:
+                findings.errors.append(
+                    f"execution target {target.get('id')} references unknown supporting receipt {receipt_id}"
+                )
+
     server = components.get("honua-server") or {}
     admin_api = ((server.get("controlPlane") or {}).get("adminApi") or {})
     wanted_rest = (contract.get("inventory") or {}).get("adminRestOperations")
@@ -204,6 +255,15 @@ def validate_contract(
             findings.blockers.append("SDK generated Admin API source is not the manifest-pinned server SHA")
         if sdk_admin_source.get("specSha256") != admin_api.get("specSha256"):
             findings.errors.append("SDK generated Admin API digest does not match the manifest Admin API digest")
+        candidate_image = (
+            f"{server.get('image')}@{server.get('digest')}"
+            if server.get("image") and server.get("digest")
+            else None
+        )
+        if sdk_admin_source.get("serverImage") != candidate_image:
+            findings.blockers.append(
+                "SDK local installer image is not the immutable manifest-pinned honua-server image"
+            )
 
     if plan is None:
         findings.blockers.append("manifest-pinned SDK does not contain the D9.3 zero-to-map plan")
@@ -359,6 +419,20 @@ def validate_external_receipts(
             findings.errors.append(f"external receipt {receipt_id} has no evidence URL")
         if not SHA256.fullmatch(str(evidence.get("sha256", ""))):
             findings.errors.append(f"external receipt {receipt_id} has no evidence SHA-256")
+        expected_claims = expected.get("claims") or {}
+        claims = receipt.get("claims") or {}
+        for key in ("target", "journeyId", "releaseContract"):
+            if key in expected_claims and claims.get(key) != expected_claims.get(key):
+                findings.errors.append(
+                    f"external receipt {receipt_id} claim {key}={claims.get(key)!r}; "
+                    f"expected {expected_claims.get(key)!r}"
+                )
+        checks = claims.get("checks") or {}
+        for check in expected_claims.get("requiredChecks") or []:
+            if checks.get(check) != "passed":
+                findings.errors.append(
+                    f"external receipt {receipt_id} does not prove required check {check}=passed"
+                )
         records.append(
             {
                 "id": receipt_id,
@@ -367,6 +441,7 @@ def validate_external_receipts(
                 "source": source,
                 "components": receipt_components,
                 "evidence": evidence,
+                "claims": claims,
             }
         )
     return findings, records
@@ -440,6 +515,51 @@ def validate_receipt(
         if not_passed:
             findings.blockers.append(f"live journey has non-passing actions: {not_passed}")
 
+        # A row of action IDs marked "passed" is not execution evidence. Require
+        # the manifest-pinned SDK receipt to retain safe evidence for every live
+        # call and every identity that the plan says it captures.
+        for action_id, plan_action in plan_actions.items():
+            action = receipt_actions.get(action_id) or {}
+            if action.get("status") != "passed":
+                continue
+            evidence = action.get("evidence")
+            if not isinstance(evidence, dict) or not evidence:
+                findings.errors.append(f"live action {action_id} is passed without execution evidence")
+                continue
+            kind = plan_action.get("kind")
+            if kind == "cli" and evidence.get("exitCode") != 0:
+                findings.errors.append(f"live CLI action {action_id} has no successful exit-code evidence")
+            elif kind == "mcp" and (
+                evidence.get("tool") != plan_action.get("tool") or evidence.get("isError") is not False
+            ):
+                findings.errors.append(f"live MCP action {action_id} has mismatched tool/error evidence")
+            elif kind == "mcp-resource" and not str(evidence.get("uri", "")).startswith("honua://"):
+                findings.errors.append(f"live MCP resource action {action_id} has no Honua resource URI evidence")
+            elif kind == "gpserver":
+                if evidence.get("protocol") != "geoservices-gp":
+                    findings.errors.append(f"live GPServer action {action_id} has no GeoServices GP evidence")
+                if str(evidence.get("status", "")).lower() not in {"success", "successful", "succeeded"}:
+                    findings.errors.append(f"live GPServer action {action_id} has no successful terminal evidence")
+            elif kind == "receipt" and (
+                evidence.get("source") != "external-receipt"
+                or not SHA256.fullmatch(str(evidence.get("sha256", "")))
+            ):
+                findings.errors.append(f"live receipt action {action_id} has no content-addressed evidence")
+            elif kind == "http" and (
+                evidence.get("status") != plan_action.get("expectedStatus")
+                or not _is_public_https_url(evidence.get("url"))
+            ):
+                findings.errors.append(
+                    f"live HTTP action {action_id} has no matching public HTTPS URL/status evidence"
+                )
+
+            captures = action.get("captures") or {}
+            for variable in _capture_names(plan_action):
+                if captures.get(variable) in (None, ""):
+                    findings.errors.append(
+                        f"live action {action_id} omits planned capture {variable}"
+                    )
+
         identity = candidate_identity(manifest, manifest_path)
         console = receipt_actions.get("console-approval") or {}
         captures = console.get("captures") or {}
@@ -447,6 +567,8 @@ def validate_receipt(
             findings.errors.append("Console receipt candidateId is not the exact platform-manifest digest")
         if captures.get("releaseId") != manifest.get("platformRelease"):
             findings.errors.append("Console receipt releaseId is not the manifest platformRelease")
+        if not _is_public_https_url(captures.get("shareUrl")):
+            findings.errors.append("Console receipt shareUrl is not a public HTTPS URL")
         evidence = console.get("evidence") or {}
         if evidence.get("source") != "external-receipt" or not SHA256.fullmatch(str(evidence.get("sha256", ""))):
             findings.errors.append("Console checkpoint has no content-addressed external receipt evidence")
@@ -488,6 +610,7 @@ def build_report(
             "sha": sdk_head,
         },
         "inventory": contract.get("inventory"),
+        "executionTargets": contract.get("executionTargets") or [],
         "errors": errors,
         "blockers": blockers,
         "journey": receipt,

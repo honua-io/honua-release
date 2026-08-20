@@ -56,6 +56,7 @@ def sdk_source() -> dict:
         "specSha256": "2" * 64,
         "operationCount": 396,
         "publishedAdminOperationCount": 119,
+        "serverImage": f"ghcr.io/honua/server:candidate@sha256:{'1' * 64}",
         "releaseManifestServerSha": "a" * 40,
         "releaseManifestOperationCount": 396,
         "releaseManifestStatus": "candidate-compatible",
@@ -156,7 +157,31 @@ def receipt_for(plan_value: dict, *, mode: str, status: str) -> dict:
                 stopped = True
                 action_receipts.append({"id": action["id"], "kind": action["kind"], "status": action_status, "code": code})
             else:
-                action_receipts.append({"id": action["id"], "kind": action["kind"], "status": "passed"})
+                kind = action["kind"]
+                evidence = {
+                    "cli": {"command": "honua", "exitCode": 0},
+                    "mcp": {"tool": action.get("tool"), "isError": False},
+                    "mcp-resource": {"uri": "honua://jobs/job-1", "status": "Succeeded"},
+                    "gpserver": {
+                        "protocol": "geoservices-gp",
+                        "status": "successful",
+                    },
+                    "receipt": {"source": "external-receipt", "sha256": "3" * 64},
+                    "http": {"url": "https://example.test/apps/zero-to-map", "status": 200},
+                }[kind]
+                captures = {
+                    capture["variable"]: f"fixture-{capture['variable']}"
+                    for capture in action.get("captures") or []
+                }
+                action_receipts.append(
+                    {
+                        "id": action["id"],
+                        "kind": kind,
+                        "status": "passed",
+                        "evidence": evidence,
+                        **({"captures": captures} if captures else {}),
+                    }
+                )
         stages.append({"number": stage["number"], "id": stage["id"], "title": stage["title"], "status": "passed", "actions": action_receipts})
     return {
         "schemaVersion": "honua.zero-to-map.receipt/v1",
@@ -190,6 +215,22 @@ def test_discovering_esri_gp_without_ai_execution_fails():
 
     assert findings.status == "fail"
     assert any("buffer-esri-mcp" in error for error in findings.errors)
+
+
+def test_aws_target_cannot_claim_checks_its_journey_receipt_omits():
+    contract = yaml.safe_load(yaml.safe_dump(CONTRACT))
+    aws_receipt = next(
+        receipt for receipt in contract["externalReceipts"]
+        if receipt["id"] == "aws-ecs-ai-delivery-arc"
+    )
+    aws_receipt["claims"]["requiredChecks"].remove("public-share-http-200")
+
+    findings = gate.validate_contract(
+        manifest(), contract, plan(), sdk_head="b" * 40, sdk_admin_source=sdk_source()
+    )
+
+    assert findings.status == "fail"
+    assert any("aws-ecs-ai-delivery-arc" in error and "public-share-http-200" in error for error in findings.errors)
 
 
 def test_removing_studio_composition_action_fails_ordered_inventory():
@@ -299,11 +340,14 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
     identity = gate.candidate_identity(manifest_value, manifest_path)
     supplied = {}
-    for receipt_id, component, repository in (
-        ("aws-ecs-provision", "honua-devops", "honua-io/honua-devops"),
-        ("studio-real-model", "honua-studio", "honua-io/honua-studio"),
-    ):
+    expected_receipts = {
+        expected["id"]: expected for expected in CONTRACT["externalReceipts"]
+    }
+    for receipt_id, expected in expected_receipts.items():
+        component = expected["sourceComponent"]
+        repository = expected["sourceRepository"]
         path = tmp_path / f"{receipt_id}.json"
+        expected_claims = expected.get("claims") or {}
         value = {
             "schemaVersion": "honua.release.evidence-receipt/v1",
             "id": receipt_id,
@@ -311,15 +355,27 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             "candidateId": identity["candidateId"],
             "releaseId": manifest_value["platformRelease"],
             "source": {"repository": repository, "sha": manifest_value["components"][component]["sha"]},
-            "components": (
-                {
-                    "honua-devops": manifest_value["components"]["honua-devops"]["sha"],
-                    "honua-iac": manifest_value["components"]["honua-iac"]["sha"],
-                }
-                if receipt_id == "aws-ecs-provision"
-                else {"honua-studio": manifest_value["components"]["honua-studio"]["sha"]}
-            ),
+            "components": {
+                name: manifest_value["components"][name]["sha"]
+                for name in expected["boundComponents"]
+            },
             "evidence": {"url": f"https://example.test/{receipt_id}", "sha256": "5" * 64},
+            "claims": {
+                "target": expected_claims["target"],
+                **(
+                    {"journeyId": expected_claims["journeyId"]}
+                    if "journeyId" in expected_claims
+                    else {}
+                ),
+                **(
+                    {"releaseContract": expected_claims["releaseContract"]}
+                    if "releaseContract" in expected_claims
+                    else {}
+                ),
+                "checks": {
+                    check: "passed" for check in expected_claims["requiredChecks"]
+                },
+            },
         }
         path.write_text(json.dumps(value), encoding="utf-8")
         supplied[receipt_id] = (path, value)
@@ -329,7 +385,79 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
     )
 
     assert findings.status == "pass", (findings.errors, findings.blockers)
-    assert {record["id"] for record in records} == {"aws-ecs-provision", "studio-real-model"}
+    assert {record["id"] for record in records} == {
+        "aws-ecs-provision",
+        "aws-ecs-ai-delivery-arc",
+        "studio-real-model",
+    }
     identity_components = gate.candidate_identity(manifest_value, manifest_path)["components"]
     assert identity_components["honua-devops"]["sha"] == "f" * 40
     assert identity_components["honua-iac"]["sha"] == "e" * 40
+
+
+def test_missing_full_aws_arc_receipt_blocks_even_when_provisioning_exists(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+
+    findings, _ = gate.validate_external_receipts(
+        manifest_value, manifest_path, CONTRACT, {}
+    )
+
+    assert findings.status == "blocked"
+    assert any("aws-ecs-ai-delivery-arc" in blocker for blocker in findings.blockers)
+
+
+def test_live_pass_without_per_action_evidence_fails(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    action = next(
+        action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+        if action["id"] == "buffer-esri-gpserver"
+    )
+    action.pop("evidence")
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
+
+    findings, _ = gate.validate_receipt(
+        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+    )
+
+    assert findings.status == "fail"
+    assert any("buffer-esri-gpserver" in error and "without execution evidence" in error for error in findings.errors)
+
+
+def test_live_final_share_url_must_be_public_https(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    console = next(
+        action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+        if action["id"] == "console-approval"
+    )
+    console["captures"].update(
+        {
+            "candidateId": "manifest-sha256:wrong-until-identity-check",
+            "releaseId": "2026.1-rc.2",
+            "shareUrl": "http://127.0.0.1:8080/apps/zero-to-map",
+        }
+    )
+    final = next(
+        action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+        if action["id"] == "verify-share-url"
+    )
+    final["evidence"] = {"url": "http://127.0.0.1:8080/apps/zero-to-map", "status": 200}
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
+
+    findings, _ = gate.validate_receipt(
+        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+    )
+
+    assert findings.status == "fail"
+    assert any("public HTTPS" in error for error in findings.errors)

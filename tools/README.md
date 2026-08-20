@@ -57,7 +57,11 @@ third-party semver lib).
 Consumes the manifest-pinned `honua-sdk-js` zero-to-map plan/receipt and checks
 the 396-operation Admin API boundary, 119-tool semantic MCP family, focused
 Console boundary, dual native + Esri-compatible AI GP execution, Studio artifact
-use, proposal checkpoint, candidate identity, and final URL. It emits one
+use, proposal checkpoint, candidate identity, and final URL. Local Docker and
+AWS ECS are both required full-arc targets. External receipts must carry explicit
+target/check claims, and every passed SDK action must retain kind-appropriate
+execution evidence plus its planned identity captures. The final artifact must
+answer on a public HTTPS URL. The checker emits one
 manifest-digest-bound receipt with the first failing stage/action/tool named.
 
 ```bash

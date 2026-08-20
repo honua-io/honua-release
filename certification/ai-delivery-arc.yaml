@@ -29,6 +29,37 @@ candidate:
     - honua-iac
   candidateIdFormat: manifest-sha256
 
+# Both deployment paths must carry the whole customer journey. An ECS apply by
+# itself is useful infrastructure evidence, but it is not evidence that the AI
+# control plane, GP, Studio, Console, and public artifact work on that target.
+executionTargets:
+  - id: local-docker
+    journeyReceipt: sdk-zero-to-map
+    supportingReceipts: [ studio-real-model ]
+    requiredChecks:
+      - candidate-image-install
+      - admin-configure-and-publish
+      - esri-gp-mcp
+      - esri-gpserver
+      - native-analysis-artifact
+      - studio-map-app-dashboard-save-reopen
+      - governed-publication-approval
+      - console-audit-recovery
+      - public-share-http-200
+  - id: aws-ecs
+    provisionReceipt: aws-ecs-provision
+    journeyReceipt: aws-ecs-ai-delivery-arc
+    requiredChecks:
+      - candidate-image-install
+      - admin-configure-and-publish
+      - esri-gp-mcp
+      - esri-gpserver
+      - native-analysis-artifact
+      - studio-map-app-dashboard-save-reopen
+      - governed-publication-approval
+      - console-audit-recovery
+      - public-share-http-200
+
 journey:
   schemaVersion: honua.zero-to-map.plan/v1
   journeyId: 2026.1-zero-to-map
@@ -173,9 +204,47 @@ externalReceipts:
     sourceComponent: honua-devops
     sourceRepository: honua-io/honua-devops
     boundComponents: [ honua-devops, honua-iac ]
+    claims:
+      target: aws-ecs
+      requiredChecks: [ terraform-plan, terraform-apply, readiness, admin-mcp-handoff, teardown ]
+  - id: aws-ecs-ai-delivery-arc
+    issue: honua-release#123/honua-devops#147
+    receiptSchema: certification/release-evidence-receipt.schema.json
+    sourceComponent: honua-devops
+    sourceRepository: honua-io/honua-devops
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
+    claims:
+      target: aws-ecs
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - candidate-image-install
+        - admin-configure-and-publish
+        - esri-gp-mcp
+        - esri-gpserver
+        - native-analysis-artifact
+        - studio-map-app-dashboard-save-reopen
+        - governed-publication-approval
+        - console-audit-recovery
+        - public-share-http-200
   - id: studio-real-model
     issue: honua-studio#40/#41
     receiptSchema: certification/release-evidence-receipt.schema.json
     sourceComponent: honua-studio
     sourceRepository: honua-io/honua-studio
     boundComponents: [ honua-studio ]
+    claims:
+      target: local-docker
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - real-model-turn
+        - map-compose-save-reopen
+        - app-compose-save-reopen
+        - dashboard-compose-save-reopen

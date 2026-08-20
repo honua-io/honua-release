@@ -11,7 +11,8 @@
     "releaseId",
     "source",
     "components",
-    "evidence"
+    "evidence",
+    "claims"
   ],
   "properties": {
     "schemaVersion": { "const": "honua.release.evidence-receipt/v1" },
@@ -42,6 +43,21 @@
       "properties": {
         "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "claims": {
+      "type": "object",
+      "required": ["target", "checks"],
+      "properties": {
+        "target": { "enum": ["local-docker", "aws-ecs"] },
+        "journeyId": { "type": "string", "minLength": 1 },
+        "releaseContract": { "type": "string", "minLength": 1 },
+        "checks": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "const": "passed" }
+        }
       },
       "additionalProperties": false
     }
