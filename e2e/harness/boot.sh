@@ -18,12 +18,21 @@ E2E_BASE="${E2E_BASE:-http://localhost:${E2E_SERVER_PORT:-8080}}"
 
 resolve_image() {
   if [ -n "${HONUA_SERVER_IMAGE:-}" ]; then echo "$HONUA_SERVER_IMAGE"; return; fi
-  # Read the pinned honua-server image from the manifest (READ ONLY — never edited here).
+  # Read the pinned honua-server image and immutable index digest from the manifest
+  # (READ ONLY - never edited here). Pulling by digest prevents a per-SHA tag from
+  # resolving to a different manifest while a release train is running.
   if [ -f "$MANIFEST" ]; then
     awk '
       $0 ~ /^  honua-server:/ {inblk=1; next}
-      inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
-      inblk && $1=="image:" {gsub(/"/,"",$2); print $2; exit}
+      inblk && $0 ~ /^  [a-zA-Z]/ {exit}
+      inblk && $1=="image:" {gsub(/"/,"",$2); image=$2}
+      inblk && $1=="digest:" {gsub(/"/,"",$2); digest=$2}
+      END {
+        if (image != "") {
+          if (digest != "" && image !~ /@sha256:/) print image "@" digest
+          else print image
+        }
+      }
     ' "$MANIFEST"
   fi
 }
@@ -51,7 +60,7 @@ cmd_wait() {
     sleep 3
   done
   echo "::error:: server never became ready at ${E2E_BASE}/healthz/ready within ${timeout}s"
-  "${COMPOSE[@]}" logs server 2>&1 | tail -40 || true
+  "${COMPOSE[@]}" logs server 2>&1 | tail -200 || true
   return 1
 }
 
