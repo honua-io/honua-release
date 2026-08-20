@@ -145,7 +145,7 @@ jobs:
         id: console_pin
         run: |
           set -euo pipefail
-          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"
+          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -168,7 +168,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
+          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
