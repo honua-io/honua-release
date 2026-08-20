@@ -266,6 +266,9 @@ jobs:
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
+          # The frozen Console consumes Honua.Sdk.Studio from the private github-honua NuGet
+          # source. Authenticate that named source without rewriting the pinned checkout config.
+          NuGetPackageSourceCredentials_github-honua: Username=${{ github.actor }};Password=${{ secrets.RELEASE_GH_TOKEN }}
           # revision than the one under test.
           E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
         run: bash e2e/harness/run_all.sh run
