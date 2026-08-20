@@ -142,7 +142,6 @@ jobs:
       # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
       # - not its default branch - so the console driven here is the one this release ships.
       - name: Resolve the pinned honua-console revision
-        id: console_pin
         run: |
           set -euo pipefail
           TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
@@ -158,7 +157,6 @@ jobs:
             echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
             exit 1
           fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
       - name: Check out the pinned honua-console
@@ -213,7 +211,7 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: ${{ steps.console_pin.outputs.sha }}
+          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
