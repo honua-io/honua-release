@@ -53,6 +53,11 @@ contracts:
   admin:               # console <-> server admin/control-plane API
     # REAL: advertised at /api/v1/admin/capabilities (AdminApiMajor="v1", AdminApiMajorNumber=1,
     # basePath /api/v1/admin; capabilities exposes compatibility.controlPlaneApi.major=1).
+    # D9.3 defines COMPLETENESS above this versioned wire contract: Admin API + operation catalog +
+    # honua admin + governed admin MCP. Console remains a required, focused human client for
+    # inspection/approval/operations/recovery; it is not the administration-parity implementation.
+    # The generated sdk-js administration client is not added to this support window until its new
+    # package is published and pinned. A support range is a shipped promise, not a placeholder.
     version: v1
     clients:
       # console has no release (pinned by sha); floor is its declared package.json version.

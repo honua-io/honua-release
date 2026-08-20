@@ -5,6 +5,11 @@ change-class label per PR across all component repos). Includes an explicit **Br
 actions** section and the traceability chain (release → component version → SHA → PRs → issues → SBOM →
 gate evidence). The AI may draft these; the *facts* come from the pipeline.
 
+The hand-authored 2026.1 delivery boundary and walkthrough are recorded in
+[`2026.1-ai-delivery-arc.md`](2026.1-ai-delivery-arc.md). Candidate facts in that
+page are enforced by `certification/ai-delivery-arc.yaml`; live receipts still
+come from the release train.
+
 **Wired:** `tools/finalize_release.py` (`render_release_notes`) generates the notes at promote time from
 the certified candidate's digest-bound `platform-manifest.yaml` + `compatibility-matrix.yaml` — the
 component set, versions/SHAs/images, contract versions, DB-schema floor, compatibility window, and a

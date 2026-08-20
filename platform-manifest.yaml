@@ -132,6 +132,19 @@ components:
     # recording ECR's registry-specific digest. Never carry a prior pin's value forward.
     awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "arm64"
+    # D9.3 administration boundary. This pin is source-backed, not projected from the uncommitted
+    # 2026.1 operation-catalog work: honua-server@f897700 owns blob ad2e001b... at the path below;
+    # the normalized document digest is edbbef2c... and contains 396 paths+methods with 396 unique
+    # operationIds. The 119-operation semantic catalog/MCP family is deliberately NOT claimed here
+    # until that server work lands, publishes an image, and the manifest advances to that image.
+    controlPlane:
+      completenessBoundary: "admin-api+operation-catalog+honua-admin+admin-mcp"
+      status: "blocked-pending-operation-catalog-and-sdk-candidate-pins"
+      adminApi:
+        operationCount: 396
+        specPath: "docs/developer/api-specs/admin-api.json"
+        specBlobSha: "ad2e001b4626b47caa22bc64187912b13ae280de"
+        specSha256: "edbbef2c19d2730f2c87c0641e189ae9fa83c49f38e29eb40057789ade11555a"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
       # (src/Honua.Server/Features/Admin/AdminInfoEndpoints.cs: AdminApiMajor="v1", AdminApiMajorNumber=1).
@@ -208,6 +221,16 @@ components:
     # and promoted the same digest to immutable and floating nightly tags.
     image: "ghcr.io/honua-io/honua-console:candidate-2cd3a73a6b10-32369440068-1"
     digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
+
+  honua-studio:
+    version: "pre-release"             # no releases/tags; private package.json declares 0.0.0
+    # Studio is a retained D9.3 release surface, not an unpinned transitive dependency. This is the
+    # exact main commit whose 14 check-runs were all green on 2026-08-20. Studio's own README says
+    # there is no released build, container or static bundle yet, so image/digest are deliberately
+    # absent. The AI-delivery-arc gate remains blocked until a candidate artifact is published from
+    # this commit (or the manifest advances source+artifact together); never infer an image name.
+    sha: "6a63bc156d829c4e34b73968f60d8d8525d4892c"   # branch: main, source-only candidate
+    status: "source-only-awaiting-candidate-image"
 
   honua-sdk-dotnet:
     version: "1.6.0"                   # release tag dotnet-sdk-v1.6.0 (reachable from the sha below)
@@ -294,6 +317,15 @@ components:
   geospatial-mcp:
     version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha
     sha: "5e052a76b6485edbe78c3482488c58f66700bd59"   # branch: trunk HEAD at re-pin time
+
+  honua-devops:
+    version: "pre-release"             # no releases/tags; pinned by sha
+    # Exact trunk source for the D9.3 AWS receipt producer. Its 23 executed check-runs were green on
+    # 2026-08-20 (six live/publish lanes intentionally skipped), but devops#147 has not yet produced
+    # the candidate-bound aws-ecs-provision receipt. The source pin makes that dependency visible;
+    # it does not turn the open provisioning work into release evidence.
+    sha: "2426ac9d6e63476a9dbd293a3da9b2febdbcf5f2"   # branch: trunk, source-only evidence producer
+    status: "source-only-awaiting-aws-ecs-receipt"
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha

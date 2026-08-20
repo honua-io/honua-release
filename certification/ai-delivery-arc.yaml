@@ -1,0 +1,181 @@
+# D9.3 release contract for the 2026.1 AI delivery arc.
+#
+# This file describes what the release gate consumes; it is not a second journey
+# implementation. The executable plan and driver are owned by the manifest-pinned
+# honua-sdk-js checkout. tools/check_ai_delivery_arc.py rejects a plan that omits
+# one of these surfaces or cannot join its receipts to the exact candidate.
+
+schemaVersion: honua.ai-delivery-arc-contract/v1
+releaseContract: honua-release#123/D9.3
+
+inventory:
+  adminRestOperations: 396
+  publishedAdminTools: 119
+  adminToolPrefix: honua_admin_
+  completenessBoundary:
+    - admin-api
+    - operation-catalog
+    - honua-admin
+    - admin-mcp
+  consoleBoundary: focused-inspection-approval-operations-recovery
+
+candidate:
+  requiredComponents:
+    - honua-server
+    - honua-sdk-js
+    - honua-console
+    - honua-studio
+    - honua-devops
+    - honua-iac
+  candidateIdFormat: manifest-sha256
+
+journey:
+  schemaVersion: honua.zero-to-map.plan/v1
+  journeyId: 2026.1-zero-to-map
+  stages:
+    - id: install
+      requiredActions:
+        - { id: install-local, kind: cli }
+        - { id: install-status, kind: cli }
+    - id: admin
+      requiredActions:
+        - { id: admin-status, kind: mcp, tool: honua_admin_server_status }
+        - { id: create-connection, kind: mcp, tool: honua_admin_connection_create }
+        - { id: test-connection, kind: mcp, tool: honua_admin_connection_test }
+        - { id: import-parcels, kind: mcp, tool: honua_admin_import_upload_url }
+        - { id: import-zoning, kind: mcp, tool: honua_admin_import_upload_url }
+        - { id: publish-parcels, kind: mcp, tool: honua_admin_layer_publish }
+        - { id: publish-zoning, kind: mcp, tool: honua_admin_layer_publish }
+        - { id: set-public-access, kind: mcp, tool: honua_admin_service_set_access_policy }
+        - { id: create-scoped-key, kind: mcp, tool: honua_admin_api_key_create }
+    - id: geoprocessing
+      requiredActions:
+        - { id: list-esri-gp-tasks, kind: mcp, tool: honua_esri_gp_list_tasks }
+        - { id: describe-esri-buffer, kind: mcp, tool: honua_esri_gp_describe_task }
+        # AI must execute the Esri-compatible task, not merely discover it.
+        - { id: buffer-esri-mcp, kind: mcp, tool: honua_esri_gp_execute_task }
+        - { id: wait-esri-mcp-buffer, kind: mcp-resource }
+        - { id: read-esri-mcp-buffer-results, kind: mcp-resource }
+        # The SDK GPServer adapter remains a separate protocol-compatibility proof.
+        - { id: buffer-esri-gpserver, kind: gpserver }
+        # Native dataset-reference analysis remains a separate first-class surface.
+        - { id: buffer-parcels, kind: mcp, tool: honua_buffer_features }
+        - { id: wait-direct-buffer, kind: mcp-resource }
+        - { id: read-direct-buffer-results, kind: mcp-resource }
+    - id: studio
+      requiredActions:
+        - { id: create-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-buffer-visibility, kind: mcp, tool: honua_studio_set_layer_visibility }
+        - { id: set-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-chart, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-layer-control, kind: mcp, tool: honua_studio_add_control }
+        - { id: bind-chart-interaction, kind: mcp, tool: honua_studio_bind_interaction }
+        - { id: validate-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: reopen-draft, kind: mcp, tool: honua_studio_get_draft }
+    - id: proposal
+      requiredActions:
+        - { id: propose-publication, kind: mcp, tool: honua_studio_propose_publication }
+    - id: console
+      requiredActions:
+        - { id: console-approval, kind: receipt }
+    - id: artifact
+      requiredActions:
+        - { id: verify-share-url, kind: http }
+
+joins:
+  esriGpWait:
+    producerAction: buffer-esri-mcp
+    capture: esriMcpJobId
+    consumerAction: wait-esri-mcp-buffer
+    template: "${esriMcpJobId}"
+  esriGpResults:
+    producerAction: wait-esri-mcp-buffer
+    capture: esriMcpResultsUri
+    consumerAction: read-esri-mcp-buffer-results
+    template: "${esriMcpResultsUri}"
+  directGpArtifact:
+    producerAction: read-direct-buffer-results
+    capture: bufferArtifactId
+    consumerAction: add-buffer-layer
+    template: "${bufferArtifactId}"
+  esriGpJob:
+    producerAction: buffer-esri-mcp
+    capture: esriMcpJobId
+    resultAction: read-esri-mcp-buffer-results
+    resultCapture: esriMcpResultJobId
+    equals: "${esriMcpJobId}"
+  gpServerJob:
+    producerAction: buffer-esri-gpserver
+    capture: gpServerJobId
+  directAnalysisJob:
+    producerAction: buffer-parcels
+    capture: directAnalysisJobId
+    resultAction: read-direct-buffer-results
+    resultCapture: directAnalysisResultJobId
+    equals: "${directAnalysisJobId}"
+  directAnalysisWait:
+    producerAction: buffer-parcels
+    capture: directAnalysisJobId
+    consumerAction: wait-direct-buffer
+    template: "${directAnalysisJobId}"
+  directAnalysisResults:
+    producerAction: wait-direct-buffer
+    capture: directAnalysisResultsUri
+    consumerAction: read-direct-buffer-results
+    template: "${directAnalysisResultsUri}"
+  studioConsole:
+    receiptAction: console-approval
+    matches:
+      /journeyId: "${journeyId}"
+      /releaseContract: "${releaseContract}"
+      /proposal/draftId: "${draftId}"
+      /proposal/generation: "${proposalGeneration}"
+      /proposal/route: "${route}"
+      /resources/connectionId: "${connectionId}"
+      /resources/serviceId: "${serviceName}"
+      /resources/layerIds/parcels: "${parcelsLayerId}"
+      /resources/layerIds/zoning: "${zoningLayerId}"
+      /resources/jobs/esriMcp: "${esriMcpJobId}"
+      /resources/jobs/gpServer: "${gpServerJobId}"
+      /resources/jobs/directAnalysis: "${directAnalysisJobId}"
+      /resources/gp/resultPackageId: "${esriMcpResultPackageId}"
+      /resources/gp/artifactId: "${esriMcpArtifactId}"
+      /resources/artifactId: "${bufferArtifactId}"
+      /resources/draftId: "${draftId}"
+    requiredPointers:
+      - /candidate/candidateId
+      - /candidate/releaseId
+      - /proposal/proposalId
+      - /proposal/executionOperationId
+      - /audit/correlationId
+      - /audit/operationId
+      - /checks/health
+      - /checks/audit
+      - /checks/recovery
+      - /shareUrl
+    equalPointers:
+      - [ /proposal/executionOperationId, /audit/operationId ]
+      - [ /proposal/draftId, /resources/draftId ]
+      - [ /resources/jobs/esriMcp, /resources/gp/jobId ]
+  consoleArtifact:
+    producerAction: console-approval
+    capture: shareUrl
+    consumerAction: verify-share-url
+    template: "${shareUrl}"
+
+externalReceipts:
+  - id: aws-ecs-provision
+    issue: honua-devops#147/honua-iac#143
+    receiptSchema: certification/release-evidence-receipt.schema.json
+    sourceComponent: honua-devops
+    sourceRepository: honua-io/honua-devops
+    boundComponents: [ honua-devops, honua-iac ]
+  - id: studio-real-model
+    issue: honua-studio#40/#41
+    receiptSchema: certification/release-evidence-receipt.schema.json
+    sourceComponent: honua-studio
+    sourceRepository: honua-io/honua-studio
+    boundComponents: [ honua-studio ]

@@ -103,6 +103,21 @@ capabilities:
     status: shipped
     evidence: { kind: canonical-check, ref: capability-manifest }
 
+  # D9.3 release surfaces. They remain roadmap until the manifest advances to component pins whose
+  # live receipts pass certification/ai-delivery-arc.yaml. Recording them here makes the intended
+  # boundary explicit without advertising uncommitted agent work as shipped.
+  - id: admin-mcp-control-plane
+    claim: "AI can administer Honua through the complete Admin API, operation catalog, honua admin client, and policy-governed 119-tool honua_admin_* MCP family."
+    status: roadmap
+
+  - id: ai-controlled-esri-gp
+    claim: "AI can discover, describe, and execute Honua's Esri-compatible GPServer tasks as well as native dataset-reference analysis."
+    status: roadmap
+
+  - id: focused-console-client
+    claim: "Console ships as the focused human client for sign-in, inspection, approvals, health/release state, audit, diagnostics, and recovery."
+    status: roadmap
+
   # --- roadmap (honestly labelled; not yet shipped) -------------------------------------------------
   - id: slo-observability
     claim: "Releases are gated on a live SLO/error-budget including the GeoServices in-band error metric."

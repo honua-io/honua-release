@@ -48,6 +48,11 @@ The live check runs in the train (`gate_build_test`), nightly, and on dispatch �
 honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run only the self-tests.
 
 ## Other certification gates (separate workflows)
+- **D9.3 AI delivery arc** — `ai-delivery-arc.yaml` +
+  `tools/check_ai_delivery_arc.py` consume the exact manifest-pinned SDK journey,
+  bind all receipts to one candidate, and keep contract evidence distinct from a
+  live release recording. AWS and real-model Studio producers use
+  `release-evidence-receipt.schema.json`. (#121–#123.)
 - **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
 - **Manifest/matrix integrity** — `manifest-validate.yml` (the pinned set satisfies the matrix). (#1.)
