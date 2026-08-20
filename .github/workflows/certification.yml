@@ -62,6 +62,8 @@ on:
     secrets:
       RELEASE_GH_TOKEN:
         required: false
+      HONUA_ESRI_COMPAT_TOKEN:
+        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked — aggregate of all conformance jobs"
@@ -203,7 +205,7 @@ jobs:
           repository: ${{ steps.pin.outputs.repo }}
           ref: ${{ steps.pin.outputs.sha }}
           path: _conformance/esri-compat
-          token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || github.token }}
+          token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Federate Esri GeoServices certification evidence
         run: |

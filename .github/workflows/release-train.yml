@@ -95,6 +95,7 @@ jobs:
     with:
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
+    secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
   gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
     needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
