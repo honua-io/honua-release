@@ -253,19 +253,8 @@ jobs:
           ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
           path: _site
 
-      - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
-        env:
-          # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
-          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
-          # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
-          # instead of pointing at a directory that is not a console checkout.
-          E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
-          # Pin the driver's console-sha note to what we actually checked out, so a failure message
-          # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
-          # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
       - name: Authenticate and restore the pinned honua-console
-        if: steps.console.outcome == ''success''
+        if: steps.console.outcome == 'success'
         env:
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
@@ -279,6 +268,17 @@ jobs:
           dotnet restore _console/src/Honua.Console.Web/Honua.Console.Web.csproj \
             --configfile _console/NuGet.config \
             --nologo
+      - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
+        env:
+          # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+          # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
+          # instead of pointing at a directory that is not a console checkout.
+          E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
+          # Pin the driver's console-sha note to what we actually checked out, so a failure message
+          # never cites a different revision than the one under test.
+          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
           # revision than the one under test.
