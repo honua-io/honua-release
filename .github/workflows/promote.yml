@@ -224,13 +224,11 @@ jobs:
             candidate/compatibility-matrix.yaml \
             finalized-manifest.yaml \
             bom.cdx.json; do
-            cosign sign-blob --yes "$f" \
-              --output-signature "$f.sig" \
-              --output-certificate "$f.pem"
+            cosign sign-blob --yes "$f" --bundle "$f.bundle"
           done
           echo "Signed certified inputs + release outputs. Verify e.g.:"
           echo "  cosign verify-blob bom.cdx.json \\"
-          echo "    --signature bom.cdx.json.sig --certificate bom.cdx.json.pem \\"
+          echo "    --bundle bom.cdx.json.bundle \\"
           echo "    --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/promote.yml@.*' \\"
           echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
 
@@ -251,18 +249,13 @@ jobs:
             --title "Honua ${BASE}" \
             --notes-file release-notes.md \
             candidate/gate-report.json \
-            candidate/gate-report.json.sig \
-            candidate/gate-report.json.pem \
+            candidate/gate-report.json.bundle \
             candidate/platform-manifest.yaml \
-            candidate/platform-manifest.yaml.sig \
-            candidate/platform-manifest.yaml.pem \
+            candidate/platform-manifest.yaml.bundle \
             candidate/compatibility-matrix.yaml \
-            candidate/compatibility-matrix.yaml.sig \
-            candidate/compatibility-matrix.yaml.pem \
+            candidate/compatibility-matrix.yaml.bundle \
             finalized-manifest.yaml \
             bom.cdx.json \
-            finalized-manifest.yaml.sig \
-            finalized-manifest.yaml.pem \
-            bom.cdx.json.sig \
-            bom.cdx.json.pem
+            finalized-manifest.yaml.bundle \
+            bom.cdx.json.bundle
           echo "Released Honua ${BASE} as tag ${TAG}."

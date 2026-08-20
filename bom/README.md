@@ -10,7 +10,16 @@ candidate's digest-bound `platform-manifest.yaml` — every component as a Cyclo
 and contract surfaces.
 Deterministic (serial number derived from the component set), so it is reproducible + diff-able. At promote
 (`.github/workflows/promote.yml`) the BOM is generated, **keyless-signed** (cosign / Fulcio + Rekor) by the
-workflow's OIDC identity, and attached to the `Honua YYYY.N` GitHub Release alongside its `.sig` + `.pem`.
+workflow's OIDC identity, and attached to the `Honua YYYY.N` GitHub Release alongside its Sigstore
+`.bundle` (signature, Fulcio certificate, and Rekor transparency-log material). Verify it with:
+
+```bash
+cosign verify-blob bom.cdx.json \
+  --bundle bom.cdx.json.bundle \
+  --certificate-identity-regexp 'https://github.com/honua-io/honua-release/.github/workflows/promote.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 Unit-tested in `tools/test_generate_bom.py`.
 
 **Wired (gate f):** `.github/workflows/gate-sbom.yml` (reusable, run by the release train) generates a
