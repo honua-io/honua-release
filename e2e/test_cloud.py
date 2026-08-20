@@ -216,11 +216,11 @@ def test_run_canonical_includes_capability_manifest():
 
 
 def test_extended_scenarios_blocked_pending_harness_image():
-    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#35.
+    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#129.
     ext = cc.run_extended("http://x")
     names = {r.name for r in ext}
     assert names == {"mcp-handshake", "studio-authoring", "gp-execute", "top-demo"}
-    assert all(r.status == "blocked" and "honua-release#35" in r.why for r in ext)
+    assert all(r.status == "blocked" and "honua-release#129" in r.why for r in ext)
 
 
 # ---- parity comparator ----------------------------------------------------------------------------
@@ -974,6 +974,42 @@ def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
     _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=[])
     assert report["status"] == "blocked"
     assert "passed" not in report["why"] and "geoprocessing" in report["why"]
+
+
+def test_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch):
+    stub = _ServingStub()
+    registry = run_cloud.REGISTRY
+    attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
+    observed_teardown_counts = []
+    try:
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+        monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+        monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+        monkeypatch.setattr(
+            run_cloud,
+            "make_fetch",
+            lambda **kwargs: (lambda _url: cc.HttpResponse(200, "ready")),
+        )
+        monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+
+        def extended(_endpoint):
+            observed_teardown_counts.append(stub.torn_down)
+            return []
+
+        monkeypatch.setattr(run_cloud, "run_extended", extended)
+        report = run_cloud.run(
+            "stub", require_real=False, reference_endpoint=None, redis_enabled=False
+        )
+    finally:
+        run_cloud.REGISTRY = registry
+        run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS = attempts, delay
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
+
+    assert observed_teardown_counts == [0]
+    assert stub.torn_down == 1
+    assert report["status"] == "pass"
 
 
 if __name__ == "__main__":

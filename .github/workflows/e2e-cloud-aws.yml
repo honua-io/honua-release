@@ -9,7 +9,7 @@
 #              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
 #              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
 #              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
-#              harness image (honua-release#35) to drive the real drivers against the cloud endpoint —
+#              harness image (honua-release#129) to drive the real drivers against the cloud endpoint —
 #              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
 #              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
 #   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
@@ -563,7 +563,7 @@ jobs:
             echo "| cell | status | why |"; echo "|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#35)";
+            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#129)";
             jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
             echo "";
             echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";

@@ -20,7 +20,7 @@ metrics-gated, STAC/EDR/OData/OGC-Features reachability) run for real. A genuine
 probe (a real break, not just "nothing seeded") reddens the run unconditionally — BLOCKED canary
 probes are reported but do not gate, since the ephemeral cloud cells have no seed-data story yet
 (distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
-pending the driver harness image, honua-release#35).
+pending the driver harness image, honua-release#129).
 
 An UNREACHABLE endpoint is not in that tolerated set (honua-release#128). "Nothing was seeded" is a
 missing input; "the deployment never answered" is a missing subject, and a cell that provisioned an
@@ -148,6 +148,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     endpoint = None
     checks = []
     canary_results = []
+    extended = []
     try:
         _mark_provision_attempt()
         endpoint = target.provision(redis_enabled=redis_enabled)
@@ -165,6 +166,12 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
+        # The extended journey must run while the ephemeral endpoint still
+        # exists. Keeping it inside the provision/teardown try/finally avoids a
+        # future real driver being invoked against an environment already torn
+        # down (the old hardcoded BLOCKED implementation hid that ordering bug).
+        extended = run_extended(endpoint)
+        report["scenarioCoverage"] = _check_dicts(extended)
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
@@ -182,12 +189,6 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
     if report.get("status") == "fail":
         return report
-
-    # Extended seam scenarios (MCP / Studio / GP-execute / top-demo). BLOCKED until the cloud harness
-    # image (honua-release#35) drives the real drivers here; require_real promotes that to FAIL so cloud
-    # MCP/Studio/GP/demo cert is genuinely gated for a per-RC cut, not assumed.
-    extended = run_extended(endpoint)
-    report["scenarioCoverage"] = _check_dicts(extended)
 
     # Verdict from the canonical set + the canary probes' genuine failures.
     failed = [c.name for c in checks if c.status == "fail"]
@@ -226,7 +227,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
         report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
-                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
+                         f"scenarios not-certified={ext_blocked} (needs honua-release#129 harness image)")
         return report
 
     # Parity vs the reference target, when one was provided.

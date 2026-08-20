@@ -27,7 +27,7 @@ data — they probe the wire surface honua-server exposes anywhere it runs:
 
 The EXTENDED scenario set (MCP handshake + tool-catalog, Studio authoring, Geoprocessing execute, and
 the top demo flow) is the same seam suite the Slice-1 local-docker harness drives. Running it against a
-*cloud* endpoint needs the driver toolchain packaged as a harness image (honua-release#35); until that
+*cloud* endpoint needs the driver toolchain packaged as a harness image (honua-release#129); until that
 lands, `run_extended` records those scenarios as BLOCKED (with the #35 reference), so a real per-RC
 cloud cert honestly shows cloud MCP/Studio/GP/demo are not-yet-certified rather than green-washing them.
 
@@ -349,7 +349,7 @@ CANONICAL_CHECKS = [check_health, check_geoservices_error_surfacing, check_servi
 
 
 # The seam scenarios (MCP / Studio / GP-execute / top-demo) that need the driver toolchain packaged as
-# a cloud harness image (honua-release#35). Recorded as BLOCKED against a raw cloud endpoint until #35
+# a cloud harness image (honua-release#129). Recorded as BLOCKED against a raw cloud endpoint until #129
 # lands, so a real per-RC cloud cert cannot green-wash uncertified cloud MCP/Studio/GP/demo behaviour.
 EXTENDED_SCENARIOS = [
     ("mcp-handshake", "MCP initialize + tools/list vs the committed tool-catalog snapshot"),
@@ -373,9 +373,9 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
 
 
 def run_extended(endpoint: str, fetch: Fetcher | None = None) -> list[CheckResult]:
-    """The extended seam scenarios against a cloud endpoint. Until the harness image (honua-release#35)
+    """The extended seam scenarios against a cloud endpoint. Until the harness image (honua-release#129)
     runs the real drivers here, each is BLOCKED (honest) — the release train's require_real promotes a
     blocked extended scenario to FAIL, so cloud MCP/Studio/GP/demo cert is gated, not assumed."""
     return [CheckResult(name, "blocked",
-                        f"{desc}: needs the cloud harness image (honua-release#35) to drive against {endpoint.rstrip('/')}")
+                        f"{desc}: needs the cloud harness image (honua-release#129) to drive against {endpoint.rstrip('/')}")
             for name, desc in EXTENDED_SCENARIOS]
