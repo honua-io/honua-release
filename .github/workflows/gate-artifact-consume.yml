@@ -12,7 +12,7 @@
 # genuine failure fails the job. Nothing here is a trivially-green echo.
 #
 # Source resolution per artifact (the central design constraint while we bootstrap):
-#   1. STAGING  — install/pull the published artifact from the staging registry. This is the
+#   1. REGISTRY — install/pull the published artifact from the customer-facing registry. This is the
 #                 production behaviour and the only mode that exercises the real publish path.
 #   2. LOCAL    — if staging has no such artifact for the pinned candidate yet,
 #                 fall back to building the component from source and consuming THAT. This is
@@ -35,9 +35,9 @@
 #                 CRITICAL: a `skipped` is only ever recorded when the ROOT CAUSE is genuinely
 #                 not-published / unresolvable-external-dep. A malformed artifact (build fails, import
 #                 throws, tarball won't init, chart renders nothing) still FAILS even in bootstrap.
-#   strict (Phase 2 / real cut) — any non-pass (blocked OR skipped) fails the gate. The tolerant
-#                 skip-paths below are all guarded on bootstrap, so a real cut is unchanged: an
-#                 unconsumable artifact is a hard red. Flip on once staging is populated.
+#   strict (Phase 2 / real cut) — any non-pass (blocked OR skipped) OR any source fallback fails the
+#                 gate. A real cut proves the manifest-pinned artifact came from its customer-facing
+#                 registry; successfully rebuilding the same source locally is not publication evidence.
 #
 # Emits gate-report.json (schema: {platform_label, generatedAt, enforcement, overallStatus,
 # gates:[{gate,status,why,source,evidence_url}]}) as an artifact for the release train / AI to
@@ -93,10 +93,10 @@ permissions:
 # Registry coordinates. The JS SDK is published to public npm through trusted publishing; remaining
 # components may still take their explicitly reported LOCAL fallback until their registry artifact lands.
 env:
-  STAGING_NPM_REGISTRY: "https://registry.npmjs.org"        # public trusted-publishing target
-  STAGING_NUGET_SOURCE: "https://nuget.pkg.github.com/honua-io/index.json"
-  STAGING_PYPI_INDEX:   "https://test.pypi.org/simple/"      # TestPyPI as the staging index
-  STAGING_OCI_REGISTRY: "ghcr.io/honua-io"                   # server image + OCI helm chart
+  STAGING_NPM_REGISTRY: "https://registry.npmjs.org"         # public trusted-publishing target
+  STAGING_NUGET_SOURCE: "https://api.nuget.org/v3/index.json" # public stable-package target
+  STAGING_PYPI_INDEX:   "https://pypi.org/simple/"            # public trusted-publishing target
+  STAGING_OCI_REGISTRY: "ghcr.io/honua-io"                    # public server image + OCI helm chart
   SERVER_HEALTH_PATH:   "/healthz/ready"
   SERVER_PORT:          "8080"
 
@@ -299,8 +299,6 @@ jobs:
           EOF
 
           echo "::group::Try STAGING (nuget source: $STAGING_NUGET_SOURCE)"
-          dotnet nuget add source "$STAGING_NUGET_SOURCE" -n honua-staging \
-            -u honua -p "$GH_TOKEN" --store-password-in-clear-text >/tmp/nuget-src.log 2>&1 || true
           if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE" >/tmp/nuget-staging.log 2>&1; then
             SOURCE=staging; STATUS=consuming
           else
@@ -812,8 +810,8 @@ jobs:
           # Codegen is run against the proto SOURCE module (there is no "published" form to pull —
           # the artifact IS the generated code). Closes grpc#45: if `buf generate` is broken,
           # this fails. We try a published buf module first, then the source repo.
-          echo "::group::Try STAGING (buf module: buf.build/honua-io/geospatial)"
-          if [ "$GRPC_VERSION" != "pre-release" ] && buf export "buf.build/honua-io/geospatial:v${GRPC_VERSION}" --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
+          echo "::group::Try STAGING (buf module: buf.build/honua-io/geospatial-grpc)"
+          if [ "$GRPC_VERSION" != "pre-release" ] && buf export "buf.build/honua-io/geospatial-grpc:v${GRPC_VERSION}" --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
             SOURCE=staging; STATUS=have-proto; PROTODIR="$WORK/proto"
           else
             echo "buf module miss (expected until publish lands):"; tail -n 5 /tmp/grpc-staging.log || true
@@ -916,7 +914,8 @@ jobs:
             --arg ts "$(date -u +%FT%TZ)" \
             --arg run "$RUN_URL" '
             def decided(enf):
-              if .status=="pass" then "pass"
+              if enf=="strict" and .source!="staging" then "fail"
+              elif .status=="pass" then "pass"
               # skipped = a publish-dependent consume that honestly cannot run in a no-publish dry-run
               # cut. Tolerated under bootstrap (does not reduce the gate); a real cut strict forbids it.
               elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)

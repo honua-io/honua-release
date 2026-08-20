@@ -157,9 +157,11 @@ def validate_environment_metadata(
     environment: dict,
     *,
     expected_name: str,
-    expected_reviewer_id: int,
+    expected_reviewer_ids: list[int],
+    minimum_reviewers: int,
+    maximum_reviewers: int,
 ) -> tuple[bool, str]:
-    """Require a protected-branch release-promotion environment with the expected human reviewer."""
+    """Require protected-branch promotion with a bounded, attested human-reviewer roster."""
     if not isinstance(environment, dict):
         return False, "environment metadata must be an object"
     if environment.get("name") != expected_name:
@@ -181,20 +183,43 @@ def validate_environment_metadata(
         return False, "release-promotion environment must have exactly one required-reviewer rule"
 
     reviewers = reviewer_rules[0].get("reviewers")
-    if not isinstance(reviewers, list) or len(reviewers) != 1:
-        return False, f"release-promotion environment must require exactly reviewer id {expected_reviewer_id}"
-    reviewer = reviewers[0]
-    if not (
-        isinstance(reviewer, dict)
-        and reviewer.get("type") == "User"
-        and isinstance(reviewer.get("reviewer"), dict)
-        and reviewer["reviewer"].get("id") == expected_reviewer_id
-    ):
-        return False, f"release-promotion environment does not require reviewer id {expected_reviewer_id}"
+    if not isinstance(reviewers, list):
+        return False, "release-promotion environment reviewers must be a list"
+    if not minimum_reviewers <= len(reviewers) <= maximum_reviewers:
+        return (
+            False,
+            "release-promotion environment reviewer count "
+            f"{len(reviewers)} is outside the attested range "
+            f"{minimum_reviewers}..{maximum_reviewers}",
+        )
+
+    expected_ids = set(expected_reviewer_ids)
+    observed_ids: list[int] = []
+    for entry in reviewers:
+        reviewer = entry.get("reviewer") if isinstance(entry, dict) else None
+        reviewer_id = reviewer.get("id") if isinstance(reviewer, dict) else None
+        if not (
+            isinstance(entry, dict)
+            and entry.get("type") == "User"
+            and isinstance(reviewer_id, int)
+            and not isinstance(reviewer_id, bool)
+        ):
+            return False, "release-promotion environment reviewers must all be named User accounts"
+        observed_ids.append(reviewer_id)
+
+    if len(observed_ids) != len(set(observed_ids)):
+        return False, "release-promotion environment contains a duplicate reviewer id"
+    undeclared = sorted(set(observed_ids) - expected_ids)
+    if undeclared:
+        return False, f"release-promotion environment contains unattested reviewer id(s) {undeclared}"
 
     prevents_self_review = reviewer_rules[0].get("prevent_self_review") is True
     self_review = "disabled" if prevents_self_review else "allowed"
-    return True, f"release-promotion environment requires expected human reviewer; self-review is {self_review}"
+    return (
+        True,
+        "release-promotion environment requires "
+        f"{len(observed_ids)} attested human reviewer(s); self-review is {self_review}",
+    )
 
 
 def build_candidate_binding(
@@ -421,7 +446,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate_environment.add_argument("--environment-metadata", required=True, type=Path)
     validate_environment.add_argument("--expected-name", required=True)
-    validate_environment.add_argument("--expected-reviewer-id", required=True, type=int)
+    validate_environment.add_argument(
+        "--expected-reviewer-id",
+        required=True,
+        type=int,
+        action="append",
+        dest="expected_reviewer_ids",
+    )
+    validate_environment.add_argument("--minimum-reviewers", required=True, type=int)
+    validate_environment.add_argument("--maximum-reviewers", required=True, type=int)
 
     bind = commands.add_parser("bind", help="create a certified candidate bundle")
     bind.add_argument("--report", required=True, type=Path)
@@ -443,7 +476,9 @@ def main(argv: list[str] | None = None) -> int:
             ok, why = validate_environment_metadata(
                 environment,
                 expected_name=args.expected_name,
-                expected_reviewer_id=args.expected_reviewer_id,
+                expected_reviewer_ids=args.expected_reviewer_ids,
+                minimum_reviewers=args.minimum_reviewers,
+                maximum_reviewers=args.maximum_reviewers,
             )
             print(f"{'OK' if ok else 'REFUSED'}: {why}", file=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1

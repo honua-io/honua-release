@@ -37,7 +37,7 @@ def test_artifact_consume_pins_registry_versions_from_manifest():
     assert "@honua-io/sdk-js" not in workflow
     assert 'Honua.Sdk --version "$SDK_DOTNET_VERSION"' in workflow
     assert "honua-sdk==${SDK_PYTHON_VERSION}" in workflow
-    assert 'buf.build/honua-io/geospatial:v${GRPC_VERSION}' in workflow
+    assert 'buf.build/honua-io/geospatial-grpc:v${GRPC_VERSION}' in workflow
 
 
 def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
@@ -53,6 +53,16 @@ def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     assert "HELM_RUNTIME_ARGS[@]" in workflow
     assert "if [ -f src/buf.yaml ]" in workflow
     assert 'HONUA_ADMIN_PASSWORD="Gate-Aa1!' in workflow
+
+
+def test_strict_consumption_requires_customer_facing_registry_artifacts():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'STAGING_NUGET_SOURCE: "https://api.nuget.org/v3/index.json"' in workflow
+    assert 'STAGING_PYPI_INDEX:   "https://pypi.org/simple/"' in workflow
+    assert 'if enf=="strict" and .source!="staging" then "fail"' in workflow
+    assert 'https://nuget.pkg.github.com/honua-io/index.json' not in workflow.split("jobs:", 1)[0]
+    assert 'https://test.pypi.org/simple/' not in workflow
 
 
 def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():

@@ -190,7 +190,9 @@ def test_release_promotion_environment_requires_expected_human_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237, 42],
+        minimum_reviewers=1,
+        maximum_reviewers=6,
     )
     assert ok, why
 
@@ -198,13 +200,15 @@ def test_release_promotion_environment_requires_expected_human_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237, 42],
+        minimum_reviewers=1,
+        maximum_reviewers=6,
     )
     assert not ok
     assert "required-reviewer" in why
 
 
-def test_release_promotion_environment_rejects_any_additional_reviewer():
+def test_release_promotion_environment_accepts_multiple_attested_human_reviewers():
     environment = {
         "name": "release-promotion",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
@@ -214,7 +218,7 @@ def test_release_promotion_environment_rejects_any_additional_reviewer():
                 "prevent_self_review": False,
                 "reviewers": [
                     {"type": "User", "reviewer": {"id": 12301237, "login": "mikemcdougall"}},
-                    {"type": "Team", "reviewer": {"id": 99, "slug": "release-automation"}},
+                    {"type": "User", "reviewer": {"id": 42, "login": "standby"}},
                 ],
             },
         ],
@@ -223,11 +227,50 @@ def test_release_promotion_environment_rejects_any_additional_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237, 42],
+        minimum_reviewers=1,
+        maximum_reviewers=6,
     )
 
+    assert ok, why
+
+
+def test_release_promotion_environment_rejects_an_unattested_or_non_user_reviewer():
+    environment = {
+        "name": "release-promotion",
+        "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": True,
+                "reviewers": [
+                    {"type": "User", "reviewer": {"id": 999, "login": "unknown"}},
+                ],
+            },
+        ],
+    }
+    ok, why = cb.validate_environment_metadata(
+        environment,
+        expected_name="release-promotion",
+        expected_reviewer_ids=[12301237, 42],
+        minimum_reviewers=1,
+        maximum_reviewers=6,
+    )
     assert not ok
-    assert "exactly" in why
+    assert "unattested" in why
+
+    environment["protection_rules"][0]["reviewers"] = [
+        {"type": "Team", "reviewer": {"id": 42, "slug": "release-team"}},
+    ]
+    ok, why = cb.validate_environment_metadata(
+        environment,
+        expected_name="release-promotion",
+        expected_reviewer_ids=[12301237, 42],
+        minimum_reviewers=1,
+        maximum_reviewers=6,
+    )
+    assert not ok
+    assert "User accounts" in why
 
 
 def test_missing_binding_is_refused(tmp_path: Path):

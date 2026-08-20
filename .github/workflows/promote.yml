@@ -1,11 +1,11 @@
 # Promote a certified release candidate to a platform label — and CREATE THE RELEASE.
 #
-# This is the human/AI approval boundary: the `release-promotion` environment must carry the expected human
-# reviewer and allow only protected branches. The declared configuration is settings-as-code in
+# This is the human/AI approval boundary: the `release-promotion` environment must carry only human
+# reviewers from the bounded, attested roster and allow only protected branches. The declared configuration is settings-as-code in
 # certification/release-promotion-approval.yaml, and the first job step compares the LIVE environment against
 # it through the GitHub API (tools/check_release_promotion_approval.py, honua-release#44) — a missing,
 # unreadable, weakened, drifted, stale, or automation-only reviewer configuration, a promotion from a
-# branch other than the protected default, or a promotion started by the required reviewer all REFUSE
+# branch other than the protected default, or a promotion started by any declared reviewer all REFUSE
 # here, before any release work. Machine-readable evidence is uploaded for the release. Within the
 # gate it FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
 # gate-report is all-green — every gate `pass`, OR `skipped` while on the EXPLICIT allowed-skip list
@@ -71,7 +71,7 @@ jobs:
       # declares the environment GitHub must be enforcing; this step reads the LIVE configuration and
       # refuses when it is missing, unreadable, weakened, drifted, stale, or names only an automation
       # principal. It also proves this promotion is running from the protected default branch and was
-      # NOT started by the required reviewer, so the approval is independent of the request.
+      # NOT started by any declared reviewer, so the approval is independent of the request.
       - name: Self-test the release-promotion approval decision core
         run: python -m pytest tools/test_check_release_promotion_approval.py -q
 
