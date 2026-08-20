@@ -55,5 +55,7 @@ honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run
   `release-evidence-receipt.schema.json`. (#121–#123.)
 - **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
+  A strict cut requires the manifest-pinned artifact from its customer-facing registry and rejects
+  every local source fallback; see `docs/PUBLIC-REGISTRY-READINESS.md` for the first-publish ledger.
 - **Manifest/matrix integrity** — `manifest-validate.yml` (the pinned set satisfies the matrix). (#1.)
 - **Cross-cloud parity** — `e2e-cloud-aws.yml` (canonical set on each deploy target). (Phase B.)

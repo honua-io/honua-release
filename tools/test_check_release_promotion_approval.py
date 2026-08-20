@@ -30,10 +30,20 @@ POLICY_PATH = REPO_ROOT / "certification" / "release-promotion-approval.yaml"
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
 REVIEWER_ID = 12301237
 REVIEWER_LOGIN = "mikemcdougall"
+STANDBY_ID = 42
+STANDBY_LOGIN = "release-standby"
 
 
 def _policy() -> dict:
     return yaml.safe_load(POLICY_PATH.read_text(encoding="utf-8"))
+
+
+def _policy_with_standby() -> dict:
+    policy = _policy()
+    policy["approval"]["required_reviewers"]["roster"].append(
+        {"id": STANDBY_ID, "login": STANDBY_LOGIN, "kind": "human"}
+    )
+    return policy
 
 
 def _environment(**overrides) -> dict:
@@ -84,10 +94,13 @@ def _failed(result: dict) -> list[str]:
 # ── the shipped policy is itself valid ──────────────────────────────────────────────────────────
 
 
-def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
+def test_shipped_policy_declares_a_bounded_human_roster_and_an_attestation():
     policy = load_policy(POLICY_PATH)
     assert policy["environment"]["name"] == "release-promotion"
-    assert policy["approval"]["required_reviewer"]["kind"] == "human"
+    reviewers = policy["approval"]["required_reviewers"]
+    assert reviewers["minimum"] == 1
+    assert reviewers["maximum"] == 6
+    assert all(reviewer["kind"] == "human" for reviewer in reviewers["roster"])
     assert policy["approval"]["require_prevent_self_review"] is True
     assert policy["attestation"]["max_attestation_age_days"] > 0
 
@@ -99,12 +112,12 @@ def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
         {"environment": {}, "approval": {}, "attestation": {}},
         {
             "environment": {"name": "release-promotion"},
-            "approval": {"required_reviewer": {"id": 1, "kind": "bot"}},
+            "approval": {"required_reviewers": {"minimum": 1, "maximum": 6, "roster": []}},
             "attestation": {"attested_at": "2026-01-01T00:00:00Z", "max_attestation_age_days": 30},
         },
         {
             "environment": {"name": "release-promotion"},
-            "approval": {"required_reviewer": {"id": 1, "kind": "human"}},
+            "approval": {"required_reviewers": {"minimum": 1, "maximum": 6, "roster": []}},
             "attestation": {"attested_at": "nope", "max_attestation_age_days": 30},
         },
     ],
@@ -123,6 +136,17 @@ def test_successful_independent_approval_passes():
     result = _evaluate(_environment())
     assert result["status"] == "pass", result["why"]
     assert _failed(result) == []
+
+
+def test_multiple_attested_human_reviewers_pass():
+    environment = _environment()
+    environment["protection_rules"][0]["reviewers"].append(
+        {"type": "User", "reviewer": {"id": STANDBY_ID, "login": STANDBY_LOGIN}}
+    )
+    result = _evaluate(environment, policy=_policy_with_standby())
+    assert result["status"] == "pass", result["why"]
+    assert result["expected_reviewers"]["maximum"] == 6
+    assert len(result["expected_reviewers"]["roster"]) == 2
 
 
 def test_missing_environment_fails_closed():
@@ -148,6 +172,22 @@ def test_wrong_reviewer_fails():
     assert result["status"] == "fail"
     assert "environment-policy" in _failed(result)
     assert "reviewer-matches-policy" in _failed(result)
+
+
+def test_declared_id_with_a_different_login_fails():
+    environment = _environment()
+    environment["protection_rules"][0]["reviewers"][0]["reviewer"]["login"] = "renamed"
+    result = _evaluate(environment)
+    assert result["status"] == "fail"
+    assert "reviewer-matches-policy" in _failed(result)
+
+
+def test_live_reviewer_count_outside_the_declared_range_fails():
+    policy = _policy_with_standby()
+    policy["approval"]["required_reviewers"]["minimum"] = 2
+    result = _evaluate(_environment(), policy=policy)
+    assert result["status"] == "fail"
+    assert "environment-policy" in _failed(result)
 
 
 def test_unprotected_branch_deployment_policy_fails():
@@ -183,6 +223,17 @@ def test_a_promotion_started_by_the_reviewer_is_refused():
 
 def test_a_promotion_started_by_the_reviewer_id_is_refused():
     result = _evaluate(_environment(), promotion_actor="renamed-account", promotion_actor_id=REVIEWER_ID)
+    assert result["status"] == "fail"
+    assert "independent-promoting-actor" in _failed(result)
+
+
+def test_a_promotion_started_by_any_declared_standby_is_refused():
+    result = _evaluate(
+        _environment(),
+        policy=_policy_with_standby(),
+        promotion_actor=STANDBY_LOGIN,
+        promotion_actor_id=STANDBY_ID,
+    )
     assert result["status"] == "fail"
     assert "independent-promoting-actor" in _failed(result)
 
@@ -320,6 +371,7 @@ def _write(policy: dict, tmp_path: Path) -> Path:
         ("approval", "require_prevent_self_review"),
         ("approval", "require_independent_promoting_actor"),
         ("approval", "automation_principals"),
+        ("approval", "required_reviewers"),
         ("environment", "allowed_protection_rule_types"),
         ("environment", "deployment_branch_policy"),
         ("environment", "repository"),
@@ -384,6 +436,32 @@ def test_a_weakened_declared_branch_policy_is_refused(tmp_path: Path):
         "protected_branches": False,
         "custom_branch_policies": True,
     }
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("minimum", "maximum"),
+    [(0, 6), (2, 1), (1, 7), (True, 6), (1, "6")],
+)
+def test_invalid_reviewer_cardinality_is_refused(minimum, maximum, tmp_path: Path):
+    policy = _policy()
+    policy["approval"]["required_reviewers"]["minimum"] = minimum
+    policy["approval"]["required_reviewers"]["maximum"] = maximum
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_duplicate_or_automation_roster_entries_are_refused(tmp_path: Path):
+    policy = _policy()
+    policy["approval"]["required_reviewers"]["roster"].append(
+        {"id": REVIEWER_ID, "login": "another-login", "kind": "human"}
+    )
+    with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+    policy = _policy()
+    policy["approval"]["required_reviewers"]["roster"][0]["login"] = "github-actions[bot]"
     with pytest.raises(ApprovalPolicyError):
         load_policy(_write(policy, tmp_path))
 
