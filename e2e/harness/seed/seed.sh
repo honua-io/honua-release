@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deterministic seeder — publishes the exact contracts the drivers + the honua-site demos assert.
+# Deterministic seeder â€” publishes the exact contracts the drivers + the honua-site demos assert.
 #
 # Slice-1 contracts (unchanged in meaning):
 #   - a data connection to the composed PostGIS
@@ -8,7 +8,7 @@
 #     (exactly two rows carry '030') so the three-protocol parity check (GeoServices where ==
 #     OData $filter == OGC cql2 filter) has a real target. Closes the #2324 data gap.
 #
-# S9 extension (the honua-site demo contract) — every value below is READ OFF honua-site, not
+# S9 extension (the honua-site demo contract) â€” every value below is READ OFF honua-site, not
 # invented; the point is that the demos run UNMODIFIED against this server:
 #   - assets/demo/layers.json pins the service ids AND the server-assigned publication ids:
 #       maui-parcels=1, maui-zoning=2, maui-roads=3, maui-flood-hazard=4,
@@ -26,7 +26,7 @@
 #
 # NOT seeded: imagery / hillshade / terrain rasters. The publish API is vector-only
 # (schema+table+geometry column), there is no raster ingest path through it, and none of the five
-# driven demos requires a raster — esri-leaflet probes the ImageServer tile route and honestly
+# driven demos requires a raster â€” esri-leaflet probes the ImageServer tile route and honestly
 # reports those two bases absent. demo-imagery-terrain.html is out of S9 scope.
 #
 # Writes $E2E_OUT/seed-manifest.json with the resolved ids so drivers never hardcode.
@@ -48,7 +48,7 @@ echo "== seed: applying deterministic tables via psql =="
 psql_apply <<'SQL'
 CREATE SCHEMA IF NOT EXISTS honua_data;
 
--- ── Slice-1 console/source layer ────────────────────────────────────────────────────────────────
+-- â”€â”€ Slice-1 console/source layer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DROP TABLE IF EXISTS honua_data.e2e_src_fs;
 CREATE TABLE honua_data.e2e_src_fs (
   gid   serial PRIMARY KEY,
@@ -59,9 +59,26 @@ INSERT INTO honua_data.e2e_src_fs (name, geom) VALUES
  ('alpha', ST_SetSRID(ST_MakePoint(-156.33,20.75),4326)),
  ('bravo', ST_SetSRID(ST_MakePoint(-156.45,20.88),4326));
 
--- ── maui-zoning ─────────────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-zoning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- Polygons (the demos render fill+line), string zone_code with leading zeros significant.
--- EXACTLY TWO rows carry '030' — the three-protocol parity check asserts that count.
+-- EXACTLY TWO rows carry '030' â€” the three-protocol parity check asserts that count.
+-- Source table for the honua-console live suite (S4). Its services-layers spec drives the console's
+-- publish UI to create the service `e2e_src_fs` out of this table, and every other live spec (Studio
+-- results, service settings) targets that service. Shape must match honua-console's own testbed seed
+-- (e2e/initdb/01-seed.sql): integer PK, polygon geometry in EPSG:3857, exactly 3 features â€” the spec
+-- asserts the published layer serves all three back in that SRID. Lives in `public` (not honua_data)
+-- for the same reason: that is where the console spec looks for it.
+DROP TABLE IF EXISTS public.e2e_layer_src;
+CREATE TABLE public.e2e_layer_src (
+  id   integer PRIMARY KEY,
+  name text    NOT NULL,
+  geom geometry(Polygon, 3857) NOT NULL
+);
+INSERT INTO public.e2e_layer_src (id, name, geom) VALUES
+ (1, 'alpha', ST_SetSRID(ST_MakeEnvelope(  0,   0, 100, 100, 3857), 3857)),
+ (2, 'beta',  ST_SetSRID(ST_MakeEnvelope(200, 200, 300, 300, 3857), 3857)),
+ (3, 'gamma', ST_SetSRID(ST_MakeEnvelope(400, 400, 500, 500, 3857), 3857));
+
 DROP TABLE IF EXISTS honua_data.maui_zoning;
 CREATE TABLE honua_data.maui_zoning (
   gid       serial PRIMARY KEY,
@@ -91,7 +108,7 @@ UPDATE honua_data.maui_zoning
    SET geom = ST_SetSRID(ST_MakeEnvelope(lon, lat, lon + 0.007, lat + 0.007), 4326);
 ALTER TABLE honua_data.maui_zoning DROP COLUMN lon, DROP COLUMN lat;
 
--- ── maui-parcels ────────────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-parcels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- A TMK grid over Kahului/Wailuku. The esri-leaflet "click to query" scene opens at
 -- (20.79, -156.46) z15 and the workbench/demo maps open over Kahului, so the grid deliberately
 -- spans both. `zone` carries the state land-use district codes '1'..'6' the demos colour by.
@@ -115,7 +132,7 @@ SELECT
     -156.50 + i * 0.006 + 0.0055, 20.76 + j * 0.006 + 0.0055), 4326)
 FROM generate_series(0, 13) AS i, generate_series(0, 22) AS j;
 
--- ── maui-roads ──────────────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-roads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DROP TABLE IF EXISTS honua_data.maui_roads;
 CREATE TABLE honua_data.maui_roads (
   gid        serial PRIMARY KEY,
@@ -132,7 +149,7 @@ SELECT
     ST_MakePoint(-156.46 + i * 0.01, 20.92)), 4326)
 FROM generate_series(0, 9) AS i;
 
--- ── maui-flood-hazard ───────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-flood-hazard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DROP TABLE IF EXISTS honua_data.maui_flood_hazard;
 CREATE TABLE honua_data.maui_flood_hazard (
   gid       serial PRIMARY KEY,
@@ -146,7 +163,7 @@ SELECT
     -156.49 + i * 0.012, 20.88, -156.49 + i * 0.012 + 0.010, 20.90), 4326)
 FROM generate_series(0, 5) AS i;
 
--- ── maui-sea-level-rise ─────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-sea-level-rise â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DROP TABLE IF EXISTS honua_data.maui_sea_level_rise;
 CREATE TABLE honua_data.maui_sea_level_rise (
   gid      serial PRIMARY KEY,
@@ -160,7 +177,7 @@ SELECT
     -156.49 + i * 0.014, 20.895, -156.49 + i * 0.014 + 0.012, 20.905), 4326)
 FROM generate_series(0, 4) AS i;
 
--- ── maui-place-names ────────────────────────────────────────────────────────────────────────────
+-- â”€â”€ maui-place-names â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DROP TABLE IF EXISTS honua_data.maui_place_names;
 CREATE TABLE honua_data.maui_place_names (
   gid   serial PRIMARY KEY,
@@ -178,7 +195,7 @@ INSERT INTO honua_data.maui_place_names (name, class, geom) VALUES
  ('Maalaea',      'Bay',             ST_SetSRID(ST_MakePoint(-156.5100, 20.7920),4326)),
  ('Kahului Harbor','Harbor',         ST_SetSRID(ST_MakePoint(-156.4750, 20.8990),4326));
 
--- ── maui-inspections (the editing demo's scratch layer) ─────────────────────────────────────────
+-- â”€â”€ maui-inspections (the editing demo's scratch layer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- Contract from assets/demos/editing/config.json: pk `id`, Point/4326, the five field names, and
 -- CHECK constraints mirroring categories / statuses / noteMaxLength so the sandbox blast radius is
 -- one synthetic table with enum-validated rows.
@@ -202,7 +219,7 @@ INSERT INTO honua_data.maui_inspections (name, category, status, note, reported_
  ('Paia community center',      'facility', 'ok',              NULL,                          '2026-05-08T18:00:00Z', ST_SetSRID(ST_MakePoint(-156.3697,20.9033),4326)),
  ('Hookipa overlook',           'park',     'ok',              'sign replaced',              '2026-05-09T18:00:00Z', ST_SetSRID(ST_MakePoint(-156.3570,20.9350),4326));
 
--- ── spatial-analytics workbench assets ──────────────────────────────────────────────────────────
+-- â”€â”€ spatial-analytics workbench assets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- The SDK sample bundle that demo-analyst-workbench.html loads aggregates count(OBJECTID) and
 -- avg(score) grouped by `risk`, inside one of three Honolulu AOI extents. The rows below ARE that
 -- sample's own fixture assets. OBJECTID is created quoted so the Esri field name matches exactly.
@@ -234,7 +251,7 @@ CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 echo "   connection: $CID"
 
 publish_layer() { # table layerName serviceName geomType [primaryKey]
-  # No explicit `fields` list — let the server introspect the real columns so every attribute
+  # No explicit `fields` list â€” let the server introspect the real columns so every attribute
   # (e.g. the string zone_code) is exposed for the three-protocol parity queries.
   api_post "/api/v1/admin/connections/$CID/layers" "$(jq -nc \
     --arg t "$1" --arg ln "$2" --arg sn "$3" --arg gt "$4" --arg pk "${5:-gid}" \
@@ -242,7 +259,7 @@ publish_layer() { # table layerName serviceName geomType [primaryKey]
   jget '.data.layerId'
 }
 
-# The demo pages are anonymous — they never ship a credential. demo.honua.io publishes these layers
+# The demo pages are anonymous â€” they never ship a credential. demo.honua.io publishes these layers
 # with AllowAnonymous (+ AllowAnonymousWrite on the inspections scratch layer), and without it every
 # demo request 401s and the OData /Layers catalog comes back empty. Both the SERVICE policy and the
 # per-LAYER policy have to be opened: the layer policy is what the OData catalog + OGC collection
@@ -282,7 +299,7 @@ echo "   e2e_src_fs        -> layerId $L_SRC"
 
 # honua-site pins these three ids; a drift here silently breaks the demos, so say so loudly.
 pin_check() { # label actual expected
-  [ "$2" = "$3" ] || echo "::warning:: seeded $1 layerId=$2 but honua-site/assets/demo/layers.json pins $3 — S9 demos will not resolve"
+  [ "$2" = "$3" ] || echo "::warning:: seeded $1 layerId=$2 but honua-site/assets/demo/layers.json pins $3 â€” S9 demos will not resolve"
 }
 pin_check maui-parcels    "$L_PARCELS" 1
 pin_check maui-zoning     "$L_ZONING"  2

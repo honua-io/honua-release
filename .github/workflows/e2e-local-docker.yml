@@ -117,14 +117,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
-      # Tool setup runs BEFORE any external checkout, deliberately. CodeQL's
-      # actions/cache-poisoning/poisonable-step flags a cache-writing step that runs AFTER code from
-      # another repository is on disk: on a default-branch trigger (workflow_dispatch / schedule)
-      # such a step can write the default branch's Actions cache, which every other workflow then
-      # restores. honua-console is first-party and pinned to a manifest sha, so this is defence in
-      # depth rather than a known exposure -- but ordering the setup first removes the class of
-      # problem outright and costs nothing. The driver shells out to `dotnet` and `npx playwright`
-      # and reports BLOCKED when either is absent, so both toolchains must exist regardless.
+      # Tool setup runs BEFORE any external checkout, deliberately: a cache-writing step should not
+      # follow another repository's code onto the disk. The driver shells out to `dotnet` and
+      # `npx playwright` and reports BLOCKED when either is absent, so both toolchains must exist.
+      #
+      # NOTE, accurately: this ordering does NOT clear CodeQL's
+      # actions/cache-poisoning/poisonable-step. The alert follows the step that actually executes
+      # third-party code -- the harness step below, which runs `npm ci` inside the console checkout
+      # and therefore executes that repo's package scripts. Reordering moved the finding; it did not
+      # remove it, and an earlier version of this comment wrongly claimed otherwise.
+      #
+      # Assessed exposure is minimal and worth stating rather than implying: this workflow reads and
+      # writes NO Actions cache (no actions/cache, no `cache:` input anywhere in it), its permissions
+      # are `contents: read` + `packages: read` with no write scope, and honua-console is first-party
+      # and checked out at the sha platform-manifest.yaml pins. The remaining finding is structural
+      # -- setup-* actions CAN populate tool caches on a default-branch trigger -- rather than a live
+      # vector. Removing it entirely would mean not running the console suite in this job at all.
       - name: Set up .NET (console live suite)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
@@ -237,3 +245,19 @@ jobs:
           name: e2e-slice1-gate-report
           path: e2e/gate-report.json
           if-no-files-found: warn
+
+      # S4's failure message is `see .../e2e/out/console-live.log`, but that file was never uploaded,
+      # so a red S4 was undebuggable from CI. Upload the Playwright log plus the traces/screenshots
+      # the driver now writes under e2e/out/console-playwright. Kept as its OWN artifact, deliberately
+      # scoped to those two paths: the release train consumes `e2e-slice1-gate-report` and must not
+      # have to download a Playwright trace bundle to read one JSON file.
+      - name: Upload S4 console live-suite log + Playwright traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-console-live
+          path: |
+            e2e/out/console-live.log
+            e2e/out/console-playwright/**
+          if-no-files-found: ignore
+          retention-days: 14
