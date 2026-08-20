@@ -71,4 +71,29 @@ esri:
   # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
   # is the backstop: a bundle for the wrong image fails rather than silently certifying.
   evidenceRepo: honua-io/honua-esri-compat
-  evidenceRef: 23b7095a6011ca665712cf76bd6d331c9767d4e5   # evidence/certified/2026.1-rc.2 re-certified against nightly-aot-84ee2a5 (#67)
+  evidenceRef: 6fa4e85d925fcd72e76140a73d356f34729306a5   # evidence/certified/2026.1-rc.2 re-certified against nightly-aot-f897700 (#68)
+
+demos:
+  # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos
+  # ARE the thing under test, so the revision they are driven from decides the verdict: a green S9
+  # taken from a floating branch would attest demos that may already have changed, and re-running
+  # the same train run later could legitimately produce a different answer with no change to the
+  # candidate. That is the drift the rest of this gate design exists to prevent, so the source is
+  # pinned like every other cross-repo input.
+  #
+  # Pinned HERE rather than in platform-manifest.yaml for the same reason as the esri producer
+  # above: `components:` is iterated by the BOM generator and the upgrade-diff gate, and honua-site
+  # ships no consumable artifact -- no package, no image, no chart -- so an entry there needs either
+  # a fake artifact or teaching both tools about artifact-less components. That is honua-release#136,
+  # which is open and should be decided on its own merits, not as a side effect of wiring S9. When
+  # #136 lands (the stated preference there is a distinct top-level manifest section rather than
+  # overloading `components:`) this pin and the esri one move together.
+  #
+  # The ref MUST carry assets/demos/csp-bootstrap.js + assets/demos/backend-override.js: without the
+  # backend-override shim the demos are still locked to demo.honua.io by their page CSP. The driver
+  # checks for exactly that and reports BLOCKED naming the missing file rather than a false green,
+  # and `require_real` promotes that BLOCKED to FAIL.
+  #
+  # Bump this ref whenever the demos change in a way this cut should certify.
+  sourceRepo: honua-io/honua-site
+  sourceRef: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71   # honua-site#245 merge commit on trunk

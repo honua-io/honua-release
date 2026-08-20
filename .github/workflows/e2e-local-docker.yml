@@ -1,4 +1,4 @@
-# Phase A — local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
+# Phase A â€” local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
 # Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
 # uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
 #
@@ -14,6 +14,8 @@ on:
   pull_request:
     paths:
       - "e2e/**"
+      # bumping the pinned honua-site revision changes what S9 certifies, so re-run the gate for it
+      - "certification/conformance-evidence.yaml"
       - "platform-manifest.yaml"
       - "compatibility-matrix.yaml"
       - ".github/workflows/e2e-local-docker.yml"
@@ -63,12 +65,12 @@ jobs:
       - name: Install runner deps
         run: python -m pip install -r e2e/requirements.txt pytest
 
-      # Static gates — always run, can FAIL with no images (broken compose / scenario syntax).
+      # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)
         working-directory: e2e
         run: make check
 
-      # Unit-test the runner's verdict logic + parsers — an untested gate can stop gating silently.
+      # Unit-test the runner's verdict logic + parsers â€” an untested gate can stop gating silently.
       - name: Unit-test the runner
         working-directory: e2e
         run: make test
@@ -89,7 +91,7 @@ jobs:
           path: e2e/gate-report.json
           if-no-files-found: warn
 
-  # ── Slice 1 — zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
+  # â”€â”€ Slice 1 â€” zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
   #    drive MCP, AI Studio, GP, three-protocol parity, and per-format coverage against it. Cheap,
   #    PR-runnable. Nightly / release-train runs set require_real so BLOCKED becomes a hard FAIL.
   slice1:
@@ -100,7 +102,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Static gates first — these ALWAYS run and can FAIL on a broken edit even with no image
+      # Static gates first â€” these ALWAYS run and can FAIL on a broken edit even with no image
       # (compose validity, shell syntax, python compile, manifest-snapshot validity).
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
@@ -138,12 +140,11 @@ jobs:
       # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
       # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
       # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
-      # — not its default branch — so the console driven here is the one this release ships.
+      # - not its default branch - so the console driven here is the one this release ships.
       - name: Resolve the pinned honua-console revision
-        id: console_pin
         run: |
           set -euo pipefail
-          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"
+          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -156,7 +157,6 @@ jobs:
             echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
             exit 1
           fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
       - name: Check out the pinned honua-console
@@ -166,8 +166,44 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
+          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
           path: _console
+
+      # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
+      # thing under test, so they are checked out at a PINNED sha, never a floating branch: evidence
+      # taken from a moving ref attests demos that may already have changed, and makes the scenario
+      # non-reproducible across re-runs of the same train. The pin lives beside the esri evidence
+      # producer in certification/conformance-evidence.yaml (see the rationale there and
+      # honua-release#136).
+      - name: Resolve the pinned honua-site revision
+        run: |
+          set -euo pipefail
+          TRUSTED_SHA="0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          # awk, not PyYAML: this job installs no python packages, and the console/server pins are
+          # already read exactly this way. One idiom, no new dependency.
+          SHA="$(awk '
+            $0 ~ /^demos:/ {inblk=1; next}
+            inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
+            inblk && $1=="sourceRef:" {print $2; exit}
+          ' certification/conformance-evidence.yaml)"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::conformance-evidence demos sourceRef $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
+          echo "pinned honua-site: ${SHA:-<unpinned>}"
+
+      # When the checkout fails, or the pinned revision predates the backend-override shim, the
+      # driver reports its own honest BLOCKED naming the missing piece â€” and require_real promotes
+      # that to FAIL. An unpinned ref is left EMPTY on purpose so the checkout fails loudly rather
+      # than silently falling back to a branch.
+      - name: Check out the pinned honua-site (S9 demos)
+        id: site
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-site
+          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          path: _site
 
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
@@ -178,7 +214,12 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: ${{ steps.console_pin.outputs.sha }}
+          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
+          E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
+          # Quoted back in the driver's BLOCKED message so a failure never cites a different
+          # revision than the one under test.
+          E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
@@ -188,7 +229,7 @@ jobs:
           f=e2e/gate-report.json
           [ -f "$f" ] || { echo "no gate-report"; exit 0; }
           {
-            echo "## e2e Slice-1 — $(jq -r .status "$f")";
+            echo "## e2e Slice-1 â€” $(jq -r .status "$f")";
             echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
             jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
             echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";
