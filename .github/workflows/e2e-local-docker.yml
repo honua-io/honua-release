@@ -124,7 +124,14 @@ jobs:
         id: console_pin
         run: |
           set -euo pipefail
-          SHA="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components') or {}).get('honua-console') or {}).get('sha',''))")"
+          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
+          # manifest exactly this way for the server image. Keeping one idiom avoids adding a
+          # dependency to a job whose whole purpose is to boot a container.
+          SHA="$(awk '
+            $0 ~ /^  honua-console:/ {inblk=1; next}
+            inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
+            inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
+          ' platform-manifest.yaml)"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
