@@ -115,6 +115,24 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
+      # Tool setup runs BEFORE any external checkout, deliberately. CodeQL's
+      # actions/cache-poisoning/poisonable-step flags a cache-writing step that runs AFTER code from
+      # another repository is on disk: on a default-branch trigger (workflow_dispatch / schedule)
+      # such a step can write the default branch's Actions cache, which every other workflow then
+      # restores. honua-console is first-party and pinned to a manifest sha, so this is defence in
+      # depth rather than a known exposure -- but ordering the setup first removes the class of
+      # problem outright and costs nothing. The driver shells out to `dotnet` and `npx playwright`
+      # and reports BLOCKED when either is absent, so both toolchains must exist regardless.
+      - name: Set up .NET (console live suite)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node (console live suite)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
       # S4-console-studio drives a real honua-console checkout and reported
       # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
       # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
@@ -143,21 +161,6 @@ jobs:
           repository: honua-io/honua-console
           ref: ${{ steps.console_pin.outputs.sha }}
           path: _console
-
-      # The console driver shells out to `dotnet` and `npx playwright` inside the console checkout
-      # and reports BLOCKED when either is absent, so the toolchains are set up here rather than
-      # relying on whatever the runner image happens to ship.
-      - name: Set up .NET (console live suite)
-        if: steps.console.outcome == 'success'
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Set up Node (console live suite)
-        if: steps.console.outcome == 'success'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
 
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
