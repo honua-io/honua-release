@@ -45,6 +45,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 E2E_DIR = Path(__file__).resolve().parent
 REPO_ROOT = E2E_DIR.parent
@@ -93,6 +94,26 @@ def _best_effort_candidate_sha() -> str | None:
         return ((data.get("components") or {}).get("honua-server") or {}).get("sha") or None
     except Exception:  # noqa: BLE001 - genuinely best-effort, never fatal
         return None
+
+
+
+CANONICAL_DEMO_HOST = "demo.honua.io"
+
+
+def _target_environment(base: str) -> str:
+    """Label the environment this canary actually ran against.
+
+    Compares the parsed HOSTNAME, not a substring of the URL. `"demo.honua.io" in base` also
+    matches https://demo.honua.io.attacker.test/ and https://evil.test/demo.honua.io, so a run
+    against an unrelated host could be stamped into the evidence envelope as though it came from
+    the real demo environment. This envelope is release evidence -- mislabelling which environment
+    produced it is exactly the kind of quiet inaccuracy the certification chain exists to prevent.
+
+    Subdomains are NOT folded into the canonical label: demo.honua.io and anything.demo.honua.io
+    are different deployments and should not be reported as the same environment.
+    """
+    host = (urlparse(base).hostname or "").lower()
+    return CANONICAL_DEMO_HOST if host == CANONICAL_DEMO_HOST else base
 
 
 def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer_id: int | None,
@@ -167,7 +188,7 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
     envelope = {
         "schema": ENVELOPE_SCHEMA,
         "manifestId": f"demo-canary-{generated_at}",
-        "targetEnvironment": "demo.honua.io" if "demo.honua.io" in base else base,
+        "targetEnvironment": _target_environment(base),
         "targetUrl": base,
         "runAt": generated_at,
         "overallStatus": ("partial" if quarantined else
