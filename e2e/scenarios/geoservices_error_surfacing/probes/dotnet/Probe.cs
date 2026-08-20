@@ -9,9 +9,9 @@ var client = new HonuaFeatureServerClient(http);
 try
 {
     var result = await client.QueryAsync(
-        "__release_missing_service__",
+        "test",
         0,
-        new FeatureServerQueryParams { Where = "1=1" });
+        new FeatureServerQueryParams { Where = "__release_missing_field__=1" });
     Console.WriteLine($"FAIL: .NET SDK returned success on 200+{{error}}: {result}");
     return 1;
 }

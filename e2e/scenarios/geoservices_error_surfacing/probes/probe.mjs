@@ -12,9 +12,9 @@ try {
 try {
   const client = new sdk.HonuaClient({ baseUrl: SERVER });
   const result = await client.queryFeatures({
-    serviceId: "__release_missing_service__",
+    serviceId: "test",
     layerId: 0,
-    where: "1=1",
+    where: "__release_missing_field__=1",
     method: "GET",
   });
   console.log(`FAIL: JavaScript SDK returned success on 200+{error}: ${JSON.stringify(result)}`);
