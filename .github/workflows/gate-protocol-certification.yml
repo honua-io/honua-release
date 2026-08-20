@@ -27,6 +27,10 @@ on:
         required: false
         type: string
         default: strict
+    outputs:
+      overall_status:
+        description: pass | fail | blocked
+        value: ${{ jobs.protocol-certification.outputs.status }}
   workflow_dispatch:
     inputs:
       matrix_url:
@@ -60,6 +64,8 @@ jobs:
   protocol-certification:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      status: ${{ steps.evaluate.outputs.status }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
