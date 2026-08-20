@@ -119,18 +119,11 @@ jobs:
       # follow another repository's code onto the disk. The driver shells out to `dotnet` and
       # `npx playwright` and reports BLOCKED when either is absent, so both toolchains must exist.
       #
-      # NOTE, accurately: this ordering does NOT clear CodeQL's
-      # actions/cache-poisoning/poisonable-step. The alert follows the step that actually executes
-      # third-party code -- the harness step below, which runs `npm ci` inside the console checkout
-      # and therefore executes that repo's package scripts. Reordering moved the finding; it did not
-      # remove it, and an earlier version of this comment wrongly claimed otherwise.
-      #
-      # Assessed exposure is minimal and worth stating rather than implying: this workflow reads and
-      # writes NO Actions cache (no actions/cache, no `cache:` input anywhere in it), its permissions
-      # are `contents: read` + `packages: read` with no write scope, and honua-console is first-party
-      # and checked out at the sha platform-manifest.yaml pins. The remaining finding is structural
-      # -- setup-* actions CAN populate tool caches on a default-branch trigger -- rather than a live
-      # vector. Removing it entirely would mean not running the console suite in this job at all.
+      # The Console checkout is executed host-side by S4, so a dynamically selected ref would let
+      # that code inherit the default-branch runner's cache capability. Keep the executable ref a
+      # review-visible literal. The resolver below compares it with platform-manifest.yaml and fails
+      # closed on drift, preserving the manifest as the release source of truth while preventing an
+      # unreviewed revision from reaching npm or MSBuild.
       - name: Set up .NET (console live suite)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
@@ -150,6 +143,7 @@ jobs:
         id: console_pin
         run: |
           set -euo pipefail
+          TRUSTED_SHA="0d9807601761e241502bd99cbf23cd1526c538fd"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -158,6 +152,10 @@ jobs:
             inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
             inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
           ' platform-manifest.yaml)"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "pinned honua-console: ${SHA:-<unpinned>}"
 
@@ -167,7 +165,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-console
-          ref: ${{ steps.console_pin.outputs.sha }}
+          # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
+          ref: 0d9807601761e241502bd99cbf23cd1526c538fd
           path: _console
 
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
