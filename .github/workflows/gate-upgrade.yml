@@ -246,7 +246,7 @@ jobs:
             COMMON=(--namespace "$NS" --wait --timeout 12m
                     --set postgresql.enabled=false
                     --set redis.enabled=false
-                    --set 'config.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=ci-password'
+                    --set 'secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=ci-password'
                     --set image.pullPolicy=IfNotPresent)
 
             set -x
