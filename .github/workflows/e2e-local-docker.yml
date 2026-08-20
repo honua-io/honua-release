@@ -176,9 +176,9 @@ jobs:
       # producer in certification/conformance-evidence.yaml (see the rationale there and
       # honua-release#136).
       - name: Resolve the pinned honua-site revision
-        id: site_pin
         run: |
           set -euo pipefail
+          TRUSTED_SHA="0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
           # awk, not PyYAML: this job installs no python packages, and the console/server pins are
           # already read exactly this way. One idiom, no new dependency.
           SHA="$(awk '
@@ -186,7 +186,10 @@ jobs:
             inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
             inblk && $1=="sourceRef:" {print $2; exit}
           ' certification/conformance-evidence.yaml)"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::conformance-evidence demos sourceRef $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
           echo "pinned honua-site: ${SHA:-<unpinned>}"
 
       # When the checkout fails, or the pinned revision predates the backend-override shim, the
@@ -199,7 +202,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-site
-          ref: ${{ steps.site_pin.outputs.sha }}
+          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
           path: _site
 
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
@@ -216,7 +219,7 @@ jobs:
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
           # revision than the one under test.
-          E2E_SITE_SHA: ${{ steps.site_pin.outputs.sha }}
+          E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
