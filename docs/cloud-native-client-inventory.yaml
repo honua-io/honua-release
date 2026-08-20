@@ -1,0 +1,97 @@
+schema: honua.cloud-native-client-inventory/v1
+source:
+  guide: https://guide.cloudnativegeo.org/
+  repository: https://github.com/cloudnativegeo/cloud-optimized-geospatial-formats-guide
+  revision: 0fabdf7c04ff135dd8160f39bf7a0fbb2f402f46
+  revision_date: 2026-07-27T22:08:16Z
+  retrieved_date: 2026-08-20
+governance:
+  owner: honua-evidence
+  tracking_issue: https://github.com/honua-io/honua-evidence/issues/22
+  classifications: [required-consumer, optional-consumer, producer-validator, supporting-tool, roadmap-consumer, not-applicable]
+formats:
+  cog:
+    maturity: supported
+    tools:
+      Rasterio: required-consumer
+      GDAL: required-consumer
+      rio-cogeo: producer-validator
+      rio-xarray: optional-consumer
+      R-stars: optional-consumer
+      R-terra: optional-consumer
+  hdf5-netcdf:
+    maturity: supported
+    tools:
+      h5stat: required-consumer
+      h5dump: producer-validator
+      h5repack: producer-validator
+      h5py: required-consumer
+      xarray: required-consumer
+      fsspec: supporting-tool
+      ROS3: optional-consumer
+  zarr:
+    maturity: supported
+    tools:
+      zarr: required-consumer
+      xarray: required-consumer
+      fsspec: required-consumer
+      Dask: required-consumer
+      s3fs: supporting-tool
+      adlfs: optional-consumer
+      Planetary-Computer: optional-consumer
+  kerchunk:
+    maturity: roadmap
+    tracking_issue: https://github.com/honua-io/honua-server/issues/3378
+    tools:
+      kerchunk: roadmap-consumer
+      fsspec-reference-filesystem: roadmap-consumer
+      xarray: roadmap-consumer
+      h5py: supporting-tool
+      s3fs: supporting-tool
+      Dask: optional-consumer
+      imagecodecs: supporting-tool
+  copc:
+    maturity: roadmap
+    tracking_issues:
+      - https://github.com/honua-io/honua-server/issues/2442
+      - https://github.com/honua-io/honua-server/issues/3289
+      - https://github.com/honua-io/honua-server/issues/3290
+    tools:
+      PDAL-CLI: roadmap-consumer
+      PDAL-Python: roadmap-consumer
+      readers.las: producer-validator
+      writers.copc: producer-validator
+      readers.copc: roadmap-consumer
+      filters.stats: producer-validator
+  geoparquet:
+    maturity: supported
+    tools:
+      GeoPandas: required-consumer
+      PyArrow: required-consumer
+      GDAL: required-consumer
+      fsspec: supporting-tool
+  flatgeobuf:
+    maturity: supported
+    tools:
+      GDAL: required-consumer
+      GeoPandas: required-consumer
+      Pyogrio: required-consumer
+      Fiona: optional-consumer
+      flatgeobuf-js: required-consumer
+      Leaflet: optional-consumer
+  pmtiles:
+    maturity: supported
+    tools:
+      pmtiles-python-reader: required-consumer
+      PMTiles-browser-viewer: required-consumer
+      Tippecanoe: producer-validator
+      mapbox-vector-tile: supporting-tool
+  stac-zarr:
+    maturity: supported
+    tools:
+      PySTAC-Client: required-consumer
+      xarray: required-consumer
+      rustac: optional-consumer
+      stac-geoparquet: optional-consumer
+      kerchunk: roadmap-consumer
+      fsspec: supporting-tool

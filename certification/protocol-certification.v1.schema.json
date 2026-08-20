@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/protocol-certification.v1.schema.json",
+  "title": "Honua protocol certification ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generated_at", "candidate", "cells"],
+  "properties": {
+    "schema": { "const": "honua.protocol-certification/v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_sha", "image_digest", "cut_at"],
+      "properties": {
+        "source_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "cut_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/cell" }
+    }
+  },
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability_key", "surface", "operation", "maturity", "canonical_client",
+        "client_lane", "client_version", "deployment_target", "required_tier", "licensed",
+        "addressable_by_client", "addressability_reason", "result", "skip_reason",
+        "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
+        "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at"
+      ],
+      "properties": {
+        "capability_key": { "type": "string", "minLength": 1 },
+        "surface": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 },
+        "maturity": { "enum": ["supported", "preview", "experimental", "roadmap", "deprecated", "internal"] },
+        "canonical_client": { "type": "string", "minLength": 1 },
+        "client_lane": { "type": "string", "minLength": 1 },
+        "client_version": { "type": "string", "minLength": 1 },
+        "deployment_target": { "type": "string", "minLength": 1 },
+        "required_tier": { "enum": ["pr", "nightly", "release"] },
+        "licensed": { "type": "boolean" },
+        "addressable_by_client": { "type": "boolean" },
+        "addressability_reason": { "type": ["string", "null"] },
+        "result": { "enum": ["pass", "fail", "skip", "not-addressable"] },
+        "skip_reason": { "type": ["string", "null"] },
+        "scenario_facets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis", "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency"]
+          }
+        },
+        "contract_revision": { "type": "string", "minLength": 1 },
+        "auth_policy_revision": { "type": "string", "minLength": 1 },
+        "source_sha": { "type": ["string", "null"] },
+        "image_digest": { "type": ["string", "null"] },
+        "fixture_revision": { "type": ["string", "null"] },
+        "evidence_uri": { "type": ["string", "null"] },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}

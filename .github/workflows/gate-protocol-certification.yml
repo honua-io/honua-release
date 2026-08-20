@@ -1,0 +1,122 @@
+name: gate-protocol-certification
+run-name: "protocol certification ${{ inputs.tier }}"
+
+on:
+  workflow_call:
+    inputs:
+      matrix_url:
+        description: Immutable URL for honua.protocol-certification/v1 JSON
+        required: true
+        type: string
+      tier:
+        description: pr | nightly | release
+        required: true
+        type: string
+      expected_source_sha:
+        description: Exact honua-server source SHA
+        required: false
+        type: string
+        default: ""
+      expected_image_digest:
+        description: Exact release image digest
+        required: false
+        type: string
+        default: ""
+      enforcement:
+        description: bootstrap | strict
+        required: false
+        type: string
+        default: strict
+  workflow_dispatch:
+    inputs:
+      matrix_url:
+        description: Immutable URL for honua.protocol-certification/v1 JSON
+        required: true
+        type: string
+      tier:
+        description: Certification tier
+        required: true
+        type: choice
+        options: [pr, nightly, release]
+      expected_source_sha:
+        description: Exact honua-server source SHA
+        required: false
+        type: string
+      expected_image_digest:
+        description: Exact release image digest
+        required: false
+        type: string
+      enforcement:
+        description: Gate enforcement
+        required: true
+        default: strict
+        type: choice
+        options: [strict, bootstrap]
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch immutable certification ledger
+        id: fetch
+        shell: bash
+        env:
+          MATRIX_URL: ${{ inputs.matrix_url }}
+        run: |
+          set +e
+          mkdir -p out
+          curl --fail --silent --show-error --location "$MATRIX_URL" -o out/protocol-certification.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate certification ledger
+        id: evaluate
+        if: always()
+        shell: bash
+        env:
+          TIER: ${{ inputs.tier }}
+          EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+          EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
+        run: |
+          set +e
+          args=(--matrix out/protocol-certification.json --tier "$TIER" --report out/protocol-certification-report.json)
+          [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
+          [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
+          python3 tools/check_protocol_certification.py "${args[@]}"
+          code=$?
+          if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload certification decision
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: protocol-certification-${{ inputs.tier }}
+          path: |
+            out/protocol-certification.json
+            out/protocol-certification-report.json
+          if-no-files-found: warn
+
+      - name: Emit release gate fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: protocol-certification
+          status: ${{ steps.evaluate.outputs.status || 'fail' }}
+          source: ${{ steps.fetch.outputs.exit_code == '0' && 'honua-evidence' || 'blocked' }}
+          why: "normalized ${{ inputs.tier }} certification ledger; see protocol-certification report artifact"
+          enforcement: ${{ inputs.enforcement }}
+          prefix: protocol-
+
+      - name: Fail closed
+        if: steps.evaluate.outputs.exit_code != '0'
+        run: |
+          echo "::error::Protocol certification ledger is missing, invalid, stale, mismatched, skipped, or failing."
+          exit 1
