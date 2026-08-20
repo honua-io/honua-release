@@ -206,7 +206,13 @@ async function checkShimSecurity(context) {
       hostile.searchParams.set("apiBase", "https://evil.example.com");
       const refused = await probePage(context, hostile.toString());
       if (refused.origin !== null) problems.push(`${demo}: hostile ?apiBase was honoured (origin=${refused.origin})`);
-      if ((refused.policy || "").includes("evil.example.com")) problems.push(`${demo}: CSP was widened for a rejected origin`);
+      // Compare the whole emitted policy against the no-override baseline from (a) rather than
+      // searching it for the hostile host: an exact match proves NOTHING changed, which is the
+      // actual requirement, and a substring search over a URL-bearing string is the same weak
+      // pattern this scenario exists to catch (CodeQL js/incomplete-url-substring-sanitization).
+      if (refused.policy !== starved.policy) {
+        problems.push(`${demo}: the emitted policy changed for a rejected origin (${refused.policy})`);
+      }
       if (refused.connect !== "blocked") problems.push(`${demo}: the emitted CSP did not block a connect to ${origin} with no valid override`);
 
       // (c) the allow-listed override is honoured, and the same connect then succeeds.
