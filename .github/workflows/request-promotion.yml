@@ -1,0 +1,71 @@
+# Dispatch the environment-gated promotion workflow as the dedicated GitHub App.
+# The required human reviewer cannot also be the dispatching actor, so this workflow
+# provides the documented automation half of that two-actor boundary. It cannot
+# approve the environment, create tags, or write repository contents.
+name: request-promotion
+run-name: "request promotion ${{ inputs.platform_label }} (from run ${{ inputs.train_run_id }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_label:
+        description: "Certified RC label, e.g. 2026.1-rc.2"
+        required: true
+        type: string
+      train_run_id:
+        description: "Successful live release-train run id"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: request-promotion-${{ inputs.platform_label }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate request shape and source ref
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+          SOURCE_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REF" == "trunk" ]] || {
+            echo "::error::promotion requests must run from trunk"
+            exit 1
+          }
+          [[ "$PLATFORM_LABEL" =~ ^[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || {
+            echo "::error::platform_label must match YYYY.N-rc.N"
+            exit 1
+          }
+          [[ "$TRAIN_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::train_run_id must be a positive Actions run id"
+            exit 1
+          }
+
+      - name: Mint release-dispatch App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.1.1
+        with:
+          app-id: ${{ vars.RELEASE_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.RELEASE_DISPATCH_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: honua-release
+
+      - name: Dispatch protected promotion workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          TRAIN_RUN_ID: ${{ inputs.train_run_id }}
+        run: |
+          set -euo pipefail
+          gh workflow run promote.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref trunk \
+            -f platform_label="$PLATFORM_LABEL" \
+            -f train_run_id="$TRAIN_RUN_ID"
