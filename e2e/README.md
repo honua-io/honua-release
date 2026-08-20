@@ -47,6 +47,21 @@ make e2e-strict   # E2E_REQUIRE_REAL=1: BLOCKED/SKIPPED => FAIL (the real releas
 CI: `.github/workflows/e2e-local-docker.yml` runs on PRs touching `e2e/`/manifest, on `workflow_dispatch`,
 and is `workflow_call`-able by the release train's `gate_e2e`.
 
+### D9.3 AI delivery arc
+
+`ai_delivery_arc.py` consumes the zero-to-map plan and executable driver from
+the exact `honua-sdk-js` SHA pinned in `platform-manifest.yaml`. It does not copy
+or reimplement that driver. Contract mode validates the ordered seven-stage
+plan and emits an explicitly blocked SDK receipt; live mode requires the
+candidate's Console receipt and joins it to the manifest digest. The release
+checker additionally requires both AI execution of the Esri-compatible GP task
+and native direct analysis, plus the Studio/Console/final-URL receipt joins.
+
+```bash
+E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
+E2E_REQUIRE_REAL=1 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
+```
+
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual

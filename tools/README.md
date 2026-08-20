@@ -52,6 +52,20 @@ callable by the release train as a reusable gate (`workflow_call`, input `baseli
 Only dependency: `pyyaml`. `semver.py` is a minimal stdlib SemVer + range implementation (no
 third-party semver lib).
 
+## `check_ai_delivery_arc.py` — D9.3 candidate journey gate
+
+Consumes the manifest-pinned `honua-sdk-js` zero-to-map plan/receipt and checks
+the 396-operation Admin API boundary, 119-tool semantic MCP family, focused
+Console boundary, dual native + Esri-compatible AI GP execution, Studio artifact
+use, proposal checkpoint, candidate identity, and final URL. It emits one
+manifest-digest-bound receipt with the first failing stage/action/tool named.
+
+```bash
+python tools/check_ai_delivery_arc.py --sdk-root ../honua-sdk-js \
+  --json-out e2e/out/ai-delivery-arc-receipt.json
+python -m pytest tools/test_check_ai_delivery_arc.py -q
+```
+
 ## `candidate_binding.py` — certified-candidate integrity boundary
 
 Packages the frozen `platform-manifest.yaml` and `compatibility-matrix.yaml` with the platform gate

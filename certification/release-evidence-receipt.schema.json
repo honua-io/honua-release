@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/release-evidence-receipt.v1.json",
+  "title": "Honua candidate-bound external release evidence receipt",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "status",
+    "candidateId",
+    "releaseId",
+    "source",
+    "components",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.release.evidence-receipt/v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "status": { "const": "passed" },
+    "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
