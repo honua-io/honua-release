@@ -4,9 +4,11 @@
   "title": "Honua protocol certification ledger",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "generated_at", "candidate", "cells"],
+  "required": ["schema", "requirements_revision", "requirements_complete", "generated_at", "candidate", "cells"],
   "properties": {
     "schema": { "const": "honua.protocol-certification/v1" },
+    "requirements_revision": { "type": "string", "minLength": 1 },
+    "requirements_complete": { "type": "boolean" },
     "generated_at": { "type": "string", "format": "date-time" },
     "candidate": {
       "type": "object",

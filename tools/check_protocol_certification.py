@@ -89,6 +89,12 @@ def evaluate(
         return _report(tier, [], findings)
     if ledger.get("schema") != SCHEMA_ID:
         fail("schema", f"schema must be {SCHEMA_ID!r}")
+    if not isinstance(ledger.get("requirements_revision"), str) or not ledger["requirements_revision"].strip():
+        fail("requirements_revision", "ledger must identify a non-empty requirements revision")
+    if not isinstance(ledger.get("requirements_complete"), bool):
+        fail("requirements_complete", "ledger must declare whether its denominator is complete")
+    elif tier == "release" and not ledger["requirements_complete"]:
+        fail("requirements_complete", "release certification requires a complete requirements denominator")
 
     generated_at = _timestamp(ledger.get("generated_at"))
     if generated_at is None:

@@ -46,6 +46,8 @@ def _cell(**overrides):
 def _ledger(*cells):
     return {
         "schema": cert.SCHEMA_ID,
+        "requirements_revision": "requirements-test-v1",
+        "requirements_complete": True,
         "generated_at": "2026-08-20T10:06:00Z",
         "candidate": {"source_sha": SHA, "image_digest": DIGEST, "cut_at": "2026-08-20T09:00:00Z"},
         "cells": list(cells or [_cell()]),
@@ -103,3 +105,11 @@ def test_preview_failure_does_not_block_release_claim():
     supported = _cell(canonical_client="GDAL", client_lane="gdal", client_version="3.11.4")
     report = cert.evaluate(_ledger(preview, supported), "release", now=NOW)
     assert report["overall_status"] == "pass"
+
+
+def test_incomplete_denominator_can_never_certify_release():
+    ledger = _ledger()
+    ledger["requirements_complete"] = False
+    report = cert.evaluate(ledger, "release", now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any(finding["check"] == "requirements_complete" for finding in report["findings"])
