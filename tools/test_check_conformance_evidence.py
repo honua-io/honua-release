@@ -212,6 +212,19 @@ def test_esri_bundle_for_a_different_image_fails():
     assert _status(rows, "esri:binding") == "fail"
 
 
+def test_esri_bundle_bound_by_manifest_digest_passes():
+    digest = "sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a"
+    config = {**CONFIG, "esri": {**CONFIG["esri"], "expectedDigest": digest}}
+    by_digest = summarize_esri_bundle(
+        [{"image": f"ghcr.io/honua-io/honua-server@{digest}", "checks": []}]
+    )
+    rows, overall = evaluate_conformance(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, by_digest, config, now=NOW
+    )
+    assert overall == "pass"
+    assert _status(rows, "esri:binding") == "pass"
+
+
 def test_esri_lane_failures_fail():
     failing = summarize_esri_bundle(
         [

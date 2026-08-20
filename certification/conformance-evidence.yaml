@@ -71,7 +71,7 @@ esri:
   # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
   # is the backstop: a bundle for the wrong image fails rather than silently certifying.
   evidenceRepo: honua-io/honua-esri-compat
-  evidenceRef: 6fa4e85d925fcd72e76140a73d356f34729306a5   # evidence/certified/2026.1-rc.2 re-certified against nightly-aot-f897700 (#68)
+  evidenceRef: 167b510a93623eae1897bb89824b2eb65d24a53f   # strict RC2 bundle with authenticated extension coverage (#69)
 
 demos:
   # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos

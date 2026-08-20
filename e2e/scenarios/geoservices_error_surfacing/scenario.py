@@ -14,6 +14,7 @@ Mechanics:
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from runner.harness import Ctx, run_probe, scrape_metric
@@ -39,55 +40,81 @@ def run(ctx: Ctx) -> Result:
 
     before = scrape_metric(ctx.metrics_url, ERROR_METRIC)
     evidence["metric_before"] = before
+    baseline = before if before is not None else 0.0
 
     erroring_calls = 0
-    any_real_assertion = False
+    completed_probes = 0
     failures: list[str] = []
 
     for short, path in PROBES.items():
         if not ctx.sdk_available(short):
             evidence["probes"][short] = "skipped: toolchain unavailable"
+            failures.append(f"{short}: required SDK toolchain unavailable")
             continue
         if not ctx.manifest.sdks[short].is_real:
             # SDK pin is a placeholder — the probe would have nothing real to import.
             evidence["probes"][short] = "blocked: SDK version is a placeholder (TBD)"
+            failures.append(f"{short}: SDK pin is not a real frozen version")
             continue
 
+        probe_before_raw = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+        probe_before = probe_before_raw if probe_before_raw is not None else 0.0
         pr = run_probe(short, path, ctx)
+        probe_after = None
+        for attempt in range(3):
+            probe_after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+            if probe_after is not None and probe_after - probe_before >= 1:
+                break
+            if attempt < 2:
+                time.sleep(1)
         evidence["probes"][short] = {
             "exit": pr.exit_code,
             "stdout": pr.stdout.strip()[-500:],
             "stderr": pr.stderr.strip()[-500:],
+            "metric_before": probe_before_raw,
+            "metric_after": probe_after,
         }
         if pr.skipped:
+            failures.append(f"{short}: frozen SDK was not installed/importable")
             continue
-        any_real_assertion = True
+        completed_probes += 1
         erroring_calls += 1
         if pr.failed:
             # The audit bug: SDK returned success on a 200+{error}.
-            failures.append(f"{short}: SDK did not raise on 200+{{error}}")
+            failures.append(f"{short}: SDK did not raise its typed error on 200+{{error}}")
+        if probe_after is None or probe_after - probe_before < 1:
+            failures.append(
+                f"{short}: {ERROR_METRIC} did not increment for its 200+{{error}} request "
+                f"(before={probe_before_raw}, after={probe_after})"
+            )
 
     # If no probe could actually run against a real SDK, this is BLOCKED, not a pass — we refuse to
     # manufacture a green (AGENTS.md: a gate that can't fail is worse than no gate).
-    if not any_real_assertion:
+    if completed_probes == 0:
         return Result(
             scenario=META["name"], status=Status.BLOCKED, seeded_from=META["seeded_from"],
-            why="no SDK probe ran against a real staged SDK (placeholder pins / missing toolchains)",
+            why="no certified SDK probe ran against the candidate",
             evidence=evidence,
         )
 
     # Metric assertion (ties the observability gate).
-    after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+    after = None
+    for attempt in range(10):
+        after = scrape_metric(ctx.metrics_url, ERROR_METRIC)
+        if after is not None and after - baseline >= erroring_calls:
+            break
+        if attempt < 9:
+            time.sleep(1)
     evidence["metric_after"] = after
     metric_ok = False
-    if before is None or after is None:
+    if after is None:
         failures.append(
             f"{ERROR_METRIC} not exposed (before={before}, after={after}) — in-band error metric "
             "is not wired (server#2243)"
         )
-    elif after - before < erroring_calls:
+    elif after - baseline < erroring_calls:
         failures.append(
-            f"{ERROR_METRIC} only rose by {after - before}, expected >= {erroring_calls}"
+            f"{ERROR_METRIC} only rose by {after - baseline}, expected >= {erroring_calls}"
         )
     else:
         metric_ok = True
@@ -100,6 +127,6 @@ def run(ctx: Ctx) -> Result:
         )
     return Result(
         scenario=META["name"], status=Status.PASS, seeded_from=META["seeded_from"],
-        why=f"all {erroring_calls} SDK(s) raised; {ERROR_METRIC} incremented",
+        why=f"all three frozen SDKs raised typed errors; {ERROR_METRIC} incremented by at least {erroring_calls}",
         evidence=evidence,
     )

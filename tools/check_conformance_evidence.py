@@ -385,8 +385,10 @@ def _evaluate_esri(esri, cfg, rows) -> None:
     # Binding: the bundle must name the image the manifest actually pinned. Evidence about a
     # DIFFERENT build is worse than no evidence, because it reads as a pass.
     expected_image = (cfg or {}).get("expectedImage")
+    expected_digest = (cfg or {}).get("expectedDigest")
+    expected_refs = [ref for ref in (expected_image, expected_digest) if ref]
     images = esri.get("images") or []
-    if not expected_image:
+    if not expected_refs:
         return
     if not images:
         rows.append(
@@ -396,14 +398,15 @@ def _evaluate_esri(esri, cfg, rows) -> None:
                 "the Esri bundle records no candidate image reference, so it cannot be bound to the pin",
             )
         )
-    elif any(expected_image in image for image in images):
-        rows.append(_row("esri:binding", "pass", f"Esri bundle certifies the pinned candidate image {expected_image}"))
+    elif any(ref in image for ref in expected_refs for image in images):
+        matched = next(ref for ref in expected_refs if any(ref in image for image in images))
+        rows.append(_row("esri:binding", "pass", f"Esri bundle certifies the pinned candidate image {matched}"))
     else:
         rows.append(
             _row(
                 "esri:binding",
                 "fail",
-                f"Esri bundle certifies {images} but the manifest pins {expected_image} -- the evidence "
+                f"Esri bundle certifies {images} but the manifest pins {expected_refs} -- the evidence "
                 f"is about a different build",
             )
         )
@@ -462,8 +465,8 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-def _pinned_server(manifest_path: Path) -> tuple[str | None, str | None]:
-    """Return the candidate manifest's pinned honua-server (sha, image).
+def _pinned_server(manifest_path: Path) -> tuple[str | None, str | None, str | None]:
+    """Return the candidate manifest's pinned honua-server (sha, image, digest).
 
     The image is read here rather than configured in conformance-evidence.yaml so the Esri bundle is
     always bound to the exact build being released; a hand-maintained expectation could drift from
@@ -474,7 +477,12 @@ def _pinned_server(manifest_path: Path) -> tuple[str | None, str | None]:
     server = components.get("honua-server") or {}
     sha = server.get("sha") or server.get("commit")
     image = server.get("image")
-    return (str(sha) if sha else None, str(image) if image else None)
+    digest = server.get("digest")
+    return (
+        str(sha) if sha else None,
+        str(image) if image else None,
+        str(digest) if digest else None,
+    )
 
 
 def _read_text(path: str | None) -> str | None:
@@ -518,9 +526,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(Path(args.config))
-    candidate_sha, candidate_image = _pinned_server(Path(args.manifest))
+    candidate_sha, candidate_image, candidate_digest = _pinned_server(Path(args.manifest))
     if candidate_image:
         config.setdefault("esri", {})["expectedImage"] = candidate_image
+    if candidate_digest:
+        config.setdefault("esri", {})["expectedDigest"] = candidate_digest
 
     try:
         cite = parse_cite_status(_read_text(args.cite_status))
