@@ -14,6 +14,14 @@ export E2E_OUT="${E2E_OUT:-$E2E_DIR/out}"
 export E2E_BASE="${E2E_BASE:-http://localhost:${E2E_SERVER_PORT:-8080}}"
 export E2E_API_KEY="${E2E_API_KEY:-honua-console-dev-key}"
 export E2E_COMPOSE_FILE="$HERE/compose.candidate.yml"
+# S9 serves a local copy of honua-site on its own origin and drives the demos against the candidate
+# cross-origin (exactly as honua.io -> demo.honua.io is in production). The candidate has to allow
+# that origin, and CORS is read at BOOT, so the port is chosen here — before boot.sh runs.
+if [ -z "${E2E_SITE_PORT:-}" ]; then
+  E2E_SITE_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+fi
+export E2E_SITE_PORT
+export E2E_SITE_CORS_ORIGINS="${E2E_SITE_CORS_ORIGINS:-http://127.0.0.1:${E2E_SITE_PORT},http://localhost:${E2E_SITE_PORT}}"
 # Resolve the pinned server image for report evidence (READ-ONLY from the manifest; never edited).
 resolve_pin() {
   [ -n "${HONUA_SERVER_IMAGE:-}" ] && { echo "$HONUA_SERVER_IMAGE"; return; }
@@ -34,6 +42,7 @@ cmd_check() {
   bash -n "$HERE/boot.sh" "$HERE/run_all.sh" "$HERE/seed/seed.sh"
   for d in "${DRIVERS[@]}"; do bash -n "$E2E_DIR/drivers/$d/run.sh"; done
   python3 -m py_compile "$E2E_DIR/drivers/formats/formats.py"
+  command -v node >/dev/null && node --check "$E2E_DIR/drivers/demos/drive.mjs" && echo "demos driver: parses"
   jq -e . "$E2E_DIR/drivers/mcp/expected-tools.json" >/dev/null && echo "mcp snapshot: valid"
   echo "static checks: OK"
 }

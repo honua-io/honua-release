@@ -56,6 +56,13 @@ services:
       NlQuery__Provider: "deterministic"
       HostValidation__AllowedHosts: "*"
       AllowedHosts: "*"
+      # S9 drives the honua-site demos from a local static server on a DIFFERENT origin, exactly as
+      # honua.io -> demo.honua.io is cross-origin in production. Without an allow-listed origin the
+      # server denies every cross-origin request (Cors:AllowedOrigins is empty by default, and the
+      # permissive Development policy self-disables inside a container), so the browser would block
+      # the demos on CORS rather than on a real contract break. Comma-separated, merged into
+      # Cors:AllowedOrigins by CorsConfiguration.ResolveAllowedOrigins.
+      HONUA_ADMIN_UI_CORS_ORIGINS: "${E2E_SITE_CORS_ORIGINS:-http://127.0.0.1:18099,http://localhost:18099}"
     ports:
       - "${E2E_SERVER_PORT:-8080}:8080"   # GeoServices / OGC / OData / MCP / admin / studio HTTP
     healthcheck:

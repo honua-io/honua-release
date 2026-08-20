@@ -162,6 +162,21 @@ jobs:
           ref: ${{ steps.console_pin.outputs.sha }}
           path: _console
 
+      # S9-demos drives the five honua-site demos against the seeded candidate. honua-site is the
+      # thing under test here, so it is checked out rather than vendored. It carries no manifest pin
+      # (it is a static site, not a shipped artifact), so the default branch is the candidate. When
+      # the checkout fails, or when the checked-out revision predates the backend-override shim, the
+      # driver reports its own honest BLOCKED naming the missing piece — and require_real promotes
+      # that to FAIL.
+      - name: Check out honua-site (S9 demos)
+        id: site
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-site
+          ref: trunk
+          path: _site
+
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
           # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
@@ -172,6 +187,8 @@ jobs:
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
           E2E_CONSOLE_SHA: ${{ steps.console_pin.outputs.sha }}
+          # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
+          E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
