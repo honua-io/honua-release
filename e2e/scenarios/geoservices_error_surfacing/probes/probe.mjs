@@ -12,7 +12,7 @@ try {
 try {
   const client = new sdk.HonuaClient({ baseUrl: SERVER });
   const result = await client.queryFeatures({
-    serviceId: "__honua_parity_missing__",
+    serviceId: "__honua_parity_missing_js__",
     layerId: 0,
     where: "1=1))",
     method: "GET",

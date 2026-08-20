@@ -9,7 +9,7 @@ var client = new HonuaFeatureServerClient(http);
 try
 {
     var result = await client.QueryAsync(
-        "__honua_parity_missing__",
+        "__honua_parity_missing_dotnet__",
         0,
         new FeatureServerQueryParams { Where = "1=1))" });
     Console.WriteLine($"FAIL: .NET SDK returned success on 200+{{error}}: {result}");
