@@ -22,10 +22,22 @@ if [ -z "${E2E_SITE_PORT:-}" ]; then
 fi
 export E2E_SITE_PORT
 export E2E_SITE_CORS_ORIGINS="${E2E_SITE_CORS_ORIGINS:-http://127.0.0.1:${E2E_SITE_PORT},http://localhost:${E2E_SITE_PORT}}"
-# Resolve the pinned server image for report evidence (READ-ONLY from the manifest; never edited).
+# Resolve the pinned server image and immutable index digest for report evidence
+# (READ-ONLY from the manifest; never edited).
 resolve_pin() {
   [ -n "${HONUA_SERVER_IMAGE:-}" ] && { echo "$HONUA_SERVER_IMAGE"; return; }
-  awk '$0 ~ /^  honua-server:/{b=1;next} b&&/^  [a-zA-Z]/{b=0} b&&$1=="image:"{gsub(/"/,"",$2);print $2;exit}' \
+  awk '
+    $0 ~ /^  honua-server:/ {inblk=1; next}
+    inblk && $0 ~ /^  [a-zA-Z]/ {exit}
+    inblk && $1=="image:" {gsub(/"/,"",$2); image=$2}
+    inblk && $1=="digest:" {gsub(/"/,"",$2); digest=$2}
+    END {
+      if (image != "") {
+        if (digest != "" && image !~ /@sha256:/) print image "@" digest
+        else print image
+      }
+    }
+  ' \
     "$E2E_DIR/../platform-manifest.yaml" 2>/dev/null || true
 }
 export E2E_SERVER_IMAGE="$(resolve_pin)"; [ -z "$E2E_SERVER_IMAGE" ] && E2E_SERVER_IMAGE="ghcr.io/honua-io/honua-server:nightly-aot"
