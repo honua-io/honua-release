@@ -115,10 +115,53 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
+      # S4-console-studio drives a real honua-console checkout and reported
+      # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
+      # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
+      # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
+      # — not its default branch — so the console driven here is the one this release ships.
+      - name: Resolve the pinned honua-console revision
+        id: console_pin
+        run: |
+          set -euo pipefail
+          SHA="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components') or {}).get('honua-console') or {}).get('sha',''))")"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pinned honua-console: ${SHA:-<unpinned>}"
+
+      - name: Check out the pinned honua-console
+        id: console
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-console
+          ref: ${{ steps.console_pin.outputs.sha }}
+          path: _console
+
+      # The console driver shells out to `dotnet` and `npx playwright` inside the console checkout
+      # and reports BLOCKED when either is absent, so the toolchains are set up here rather than
+      # relying on whatever the runner image happens to ship.
+      - name: Set up .NET (console live suite)
+        if: steps.console.outcome == 'success'
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node (console live suite)
+        if: steps.console.outcome == 'success'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
           # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
           E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+          # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
+          # instead of pointing at a directory that is not a console checkout.
+          E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
+          # Pin the driver's console-sha note to what we actually checked out, so a failure message
+          # never cites a different revision than the one under test.
+          E2E_CONSOLE_SHA: ${{ steps.console_pin.outputs.sha }}
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
