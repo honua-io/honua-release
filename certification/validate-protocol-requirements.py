@@ -124,35 +124,86 @@ def main() -> None:
         for capability in server["capabilities"]
         if capability.get("maturity", {}).get("implemented")
     }
-    unassigned_capabilities = set(applicability["unassigned_capabilities"])
-    if len(unassigned_capabilities) != len(applicability["unassigned_capabilities"]):
-        raise ValueError("Canonical-client applicability contains duplicate unassigned capabilities.")
-    overlap = declared_protocols & unassigned_capabilities
+    decisions = applicability["decisions"]
+    decision_capabilities = {decision["capability_key"] for decision in decisions}
+    if len(decision_capabilities) != len(decisions):
+        raise ValueError("Canonical-client applicability contains duplicate capability decisions.")
+    allowed_classifications = {
+        "official-sdk-required",
+        "canonical-external-required",
+        "not-client-addressable",
+    }
+    invalid_classifications = {
+        decision["classification"]
+        for decision in decisions
+        if decision["classification"] not in allowed_classifications
+    }
+    if invalid_classifications:
+        raise ValueError(
+            "Canonical-client applicability contains invalid classifications: "
+            f"{sorted(invalid_classifications)}"
+        )
+    overlap = declared_protocols & decision_capabilities
     if overlap:
         raise ValueError(
-            "Capabilities cannot be both SDK-assigned and canonical-client-unassigned: "
+            "Capabilities cannot be both protocol-assigned and separately classified: "
             f"{sorted(overlap)}"
         )
-    classified_capabilities = declared_protocols | unassigned_capabilities
+    classified_capabilities = declared_protocols | decision_capabilities
     if implemented_capabilities != classified_capabilities:
         raise ValueError(
             "Canonical-client applicability differs from the implemented capability surface "
             f"(unclassified={sorted(implemented_capabilities - classified_capabilities)}, "
             f"unexpected={sorted(classified_capabilities - implemented_capabilities)})"
         )
-    present_unassigned = {
-        row["capability_key"]
+    expected_decision_cells = set()
+    for decision in decisions:
+        capability_key = decision["capability_key"]
+        classification = decision["classification"]
+        if classification == "official-sdk-required":
+            clients = sdk_protocols["clients"]
+            addressable = True
+            reason = None
+        elif classification == "canonical-external-required":
+            client_ids = decision.get("clients", [])
+            if not client_ids:
+                raise ValueError(f"Canonical external decision has no clients: {capability_key}")
+            unknown_clients = set(client_ids) - set(applicability["clients"])
+            if unknown_clients:
+                raise ValueError(
+                    f"Canonical external decision has unknown clients for {capability_key}: "
+                    f"{sorted(unknown_clients)}"
+                )
+            clients = [applicability["clients"][client_id] for client_id in client_ids]
+            addressable = True
+            reason = None
+        else:
+            reason = decision.get("reason")
+            if not reason:
+                raise ValueError(f"Non-client-addressable decision has no reason: {capability_key}")
+            clients = [{"name": "NOT CLIENT ADDRESSABLE", "version": "policy-v1"}]
+            addressable = False
+        expected_decision_cells.update(
+            (capability_key, client["name"], client["version"], addressable, reason)
+            for client in clients
+        )
+    present_decision_cells = {
+        (
+            row["capability_key"],
+            row["canonical_client"],
+            row["client_version"],
+            row["addressable_by_client"],
+            row["addressability_reason"],
+        )
         for row in catalog["requirements"]
-        if row["canonical_client"] == "UNASSIGNED CANONICAL CLIENT"
-        and row["client_version"] == "pending-3387"
-        and row["contract_revision"]
+        if row["contract_revision"]
         == f"canonical-client-applicability@{applicability['revision']}"
     }
-    if unassigned_capabilities != present_unassigned:
+    if expected_decision_cells != present_decision_cells:
         raise ValueError(
-            "Protocol certification denominator is missing canonical-client assignment blockers "
-            f"(missing={sorted(unassigned_capabilities - present_unassigned)}, "
-            f"unexpected={sorted(present_unassigned - unassigned_capabilities)})"
+            "Protocol certification denominator differs from canonical-client applicability decisions "
+            f"(missing={sorted(expected_decision_cells - present_decision_cells)}, "
+            f"unexpected={sorted(present_decision_cells - expected_decision_cells)})"
         )
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
 
