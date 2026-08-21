@@ -28,9 +28,11 @@ CELL_FIELDS = {
     "client_version", "deployment_target", "required_tier", "licensed",
     "addressable_by_client", "addressability_reason", "result", "skip_reason",
     "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
+    "producer_source_sha",
     "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
@@ -283,10 +285,12 @@ def evaluate(
         started = _timestamp(raw["started_at"])
         if completed is None or started is None or completed < started:
             fail(prefix, "required cell needs valid started_at <= completed_at timestamps")
-        required_provenance = ("source_sha", "fixture_revision", "evidence_uri")
+        required_provenance = ("source_sha", "producer_source_sha", "fixture_revision", "evidence_uri")
         for field in required_provenance:
             if not isinstance(raw[field], str) or not raw[field].strip():
                 fail(prefix, f"required cell needs non-empty {field}")
+        if not isinstance(raw["producer_source_sha"], str) or not PRODUCER_SHA_RE.fullmatch(raw["producer_source_sha"]):
+            fail(prefix, "required cell producer_source_sha must be a full 40-character lowercase hex SHA")
         if started is not None and started > now:
             fail(prefix, "started_at cannot be in the future")
         if completed is not None and completed > now:
