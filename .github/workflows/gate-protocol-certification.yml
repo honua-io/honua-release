@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ""
+      expected_cut_at:
+        description: Independently frozen ISO-8601 candidate cut
+        required: false
+        type: string
+        default: ""
       enforcement:
         description: bootstrap | strict
         required: false
@@ -48,6 +53,10 @@ on:
         type: string
       expected_image_digest:
         description: Exact release image digest
+        required: false
+        type: string
+      expected_cut_at:
+        description: Independently frozen ISO-8601 candidate cut
         required: false
         type: string
       enforcement:
@@ -88,11 +97,13 @@ jobs:
           TIER: ${{ inputs.tier }}
           EXPECTED_SHA: ${{ inputs.expected_source_sha }}
           EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
+          EXPECTED_CUT_AT: ${{ inputs.expected_cut_at }}
         run: |
           set +e
           args=(--matrix out/protocol-certification.json --tier "$TIER" --report out/protocol-certification-report.json)
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
+          [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
           python3 tools/check_protocol_certification.py "${args[@]}"
           code=$?
           if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi

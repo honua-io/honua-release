@@ -89,6 +89,7 @@ def evaluate(
     *,
     expected_source_sha: str | None = None,
     expected_image_digest: str | None = None,
+    expected_cut_at: str | datetime | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
 ) -> dict:
@@ -123,8 +124,8 @@ def evaluate(
         fail("requirements", "owned requirements complete flag must be boolean")
     if ledger.get("requirements_complete") != owned_complete:
         fail("requirements_complete", "ledger completeness claim does not match repository-owned requirements")
-    if tier == "release" and owned_complete is not True:
-        fail("requirements_complete", "release certification requires a complete repository-owned denominator")
+    if owned_complete is not True:
+        fail("requirements_complete", f"{tier} certification requires a complete repository-owned denominator")
     if not isinstance(owned_rows, list) or not owned_rows:
         fail("requirements", "owned requirements must contain a non-empty requirements array")
         owned_rows = []
@@ -142,6 +143,14 @@ def evaluate(
     candidate_sha = candidate.get("source_sha")
     candidate_digest = candidate.get("image_digest")
     cut_at = _timestamp(candidate.get("cut_at"))
+    if isinstance(expected_cut_at, datetime):
+        external_cut_at = (
+            expected_cut_at.astimezone(timezone.utc)
+            if expected_cut_at.tzinfo is not None
+            else None
+        )
+    else:
+        external_cut_at = _timestamp(expected_cut_at)
     if not isinstance(candidate_sha, str) or not SHA_RE.fullmatch(candidate_sha):
         fail("candidate.source_sha", "candidate source_sha must be 7-40 lowercase hex characters")
     if not isinstance(candidate_digest, str) or not DIGEST_RE.fullmatch(candidate_digest):
@@ -150,6 +159,13 @@ def evaluate(
         fail("candidate.cut_at", "candidate cut_at must be a timezone-aware ISO-8601 timestamp")
     elif cut_at > now:
         fail("candidate.cut_at", "candidate cut_at cannot be in the future")
+    if tier == "release":
+        if external_cut_at is None:
+            fail("expected_cut_at", "release certification requires an independently frozen candidate cut")
+        elif external_cut_at > now:
+            fail("expected_cut_at", "independently frozen candidate cut cannot be in the future")
+        elif cut_at != external_cut_at:
+            fail("candidate.cut_at", "ledger candidate cut does not match the independently frozen candidate cut")
     if expected_source_sha and candidate_sha != expected_source_sha:
         fail("candidate.source_sha", f"ledger candidate {candidate_sha!r} does not match expected {expected_source_sha!r}")
     if expected_image_digest and candidate_digest != expected_image_digest:
@@ -259,8 +275,8 @@ def evaluate(
         if completed is not None and raw["licensed"] and (now - completed).total_seconds() > 72 * 3600:
             fail(prefix, "licensed evidence is older than 72 hours")
         if tier == "release":
-            if started is not None and cut_at is not None and started < cut_at:
-                fail(prefix, "release evidence started before candidate cut")
+            if started is not None and external_cut_at is not None and started < external_cut_at:
+                fail(prefix, "release evidence started before independently frozen candidate cut")
 
     for group, rows in supported_groups.items():
         if tier == "release" and not any(row.get("addressable_by_client") for row in rows):
@@ -293,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tier", required=True, choices=sorted(TIERS))
     parser.add_argument("--expected-source-sha")
     parser.add_argument("--expected-image-digest")
+    parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
     parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
     parser.add_argument("--report", help="write the machine-readable decision report here")
     args = parser.parse_args(argv)
@@ -306,6 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         args.tier,
         expected_source_sha=args.expected_source_sha,
         expected_image_digest=args.expected_image_digest,
+        expected_cut_at=args.expected_cut_at,
         now=now,
     )
     if load_error:
