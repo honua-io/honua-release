@@ -58,7 +58,8 @@ def main() -> None:
     seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
 
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
-            version: str, contract: str, target: str = "local-docker", licensed: bool = False,
+            version: str, contract: str, auth_policy: str,
+            target: str = "local-docker", licensed: bool = False,
             facets: list[str] | None = None, fixture: str = FIXTURE,
             required_tier: str = "nightly", addressable: bool = True,
             addressability_reason: str | None = None) -> None:
@@ -81,7 +82,7 @@ def main() -> None:
             "addressability_reason": addressability_reason,
             "scenario_facets": facets or ["positive", "metadata", "media-schema"],
             "contract_revision": contract,
-            "auth_policy_revision": "anonymous-and-protected-v1",
+            "auth_policy_revision": auth_policy,
             "fixture_revision": fixture,
             "budget_expectations": None,
         })
@@ -90,16 +91,21 @@ def main() -> None:
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
         ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", "0.1.0-alpha.3"),
     ]
+    sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
     for source_name, collection, client, version, surface, fixture in sdk_sources:
         snapshot = load(SOURCES / source_name / "sdk-coverage.v1.json")
         for capability in snapshot[collection]:
             if capability.get("status") not in SUPPORTED:
                 continue
+            sdk_capability_operations[(source_name, capability["key"])] = list(
+                capability.get("entrypoints", [])
+            )
             for entrypoint in capability.get("entrypoints", []):
                 add(
                     capability=capability["key"], surface=surface, operation=entrypoint,
                     client=client, lane=surface, version=version,
                     contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
+                    auth_policy="anonymous-public-v1",
                     facets=["positive", "media-schema"], fixture=fixture,
                 )
 
@@ -111,6 +117,7 @@ def main() -> None:
                 operation=operation["operation"], client=contract["canonicalClient"],
                 lane=f"{source_name}-certification", version=contract["clientVersion"],
                 contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
+                auth_policy="anonymous-public-v1",
                 fixture=(
                     fixture_pins["sdk-js"]
                     if source_name == "sdk-js"
@@ -137,13 +144,14 @@ def main() -> None:
         if operation["status"] == "non-addressable" or required_tier is None:
             continue
         facets = list(dict.fromkeys(
-            "positive" if facet in {"read-only", "mutation"} else facet
+            "positive" if facet == "read-only" else facet
             for facet in operation["scenarioFacets"]
         ))
         add(
             capability=f"sdk-dotnet.{operation['surface']}", surface=operation["surface"],
             operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
             version="1.6.0", contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
+            auth_policy="anonymous-public-v1",
             fixture="sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
             facets=facets, required_tier=required_tier,
         )
@@ -161,7 +169,8 @@ def main() -> None:
             add(
                 capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
                 client=client, lane=lane, version=f"source@{grpc['source_sha']}",
-                contract=f"geospatial-grpc@{grpc['source_sha']}", fixture=grpc_fixture,
+                contract=f"geospatial-grpc@{grpc['source_sha']}", auth_policy="anonymous-public-v1",
+                fixture=grpc_fixture,
                 facets=["positive", "negative", "media-schema"],
             )
 
@@ -175,7 +184,7 @@ def main() -> None:
             add(
                 capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
                 client=client, lane=lane, version=version,
-                contract=f"geospatial-mcp@{mcp['source_sha']}",
+                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy="anonymous-public-v1",
                 fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema"],
             )
 
@@ -199,6 +208,7 @@ def main() -> None:
                 capability=capability["key"], surface=slug(suite), operation=capability["key"],
                 client="OGC CITE", lane=f"cite-{slug(suite)}", version=suite,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
+                auth_policy="anonymous-public-v1",
                 facets=["positive", "negative", "crs-axis", "media-schema"],
             )
         for interop in capability.get("interop", []):
@@ -208,6 +218,7 @@ def main() -> None:
                 capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
                 client=client, lane=lane, version=version,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
+                auth_policy="anonymous-public-v1",
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
@@ -224,6 +235,7 @@ def main() -> None:
                 operation=assignment["capability_key"], client=client["name"],
                 lane=f"{client['lane']}-{slug(assignment['surface'])}", version=version,
                 contract=f"canonical-client-assignments@{assignments['revision']}",
+                auth_policy="anonymous-and-protected-v1",
                 facets=assignment["scenario_facets"],
             )
 
@@ -238,6 +250,7 @@ def main() -> None:
                 operation=capability_key, client=client["name"],
                 lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
                 contract=f"official-sdk-protocol-assignments@{sdk_protocols['revision']}",
+                auth_policy=client["auth_policy_revision"],
                 facets=sdk_protocols["scenario_facets"],
             )
 
@@ -264,8 +277,19 @@ def main() -> None:
             continue
         contract = f"canonical-client-applicability@{applicability['revision']}"
         if classification == "official-sdk-required":
-            clients = sdk_protocols["clients"]
-            facets = sdk_protocols["scenario_facets"]
+            for client in sdk_protocols["clients"]:
+                source_name = client["source"]
+                if sdk_capability_operations.get((source_name, capability_key)):
+                    continue
+                add(
+                    capability=capability_key, surface=source_name,
+                    operation=f"UNASSIGNED SDK OPERATION CONTRACT:{capability_key}",
+                    client=client["name"],
+                    lane=f"{client['lane']}-operation-contract-gap-{slug(capability_key)}",
+                    version=client["version"], contract=contract,
+                    auth_policy=client["auth_policy_revision"], facets=["positive"],
+                )
+            continue
         elif classification == "canonical-external-required":
             client_ids = decision.get("clients", [])
             if not client_ids:
@@ -286,7 +310,8 @@ def main() -> None:
                 capability=capability_key, surface=slug(capability_key),
                 operation=capability_key, client="NOT CLIENT ADDRESSABLE",
                 lane=f"not-client-addressable-{slug(capability_key)}", version="policy-v1",
-                contract=contract, facets=["not-client-addressable"], addressable=False,
+                contract=contract, auth_policy="not-client-addressable-v1",
+                facets=["not-client-addressable"], addressable=False,
                 addressability_reason=reason,
             )
             continue
@@ -295,7 +320,7 @@ def main() -> None:
                 capability=capability_key, surface=slug(capability_key),
                 operation=capability_key, client=client["name"],
                 lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
-                contract=contract, facets=facets,
+                contract=contract, auth_policy=client["auth_policy_revision"], facets=facets,
             )
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
@@ -319,7 +344,8 @@ def main() -> None:
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
                     client=client, lane=f"{lane}-{service['service']}", version=version,
-                    contract=f"esri-matrix@{revisions['esri-compat']['commit']}", target=target,
+                    contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
+                    auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, facets=facets,
                 )
 
@@ -341,6 +367,7 @@ def main() -> None:
                 capability="serve.ogc", surface="ogc", operation=case["id"], client=client,
                 lane=f"{lane}-ogc", version=version,
                 contract=f"esri-ogc-matrix@{revisions['esri-compat']['commit']}",
+                auth_policy="anonymous-and-protected-v1",
                 facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
             )
 
@@ -349,7 +376,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.8",
+        "revision": "2026-08-21-complete.9",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
@@ -357,7 +384,8 @@ def main() -> None:
             "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
             "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol "
             "and every Honua-specific application capability, executable operation contracts for all three Honua "
-            "SDKs, and pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities. "
+            "SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, "
+            "and pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities. "
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "

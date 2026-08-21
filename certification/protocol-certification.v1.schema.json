@@ -36,7 +36,8 @@
         "addressable_by_client", "addressability_reason", "result", "skip_reason",
         "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
         "producer_source_sha",
-        "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at",
+        "image_digest", "fixture_revision", "evidence_uri", "evidence_digest", "facet_results",
+        "started_at", "completed_at",
         "budget_expectations", "budget_observations"
       ],
       "properties": {
@@ -59,7 +60,7 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "enum": ["positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis", "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency"]
+            "enum": ["positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis", "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency", "mutation"]
           }
         },
         "contract_revision": { "type": "string", "minLength": 1 },
@@ -68,7 +69,23 @@
         "producer_source_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "image_digest": { "type": ["string", "null"] },
         "fixture_revision": { "type": ["string", "null"] },
-        "evidence_uri": { "type": ["string", "null"] },
+        "evidence_uri": { "type": ["string", "null"], "format": "uri" },
+        "evidence_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "facet_results": {
+          "type": ["object", "null"],
+          "propertyNames": {
+            "enum": ["positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis", "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency", "mutation"]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["result", "evidence_digest"],
+            "properties": {
+              "result": { "enum": ["pass", "fail", "skip"] },
+              "evidence_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
+          }
+        },
         "started_at": { "type": ["string", "null"], "format": "date-time" },
         "completed_at": { "type": ["string", "null"], "format": "date-time" },
         "budget_expectations": { "type": ["object", "null"] },

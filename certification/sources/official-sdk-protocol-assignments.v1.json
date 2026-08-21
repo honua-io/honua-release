@@ -8,9 +8,9 @@
     "https://github.com/honua-io/honua-sdk-dotnet/issues/31"
   ],
   "clients": [
-    {"name": "@honua/sdk-js", "version": "0.1.7-beta.0", "lane": "sdk-js-protocol"},
-    {"name": "Honua SDK Python", "version": "0.1.11", "lane": "sdk-python-protocol"},
-    {"name": "Honua SDK .NET", "version": "1.6.0", "lane": "sdk-dotnet-protocol"}
+    {"name": "@honua/sdk-js", "version": "0.1.7-beta.0", "lane": "sdk-js-protocol", "source": "sdk-js", "auth_policy_revision": "anonymous-public-v1"},
+    {"name": "Honua SDK Python", "version": "0.1.11", "lane": "sdk-python-protocol", "source": "sdk-python", "auth_policy_revision": "anonymous-public-v1"},
+    {"name": "Honua SDK .NET", "version": "1.6.0", "lane": "sdk-dotnet-protocol", "source": "sdk-dotnet", "auth_policy_revision": "anonymous-public-v1"}
   ],
   "scenario_facets": ["positive", "negative", "auth", "media-schema"],
   "capabilities": [

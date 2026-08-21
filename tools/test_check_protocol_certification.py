@@ -39,12 +39,19 @@ def _cell(**overrides):
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
         "evidence_uri": "https://evidence.honua.io/runs/1",
+        "evidence_digest": "sha256:" + "e" * 64,
+        "facet_results": None,
         "started_at": "2026-08-20T10:00:00Z",
         "completed_at": "2026-08-20T10:05:00Z",
         "budget_expectations": None,
         "budget_observations": None,
     }
     value.update(overrides)
+    if "facet_results" not in overrides:
+        value["facet_results"] = {
+            facet: {"result": "pass", "evidence_digest": value["evidence_digest"]}
+            for facet in value["scenario_facets"]
+        }
     return value
 
 
@@ -195,6 +202,20 @@ def test_required_skip_fails_closed():
     assert report["overall_status"] == "fail"
 
 
+def test_pass_requires_digest_bound_results_for_every_facet_and_trusted_uri():
+    missing_facet = _cell()
+    missing_facet["facet_results"].pop("metadata")
+    untrusted = _cell(evidence_uri="https://example.test/run/1")
+    wrong_digest = _cell()
+    wrong_digest["facet_results"]["positive"]["evidence_digest"] = "sha256:" + "f" * 64
+    failed_facet = _cell()
+    failed_facet["facet_results"]["positive"]["result"] = "fail"
+
+    for cell in (missing_facet, untrusted, wrong_digest, failed_facet):
+        report = _evaluate(_ledger(cell), "nightly", now=NOW)
+        assert report["overall_status"] == "fail"
+
+
 def test_duplicate_normalized_key_fails():
     cell = _cell()
     report = _evaluate(_ledger(cell, copy.deepcopy(cell)), "nightly", now=NOW)
@@ -274,6 +295,18 @@ def test_unassigned_canonical_client_cannot_be_fabricated_as_a_pass():
     assert report["overall_status"] == "fail"
     assert any(
         "canonical client applicability is unassigned" in finding["why"]
+        for finding in report["findings"]
+    )
+
+
+def test_unassigned_sdk_operation_contract_cannot_be_fabricated_as_a_pass():
+    cell = _cell(operation="UNASSIGNED SDK OPERATION CONTRACT:admin.control-plane")
+
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        "official SDK operation contract is unassigned" in finding["why"]
         for finding in report["findings"]
     )
 
