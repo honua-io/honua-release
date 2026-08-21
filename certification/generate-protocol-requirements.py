@@ -87,7 +87,12 @@ def main() -> None:
                 operation=operation["operation"], client=contract["canonicalClient"],
                 lane=f"{source_name}-certification", version=contract["clientVersion"],
                 contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
-                fixture=fixture_pins["sdk-js"], facets=operation["scenario_facets"],
+                fixture=(
+                    fixture_pins["sdk-js"]
+                    if source_name == "sdk-js"
+                    else contract["fixtureRevision"]
+                ),
+                facets=operation["scenario_facets"],
             )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
