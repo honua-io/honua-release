@@ -18,7 +18,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "1e5807e442b9ce979fe91c228e917bba32abd22e"
+      "commit": "3bc8b0a1dbe869401264468cf0f3c88dae1ad005"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
@@ -139,7 +139,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -160,7 +160,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -181,7 +181,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -202,7 +202,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -223,7 +223,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -244,7 +244,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -265,7 +265,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -326,7 +326,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -347,7 +347,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -648,7 +648,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -689,7 +689,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -710,7 +710,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -731,7 +731,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -926,7 +926,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -947,7 +947,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -968,7 +968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -989,7 +989,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -23837,7 +23837,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -23858,7 +23858,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24589,7 +24589,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24610,7 +24610,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24742,7 +24742,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29492,7 +29492,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29514,7 +29514,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29535,7 +29535,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29557,7 +29557,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30192,7 +30192,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30233,7 +30233,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30254,7 +30254,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30295,7 +30295,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32325,7 +32325,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32346,7 +32346,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32367,7 +32367,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32388,7 +32388,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32429,7 +32429,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32450,7 +32450,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32540,7 +32540,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32631,7 +32631,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32653,7 +32653,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32675,7 +32675,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32697,7 +32697,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32849,7 +32849,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32870,7 +32870,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33015,7 +33015,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33105,7 +33105,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33126,7 +33126,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33147,7 +33147,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33168,7 +33168,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33189,7 +33189,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39264,7 +39264,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39285,7 +39285,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39306,7 +39306,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39327,7 +39327,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39349,7 +39349,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39371,7 +39371,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39393,7 +39393,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39524,7 +39524,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39782,7 +39782,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39803,7 +39803,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39893,7 +39893,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39914,7 +39914,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40067,7 +40067,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40089,7 +40089,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40110,7 +40110,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40131,7 +40131,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40152,7 +40152,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40305,7 +40305,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40326,7 +40326,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40348,7 +40348,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40370,7 +40370,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40479,7 +40479,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40966,7 +40966,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40988,7 +40988,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -41097,7 +41097,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42361,7 +42361,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42382,7 +42382,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42404,7 +42404,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42425,7 +42425,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42446,7 +42446,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42841,7 +42841,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42863,7 +42863,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42884,7 +42884,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42906,7 +42906,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42928,7 +42928,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43015,7 +43015,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43262,7 +43262,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43284,7 +43284,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43305,7 +43305,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43370,7 +43370,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43553,7 +43553,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43575,7 +43575,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43597,7 +43597,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43619,7 +43619,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43640,7 +43640,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43661,7 +43661,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43931,7 +43931,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43953,7 +43953,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43996,7 +43996,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44017,7 +44017,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44038,7 +44038,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44059,7 +44059,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44310,7 +44310,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44331,7 +44331,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44463,7 +44463,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44485,7 +44485,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44507,7 +44507,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44528,7 +44528,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44596,7 +44596,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44617,7 +44617,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44638,7 +44638,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44659,7 +44659,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44680,7 +44680,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44770,7 +44770,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44861,7 +44861,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44882,7 +44882,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45001,7 +45001,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45134,7 +45134,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45155,7 +45155,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45363,7 +45363,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45384,7 +45384,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45405,7 +45405,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45538,7 +45538,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45559,7 +45559,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45829,7 +45829,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45850,7 +45850,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46008,7 +46008,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46029,7 +46029,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-certification@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46050,7 +46050,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46229,7 +46229,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46250,7 +46250,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
+      "contract_revision": "sdk-js-coverage@3bc8b0a1dbe869401264468cf0f3c88dae1ad005",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
