@@ -26,10 +26,23 @@ def main() -> None:
     ]
     if len(keys) != len(set(keys)):
         raise ValueError("Protocol certification requirements contain duplicate cells.")
-    required_surfaces = {"sdk-dotnet", "sdk-python", "sdk-js", "feature-server", "ogc", "cog", "hdf5-netcdf", "zarr"}
+    required_surfaces = {"sdk-python", "sdk-js", "feature-server", "ogc", "cog", "hdf5-netcdf", "zarr"}
     missing = required_surfaces - {row["surface"] for row in catalog["requirements"]}
     if missing:
         raise ValueError(f"Protocol certification denominator is missing required surfaces: {sorted(missing)}")
+    required_sdk_lanes = {
+        "sdk-dotnet-certification",
+        "sdk-python-certification",
+        "sdk-js-certification",
+    }
+    missing_sdk_lanes = required_sdk_lanes - {
+        row["client_lane"] for row in catalog["requirements"]
+    }
+    if missing_sdk_lanes:
+        raise ValueError(
+            "Protocol certification denominator is missing SDK operation lanes: "
+            f"{sorted(missing_sdk_lanes)}"
+        )
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
 
 
