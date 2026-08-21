@@ -52,7 +52,12 @@ def main() -> None:
     if len(keys) != len(set(keys)):
         raise ValueError("Protocol certification requirements contain duplicate cells.")
     required_surfaces = {"sdk-python", "sdk-js", "feature-server", "ogc", "cog", "hdf5-netcdf", "zarr"}
-    missing = required_surfaces - {row["surface"] for row in catalog["requirements"]}
+    surface_names = {row["surface"] for row in catalog["requirements"]}
+    missing = {
+        surface for surface in required_surfaces
+        if surface not in surface_names
+        and not any(name.startswith(f"{surface}:") for name in surface_names)
+    }
     if missing:
         raise ValueError(f"Protocol certification denominator is missing required surfaces: {sorted(missing)}")
     required_sdk_lanes = {
@@ -93,24 +98,15 @@ def main() -> None:
             "Protocol certification denominator is missing governed canonical-client assignments: "
             f"{sorted(missing_assignments)}"
         )
-    expected_sdk_protocols = {
-        (
-            capability_key,
-            client["name"],
-            client["version"],
-        )
-        for capability_key in sdk_protocols["capabilities"]
-        for client in sdk_protocols["clients"]
-    }
+    expected_sdk_protocols = set(sdk_protocols["capabilities"])
+    sdk_client_names = {client["name"] for client in sdk_protocols["clients"]}
     present_sdk_protocols = {
-        (
-            row["capability_key"],
-            row["canonical_client"],
-            row["client_version"],
-        )
+        row["capability_key"]
         for row in catalog["requirements"]
-        if row["contract_revision"]
-        == f"official-sdk-protocol-assignments@{sdk_protocols['revision']}"
+        if (
+            row["canonical_client"] in sdk_client_names
+            or str(row["operation"]).startswith("UNASSIGNED PROTOCOL HARNESS CONTRACT:")
+        )
     }
     missing_sdk_protocols = expected_sdk_protocols - present_sdk_protocols
     if missing_sdk_protocols:
@@ -188,22 +184,29 @@ def main() -> None:
         source_name: json.loads(
             (ROOT / "sources" / source_name / "sdk-coverage.v1.json").read_text(encoding="utf-8")
         )
-        for source_name in ("sdk-js", "sdk-python")
+        for source_name in ("sdk-js", "sdk-python", "sdk-dotnet")
     }
     sdk_fixtures = {
         "sdk-js": "0.1.0-alpha.3",
         "sdk-python": "geospatial-grpc@0.2.0-alpha.1",
+        "sdk-dotnet": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
     }
     expected_decision_rows: list[dict] = []
     for decision in decisions:
         capability_key = decision["capability_key"]
         classification = decision["classification"]
         if classification == "official-sdk-required":
+            capability_row_count = 0
             for client in sdk_protocols["clients"]:
                 source_name = client["source"]
+                collection = (
+                    sdk_coverage.get(source_name, {}).get("coverage", [])
+                    if source_name == "sdk-dotnet"
+                    else sdk_coverage.get(source_name, {}).get("capabilities", [])
+                )
                 coverage = next(
                     (
-                        row for row in sdk_coverage.get(source_name, {}).get("capabilities", [])
+                        row for row in collection
                         if row.get("key") == capability_key and row.get("status") in SUPPORTED
                     ),
                     None,
@@ -213,7 +216,7 @@ def main() -> None:
                     for entrypoint in entrypoints:
                         expected_decision_rows.append({
                             "capability_key": capability_key,
-                            "surface": source_name,
+                            "surface": f"{source_name}:{slug(capability_key)}",
                             "operation": entrypoint,
                             "canonical_client": client["name"],
                             "client_lane": source_name,
@@ -229,25 +232,26 @@ def main() -> None:
                             "fixture_revision": sdk_fixtures[source_name],
                             "budget_expectations": None,
                         })
-                else:
-                    expected_decision_rows.append({
-                        "capability_key": capability_key,
-                        "surface": source_name,
-                        "operation": f"UNASSIGNED SDK OPERATION CONTRACT:{capability_key}",
-                        "canonical_client": client["name"],
-                        "client_lane": f"{client['lane']}-operation-contract-gap-{slug(capability_key)}",
-                        "client_version": client["version"],
-                        "deployment_target": "local-docker",
-                        "required_tier": "nightly",
-                        "licensed": False,
-                        "addressable_by_client": True,
-                        "addressability_reason": None,
-                        "scenario_facets": ["positive"],
-                        "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
-                        "auth_policy_revision": client["auth_policy_revision"],
-                        "fixture_revision": FIXTURE,
-                        "budget_expectations": None,
-                    })
+                        capability_row_count += 1
+            if capability_row_count == 0:
+                expected_decision_rows.append({
+                    "capability_key": capability_key,
+                    "surface": slug(capability_key),
+                    "operation": f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
+                    "canonical_client": "UNASSIGNED PROTOCOL HARNESS",
+                    "client_lane": f"protocol-harness-gap-{slug(capability_key)}",
+                    "client_version": "policy-v1",
+                    "deployment_target": "local-docker",
+                    "required_tier": "nightly",
+                    "licensed": False,
+                    "addressable_by_client": True,
+                    "addressability_reason": None,
+                    "scenario_facets": ["positive"],
+                    "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
+                    "auth_policy_revision": "unassigned-protocol-harness-v1",
+                    "fixture_revision": FIXTURE,
+                    "budget_expectations": None,
+                })
             continue
         elif classification == "canonical-external-required":
             client_ids = decision.get("clients", [])

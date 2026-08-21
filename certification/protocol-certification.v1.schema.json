@@ -69,7 +69,7 @@
         "producer_source_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "image_digest": { "type": ["string", "null"] },
         "fixture_revision": { "type": ["string", "null"] },
-        "evidence_uri": { "type": ["string", "null"], "format": "uri" },
+        "evidence_uri": { "type": ["string", "null"], "format": "uri", "pattern": "^https://evidence\\.honua\\.io/data/sha256/[0-9a-f]{64}$" },
         "evidence_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
         "facet_results": {
           "type": ["object", "null"],

@@ -71,6 +71,7 @@ def _owned_source_name(cell: dict) -> str:
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
+UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -131,17 +132,18 @@ def _typed_equal(actual: object, expected: object) -> bool:
     return actual == expected
 
 
-def _valid_evidence_uri(value: object) -> bool:
-    if not isinstance(value, str):
+def _valid_evidence_uri(value: object, evidence_digest: object) -> bool:
+    if not isinstance(value, str) or not isinstance(evidence_digest, str):
         return False
     parsed = urlparse(value)
     if parsed.scheme != "https" or parsed.params or parsed.query or parsed.fragment:
         return False
-    if parsed.hostname == "github.com":
-        return re.fullmatch(r"/[^/]+/[^/]+/actions/runs/[0-9]+(?:/.*)?", parsed.path) is not None
-    if parsed.hostname == "evidence.honua.io":
-        return re.fullmatch(r"/(?:runs|data)/[^/]+(?:/.*)?", parsed.path) is not None
-    return False
+    match = re.fullmatch(r"/data/sha256/([0-9a-f]{64})", parsed.path)
+    return (
+        parsed.hostname == "evidence.honua.io"
+        and match is not None
+        and evidence_digest == f"sha256:{match.group(1)}"
+    )
 
 
 def evaluate(
@@ -361,10 +363,13 @@ def evaluate(
                 prefix,
                 "canonical client applicability is unassigned; resolve the governed tracking issue",
             )
-        if str(raw["operation"]).startswith(UNASSIGNED_SDK_OPERATION_PREFIX):
+        if (
+            str(raw["operation"]).startswith(UNASSIGNED_SDK_OPERATION_PREFIX)
+            or str(raw["operation"]).startswith(UNASSIGNED_PROTOCOL_HARNESS_PREFIX)
+        ):
             fail(
                 prefix,
-                "official SDK operation contract is unassigned; map executable client operations before certification",
+                "client/protocol harness contract is unassigned; map executable operations before certification",
             )
         if raw["source_sha"] != candidate_sha:
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
@@ -485,8 +490,8 @@ def evaluate(
         for field in required_provenance:
             if not isinstance(raw[field], str) or not raw[field].strip():
                 fail(prefix, f"required cell needs non-empty {field}")
-        if not _valid_evidence_uri(raw["evidence_uri"]):
-            fail(prefix, "required cell evidence_uri must identify an immutable trusted evidence run")
+        if not _valid_evidence_uri(raw["evidence_uri"], raw["evidence_digest"]):
+            fail(prefix, "required cell evidence_uri must be content-addressed by evidence_digest")
         if not isinstance(raw["producer_source_sha"], str) or not PRODUCER_SHA_RE.fullmatch(raw["producer_source_sha"]):
             fail(prefix, "required cell producer_source_sha must be a full 40-character lowercase hex SHA")
         owned_source_name = _owned_source_name(raw)
