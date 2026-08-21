@@ -12,6 +12,7 @@ import check_protocol_certification as cert  # noqa: E402
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
 SHA = "a" * 40
+REQUIREMENTS_SOURCE_SHA = "d" * 40
 DIGEST = "sha256:" + "b" * 64
 CUT = "2026-08-20T09:00:00Z"
 
@@ -75,6 +76,7 @@ def _ledger(*cells):
     return {
         "schema": cert.SCHEMA_ID,
         "requirements_revision": "requirements-test-v1",
+        "requirements_source_revision": REQUIREMENTS_SOURCE_SHA,
         "requirements_complete": True,
         "generated_at": "2026-08-20T10:06:00Z",
         "candidate": {"source_sha": SHA, "image_digest": DIGEST, "cut_at": "2026-08-20T09:00:00Z"},

@@ -240,6 +240,9 @@ def evaluate(
         fail("requirements", "owned requirements must identify a non-empty revision")
     if ledger.get("requirements_revision") != owned_revision:
         fail("requirements_revision", "ledger requirements revision does not match repository-owned requirements")
+    ledger_requirements_source = ledger.get("requirements_source_revision")
+    if not isinstance(ledger_requirements_source, str) or not SHA_RE.fullmatch(ledger_requirements_source):
+        fail("requirements_source_revision", "ledger must identify the full honua-release requirements commit SHA")
     if not isinstance(owned_complete, bool):
         fail("requirements", "owned requirements complete flag must be boolean")
     if ledger.get("requirements_complete") != owned_complete:
@@ -607,6 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--matrix", required=True)
     parser.add_argument("--tier", required=True, choices=sorted(TIERS))
     parser.add_argument("--expected-source-sha")
+    parser.add_argument("--expected-requirements-source-revision")
     parser.add_argument("--expected-image-digest")
     parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
     parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
@@ -626,6 +630,16 @@ def main(argv: list[str] | None = None) -> int:
         now=now,
         receipt_root=Path(args.matrix).resolve().parent / "sha256",
     )
+    if (
+        args.expected_requirements_source_revision
+        and (ledger or {}).get("requirements_source_revision") != args.expected_requirements_source_revision
+    ):
+        report["findings"].insert(0, {
+            "check": "requirements_source_revision",
+            "status": "fail",
+            "why": "ledger denominator source does not match the checked-out honua-release revision",
+        })
+        report["overall_status"] = "fail"
     if load_error:
         report["findings"].insert(0, {"check": "ledger", "status": "fail", "why": load_error})
         report["overall_status"] = "fail"

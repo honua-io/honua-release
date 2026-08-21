@@ -162,12 +162,13 @@ jobs:
         env:
           TIER: ${{ inputs.tier }}
           EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+          EXPECTED_REQUIREMENTS_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
           EXPECTED_CUT_AT: ${{ inputs.expected_cut_at }}
           FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
         run: |
           set +e
-          args=(--matrix out/protocol-certification.json --tier "$TIER" --report out/protocol-certification-report.json)
+          args=(--matrix out/protocol-certification.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION")
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
           [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
