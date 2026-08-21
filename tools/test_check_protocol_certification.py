@@ -299,16 +299,18 @@ def test_unassigned_canonical_client_cannot_be_fabricated_as_a_pass():
     )
 
 
-def test_unassigned_sdk_operation_contract_cannot_be_fabricated_as_a_pass():
-    cell = _cell(operation="UNASSIGNED SDK OPERATION CONTRACT:admin.control-plane")
+def test_unassigned_operation_contract_cannot_be_fabricated_as_a_pass():
+    for operation in (
+        "UNASSIGNED SDK OPERATION CONTRACT:admin.control-plane",
+        "UNASSIGNED PROTOCOL HARNESS CONTRACT:analytics.buffer-aggregate",
+    ):
+        report = _evaluate(_ledger(_cell(operation=operation)), "nightly", now=NOW)
 
-    report = _evaluate(_ledger(cell), "nightly", now=NOW)
-
-    assert report["overall_status"] == "fail"
-    assert any(
-        "client/protocol harness contract is unassigned" in finding["why"]
-        for finding in report["findings"]
-    )
+        assert report["overall_status"] == "fail"
+        assert any(
+            "client/protocol harness contract is unassigned" in finding["why"]
+            for finding in report["findings"]
+        )
 
 
 def test_nightly_older_than_seven_days_fails():
