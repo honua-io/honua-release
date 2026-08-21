@@ -257,7 +257,7 @@ components:
     # driver, three-family Studio version lifecycle, admin inventory, and resealed derived/sample
     # evidence. Strict `samples:verify` passed for all 35 examples, 7 reserved journeys, and 21
     # routes against the final two-pass Noble reseal at this exact commit.
-    sha: "1e895f886c70bc1e6e8518f07325cc34a7fed081"   # branch: release/2026-1-integration
+    sha: "5950d762010cee8f1d0dfe4340c3abe85b16db1a"   # branch: release/2026-1-integration
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
@@ -318,7 +318,7 @@ components:
     # provision, teardown, and full real-model receipt contracts. Its source/checks are green; this
     # pin does not claim a live receipt until the release cloud cell supplies HTTPS, focused Console
     # approval, provider credentials, and a manifest-pinned Studio full-model runner.
-    sha: "e50c5010ad68ec5e60feb70d4e7ddd58aa7ea017"   # branch: agent/2026-1-aws-ai-arc, PR #149
+    sha: "55d418a51ccca0e6208c4c8654ec2fe58d85968f"   # branch: agent/2026-1-aws-ai-arc, PR #149
     status: "source-ready-awaiting-live-aws-ecs-receipts"
 
   honua-iac:
