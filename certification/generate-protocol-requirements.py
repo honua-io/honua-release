@@ -66,12 +66,13 @@ def main() -> None:
             entitlement_policy: str | None = None,
             facets: list[str] | None = None, fixture: str = FIXTURE,
             required_tier: str = "nightly", addressable: bool = True,
-            addressability_reason: str | None = None) -> None:
+            addressability_reason: str | None = None,
+            test_ids: list[str] | None = None) -> None:
         key = (surface, operation, client, version, target)
         if key in seen:
             return
         seen.add(key)
-        requirements.append({
+        row = {
             "capability_key": capability,
             "surface": surface,
             "operation": operation,
@@ -90,7 +91,10 @@ def main() -> None:
             "auth_policy_revision": auth_policy,
             "fixture_revision": fixture,
             "budget_expectations": None,
-        })
+        }
+        if test_ids is not None:
+            row["test_ids"] = test_ids
+        requirements.append(row)
 
     sdk_sources = [
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
@@ -275,6 +279,7 @@ def main() -> None:
             fixture=f"server-test-fixtures@{harness_source_sha}",
             facets=assignment["scenario_facets"],
             required_tier=protocol_harness["required_tier"],
+            test_ids=assignment["test_ids"],
         )
 
     sdk_protocols = load(SOURCES / "official-sdk-protocol-assignments.v1.json")

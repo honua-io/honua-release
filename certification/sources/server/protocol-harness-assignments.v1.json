@@ -10,14 +10,14 @@
   "assignments": [
     {
       "capability_key": "ai.grounding",
-      "surface": "grounding",
+      "surface": "spec-grounding",
       "operation": "POST /v1/grounding/spec/mutate",
       "test_ids": ["SpecGroundingEndpointTests.Mutate_EmptySpecUseDataset_ReturnsValidatedMutationPlan"],
       "scenario_facets": ["positive"]
     },
     {
       "capability_key": "alerts.evaluation",
-      "surface": "admin-alerts",
+      "surface": "control-plane-admin",
       "operation": "POST /api/v1/admin/alerts/rules/test",
       "test_ids": ["AlertAdminEndpointsTests.TestRule_WithDraftZoneAndDisabledRule_ReturnsValidationStatesWithoutPersisting"],
       "scenario_facets": ["positive"]
@@ -87,14 +87,14 @@
     },
     {
       "capability_key": "analytics.line-of-sight",
-      "surface": "elevation-analysis",
+      "surface": "elevation-query-profile",
       "operation": "POST /elevation/{datasetId}/line-of-sight",
       "test_ids": ["VisibilityAnalysisEndpointTests.PostLineOfSight_WithCoveredFlatTerrain_ReportsVisible"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "analytics.slice",
-      "surface": "elevation-analysis",
+      "surface": "elevation-query-profile",
       "operation": "POST /elevation/{datasetId}/slice",
       "test_ids": ["SceneAnalysisEndpointTests.PostSlice_OverSurface_ReturnsIntersectionMetadata"],
       "scenario_facets": ["positive", "media-schema"]
@@ -108,21 +108,21 @@
     },
     {
       "capability_key": "analytics.sun-shadow",
-      "surface": "elevation-analysis",
+      "surface": "elevation-query-profile",
       "operation": "POST /elevation/{datasetId}/sun-shadow",
       "test_ids": ["SceneAnalysisEndpointTests.PostSunShadow_DaytimeSun_CastsShadowOverSurface"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "analytics.viewshed",
-      "surface": "elevation-analysis",
+      "surface": "elevation-query-profile",
       "operation": "POST /elevation/{datasetId}/viewshed",
       "test_ids": ["VisibilityAnalysisEndpointTests.PostViewshed_WithCoveredFlatTerrain_ReturnsVisibleSamples"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "import.file",
-      "surface": "admin-import",
+      "surface": "control-plane-admin",
       "operation": "POST /api/v1/admin/import/upload",
       "test_ids": ["ImportEndpointTests.ImportFile_V1_WithValidRequest_ReturnsImportResult"],
       "scenario_facets": ["positive", "media-schema"]
@@ -187,26 +187,27 @@
       "capability_key": "serve.ogc-api-edr",
       "surface": "ogc-api-edr",
       "operation": "GET /edr/collections/{collectionId}/cube",
-      "test_ids": ["EdrEndpointsTests.Edr_MetadataEndpoints_ExposeCollectionsWithPositionAndCubeQueries"],
+      "test_ids": ["EdrEndpointsTests.Edr_Cube_ReturnsCoverageJsonGridSubset"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "serve.sensorthings",
-      "surface": "sensorthings",
+      "surface": "sensorthings-1.1",
       "operation": "GET /sta/v1.1/Things",
       "test_ids": ["SensorThingsReadEndpointsTests.Things_ReturnsConformanceShapedCollection"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "serve.sensorthings",
-      "surface": "sensorthings",
+      "surface": "sensorthings-1.1",
       "operation": "POST /sta/v1.1/Observations",
       "test_ids": ["SensorThingsIngestEndpointsTests.PostObservation_SingleIntoSeededDatastream_PersistsAndIsReadable"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
       "capability_key": "styling.auto-suggest",
-      "surface": "admin-styling",
+      "catalog_capability_key": "admin.control-plane",
+      "surface": "control-plane-admin",
       "operation": "POST /api/v1/admin/metadata/layers/{layerId}/suggest-style",
       "test_ids": ["StyleSuggestionEndpointsTests.SuggestStyle_ReturnsStyleSuggestion"],
       "scenario_facets": ["positive", "media-schema"]
@@ -220,6 +221,7 @@
     },
     {
       "capability_key": "temporal.filtering",
+      "catalog_capability_key": "serve.geoservices-featureserver",
       "surface": "feature-server",
       "operation": "GET /rest/services/{serviceId}/FeatureServer/{layerId}/query?time={time}",
       "test_ids": ["FeatureServerTemporalTests.GeoServicesQuery_SingleTimeInstant_UnixTimestamp_ReturnsMatchingFeatures"],
