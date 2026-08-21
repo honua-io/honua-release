@@ -9,6 +9,7 @@ cannot turn a release gate into a false pass.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -154,6 +155,45 @@ def _receipt_digest(value: object) -> str | None:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+RECEIPT_ID_FIELDS = (
+    "capability_key", "surface", "operation", "canonical_client", "client_version",
+    "deployment_target", "source_sha", "producer_source_sha", "image_digest",
+    "fixture_revision", "contract_revision", "auth_policy_revision", "started_at", "completed_at",
+)
+
+
+def _valid_receipt(cell: dict) -> bool:
+    receipt = cell.get("evidence_receipt")
+    facet_results = cell.get("facet_results")
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "schema", "identity", "result", "facets", "payload_base64",
+    } or not isinstance(facet_results, dict):
+        return False
+    identity = receipt.get("identity")
+    facets = receipt.get("facets")
+    if (
+        receipt.get("schema") != "honua.certification-evidence-receipt/v1"
+        or not isinstance(identity, dict)
+        or set(identity) != set(RECEIPT_ID_FIELDS)
+        or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or receipt.get("result") != cell.get("result")
+        or not isinstance(facets, dict)
+        or set(facets) != set(cell.get("scenario_facets", []))
+        or any(
+            not isinstance(facet_results.get(facet), dict)
+            or facets[facet] != facet_results[facet].get("result")
+            for facet in facets
+        )
+        or not isinstance(receipt.get("payload_base64"), str)
+    ):
+        return False
+    try:
+        base64.b64decode(receipt["payload_base64"], validate=True)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 def evaluate(
     ledger: dict | None,
     tier: str,
@@ -163,6 +203,7 @@ def evaluate(
     expected_cut_at: str | datetime | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
+    receipt_root: Path | None = None,
 ) -> dict:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     findings: list[dict[str, str]] = []
@@ -348,8 +389,16 @@ def evaluate(
                 fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
             elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
                 fail(prefix, "passing cell requires every scenario facet to pass")
-            if _receipt_digest(evidence_receipt) != evidence_digest:
+            if not _valid_receipt(raw):
+                fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
+            elif _receipt_digest(evidence_receipt) != evidence_digest:
                 fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
+            elif receipt_root is not None:
+                receipt_path = receipt_root / evidence_digest[7:]
+                if not receipt_path.is_file():
+                    fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
+                elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
+                    fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
 
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":
@@ -575,6 +624,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_image_digest=args.expected_image_digest,
         expected_cut_at=args.expected_cut_at,
         now=now,
+        receipt_root=Path(args.matrix).resolve().parent / "sha256",
     )
     if load_error:
         report["findings"].insert(0, {"check": "ledger", "status": "fail", "why": load_error})
