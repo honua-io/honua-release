@@ -28,6 +28,9 @@ def main() -> None:
     sdk_protocols = json.loads(
         (ROOT / "sources" / "official-sdk-protocol-assignments.v1.json").read_text(encoding="utf-8")
     )
+    protocol_harness = json.loads(
+        (ROOT / "sources" / "server" / "protocol-harness-assignments.v1.json").read_text(encoding="utf-8")
+    )
     applicability = json.loads(
         (ROOT / "sources" / "canonical-client-applicability.v1.json").read_text(encoding="utf-8")
     )
@@ -116,6 +119,88 @@ def main() -> None:
             "Protocol certification denominator is missing governed canonical-client assignments: "
             f"{sorted(missing_assignments)}"
         )
+    harness_source_sha = revisions["server-certification"]["commit"]
+    harness_contract = (
+        f"server-protocol-harness@{protocol_harness['revision']}+{harness_source_sha}"
+    )
+    harness_assignments = protocol_harness["assignments"]
+    harness_keys = [
+        (assignment["capability_key"], assignment["surface"], assignment["operation"])
+        for assignment in harness_assignments
+    ]
+    if len(harness_keys) != len(set(harness_keys)):
+        raise ValueError("Server protocol harness contains duplicate operation assignments.")
+    if any(
+        not assignment.get("test_ids")
+        or len(assignment["test_ids"]) != len(set(assignment["test_ids"]))
+        for assignment in harness_assignments
+    ):
+        raise ValueError("Every server protocol harness operation requires unique executable test IDs.")
+    def sdk_has_entrypoints(capability_key: str) -> bool:
+        for client in sdk_protocols["clients"]:
+            source_name = client["source"]
+            snapshot = json.loads(
+                (ROOT / "sources" / source_name / "sdk-coverage.v1.json").read_text(encoding="utf-8")
+            )
+            collection = snapshot.get("coverage", []) if source_name == "sdk-dotnet" else snapshot.get("capabilities", [])
+            coverage = next(
+                (
+                    row for row in collection
+                    if row.get("key") == capability_key and row.get("status") in SUPPORTED
+                ),
+                None,
+            )
+            if coverage and coverage.get("entrypoints"):
+                return True
+        return False
+
+    governed_official_capabilities = set(sdk_protocols["capabilities"]) | {
+        decision["capability_key"]
+        for decision in applicability["decisions"]
+        if decision["classification"] == "official-sdk-required"
+    }
+    expected_harness_capabilities = {
+        capability
+        for capability in governed_official_capabilities
+        if not sdk_has_entrypoints(capability)
+    }
+    actual_harness_capabilities = {
+        assignment["capability_key"] for assignment in harness_assignments
+    }
+    if actual_harness_capabilities != expected_harness_capabilities:
+        raise ValueError(
+            "Server protocol harness assignments differ from the operation-contract gaps "
+            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)}, "
+            f"unexpected={sorted(actual_harness_capabilities - expected_harness_capabilities)})"
+        )
+    expected_harness_rows = {
+        (
+            assignment["capability_key"], assignment["surface"], assignment["operation"],
+            protocol_harness["canonical_client"], protocol_harness["client_lane"],
+            f"source@{harness_source_sha}", protocol_harness["deployment_target"],
+            protocol_harness["required_tier"], tuple(assignment["scenario_facets"]),
+            harness_contract, protocol_harness["auth_policy_revision"],
+            f"server-test-fixtures@{harness_source_sha}",
+        )
+        for assignment in harness_assignments
+    }
+    present_harness_rows = {
+        (
+            row["capability_key"], row["surface"], row["operation"],
+            row["canonical_client"], row["client_lane"], row["client_version"],
+            row["deployment_target"], row["required_tier"], tuple(row["scenario_facets"]),
+            row["contract_revision"], row["auth_policy_revision"], row["fixture_revision"],
+        )
+        for row in catalog["requirements"]
+        if row["contract_revision"] == harness_contract
+    }
+    if present_harness_rows != expected_harness_rows:
+        raise ValueError(
+            "Protocol certification denominator differs from the governed server harness contract "
+            f"(missing={sorted(expected_harness_rows - present_harness_rows)}, "
+            f"unexpected={sorted(present_harness_rows - expected_harness_rows)})"
+        )
+
     expected_sdk_protocols = set(sdk_protocols["capabilities"])
     sdk_client_names = {client["name"] for client in sdk_protocols["clients"]}
     present_sdk_protocols = {
@@ -123,6 +208,7 @@ def main() -> None:
         for row in catalog["requirements"]
         if (
             row["canonical_client"] in sdk_client_names
+            or row["contract_revision"] == harness_contract
             or str(row["operation"]).startswith("UNASSIGNED PROTOCOL HARNESS CONTRACT:")
         )
     }
@@ -253,25 +339,28 @@ def main() -> None:
                         })
                         capability_row_count += 1
             if capability_row_count == 0:
-                expected_decision_rows.append({
-                    "capability_key": capability_key,
-                    "surface": slug(capability_key),
-                    "operation": f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
-                    "canonical_client": "UNASSIGNED PROTOCOL HARNESS",
-                    "client_lane": f"protocol-harness-gap-{slug(capability_key)}",
-                    "client_version": "policy-v1",
-                    "deployment_target": "local-docker",
-                    "required_tier": "nightly",
-                    "licensed": False,
-                    "entitlement_policy_revision": None,
-                    "addressable_by_client": True,
-                    "addressability_reason": None,
-                    "scenario_facets": ["positive"],
-                    "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
-                    "auth_policy_revision": "unassigned-protocol-harness-v1",
-                    "fixture_revision": FIXTURE,
-                    "budget_expectations": None,
-                })
+                for assignment in harness_assignments:
+                    if assignment["capability_key"] != capability_key:
+                        continue
+                    expected_decision_rows.append({
+                        "capability_key": capability_key,
+                        "surface": assignment["surface"],
+                        "operation": assignment["operation"],
+                        "canonical_client": protocol_harness["canonical_client"],
+                        "client_lane": protocol_harness["client_lane"],
+                        "client_version": f"source@{harness_source_sha}",
+                        "deployment_target": protocol_harness["deployment_target"],
+                        "required_tier": protocol_harness["required_tier"],
+                        "licensed": False,
+                        "entitlement_policy_revision": None,
+                        "addressable_by_client": True,
+                        "addressability_reason": None,
+                        "scenario_facets": assignment["scenario_facets"],
+                        "contract_revision": harness_contract,
+                        "auth_policy_revision": protocol_harness["auth_policy_revision"],
+                        "fixture_revision": f"server-test-fixtures@{harness_source_sha}",
+                        "budget_expectations": None,
+                    })
             continue
         elif classification == "canonical-external-required":
             client_ids = decision.get("clients", [])
@@ -346,6 +435,7 @@ def main() -> None:
         and (
             row["contract_revision"]
             == f"canonical-client-applicability@{applicability['revision']}"
+            or row["contract_revision"] == harness_contract
             or (
                 row["capability_key"] in official_capabilities
                 and row["canonical_client"] in sdk_client_names
