@@ -1,0 +1,19 @@
+{
+  "schema": "honua.sdk-python-protocol-certification/v1",
+  "sourceRepository": "honua-io/honua-sdk-python",
+  "canonicalClient": "Honua SDK Python",
+  "clientVersion": "0.1.11",
+  "fixtureRevision": "geospatial-grpc@0.2.0-alpha.1",
+  "operations": [
+    {"capability_key": "serve.geoservices-root", "surface": "geoservices-root", "operation": "list-services", "scenario_facets": ["positive", "metadata"]},
+    {"capability_key": "serve.geoservices-featureserver", "surface": "geoservices-featureserver", "operation": "layer-metadata", "scenario_facets": ["positive", "metadata"]},
+    {"capability_key": "serve.geoservices-featureserver", "surface": "geoservices-featureserver", "operation": "query", "scenario_facets": ["positive", "pagination"]},
+    {"capability_key": "serve.geoservices-featureserver", "surface": "geoservices-featureserver", "operation": "query-invalid", "scenario_facets": ["negative", "media-schema"]},
+    {"capability_key": "serve.geoservices-featureserver", "surface": "geoservices-featureserver", "operation": "query-json-fields", "scenario_facets": ["positive", "media-schema"]},
+    {"capability_key": "editing.featureserver-edits", "surface": "geoservices-featureserver", "operation": "sync-capability", "scenario_facets": ["positive", "metadata"]},
+    {"capability_key": "serve.geoservices-featureserver", "surface": "geoservices-featureserver", "operation": "temporal-query", "scenario_facets": ["positive", "boundary"]},
+    {"capability_key": "serve.ogc-api-features", "surface": "ogc-api-features", "operation": "items", "scenario_facets": ["positive", "pagination"]},
+    {"capability_key": "serve.ogc-api-features", "surface": "ogc-api-features", "operation": "items-json-fields", "scenario_facets": ["positive", "media-schema"]},
+    {"capability_key": "process.ogc-api-processes", "surface": "ogc-api-processes", "operation": "list-processes", "scenario_facets": ["positive", "metadata"]}
+  ]
+}

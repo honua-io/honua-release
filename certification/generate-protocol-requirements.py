@@ -32,7 +32,8 @@ def main() -> None:
 
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
             version: str, contract: str, target: str = "local-docker", licensed: bool = False,
-            facets: list[str] | None = None, fixture: str = FIXTURE) -> None:
+            facets: list[str] | None = None, fixture: str = FIXTURE,
+            required_tier: str = "nightly") -> None:
         key = (surface, operation, client, version, target)
         if key in seen:
             return
@@ -46,7 +47,7 @@ def main() -> None:
             "client_lane": lane,
             "client_version": version,
             "deployment_target": target,
-            "required_tier": "nightly",
+            "required_tier": required_tier,
             "licensed": licensed,
             "addressable_by_client": True,
             "addressability_reason": None,
@@ -57,11 +58,11 @@ def main() -> None:
         })
 
     sdk_sources = [
-        ("sdk-dotnet", "coverage", "Honua SDK .NET", f"source-preview@{revisions['sdk-dotnet']['commit']}", "sdk-dotnet"),
-        ("sdk-python", "capabilities", "Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python"),
-        ("sdk-js", "capabilities", "Honua SDK JavaScript", "0.1.7-beta.0", "sdk-js"),
+        ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
+        ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
+        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", "0.1.0-alpha.3"),
     ]
-    for source_name, collection, client, version, surface in sdk_sources:
+    for source_name, collection, client, version, surface, fixture in sdk_sources:
         snapshot = load(SOURCES / source_name / "sdk-coverage.v1.json")
         for capability in snapshot[collection]:
             if capability.get("status") not in SUPPORTED:
@@ -71,8 +72,39 @@ def main() -> None:
                     capability=capability["key"], surface=surface, operation=entrypoint,
                     client=client, lane=surface, version=version,
                     contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
-                    facets=["positive", "media-schema"],
+                    facets=["positive", "media-schema"], fixture=fixture,
                 )
+
+    for source_name in ("sdk-python", "sdk-js"):
+        contract = load(SOURCES / source_name / "protocol-certification.v1.json")
+        for operation in contract["operations"]:
+            add(
+                capability=operation["capability_key"], surface=operation["surface"],
+                operation=operation["operation"], client=contract["canonicalClient"],
+                lane=f"{source_name}-certification", version=contract["clientVersion"],
+                contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
+                fixture=contract["fixtureRevision"], facets=operation["scenario_facets"],
+            )
+
+    dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
+    tier_order = ("pr", "nightly", "release")
+    for operation in dotnet["operations"]:
+        required_tier = next(
+            (tier for tier in tier_order if tier in operation["requiredTiers"]), None
+        )
+        if operation["status"] == "non-addressable" or required_tier is None:
+            continue
+        facets = list(dict.fromkeys(
+            "positive" if facet in {"read-only", "mutation"} else facet
+            for facet in operation["scenarioFacets"]
+        ))
+        add(
+            capability=f"sdk-dotnet.{operation['surface']}", surface=operation["surface"],
+            operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
+            version="1.6.0", contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
+            fixture="sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
+            facets=facets, required_tier=required_tier,
+        )
 
     grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
     grpc_fixture = f"geospatial-grpc-conformance@{grpc['fixture_version']}+{grpc['source_sha']}"
@@ -187,12 +219,14 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.2",
+        "revision": "2026-08-21-complete.3",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
             "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
-            "clients, and official MCP SDK/Inspector operations. "
+            "clients, official MCP SDK/Inspector operations, and executable operation contracts for all three Honua SDKs. "
+            "The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions "
+            "remain documented in its pinned source contract and excluded from client certification. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
         "source_revisions": revisions,
