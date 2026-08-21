@@ -169,7 +169,46 @@
             "metadata_values": { "type": "object" }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
+          "then": {
+            "properties": {
+              "entitlement_policy_revision": { "type": "string" },
+              "evidence_receipt": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "required": ["entitlement"],
+                    "properties": {
+                      "identity": { "required": ["entitlement_policy_revision"] }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "entitlement_policy_revision": { "type": "null" },
+              "evidence_receipt": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "not": { "required": ["entitlement"] },
+                    "properties": {
+                      "identity": { "not": { "required": ["entitlement_policy_revision"] } }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

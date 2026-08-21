@@ -75,7 +75,14 @@
               "expected_metadata": { "type": "object", "minProperties": 1 }
             }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
+            "then": { "properties": { "entitlement_policy_revision": { "type": "string" } } },
+            "else": { "properties": { "entitlement_policy_revision": { "type": "null" } } }
+          }
+        ]
       }
     }
   }

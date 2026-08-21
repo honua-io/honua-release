@@ -623,6 +623,8 @@ def evaluate(
             elif entitlement_policy == "esri-arcgis-pro-arcpy-v1":
                 if raw.get("deployment_target") != "windows-licensed":
                     fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
+                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
+                    fail(prefix, "ArcPy evidence must execute the governed anonymous-and-protected auth policy")
             else:
                 fail(prefix, "licensed evidence must bind a governed entitlement policy")
         elif raw.get("entitlement_policy_revision") is not None:
