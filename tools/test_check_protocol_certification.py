@@ -17,10 +17,6 @@ CUT = "2026-08-20T09:00:00Z"
 
 
 def _cell(**overrides):
-    receipt = {"format": "test-receipt/v1", "assertions": ["positive", "metadata", "range-efficiency"]}
-    receipt_digest = "sha256:" + hashlib.sha256(
-        json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
     value = {
         "capability_key": "serve.cog",
         "surface": "cog",
@@ -43,9 +39,9 @@ def _cell(**overrides):
         "producer_source_sha": SHA,
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
-        "evidence_uri": "https://evidence.honua.io/data/sha256/" + receipt_digest[7:],
-        "evidence_digest": receipt_digest,
-        "evidence_receipt": receipt,
+        "evidence_uri": None,
+        "evidence_digest": None,
+        "evidence_receipt": None,
         "facet_results": None,
         "started_at": "2026-08-20T10:00:00Z",
         "completed_at": "2026-08-20T10:05:00Z",
@@ -53,6 +49,20 @@ def _cell(**overrides):
         "budget_observations": None,
     }
     value.update(overrides)
+    if "evidence_receipt" not in overrides:
+        value["evidence_receipt"] = {
+            "schema": "honua.certification-evidence-receipt/v1",
+            "identity": {
+                field: value[field] for field in cert.RECEIPT_ID_FIELDS
+            },
+            "result": value["result"],
+            "facets": {facet: "pass" for facet in value["scenario_facets"]},
+            "payload_base64": "dGVzdA==",
+        }
+    if "evidence_digest" not in overrides:
+        value["evidence_digest"] = cert._receipt_digest(value["evidence_receipt"])
+    if "evidence_uri" not in overrides:
+        value["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + value["evidence_digest"][7:]
     if "facet_results" not in overrides:
         value["facet_results"] = {
             facet: {"result": "pass", "evidence_digest": value["evidence_digest"]}
@@ -220,6 +230,13 @@ def test_pass_requires_digest_bound_results_for_every_facet_and_trusted_uri():
     for cell in (missing_facet, untrusted, wrong_digest, failed_facet):
         report = _evaluate(_ledger(cell), "nightly", now=NOW)
         assert report["overall_status"] == "fail"
+
+
+def test_pass_rejects_digest_valid_but_semantically_empty_receipt():
+    cell = _cell(evidence_receipt={})
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
 
 def test_duplicate_normalized_key_fails():
