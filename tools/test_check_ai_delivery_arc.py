@@ -126,8 +126,21 @@ def plan() -> dict:
         {"variable": "directAnalysisResultJobId", "pointers": ["/jobId"], "equals": "${directAnalysisJobId}"},
         {"variable": "bufferArtifactId", "pointers": ["/artifactId"]},
     ]
-    by_id["add-buffer-layer"]["arguments"] = {"sourceId": "honua://artifacts/${bufferArtifactId}"}
-    by_id["create-draft"]["captures"] = [{"variable": "draftId", "pointers": ["/draftId"]}]
+    by_id["add-map-buffer-layer"]["arguments"] = {"sourceId": "honua://artifacts/${bufferArtifactId}"}
+    for family in ("map", "app", "dashboard"):
+        by_id[f"create-{family}-draft"]["captures"] = [
+            {"variable": f"{family}DraftId", "pointers": ["/draftId"]},
+            {"variable": f"{family}ItemId", "pointers": ["/itemId"]},
+            {"variable": f"{family}Generation", "pointers": ["/generation"]},
+        ]
+        by_id[f"save-{family}-version"]["captures"] = [
+            {"variable": f"{family}VersionId", "pointers": ["/versionId"]},
+            {"variable": f"{family}ContentHash", "pointers": ["/contentHash"]},
+        ]
+        by_id[f"reopen-{family}-version"]["captures"] = [
+            {"variable": f"{family}ReopenedDraftId", "pointers": ["/draftId"]},
+            {"variable": f"{family}ReopenedBaseVersionId", "pointers": ["/baseVersionId"]},
+        ]
     by_id["propose-publication"]["captures"] = [
         {"variable": "proposalGeneration", "pointers": ["/generation"]}
     ]
@@ -236,14 +249,14 @@ def test_aws_target_cannot_claim_checks_its_journey_receipt_omits():
 def test_removing_studio_composition_action_fails_ordered_inventory():
     candidate = plan()
     studio = next(stage for stage in candidate["stages"] if stage["id"] == "studio")
-    studio["actions"] = [action for action in studio["actions"] if action["id"] != "add-chart"]
+    studio["actions"] = [action for action in studio["actions"] if action["id"] != "add-app-chart"]
 
     findings = gate.validate_contract(
         manifest(), CONTRACT, candidate, sdk_head="b" * 40, sdk_admin_source=sdk_source()
     )
 
     assert findings.status == "fail"
-    assert any("stage studio actions" in error and "add-chart" in error for error in findings.errors)
+    assert any("stage studio actions" in error and "add-app-chart" in error for error in findings.errors)
 
 
 def test_stale_395_operation_release_inventory_blocks_without_lying():

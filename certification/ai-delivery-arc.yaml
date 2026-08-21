@@ -95,17 +95,31 @@ journey:
         - { id: read-direct-buffer-results, kind: mcp-resource }
     - id: studio
       requiredActions:
-        - { id: create-draft, kind: mcp, tool: honua_studio_create_draft }
-        - { id: add-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
-        - { id: add-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
-        - { id: style-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
-        - { id: set-buffer-visibility, kind: mcp, tool: honua_studio_set_layer_visibility }
-        - { id: set-view, kind: mcp, tool: honua_studio_set_view }
-        - { id: add-chart, kind: mcp, tool: honua_studio_add_widget }
-        - { id: add-layer-control, kind: mcp, tool: honua_studio_add_control }
-        - { id: bind-chart-interaction, kind: mcp, tool: honua_studio_bind_interaction }
-        - { id: validate-draft, kind: mcp, tool: honua_studio_validate_draft }
-        - { id: reopen-draft, kind: mcp, tool: honua_studio_get_draft }
+        - { id: create-map-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-map-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-map-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-map-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-map-buffer-visibility, kind: mcp, tool: honua_studio_set_layer_visibility }
+        - { id: set-map-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: validate-map-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-map-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-map-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-map-version, kind: mcp, tool: honua_studio_reopen_version }
+        - { id: create-app-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-app-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-app-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-app-chart, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-app-layer-control, kind: mcp, tool: honua_studio_add_control }
+        - { id: bind-app-chart-interaction, kind: mcp, tool: honua_studio_bind_interaction }
+        - { id: validate-app-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-app-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-app-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-app-version, kind: mcp, tool: honua_studio_reopen_version }
+        - { id: create-dashboard-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: validate-dashboard-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-dashboard-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-dashboard-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-dashboard-version, kind: mcp, tool: honua_studio_reopen_version }
     - id: proposal
       requiredActions:
         - { id: propose-publication, kind: mcp, tool: honua_studio_propose_publication }
@@ -130,7 +144,7 @@ joins:
   directGpArtifact:
     producerAction: read-direct-buffer-results
     capture: bufferArtifactId
-    consumerAction: add-buffer-layer
+    consumerAction: add-map-buffer-layer
     template: "${bufferArtifactId}"
   esriGpJob:
     producerAction: buffer-esri-mcp
@@ -162,7 +176,7 @@ joins:
     matches:
       /journeyId: "${journeyId}"
       /releaseContract: "${releaseContract}"
-      /proposal/draftId: "${draftId}"
+      /proposal/draftId: "${appReopenedDraftId}"
       /proposal/generation: "${proposalGeneration}"
       /proposal/route: "${route}"
       /resources/connectionId: "${connectionId}"
@@ -175,7 +189,21 @@ joins:
       /resources/gp/resultPackageId: "${esriMcpResultPackageId}"
       /resources/gp/artifactId: "${esriMcpArtifactId}"
       /resources/artifactId: "${bufferArtifactId}"
-      /resources/draftId: "${draftId}"
+      /resources/studio/map/draftId: "${mapDraftId}"
+      /resources/studio/map/itemId: "${mapItemId}"
+      /resources/studio/map/versionId: "${mapVersionId}"
+      /resources/studio/map/contentHash: "${mapContentHash}"
+      /resources/studio/map/reopenedDraftId: "${mapReopenedDraftId}"
+      /resources/studio/app/draftId: "${appDraftId}"
+      /resources/studio/app/itemId: "${appItemId}"
+      /resources/studio/app/versionId: "${appVersionId}"
+      /resources/studio/app/contentHash: "${appContentHash}"
+      /resources/studio/app/reopenedDraftId: "${appReopenedDraftId}"
+      /resources/studio/dashboard/draftId: "${dashboardDraftId}"
+      /resources/studio/dashboard/itemId: "${dashboardItemId}"
+      /resources/studio/dashboard/versionId: "${dashboardVersionId}"
+      /resources/studio/dashboard/contentHash: "${dashboardContentHash}"
+      /resources/studio/dashboard/reopenedDraftId: "${dashboardReopenedDraftId}"
     requiredPointers:
       - /candidate/candidateId
       - /candidate/releaseId
@@ -189,7 +217,7 @@ joins:
       - /shareUrl
     equalPointers:
       - [ /proposal/executionOperationId, /audit/operationId ]
-      - [ /proposal/draftId, /resources/draftId ]
+      - [ /proposal/draftId, /resources/studio/app/reopenedDraftId ]
       - [ /resources/jobs/esriMcp, /resources/gp/jobId ]
   consoleArtifact:
     producerAction: console-approval

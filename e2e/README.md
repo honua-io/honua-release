@@ -56,6 +56,10 @@ plan and emits an explicitly blocked SDK receipt; live mode requires the
 candidate's Console receipt and joins it to the manifest digest. The release
 checker additionally requires both AI execution of the Esri-compatible GP task
 and native direct analysis, plus the Studio/Console/final-URL receipt joins.
+The Studio section is three distinct lifecycle families: map, app, and
+dashboard. Each must save an immutable version, read that exact item/version
+pair, and reopen it as a new draft through the server MCP lifecycle tools;
+reading the original mutable draft does not count as reopen evidence.
 
 `certification/ai-delivery-arc.yaml` names two certifying targets. Local Docker
 must carry the candidate-pinned SDK journey. AWS ECS must supply both the
@@ -75,6 +79,11 @@ plain-HTTP receipts cannot certify publication.
 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
 E2E_REQUIRE_REAL=1 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
 ```
+
+A strict live invocation also requires `E2E_AI_AWS_RECEIPT` for the ECS
+Terraform/readiness/handoff run and `E2E_AI_AWS_ARC_RECEIPT` for the separate
+full journey executed against that still-live ECS endpoint. The second input is
+not inferred from a successful apply and is not optional.
 
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
@@ -123,9 +132,15 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 `teardown()` + a backstop reaper (sweeping every example root) always run.
 
 The parity workflow does not yet produce `aws-ecs-ai-delivery-arc`; its current
-extended MCP/Studio/GP coverage is explicitly blocked. Until the provisioned ECS
-endpoint is driven by the manifest-pinned SDK journey while the environment is
-still live, a strict 2026.1 train must remain red.
+extended MCP/Studio/GP coverage is explicitly blocked. `honua-devops#149`
+produces a secretless `honua.mcp-proxy.handoff/v1` file after its Terraform
+apply, but that handoff is client configuration rather than a candidate-bound
+release receipt and the SDK journey's install stage is currently Docker-only.
+Replaying Terraform in this repository would duplicate provisioning and is not
+an acceptable workaround. The remaining producer must reuse the devops handoff,
+run stages 2-7 against its ECS MCP URL before devops teardown, and bind that live
+receipt to the provision receipt and exact manifest. Until then, a strict
+2026.1 train must remain red.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

@@ -56,8 +56,9 @@ third-party semver lib).
 
 Consumes the manifest-pinned `honua-sdk-js` zero-to-map plan/receipt and checks
 the 396-operation Admin API boundary, 119-tool semantic MCP family, focused
-Console boundary, dual native + Esri-compatible AI GP execution, Studio artifact
-use, proposal checkpoint, candidate identity, and final URL. Local Docker and
+Console boundary, dual native + Esri-compatible AI GP execution, and distinct
+map/app/dashboard Studio immutable save/read/reopen identities before the
+proposal checkpoint, candidate identity, and final URL. Local Docker and
 AWS ECS are both required full-arc targets. External receipts must carry explicit
 target/check claims, and every passed SDK action must retain kind-appropriate
 execution evidence plus its planned identity captures. The final artifact must

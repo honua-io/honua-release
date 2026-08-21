@@ -18,6 +18,11 @@ OUT_DIR = Path(os.environ.get("E2E_OUT", str(REPO_ROOT / "e2e" / "out")))
 SDK_ROOT = Path(os.environ.get("E2E_SDK_JS_DIR", str(REPO_ROOT / "_sdk-js")))
 SDK_RECEIPT = OUT_DIR / "sdk-zero-to-map-receipt.json"
 RELEASE_RECEIPT = OUT_DIR / "ai-delivery-arc-receipt.json"
+EXTERNAL_RECEIPT_ENV = (
+    ("aws-ecs-provision", "E2E_AI_AWS_RECEIPT"),
+    ("aws-ecs-ai-delivery-arc", "E2E_AI_AWS_ARC_RECEIPT"),
+    ("studio-real-model", "E2E_AI_STUDIO_MODEL_RECEIPT"),
+)
 
 
 def truthy(name: str) -> bool:
@@ -41,10 +46,7 @@ def checker(*, mode: str, include_receipt: bool, require_real: bool) -> int:
     ]
     if include_receipt:
         command.extend(("--sdk-receipt", str(SDK_RECEIPT)))
-        for receipt_id, env_name in (
-            ("aws-ecs-provision", "E2E_AI_AWS_RECEIPT"),
-            ("studio-real-model", "E2E_AI_STUDIO_MODEL_RECEIPT"),
-        ):
+        for receipt_id, env_name in EXTERNAL_RECEIPT_ENV:
             if os.environ.get(env_name):
                 command.extend(("--external-receipt", f"{receipt_id}={os.environ[env_name]}"))
     if require_real:
@@ -95,8 +97,7 @@ def main() -> int:
             "E2E_AI_FIXTURE_BASE_URL": os.environ.get("E2E_AI_FIXTURE_BASE_URL"),
             "E2E_AI_DB_PASSWORD": os.environ.get("E2E_AI_DB_PASSWORD"),
             "E2E_AI_CONSOLE_RECEIPT": os.environ.get("E2E_AI_CONSOLE_RECEIPT"),
-            "E2E_AI_AWS_RECEIPT": os.environ.get("E2E_AI_AWS_RECEIPT"),
-            "E2E_AI_STUDIO_MODEL_RECEIPT": os.environ.get("E2E_AI_STUDIO_MODEL_RECEIPT"),
+            **{env_name: os.environ.get(env_name) for _, env_name in EXTERNAL_RECEIPT_ENV},
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
