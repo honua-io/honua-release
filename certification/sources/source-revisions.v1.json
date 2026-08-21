@@ -7,7 +7,7 @@
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "c0e462b914230dfe31c3c2191d74b23653cc7a19"
+      "commit": "9a771d9c224f5b6bea233c203a522655d32c38b6"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
