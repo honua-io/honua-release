@@ -9,6 +9,7 @@ cannot turn a release gate into a false pass.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -32,7 +33,7 @@ CELL_FIELDS = {
     "addressable_by_client", "addressability_reason", "result", "skip_reason",
     "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
     "producer_source_sha",
-    "image_digest", "fixture_revision", "evidence_uri", "evidence_digest", "facet_results",
+    "image_digest", "fixture_revision", "evidence_uri", "evidence_digest", "evidence_receipt", "facet_results",
     "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
@@ -144,6 +145,13 @@ def _valid_evidence_uri(value: object, evidence_digest: object) -> bool:
         and match is not None
         and evidence_digest == f"sha256:{match.group(1)}"
     )
+
+
+def _receipt_digest(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def evaluate(
@@ -315,6 +323,7 @@ def evaluate(
             fail(prefix, f"unknown scenario facets: {', '.join(unknown)}")
 
         evidence_digest = raw["evidence_digest"]
+        evidence_receipt = raw["evidence_receipt"]
         facet_results = raw["facet_results"]
         if evidence_digest is not None and (
             not isinstance(evidence_digest, str) or not DIGEST_RE.fullmatch(evidence_digest)
@@ -339,6 +348,8 @@ def evaluate(
                 fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
             elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
                 fail(prefix, "passing cell requires every scenario facet to pass")
+            if _receipt_digest(evidence_receipt) != evidence_digest:
+                fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
 
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":

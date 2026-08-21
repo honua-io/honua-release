@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -16,6 +17,10 @@ CUT = "2026-08-20T09:00:00Z"
 
 
 def _cell(**overrides):
+    receipt = {"format": "test-receipt/v1", "assertions": ["positive", "metadata", "range-efficiency"]}
+    receipt_digest = "sha256:" + hashlib.sha256(
+        json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     value = {
         "capability_key": "serve.cog",
         "surface": "cog",
@@ -38,8 +43,9 @@ def _cell(**overrides):
         "producer_source_sha": SHA,
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
-        "evidence_uri": "https://evidence.honua.io/data/sha256/" + "e" * 64,
-        "evidence_digest": "sha256:" + "e" * 64,
+        "evidence_uri": "https://evidence.honua.io/data/sha256/" + receipt_digest[7:],
+        "evidence_digest": receipt_digest,
+        "evidence_receipt": receipt,
         "facet_results": None,
         "started_at": "2026-08-20T10:00:00Z",
         "completed_at": "2026-08-20T10:05:00Z",
