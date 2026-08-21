@@ -18,7 +18,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "dec59262553a90393e9be1f613c5c8fe86fc4fea"
+      "commit": "12980a1b39584a7353786ec1d41d328a2319cddb"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
@@ -143,7 +143,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -165,7 +165,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -187,7 +187,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -209,7 +209,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -231,7 +231,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -253,7 +253,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -275,7 +275,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -339,7 +339,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -361,7 +361,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -677,7 +677,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -720,7 +720,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -742,7 +742,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -764,7 +764,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -968,7 +968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -990,7 +990,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -1012,7 +1012,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -1034,7 +1034,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -24909,7 +24909,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -24931,7 +24931,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -24957,7 +24957,20 @@
       "contract_revision": "3d-tiles-1.1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 64,
+        "max_transferred_bytes": 33554432,
+        "max_full_object_downloads": 16,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "asset.version",
+          "root.boundingVolume",
+          "content.uri"
+        ]
+      }
     },
     {
       "capability_key": "format.cog",
@@ -24980,7 +24993,21 @@
       "contract_revision": "cog-1.0",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "crs",
+          "dimensions",
+          "band_count",
+          "nodata"
+        ]
+      }
     },
     {
       "capability_key": "format.cog",
@@ -25003,7 +25030,21 @@
       "contract_revision": "cog-1.0",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "crs",
+          "dimensions",
+          "band_count",
+          "nodata"
+        ]
+      }
     },
     {
       "capability_key": "format.cog",
@@ -25027,7 +25068,21 @@
       "contract_revision": "cog-1.0",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "crs",
+          "dimensions",
+          "band_count",
+          "nodata"
+        ]
+      }
     },
     {
       "capability_key": "format.copc",
@@ -25074,7 +25129,20 @@
       "contract_revision": "flatgeobuf-current",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geometry_type",
+          "feature_count",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.flatgeobuf",
@@ -25097,7 +25165,20 @@
       "contract_revision": "flatgeobuf-current",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geometry_type",
+          "feature_count",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.flatgeobuf",
@@ -25120,7 +25201,20 @@
       "contract_revision": "flatgeobuf-current",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geometry_type",
+          "feature_count",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.flatgeobuf",
@@ -25143,7 +25237,20 @@
       "contract_revision": "flatgeobuf-current",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geometry_type",
+          "feature_count",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.geoparquet",
@@ -25166,7 +25273,21 @@
       "contract_revision": "geoparquet-1.1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geo.version",
+          "primary_column",
+          "geometry_encoding",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.geoparquet",
@@ -25189,7 +25310,21 @@
       "contract_revision": "geoparquet-1.1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geo.version",
+          "primary_column",
+          "geometry_encoding",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.geoparquet",
@@ -25212,7 +25347,21 @@
       "contract_revision": "geoparquet-1.1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 8,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "geo.version",
+          "primary_column",
+          "geometry_encoding",
+          "crs"
+        ]
+      }
     },
     {
       "capability_key": "format.hdf5-netcdf",
@@ -25234,7 +25383,20 @@
       "contract_revision": "hdf5-cloud-optimized-v1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "dataset_shape",
+          "data_type",
+          "dimensions"
+        ]
+      }
     },
     {
       "capability_key": "format.hdf5-netcdf",
@@ -25256,7 +25418,20 @@
       "contract_revision": "hdf5-cloud-optimized-v1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "dataset_shape",
+          "data_type",
+          "dimensions"
+        ]
+      }
     },
     {
       "capability_key": "format.hdf5-netcdf",
@@ -25279,7 +25454,20 @@
       "contract_revision": "hdf5-cloud-optimized-v1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "dataset_shape",
+          "data_type",
+          "dimensions"
+        ]
+      }
     },
     {
       "capability_key": "format.hdf5-netcdf",
@@ -25302,7 +25490,20 @@
       "contract_revision": "hdf5-cloud-optimized-v1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "dataset_shape",
+          "data_type",
+          "dimensions"
+        ]
+      }
     },
     {
       "capability_key": "format.hdf5-netcdf",
@@ -25324,7 +25525,20 @@
       "contract_revision": "hdf5-cloud-optimized-v1",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 16777216,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "dataset_shape",
+          "data_type",
+          "dimensions"
+        ]
+      }
     },
     {
       "capability_key": "format.kerchunk",
@@ -25371,7 +25585,21 @@
       "contract_revision": "pmtiles-3",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "spec_version",
+          "tile_type",
+          "bounds",
+          "zoom_range"
+        ]
+      }
     },
     {
       "capability_key": "format.pmtiles",
@@ -25394,7 +25622,21 @@
       "contract_revision": "pmtiles-3",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "spec_version",
+          "tile_type",
+          "bounds",
+          "zoom_range"
+        ]
+      }
     },
     {
       "capability_key": "format.pmtiles",
@@ -25417,7 +25659,21 @@
       "contract_revision": "pmtiles-3",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 32,
+        "max_transferred_bytes": 8388608,
+        "max_full_object_downloads": 1,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "spec_version",
+          "tile_type",
+          "bounds",
+          "zoom_range"
+        ]
+      }
     },
     {
       "capability_key": "format.stac-zarr",
@@ -25462,7 +25718,21 @@
       "contract_revision": "zarr-v2",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 64,
+        "max_transferred_bytes": 33554432,
+        "max_full_object_downloads": 16,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "zarr_format",
+          "shape",
+          "chunks",
+          "dtype"
+        ]
+      }
     },
     {
       "capability_key": "format.zarr",
@@ -25485,7 +25755,21 @@
       "contract_revision": "zarr-v2",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 64,
+        "max_transferred_bytes": 33554432,
+        "max_full_object_downloads": 16,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "zarr_format",
+          "shape",
+          "chunks",
+          "dtype"
+        ]
+      }
     },
     {
       "capability_key": "format.zarr",
@@ -25509,7 +25793,21 @@
       "contract_revision": "zarr-v2",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 64,
+        "max_transferred_bytes": 33554432,
+        "max_full_object_downloads": 16,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "zarr_format",
+          "shape",
+          "chunks",
+          "dtype"
+        ]
+      }
     },
     {
       "capability_key": "format.zarr",
@@ -25532,7 +25830,21 @@
       "contract_revision": "zarr-v2",
       "auth_policy_revision": "anonymous-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": {
+        "max_requests": 64,
+        "max_transferred_bytes": 33554432,
+        "max_full_object_downloads": 16,
+        "min_range_requests": 0,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
+        "required_metadata": [
+          "zarr_format",
+          "shape",
+          "chunks",
+          "dtype"
+        ]
+      }
     },
     {
       "capability_key": "geocoding.batch",
@@ -25695,7 +26007,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -25717,7 +26029,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -25855,7 +26167,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30821,7 +31133,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30835,7 +31147,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -30844,7 +31156,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30866,7 +31178,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30889,7 +31201,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31553,7 +31865,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31596,7 +31908,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31618,7 +31930,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31661,7 +31973,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33784,7 +34096,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33806,7 +34118,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33828,7 +34140,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33850,7 +34162,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33893,7 +34205,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33915,7 +34227,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34009,7 +34321,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34023,7 +34335,7 @@
       "client_lane": "sdk-python-certification",
       "client_version": "0.1.11",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -34104,7 +34416,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34127,7 +34439,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34150,7 +34462,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34173,7 +34485,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34332,7 +34644,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34354,7 +34666,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34506,7 +34818,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34600,7 +34912,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34622,7 +34934,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34644,7 +34956,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34666,7 +34978,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34688,7 +35000,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41065,7 +41377,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41087,7 +41399,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41109,7 +41421,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41131,7 +41443,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41145,7 +41457,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -41154,7 +41466,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41177,7 +41489,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41191,7 +41503,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -41200,7 +41512,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41337,7 +41649,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41351,7 +41663,7 @@
       "client_lane": "sdk-python-certification",
       "client_version": "0.1.11",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -41373,7 +41685,7 @@
       "client_lane": "sdk-python-certification",
       "client_version": "0.1.11",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -41607,7 +41919,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41629,7 +41941,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41723,7 +42035,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41745,7 +42057,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41897,7 +42209,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -41905,7 +42217,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41928,7 +42240,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41950,7 +42262,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41972,7 +42284,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41994,7 +42306,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42154,7 +42466,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42176,7 +42488,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42199,7 +42511,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42222,7 +42534,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42336,7 +42648,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42510,7 +42822,7 @@
       "client_lane": "sdk-python-certification",
       "client_version": "0.1.11",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -42845,7 +43157,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42868,7 +43180,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42982,7 +43294,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44299,7 +44611,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44321,7 +44633,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44344,7 +44656,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44366,7 +44678,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44388,7 +44700,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44642,7 +44954,7 @@
       "client_lane": "sdk-python-certification",
       "client_version": "0.1.11",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -44800,7 +45112,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44823,7 +45135,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44845,7 +45157,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44859,7 +45171,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -44868,7 +45180,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44891,7 +45203,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44982,7 +45294,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45240,7 +45552,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45263,7 +45575,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45285,7 +45597,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45353,7 +45665,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45544,7 +45856,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45567,7 +45879,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45590,7 +45902,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45613,7 +45925,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45635,7 +45947,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45657,7 +45969,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45939,7 +46251,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45962,7 +46274,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46007,7 +46319,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46029,7 +46341,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46051,7 +46363,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46073,7 +46385,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46335,7 +46647,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46357,7 +46669,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46495,7 +46807,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46518,7 +46830,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46541,7 +46853,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46555,7 +46867,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -46563,7 +46875,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46634,7 +46946,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46656,7 +46968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46678,7 +46990,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46700,7 +47012,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46722,7 +47034,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46816,7 +47128,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46911,7 +47223,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46933,7 +47245,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47057,7 +47369,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47196,7 +47508,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47218,7 +47530,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47435,7 +47747,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47457,7 +47769,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47479,7 +47791,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47618,7 +47930,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47640,7 +47952,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47922,7 +48234,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47936,7 +48248,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -47944,7 +48256,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48109,7 +48421,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48123,7 +48435,7 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
+      "required_tier": "pr",
       "licensed": false,
       "addressable_by_client": true,
       "addressability_reason": null,
@@ -48131,7 +48443,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-certification@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48153,7 +48465,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48340,7 +48652,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48362,7 +48674,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
+      "contract_revision": "sdk-js-coverage@12980a1b39584a7353786ec1d41d328a2319cddb",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null

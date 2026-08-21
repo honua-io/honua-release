@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -342,30 +343,50 @@ def evaluate(
             elif not isinstance(observations, dict):
                 fail(prefix, "cloud-native format pass lacks machine-checked budget observations")
             else:
-                upper_bounds = {
+                count_upper_bounds = {
                     "requests": "max_requests",
                     "transferred_bytes": "max_transferred_bytes",
                     "full_object_downloads": "max_full_object_downloads",
+                }
+                error_upper_bounds = {
                     "coordinate_error": "max_coordinate_error",
                     "geometry_error": "max_geometry_error",
                 }
-                lower_bounds = {
+                count_lower_bounds = {
                     "range_requests": "min_range_requests",
                     "cache_hits": "min_cache_hits",
                 }
-                for observed, expected in upper_bounds.items():
+                for observed, expected in count_upper_bounds.items():
                     value = observations.get(observed)
                     limit = expected_budget.get(expected)
-                    if not isinstance(value, (int, float)) or isinstance(value, bool):
-                        fail(prefix, f"budget observation {observed} must be numeric")
-                    elif not isinstance(limit, (int, float)) or isinstance(limit, bool) or value > limit:
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        fail(prefix, f"budget observation {observed} must be a nonnegative integer")
+                    elif not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or value > limit:
                         fail(prefix, f"budget observation {observed} exceeds {expected}")
-                for observed, expected in lower_bounds.items():
+                for observed, expected in error_upper_bounds.items():
                     value = observations.get(observed)
                     limit = expected_budget.get(expected)
-                    if not isinstance(value, int) or isinstance(value, bool):
-                        fail(prefix, f"budget observation {observed} must be an integer")
-                    elif not isinstance(limit, int) or isinstance(limit, bool) or value < limit:
+                    if (
+                        not isinstance(value, (int, float))
+                        or isinstance(value, bool)
+                        or not math.isfinite(value)
+                        or value < 0
+                    ):
+                        fail(prefix, f"budget observation {observed} must be finite and nonnegative")
+                    elif (
+                        not isinstance(limit, (int, float))
+                        or isinstance(limit, bool)
+                        or not math.isfinite(limit)
+                        or limit < 0
+                        or value > limit
+                    ):
+                        fail(prefix, f"budget observation {observed} exceeds {expected}")
+                for observed, expected in count_lower_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        fail(prefix, f"budget observation {observed} must be a nonnegative integer")
+                    elif not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or value < limit:
                         fail(prefix, f"budget observation {observed} is below {expected}")
                 required_metadata = expected_budget.get("required_metadata")
                 metadata_assertions = observations.get("metadata_assertions")
