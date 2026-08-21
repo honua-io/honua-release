@@ -122,8 +122,29 @@ jobs:
             echo "::error::Certification ledger binding is not an immutable trusted honua-evidence object."
             code=1
           else
-            url="https://raw.githubusercontent.com/${MATRIX_REPOSITORY}/${MATRIX_COMMIT}/${MATRIX_PATH}"
-            curl --fail --silent --show-error --location "$url" -o out/protocol-certification.json || code=$?
+            git init -q out/evidence-source
+            git -C out/evidence-source remote add origin "https://github.com/${MATRIX_REPOSITORY}.git"
+            git -C out/evidence-source fetch --quiet --depth=1 origin "$MATRIX_COMMIT" || code=$?
+            if [[ "$code" -eq 0 ]]; then
+              fetched_commit="$(git -C out/evidence-source rev-parse FETCH_HEAD)"
+              if [[ "${fetched_commit,,}" != "${MATRIX_COMMIT,,}" ]]; then
+                echo "::error::Certification evidence checkout did not resolve the pinned commit."
+                code=1
+              else
+                git -C out/evidence-source checkout --quiet --detach FETCH_HEAD || code=$?
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              source_matrix="out/evidence-source/${MATRIX_PATH}"
+              if [[ ! -f "$source_matrix" ]]; then
+                echo "::error::Pinned certification ledger path does not exist."
+                code=1
+              else
+                cp "$source_matrix" out/protocol-certification.json
+                source_receipts="$(dirname "$source_matrix")/sha256"
+                [[ ! -d "$source_receipts" ]] || cp -R "$source_receipts" out/sha256
+              fi
+            fi
             if [[ "$code" -eq 0 ]]; then
               actual="sha256:$(sha256sum out/protocol-certification.json | cut -d' ' -f1)"
               if [[ "${actual,,}" != "${MATRIX_SHA256,,}" ]]; then
