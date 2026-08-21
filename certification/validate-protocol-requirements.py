@@ -123,7 +123,30 @@ def main() -> None:
     harness_contract = (
         f"server-protocol-harness@{protocol_harness['revision']}+{harness_source_sha}"
     )
+    expected_harness_fields = {
+        "schema", "revision", "tracking_issue", "canonical_client", "client_lane",
+        "deployment_target", "auth_policy_revision", "required_tier", "assignments",
+    }
+    if set(protocol_harness) != expected_harness_fields:
+        raise ValueError("Server protocol harness source has unknown or missing top-level fields.")
     harness_assignments = protocol_harness["assignments"]
+    if len(harness_assignments) != 32:
+        raise ValueError("Server protocol harness must govern exactly 32 public operations.")
+    allowed_assignment_fields = {
+        "capability_key", "catalog_capability_key", "surface", "operation", "test_ids",
+        "scenario_facets",
+    }
+    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    for assignment in harness_assignments:
+        if not required_assignment_fields.issubset(assignment) or not set(assignment).issubset(allowed_assignment_fields):
+            raise ValueError("Server protocol harness assignment has unknown or missing fields.")
+        if not re.fullmatch(r"(?:GET|POST|PUT|PATCH|DELETE) /\S(?:.*\S)?", assignment["operation"]):
+            raise ValueError(f"Server protocol harness has invalid operation identity: {assignment['operation']!r}")
+        if "catalog_capability_key" in assignment and not assignment["catalog_capability_key"]:
+            raise ValueError("Server protocol harness catalog capability crosswalk cannot be empty.")
+        facets = assignment["scenario_facets"]
+        if not facets or len(facets) != len(set(facets)):
+            raise ValueError("Server protocol harness scenario facets must be non-empty and unique.")
     harness_keys = [
         (assignment["capability_key"], assignment["surface"], assignment["operation"])
         for assignment in harness_assignments
@@ -180,7 +203,7 @@ def main() -> None:
             f"source@{harness_source_sha}", protocol_harness["deployment_target"],
             protocol_harness["required_tier"], tuple(assignment["scenario_facets"]),
             harness_contract, protocol_harness["auth_policy_revision"],
-            f"server-test-fixtures@{harness_source_sha}",
+            f"server-test-fixtures@{harness_source_sha}", tuple(assignment["test_ids"]),
         )
         for assignment in harness_assignments
     }
@@ -190,6 +213,7 @@ def main() -> None:
             row["canonical_client"], row["client_lane"], row["client_version"],
             row["deployment_target"], row["required_tier"], tuple(row["scenario_facets"]),
             row["contract_revision"], row["auth_policy_revision"], row["fixture_revision"],
+            tuple(row.get("test_ids", [])),
         )
         for row in catalog["requirements"]
         if row["contract_revision"] == harness_contract
@@ -360,6 +384,7 @@ def main() -> None:
                         "auth_policy_revision": protocol_harness["auth_policy_revision"],
                         "fixture_revision": f"server-test-fixtures@{harness_source_sha}",
                         "budget_expectations": None,
+                        "test_ids": assignment["test_ids"],
                     })
             continue
         elif classification == "canonical-external-required":
