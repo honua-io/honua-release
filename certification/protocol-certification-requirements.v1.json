@@ -18,7 +18,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "7c4928f7dc517b57a626ec1d01293d4b16475fbb"
+      "commit": "dec59262553a90393e9be1f613c5c8fe86fc4fea"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
@@ -143,7 +143,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -165,7 +165,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -187,7 +187,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -209,7 +209,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -231,7 +231,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -253,7 +253,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -275,7 +275,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -339,7 +339,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -361,7 +361,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -677,7 +677,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -720,7 +720,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -742,7 +742,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -764,7 +764,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -968,7 +968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -990,7 +990,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -1012,7 +1012,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -1034,7 +1034,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -24909,7 +24909,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -24931,7 +24931,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -25695,7 +25695,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -25717,7 +25717,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -25855,7 +25855,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30821,7 +30821,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30844,7 +30844,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30866,7 +30866,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -30889,7 +30889,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31553,7 +31553,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31596,7 +31596,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31618,7 +31618,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -31661,7 +31661,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33784,7 +33784,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33806,7 +33806,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33828,7 +33828,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33850,7 +33850,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33893,7 +33893,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -33915,7 +33915,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34009,7 +34009,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34104,7 +34104,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34127,7 +34127,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34150,7 +34150,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34173,7 +34173,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34332,7 +34332,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34354,7 +34354,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34506,7 +34506,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34600,7 +34600,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34622,7 +34622,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34644,7 +34644,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34666,7 +34666,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -34688,7 +34688,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41065,7 +41065,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41087,7 +41087,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41109,7 +41109,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41131,7 +41131,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41154,7 +41154,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41177,7 +41177,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41200,7 +41200,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41337,7 +41337,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41607,7 +41607,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41629,7 +41629,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41723,7 +41723,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41745,7 +41745,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41905,7 +41905,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41928,7 +41928,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41950,7 +41950,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41972,7 +41972,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -41994,7 +41994,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42154,7 +42154,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42176,7 +42176,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42199,7 +42199,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42222,7 +42222,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42336,7 +42336,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42845,7 +42845,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42868,7 +42868,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -42982,7 +42982,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44299,7 +44299,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44321,7 +44321,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44344,7 +44344,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44366,7 +44366,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44388,7 +44388,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44800,7 +44800,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44823,7 +44823,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44845,7 +44845,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44868,7 +44868,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44891,7 +44891,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -44982,7 +44982,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45240,7 +45240,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45263,7 +45263,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45285,7 +45285,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45353,7 +45353,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45544,7 +45544,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45567,7 +45567,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45590,7 +45590,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45613,7 +45613,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45635,7 +45635,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45657,7 +45657,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45939,7 +45939,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -45962,7 +45962,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46007,7 +46007,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46029,7 +46029,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46051,7 +46051,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46073,7 +46073,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46335,7 +46335,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46357,7 +46357,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46495,7 +46495,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46518,7 +46518,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46541,7 +46541,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46563,7 +46563,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46634,7 +46634,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46656,7 +46656,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46678,7 +46678,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46700,7 +46700,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46722,7 +46722,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46816,7 +46816,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46911,7 +46911,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -46933,7 +46933,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47057,7 +47057,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47196,7 +47196,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47218,7 +47218,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47435,7 +47435,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47457,7 +47457,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47479,7 +47479,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47618,7 +47618,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47640,7 +47640,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47922,7 +47922,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -47944,7 +47944,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48109,7 +48109,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48131,7 +48131,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-certification@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48153,7 +48153,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48340,7 +48340,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
@@ -48362,7 +48362,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@7c4928f7dc517b57a626ec1d01293d4b16475fbb",
+      "contract_revision": "sdk-js-coverage@dec59262553a90393e9be1f613c5c8fe86fc4fea",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
