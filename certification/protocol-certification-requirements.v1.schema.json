@@ -58,7 +58,7 @@
             "required": [
               "max_requests", "max_transferred_bytes", "max_full_object_downloads",
               "min_range_requests", "min_cache_hits", "max_coordinate_error",
-              "max_geometry_error", "required_metadata"
+              "max_geometry_error", "required_metadata", "expected_metadata"
             ],
             "properties": {
               "max_requests": { "type": "integer", "minimum": 0 },
@@ -70,7 +70,8 @@
               "max_geometry_error": { "type": "number", "minimum": 0 },
               "required_metadata": {
                 "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }
-              }
+              },
+              "expected_metadata": { "type": "object", "minProperties": 1 }
             }
           }
         }

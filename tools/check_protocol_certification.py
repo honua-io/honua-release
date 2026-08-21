@@ -112,6 +112,21 @@ def _in_scope(cell: dict, tier: str) -> bool:
     return required_tier in TIER_RANK and TIER_RANK[required_tier] <= TIER_RANK[tier]
 
 
+def _typed_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(
+            _typed_equal(actual[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _typed_equal(actual_value, expected_value)
+            for actual_value, expected_value in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
 def evaluate(
     ledger: dict | None,
     tier: str,
@@ -389,15 +404,28 @@ def evaluate(
                     elif not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or value < limit:
                         fail(prefix, f"budget observation {observed} is below {expected}")
                 required_metadata = expected_budget.get("required_metadata")
+                expected_metadata = expected_budget.get("expected_metadata")
                 metadata_assertions = observations.get("metadata_assertions")
+                metadata_values = observations.get("metadata_values")
                 if not (
                     isinstance(required_metadata, list)
                     and all(isinstance(value, str) and value for value in required_metadata)
+                    and isinstance(expected_metadata, dict)
+                    and expected_metadata
+                    and set(required_metadata) == set(expected_metadata)
                     and isinstance(metadata_assertions, list)
                     and all(isinstance(value, str) and value for value in metadata_assertions)
                     and set(required_metadata) <= set(metadata_assertions)
                 ):
                     fail(prefix, "budget observations do not prove all required metadata assertions")
+                if not isinstance(metadata_values, dict):
+                    fail(prefix, "budget observations must include typed metadata_values")
+                elif isinstance(expected_metadata, dict):
+                    for metadata_key, expected_value in expected_metadata.items():
+                        if metadata_key not in metadata_values or not _typed_equal(
+                            metadata_values[metadata_key], expected_value
+                        ):
+                            fail(prefix, f"budget metadata value {metadata_key!r} does not match the owned fixture")
         elif raw["budget_observations"] is not None:
             fail(prefix, "non-format cell cannot supply cloud-native budget observations")
 

@@ -131,6 +131,7 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
         "max_coordinate_error": 0.000001,
         "max_geometry_error": 0.000001,
         "required_metadata": ["crs", "nodata"],
+        "expected_metadata": {"crs": "EPSG:4326", "nodata": -9999.0},
     }
     observations = {
         "requests": 3,
@@ -141,6 +142,7 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
         "coordinate_error": 0.0,
         "geometry_error": 0.0,
         "metadata_assertions": ["crs", "nodata"],
+        "metadata_values": {"crs": "EPSG:4326", "nodata": -9999.0},
     }
     passing = _cell(
         capability_key="format.cog",
@@ -168,6 +170,18 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
         invalid_report = _evaluate(_ledger(invalid_cell), "nightly", now=NOW)
         assert invalid_report["overall_status"] == "fail"
         assert any(field in finding["why"] for finding in invalid_report["findings"])
+
+    wrong_metadata = copy.deepcopy(passing)
+    wrong_metadata["budget_observations"]["metadata_values"]["crs"] = "EPSG:3857"
+    wrong_metadata_report = _evaluate(_ledger(wrong_metadata), "nightly", now=NOW)
+    assert wrong_metadata_report["overall_status"] == "fail"
+    assert any("metadata value 'crs'" in finding["why"] for finding in wrong_metadata_report["findings"])
+
+    wrong_metadata_type = copy.deepcopy(passing)
+    wrong_metadata_type["budget_observations"]["metadata_values"]["nodata"] = -9999
+    wrong_metadata_type_report = _evaluate(_ledger(wrong_metadata_type), "nightly", now=NOW)
+    assert wrong_metadata_type_report["overall_status"] == "fail"
+    assert any("metadata value 'nodata'" in finding["why"] for finding in wrong_metadata_type_report["findings"])
 
 
 def test_fresh_nightly_required_cell_passes():
