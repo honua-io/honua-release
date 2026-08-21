@@ -14,6 +14,7 @@ import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 SCHEMA_ID = "honua.protocol-certification/v1"
 MATURITIES = {"supported", "preview", "experimental", "roadmap", "deprecated", "internal"}
@@ -23,6 +24,7 @@ TIER_RANK = {"pr": 0, "nightly": 1, "release": 2}
 FACETS = {
     "positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis",
     "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency",
+    "mutation",
 }
 CELL_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
@@ -30,7 +32,8 @@ CELL_FIELDS = {
     "addressable_by_client", "addressability_reason", "result", "skip_reason",
     "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
     "producer_source_sha",
-    "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at",
+    "image_digest", "fixture_revision", "evidence_uri", "evidence_digest", "facet_results",
+    "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -67,6 +70,7 @@ def _owned_source_name(cell: dict) -> str:
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
+UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -125,6 +129,19 @@ def _typed_equal(actual: object, expected: object) -> bool:
             for actual_value, expected_value in zip(actual, expected, strict=True)
         )
     return actual == expected
+
+
+def _valid_evidence_uri(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.params or parsed.query or parsed.fragment:
+        return False
+    if parsed.hostname == "github.com":
+        return re.fullmatch(r"/[^/]+/[^/]+/actions/runs/[0-9]+(?:/.*)?", parsed.path) is not None
+    if parsed.hostname == "evidence.honua.io":
+        return re.fullmatch(r"/(?:runs|data)/[^/]+(?:/.*)?", parsed.path) is not None
+    return False
 
 
 def evaluate(
@@ -295,6 +312,32 @@ def evaluate(
         elif unknown := sorted(set(facets) - FACETS):
             fail(prefix, f"unknown scenario facets: {', '.join(unknown)}")
 
+        evidence_digest = raw["evidence_digest"]
+        facet_results = raw["facet_results"]
+        if evidence_digest is not None and (
+            not isinstance(evidence_digest, str) or not DIGEST_RE.fullmatch(evidence_digest)
+        ):
+            fail(prefix, "evidence_digest must be a sha256 digest or null")
+        if facet_results is not None:
+            if not isinstance(facet_results, dict) or set(facet_results) != set(facets):
+                fail(prefix, "facet_results must contain exactly every governed scenario facet")
+            else:
+                for facet, facet_result in facet_results.items():
+                    if not isinstance(facet_result, dict) or set(facet_result) != {"result", "evidence_digest"}:
+                        fail(prefix, f"facet result {facet!r} must contain result and evidence_digest")
+                        continue
+                    if facet_result["result"] not in {"pass", "fail", "skip"}:
+                        fail(prefix, f"facet result {facet!r} has an invalid result")
+                    if facet_result["evidence_digest"] != evidence_digest:
+                        fail(prefix, f"facet result {facet!r} is not bound to the cell evidence digest")
+        if raw["result"] == "pass":
+            if not isinstance(evidence_digest, str) or not DIGEST_RE.fullmatch(evidence_digest):
+                fail(prefix, "passing cell requires a sha256 evidence_digest")
+            if not isinstance(facet_results, dict) or set(facet_results) != set(facets):
+                fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
+            elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
+                fail(prefix, "passing cell requires every scenario facet to pass")
+
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":
                 fail(prefix, "addressable cell cannot have result=not-addressable")
@@ -317,6 +360,11 @@ def evaluate(
             fail(
                 prefix,
                 "canonical client applicability is unassigned; resolve the governed tracking issue",
+            )
+        if str(raw["operation"]).startswith(UNASSIGNED_SDK_OPERATION_PREFIX):
+            fail(
+                prefix,
+                "official SDK operation contract is unassigned; map executable client operations before certification",
             )
         if raw["source_sha"] != candidate_sha:
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
@@ -437,6 +485,8 @@ def evaluate(
         for field in required_provenance:
             if not isinstance(raw[field], str) or not raw[field].strip():
                 fail(prefix, f"required cell needs non-empty {field}")
+        if not _valid_evidence_uri(raw["evidence_uri"]):
+            fail(prefix, "required cell evidence_uri must identify an immutable trusted evidence run")
         if not isinstance(raw["producer_source_sha"], str) or not PRODUCER_SHA_RE.fullmatch(raw["producer_source_sha"]):
             fail(prefix, "required cell producer_source_sha must be a full 40-character lowercase hex SHA")
         owned_source_name = _owned_source_name(raw)

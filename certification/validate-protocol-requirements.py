@@ -4,11 +4,18 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import jsonschema
 
 ROOT = Path(__file__).parent
+SUPPORTED = {"implemented", "partial", "covered"}
+FIXTURE = "docker/cng/seed.sql@{source_sha}"
+
+
+def slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
 def main() -> None:
@@ -162,14 +169,86 @@ def main() -> None:
             f"(unclassified={sorted(implemented_capabilities - classified_capabilities)}, "
             f"unexpected={sorted(classified_capabilities - implemented_capabilities)})"
         )
-    expected_decision_cells = set()
+    governed_fields = (
+        "capability_key", "surface", "operation", "canonical_client", "client_lane",
+        "client_version", "deployment_target", "required_tier", "licensed",
+        "addressable_by_client", "addressability_reason", "scenario_facets",
+        "contract_revision", "auth_policy_revision", "fixture_revision", "budget_expectations",
+    )
+
+    def projection(row: dict) -> tuple:
+        return tuple(
+            tuple(row[field]) if field == "scenario_facets"
+            else json.dumps(row[field], sort_keys=True) if field == "budget_expectations"
+            else row[field]
+            for field in governed_fields
+        )
+
+    sdk_coverage = {
+        source_name: json.loads(
+            (ROOT / "sources" / source_name / "sdk-coverage.v1.json").read_text(encoding="utf-8")
+        )
+        for source_name in ("sdk-js", "sdk-python")
+    }
+    sdk_fixtures = {
+        "sdk-js": "0.1.0-alpha.3",
+        "sdk-python": "geospatial-grpc@0.2.0-alpha.1",
+    }
+    expected_decision_rows: list[dict] = []
     for decision in decisions:
         capability_key = decision["capability_key"]
         classification = decision["classification"]
         if classification == "official-sdk-required":
-            clients = sdk_protocols["clients"]
-            addressable = True
-            reason = None
+            for client in sdk_protocols["clients"]:
+                source_name = client["source"]
+                coverage = next(
+                    (
+                        row for row in sdk_coverage.get(source_name, {}).get("capabilities", [])
+                        if row.get("key") == capability_key and row.get("status") in SUPPORTED
+                    ),
+                    None,
+                )
+                entrypoints = coverage.get("entrypoints", []) if coverage else []
+                if entrypoints:
+                    for entrypoint in entrypoints:
+                        expected_decision_rows.append({
+                            "capability_key": capability_key,
+                            "surface": source_name,
+                            "operation": entrypoint,
+                            "canonical_client": client["name"],
+                            "client_lane": source_name,
+                            "client_version": client["version"],
+                            "deployment_target": "local-docker",
+                            "required_tier": "nightly",
+                            "licensed": False,
+                            "addressable_by_client": True,
+                            "addressability_reason": None,
+                            "scenario_facets": ["positive", "media-schema"],
+                            "contract_revision": f"{source_name}-coverage@{revisions[source_name]['commit']}",
+                            "auth_policy_revision": client["auth_policy_revision"],
+                            "fixture_revision": sdk_fixtures[source_name],
+                            "budget_expectations": None,
+                        })
+                else:
+                    expected_decision_rows.append({
+                        "capability_key": capability_key,
+                        "surface": source_name,
+                        "operation": f"UNASSIGNED SDK OPERATION CONTRACT:{capability_key}",
+                        "canonical_client": client["name"],
+                        "client_lane": f"{client['lane']}-operation-contract-gap-{slug(capability_key)}",
+                        "client_version": client["version"],
+                        "deployment_target": "local-docker",
+                        "required_tier": "nightly",
+                        "licensed": False,
+                        "addressable_by_client": True,
+                        "addressability_reason": None,
+                        "scenario_facets": ["positive"],
+                        "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
+                        "auth_policy_revision": client["auth_policy_revision"],
+                        "fixture_revision": FIXTURE,
+                        "budget_expectations": None,
+                    })
+            continue
         elif classification == "canonical-external-required":
             client_ids = decision.get("clients", [])
             if not client_ids:
@@ -180,31 +259,77 @@ def main() -> None:
                     f"Canonical external decision has unknown clients for {capability_key}: "
                     f"{sorted(unknown_clients)}"
                 )
-            clients = [applicability["clients"][client_id] for client_id in client_ids]
-            addressable = True
-            reason = None
+            for client_id in client_ids:
+                client = applicability["clients"][client_id]
+                expected_decision_rows.append({
+                    "capability_key": capability_key,
+                    "surface": slug(capability_key),
+                    "operation": capability_key,
+                    "canonical_client": client["name"],
+                    "client_lane": f"{client['lane']}-{slug(capability_key)}",
+                    "client_version": client["version"],
+                    "deployment_target": "local-docker",
+                    "required_tier": "nightly",
+                    "licensed": False,
+                    "addressable_by_client": True,
+                    "addressability_reason": None,
+                    "scenario_facets": decision["scenario_facets"],
+                    "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
+                    "auth_policy_revision": client["auth_policy_revision"],
+                    "fixture_revision": FIXTURE,
+                    "budget_expectations": None,
+                })
+            continue
         else:
             reason = decision.get("reason")
             if not reason:
                 raise ValueError(f"Non-client-addressable decision has no reason: {capability_key}")
-            clients = [{"name": "NOT CLIENT ADDRESSABLE", "version": "policy-v1"}]
-            addressable = False
-        expected_decision_cells.update(
-            (capability_key, client["name"], client["version"], addressable, reason)
-            for client in clients
-        )
-    present_decision_cells = {
-        (
-            row["capability_key"],
-            row["canonical_client"],
-            row["client_version"],
-            row["addressable_by_client"],
-            row["addressability_reason"],
-        )
-        for row in catalog["requirements"]
-        if row["contract_revision"]
-        == f"canonical-client-applicability@{applicability['revision']}"
+            expected_decision_rows.append({
+                "capability_key": capability_key,
+                "surface": slug(capability_key),
+                "operation": capability_key,
+                "canonical_client": "NOT CLIENT ADDRESSABLE",
+                "client_lane": f"not-client-addressable-{slug(capability_key)}",
+                "client_version": "policy-v1",
+                "deployment_target": "local-docker",
+                "required_tier": "nightly",
+                "licensed": False,
+                "addressable_by_client": False,
+                "addressability_reason": reason,
+                "scenario_facets": ["not-client-addressable"],
+                "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
+                "auth_policy_revision": "not-client-addressable-v1",
+                "fixture_revision": FIXTURE,
+                "budget_expectations": None,
+            })
+    sdk_client_names = {client["name"] for client in sdk_protocols["clients"]}
+    sdk_coverage_contracts = {
+        client["name"]: f"{client['source']}-coverage@{revisions[client['source']]['commit']}"
+        for client in sdk_protocols["clients"]
+        if client["source"] in sdk_coverage
     }
+    official_capabilities = {
+        decision["capability_key"]
+        for decision in decisions
+        if decision["classification"] == "official-sdk-required"
+    }
+    present_decision_rows = [
+        row
+        for row in catalog["requirements"]
+        if row["capability_key"] in decision_capabilities
+        and (
+            row["contract_revision"]
+            == f"canonical-client-applicability@{applicability['revision']}"
+            or (
+                row["capability_key"] in official_capabilities
+                and row["canonical_client"] in sdk_client_names
+                and row["contract_revision"]
+                == sdk_coverage_contracts.get(row["canonical_client"])
+            )
+        )
+    ]
+    expected_decision_cells = {projection(row) for row in expected_decision_rows}
+    present_decision_cells = {projection(row) for row in present_decision_rows}
     if expected_decision_cells != present_decision_cells:
         raise ValueError(
             "Protocol certification denominator differs from canonical-client applicability decisions "

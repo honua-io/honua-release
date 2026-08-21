@@ -422,7 +422,7 @@
       "maturity": "supported",
       "canonical_client": "GDAL",
       "client_lane": "gdal-geoparquet",
-      "client_version": "3.8.4",
+      "client_version": "3.14.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
