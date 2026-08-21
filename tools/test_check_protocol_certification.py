@@ -34,12 +34,14 @@ def _cell(**overrides):
         "contract_revision": "cog-1.0",
         "auth_policy_revision": "anonymous-v1",
         "source_sha": SHA,
-        "producer_source_sha": "c" * 40,
+        "producer_source_sha": SHA,
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
         "evidence_uri": "https://evidence.honua.io/runs/1",
         "started_at": "2026-08-20T10:00:00Z",
         "completed_at": "2026-08-20T10:05:00Z",
+        "budget_expectations": None,
+        "budget_observations": None,
     }
     value.update(overrides)
     return value
@@ -97,6 +99,64 @@ def test_catalog_server_revision_must_match_candidate():
     )
 
 
+def test_producer_source_sha_must_match_owned_client_revision():
+    cell = _cell(
+        client_lane="sdk-js-certification",
+        producer_source_sha="f" * 40,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["sdk-js"] = {"commit": "d" * 40}
+    report = _evaluate(
+        _ledger(cell),
+        "nightly",
+        requirements=requirements,
+        now=NOW,
+    )
+    assert report["overall_status"] == "fail"
+    assert any("owned sdk-js revision" in finding["why"] for finding in report["findings"])
+
+
+def test_cloud_native_pass_requires_owned_budget_and_observations():
+    missing = _cell(capability_key="format.cog")
+    missing_report = _evaluate(_ledger(missing), "nightly", now=NOW)
+    assert missing_report["overall_status"] == "fail"
+    assert any("governed fixture budgets" in finding["why"] for finding in missing_report["findings"])
+
+    expectations = {
+        "max_requests": 4,
+        "max_transferred_bytes": 1_000_000,
+        "max_full_object_downloads": 0,
+        "min_range_requests": 1,
+        "min_cache_hits": 0,
+        "max_coordinate_error": 0.000001,
+        "max_geometry_error": 0.000001,
+        "required_metadata": ["crs", "nodata"],
+    }
+    observations = {
+        "requests": 3,
+        "transferred_bytes": 500_000,
+        "full_object_downloads": 0,
+        "range_requests": 2,
+        "cache_hits": 0,
+        "coordinate_error": 0.0,
+        "geometry_error": 0.0,
+        "metadata_assertions": ["crs", "nodata"],
+    }
+    passing = _cell(
+        capability_key="format.cog",
+        budget_expectations=expectations,
+        budget_observations=observations,
+    )
+    passing_report = _evaluate(_ledger(passing), "nightly", now=NOW)
+    assert passing_report["overall_status"] == "pass", passing_report["findings"]
+
+    exceeding = copy.deepcopy(passing)
+    exceeding["budget_observations"]["requests"] = 5
+    exceeding_report = _evaluate(_ledger(exceeding), "nightly", now=NOW)
+    assert exceeding_report["overall_status"] == "fail"
+    assert any("max_requests" in finding["why"] for finding in exceeding_report["findings"])
+
+
 def test_fresh_nightly_required_cell_passes():
     report = _evaluate(_ledger(), "nightly", expected_source_sha=SHA, now=NOW)
     assert report["overall_status"] == "pass"
@@ -139,19 +199,22 @@ def test_candidate_and_cells_require_full_source_shas_at_every_tier():
 def test_owned_denominator_fails_closed_while_canonical_clients_are_unassigned():
     requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
     assert error is None
+    server_sha = requirements["source_revisions"]["server"]["commit"]
     cells = []
     for requirement in requirements["requirements"]:
+        producer_source = cert._owned_source_name(requirement)
         cell = {
             **requirement,
             "result": "pass" if requirement["addressable_by_client"] else "not-addressable",
             "skip_reason": None,
-            "source_sha": SHA,
-            "producer_source_sha": "c" * 40,
+            "source_sha": server_sha,
+            "producer_source_sha": requirements["source_revisions"][producer_source]["commit"],
             "image_digest": DIGEST,
-            "fixture_revision": requirement["fixture_revision"].replace("{source_sha}", SHA),
+            "fixture_revision": requirement["fixture_revision"].replace("{source_sha}", server_sha),
             "evidence_uri": "https://evidence.honua.io/runs/catalog-regression",
             "started_at": "2026-08-20T10:00:00Z",
             "completed_at": "2026-08-20T10:05:00Z",
+            "budget_observations": None,
         }
         cells.append(cell)
     ledger = {
@@ -159,7 +222,7 @@ def test_owned_denominator_fails_closed_while_canonical_clients_are_unassigned()
         "requirements_revision": requirements["revision"],
         "requirements_complete": requirements["complete"],
         "generated_at": "2026-08-20T10:06:00Z",
-        "candidate": {"source_sha": SHA, "image_digest": DIGEST, "cut_at": CUT},
+        "candidate": {"source_sha": server_sha, "image_digest": DIGEST, "cut_at": CUT},
         "cells": cells,
     }
 

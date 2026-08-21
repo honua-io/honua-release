@@ -1,0 +1,27 @@
+name: PR protocol certification
+
+on:
+  pull_request:
+    paths:
+      - "certification/**"
+      - "tools/check_protocol_certification.py"
+      - "tools/test_check_protocol_certification.py"
+      - ".github/workflows/gate-protocol-certification.yml"
+      - ".github/workflows/pr-protocol-certification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    uses: ./.github/workflows/gate-protocol-certification.yml
+    with:
+      matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
+      matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
+      matrix_path: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_PATH }}
+      matrix_sha256: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_SHA256 }}
+      tier: pr
+      expected_source_sha: ${{ vars.PROTOCOL_CERTIFICATION_SOURCE_SHA }}
+      expected_image_digest: ${{ vars.PROTOCOL_CERTIFICATION_IMAGE_DIGEST }}
+      expected_cut_at: ${{ vars.PROTOCOL_CERTIFICATION_CUT_AT }}
+    secrets: inherit

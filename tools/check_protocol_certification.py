@@ -30,6 +30,7 @@ CELL_FIELDS = {
     "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
     "producer_source_sha",
     "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at",
+    "budget_expectations", "budget_observations",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -41,7 +42,28 @@ REQUIREMENT_FIELDS = {
     "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
     "fixture_revision",
+    "budget_expectations",
 }
+
+
+def _owned_source_name(cell: dict) -> str:
+    lane = str(cell.get("client_lane", ""))
+    if lane.startswith("sdk-js"):
+        return "sdk-js"
+    if lane.startswith("sdk-python"):
+        return "sdk-python"
+    if lane.startswith("sdk-dotnet"):
+        return "sdk-dotnet"
+    if lane.startswith("grpc-"):
+        return "geospatial-grpc"
+    if lane.startswith("mcp-"):
+        return "geospatial-mcp"
+    if lane.startswith((
+        "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
+        "desktop-arcgis", "arcgis-stub", "ci-desktop",
+    )):
+        return "esri-compat"
+    return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 
@@ -71,6 +93,7 @@ def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
 def _requirement_signature(value: dict) -> tuple[object, ...]:
     return tuple(
         tuple(value[field]) if field == "scenario_facets" and isinstance(value.get(field), list)
+        else json.dumps(value[field], sort_keys=True) if field == "budget_expectations" and isinstance(value.get(field), dict)
         else value.get(field)
         for field in sorted(REQUIREMENT_ID_FIELDS)
     )
@@ -118,9 +141,8 @@ def evaluate(
             requirements = {}
     if requirements.get("schema") != REQUIREMENTS_SCHEMA_ID:
         fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
-    catalog_server_sha = (
-        requirements.get("source_revisions", {}).get("server", {}).get("commit")
-    )
+    source_revisions = requirements.get("source_revisions", {})
+    catalog_server_sha = source_revisions.get("server", {}).get("commit")
     if expected_source_sha and catalog_server_sha != expected_source_sha:
         fail(
             "requirements.source_revisions.server.commit",
@@ -306,6 +328,58 @@ def evaluate(
                     f"{expected_fixture!r}",
                 )
 
+        expected_budget = (
+            expected_requirement.get("budget_expectations")
+            if isinstance(expected_requirement, dict)
+            else None
+        )
+        if raw["budget_expectations"] != expected_budget:
+            fail(prefix, "budget_expectations do not match the owned requirement")
+        if raw["capability_key"].startswith("format."):
+            observations = raw["budget_observations"]
+            if not isinstance(expected_budget, dict):
+                fail(prefix, "cloud-native format requirement lacks governed fixture budgets")
+            elif not isinstance(observations, dict):
+                fail(prefix, "cloud-native format pass lacks machine-checked budget observations")
+            else:
+                upper_bounds = {
+                    "requests": "max_requests",
+                    "transferred_bytes": "max_transferred_bytes",
+                    "full_object_downloads": "max_full_object_downloads",
+                    "coordinate_error": "max_coordinate_error",
+                    "geometry_error": "max_geometry_error",
+                }
+                lower_bounds = {
+                    "range_requests": "min_range_requests",
+                    "cache_hits": "min_cache_hits",
+                }
+                for observed, expected in upper_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if not isinstance(value, (int, float)) or isinstance(value, bool):
+                        fail(prefix, f"budget observation {observed} must be numeric")
+                    elif not isinstance(limit, (int, float)) or isinstance(limit, bool) or value > limit:
+                        fail(prefix, f"budget observation {observed} exceeds {expected}")
+                for observed, expected in lower_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if not isinstance(value, int) or isinstance(value, bool):
+                        fail(prefix, f"budget observation {observed} must be an integer")
+                    elif not isinstance(limit, int) or isinstance(limit, bool) or value < limit:
+                        fail(prefix, f"budget observation {observed} is below {expected}")
+                required_metadata = expected_budget.get("required_metadata")
+                metadata_assertions = observations.get("metadata_assertions")
+                if not (
+                    isinstance(required_metadata, list)
+                    and all(isinstance(value, str) and value for value in required_metadata)
+                    and isinstance(metadata_assertions, list)
+                    and all(isinstance(value, str) and value for value in metadata_assertions)
+                    and set(required_metadata) <= set(metadata_assertions)
+                ):
+                    fail(prefix, "budget observations do not prove all required metadata assertions")
+        elif raw["budget_observations"] is not None:
+            fail(prefix, "non-format cell cannot supply cloud-native budget observations")
+
         completed = _timestamp(raw["completed_at"])
         started = _timestamp(raw["started_at"])
         if completed is None or started is None or completed < started:
@@ -316,6 +390,16 @@ def evaluate(
                 fail(prefix, f"required cell needs non-empty {field}")
         if not isinstance(raw["producer_source_sha"], str) or not PRODUCER_SHA_RE.fullmatch(raw["producer_source_sha"]):
             fail(prefix, "required cell producer_source_sha must be a full 40-character lowercase hex SHA")
+        owned_source_name = _owned_source_name(raw)
+        owned_producer_sha = source_revisions.get(owned_source_name, {}).get("commit")
+        if not isinstance(owned_producer_sha, str) or not SHA_RE.fullmatch(owned_producer_sha):
+            fail(prefix, f"owned source revision {owned_source_name!r} is unavailable or invalid")
+        elif raw["producer_source_sha"] != owned_producer_sha:
+            fail(
+                prefix,
+                f"producer_source_sha {raw['producer_source_sha']!r} does not match "
+                f"owned {owned_source_name} revision {owned_producer_sha!r}",
+            )
         if started is not None and started > now:
             fail(prefix, "started_at cannot be in the future")
         if completed is not None and completed > now:
