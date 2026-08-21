@@ -7,6 +7,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_protocol_certification as cert  # noqa: E402
 
@@ -478,6 +480,39 @@ def test_release_rejects_naive_external_cut_without_throwing():
 
     assert report["overall_status"] == "fail"
     assert any(finding["check"] == "expected_cut_at" for finding in report["findings"])
+
+
+def test_schema_conditionally_requires_nonnull_licensed_entitlement():
+    schema = json.loads(
+        (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(schema)
+
+    licensed = _cell(
+        licensed=True,
+        entitlement_policy_revision="honua-pro-feature-subscriptions-v1",
+        deployment_target="licensed-release",
+        auth_policy_revision="api-key-protected-v1",
+    )
+    licensed["evidence_receipt"]["identity"]["entitlement_policy_revision"] = None
+    licensed["evidence_receipt"]["entitlement"] = None
+    assert list(validator.iter_errors(_ledger(licensed)))
+
+    licensed["evidence_receipt"]["identity"]["entitlement_policy_revision"] = (
+        "honua-pro-feature-subscriptions-v1"
+    )
+    licensed["evidence_receipt"]["entitlement"] = {
+        "policy_revision": "honua-pro-feature-subscriptions-v1",
+        "capability_key": licensed["capability_key"],
+        "deployment_target": "licensed-release",
+        "verification": "live-server-capability-probe-v1",
+        "status": "active",
+        "checked_at": "2026-08-20T10:02:00Z",
+        "license_fingerprint": "sha256:" + "e" * 64,
+    }
+    assert not list(validator.iter_errors(_ledger(licensed)))
+    assert not list(validator.iter_errors(_ledger(_cell())))
 
 
 def test_licensed_receipt_requires_bound_live_entitlement_assertion():

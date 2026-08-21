@@ -183,7 +183,13 @@
                     "type": "object",
                     "required": ["entitlement"],
                     "properties": {
-                      "identity": { "required": ["entitlement_policy_revision"] }
+                      "identity": {
+                        "required": ["entitlement_policy_revision"],
+                        "properties": {
+                          "entitlement_policy_revision": { "type": "string" }
+                        }
+                      },
+                      "entitlement": { "type": "object" }
                     }
                   }
                 ]
