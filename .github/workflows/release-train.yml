@@ -29,6 +29,10 @@ on:
         description: "Immutable URL for the exact-candidate honua.protocol-certification/v1 ledger"
         required: true
         type: string
+      candidate_cut_at:
+        description: "Independently frozen ISO-8601 timestamp for this exact candidate"
+        required: true
+        type: string
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -210,6 +214,7 @@ jobs:
       tier: release
       expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
       expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
+      expected_cut_at: ${{ inputs.candidate_cut_at }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────

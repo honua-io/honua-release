@@ -11,6 +11,7 @@ import check_protocol_certification as cert  # noqa: E402
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
 SHA = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+CUT = "2026-08-20T09:00:00Z"
 
 
 def _cell(**overrides):
@@ -67,6 +68,8 @@ def _requirements(*cells, complete=True):
 
 
 def _evaluate(ledger, tier, **kwargs):
+    if tier == "release":
+        kwargs.setdefault("expected_cut_at", CUT)
     return cert.evaluate(
         ledger,
         tier,
@@ -128,12 +131,19 @@ def test_preview_failure_does_not_block_release_claim():
     assert report["overall_status"] == "pass"
 
 
-def test_incomplete_denominator_can_never_certify_release():
-    ledger = _ledger()
-    ledger["requirements_complete"] = False
-    report = _evaluate(ledger, "release", now=NOW)
-    assert report["overall_status"] == "fail"
-    assert any(finding["check"] == "requirements_complete" for finding in report["findings"])
+def test_incomplete_denominator_can_never_certify_any_tier():
+    for tier in cert.TIERS:
+        ledger = _ledger()
+        ledger["requirements_complete"] = False
+        report = cert.evaluate(
+            ledger,
+            tier,
+            requirements=_requirements(complete=False),
+            expected_cut_at=CUT if tier == "release" else None,
+            now=NOW,
+        )
+        assert report["overall_status"] == "fail"
+        assert any(finding["check"] == "requirements_complete" for finding in report["findings"])
 
 
 def test_ledger_cannot_invent_or_omit_owned_requirements():
@@ -169,4 +179,35 @@ def test_release_execution_must_start_after_cut():
     report = _evaluate(ledger, "release", now=NOW)
 
     assert report["overall_status"] == "fail"
-    assert any("started before candidate cut" in finding["why"] for finding in report["findings"])
+    assert any("started before independently frozen candidate cut" in finding["why"] for finding in report["findings"])
+
+
+def test_release_requires_external_cut_and_rejects_backdated_ledger_cut():
+    ledger = _ledger(_cell(started_at="2026-08-20T08:30:00Z"))
+    ledger["candidate"]["cut_at"] = "2026-08-20T08:00:00Z"
+
+    missing = cert.evaluate(ledger, "release", requirements=_requirements(*ledger["cells"]), now=NOW)
+    mismatched = cert.evaluate(
+        ledger,
+        "release",
+        requirements=_requirements(*ledger["cells"]),
+        expected_cut_at=CUT,
+        now=NOW,
+    )
+
+    assert any(finding["check"] == "expected_cut_at" for finding in missing["findings"])
+    assert any("does not match" in finding["why"] for finding in mismatched["findings"])
+    assert any("started before independently frozen" in finding["why"] for finding in mismatched["findings"])
+
+
+def test_release_rejects_naive_external_cut_without_throwing():
+    report = cert.evaluate(
+        _ledger(),
+        "release",
+        requirements=_requirements(),
+        expected_cut_at=datetime(2026, 8, 20, 9, 0),
+        now=NOW,
+    )
+
+    assert report["overall_status"] == "fail"
+    assert any(finding["check"] == "expected_cut_at" for finding in report["findings"])
