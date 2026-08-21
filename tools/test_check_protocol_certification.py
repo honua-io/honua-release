@@ -75,6 +75,40 @@ def _cell(**overrides):
     return value
 
 
+def _licensed_cell(
+    *,
+    policy="honua-pro-feature-subscriptions-v1",
+    deployment_target="licensed-release",
+    auth_policy_revision="api-key-protected-v1",
+    checked_at="2026-08-20T10:02:00Z",
+    **overrides,
+):
+    value = _cell(
+        licensed=True,
+        entitlement_policy_revision=policy,
+        deployment_target=deployment_target,
+        auth_policy_revision=auth_policy_revision,
+        **overrides,
+    )
+    value["evidence_receipt"]["identity"]["entitlement_policy_revision"] = policy
+    value["evidence_receipt"]["entitlement"] = {
+        "policy_revision": policy,
+        "capability_key": value["capability_key"],
+        "deployment_target": deployment_target,
+        "verification": "live-server-capability-probe-v1",
+        "status": "active",
+        "checked_at": checked_at,
+        "license_fingerprint": "sha256:" + "e" * 64,
+    }
+    value["evidence_digest"] = cert._receipt_digest(value["evidence_receipt"])
+    value["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + value["evidence_digest"][7:]
+    value["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": value["evidence_digest"]}
+        for facet in value["scenario_facets"]
+    }
+    return value
+
+
 def _ledger(*cells):
     return {
         "schema": cert.SCHEMA_ID,
@@ -365,8 +399,41 @@ def test_nightly_older_than_seven_days_fails():
 
 
 def test_licensed_evidence_older_than_72_hours_fails():
-    report = _evaluate(_ledger(_cell(licensed=True, completed_at="2026-08-16T10:00:00Z")), "nightly", now=NOW)
+    cell = _licensed_cell(
+        started_at="2026-08-16T10:00:00Z",
+        completed_at="2026-08-16T10:05:00Z",
+        checked_at="2026-08-16T10:02:00Z",
+    )
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
     assert report["overall_status"] == "fail"
+    assert any("licensed evidence is older than 72 hours" in finding["why"] for finding in report["findings"])
+
+
+def test_arcpy_licensed_target_and_auth_policy_are_governed():
+    valid = _licensed_cell(
+        policy="esri-arcgis-pro-arcpy-v1",
+        deployment_target="windows-licensed",
+        auth_policy_revision="anonymous-and-protected-v1",
+    )
+    assert _evaluate(_ledger(valid), "nightly", now=NOW)["overall_status"] == "pass"
+
+    wrong_target = _licensed_cell(
+        policy="esri-arcgis-pro-arcpy-v1",
+        deployment_target="windows",
+        auth_policy_revision="anonymous-and-protected-v1",
+    )
+    target_report = _evaluate(_ledger(wrong_target), "nightly", now=NOW)
+    assert target_report["overall_status"] == "fail"
+    assert any("windows-licensed target" in finding["why"] for finding in target_report["findings"])
+
+    wrong_auth = _licensed_cell(
+        policy="esri-arcgis-pro-arcpy-v1",
+        deployment_target="windows-licensed",
+        auth_policy_revision="api-key-protected-v1",
+    )
+    auth_report = _evaluate(_ledger(wrong_auth), "nightly", now=NOW)
+    assert auth_report["overall_status"] == "fail"
+    assert any("anonymous-and-protected auth policy" in finding["why"] for finding in auth_report["findings"])
 
 
 def test_release_requires_exact_digest_and_post_cut_execution():

@@ -51,6 +51,24 @@ def main() -> None:
     ]
     if len(keys) != len(set(keys)):
         raise ValueError("Protocol certification requirements contain duplicate cells.")
+    licensed_policies = {
+        "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
+        "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
+    }
+    for row in catalog["requirements"]:
+        policy = row.get("entitlement_policy_revision")
+        if row["licensed"]:
+            expected = licensed_policies.get(policy)
+            if expected is None:
+                raise ValueError(f"Licensed requirement has unknown entitlement policy: {policy!r}")
+            actual = (row["deployment_target"], row["auth_policy_revision"])
+            if actual != expected:
+                raise ValueError(
+                    f"Licensed requirement policy {policy!r} requires target/auth {expected!r}, "
+                    f"got {actual!r}"
+                )
+        elif policy is not None:
+            raise ValueError("Unlicensed requirement cannot claim an entitlement policy.")
     required_surfaces = {"sdk-python", "sdk-js", "feature-server", "ogc", "cog", "hdf5-netcdf", "zarr"}
     surface_names = {row["surface"] for row in catalog["requirements"]}
     missing = {
@@ -167,7 +185,7 @@ def main() -> None:
         )
     governed_fields = (
         "capability_key", "surface", "operation", "canonical_client", "client_lane",
-        "client_version", "deployment_target", "required_tier", "licensed",
+        "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision",
         "addressable_by_client", "addressability_reason", "scenario_facets",
         "contract_revision", "auth_policy_revision", "fixture_revision", "budget_expectations",
     )
@@ -224,6 +242,7 @@ def main() -> None:
                             "deployment_target": "local-docker",
                             "required_tier": "nightly",
                             "licensed": False,
+                            "entitlement_policy_revision": None,
                             "addressable_by_client": True,
                             "addressability_reason": None,
                             "scenario_facets": ["positive", "media-schema"],
@@ -244,6 +263,7 @@ def main() -> None:
                     "deployment_target": "local-docker",
                     "required_tier": "nightly",
                     "licensed": False,
+                    "entitlement_policy_revision": None,
                     "addressable_by_client": True,
                     "addressability_reason": None,
                     "scenario_facets": ["positive"],
@@ -275,6 +295,7 @@ def main() -> None:
                     "deployment_target": "local-docker",
                     "required_tier": "nightly",
                     "licensed": False,
+                    "entitlement_policy_revision": None,
                     "addressable_by_client": True,
                     "addressability_reason": None,
                     "scenario_facets": decision["scenario_facets"],
@@ -298,6 +319,7 @@ def main() -> None:
                 "deployment_target": "local-docker",
                 "required_tier": "nightly",
                 "licensed": False,
+                "entitlement_policy_revision": None,
                 "addressable_by_client": False,
                 "addressability_reason": reason,
                 "scenario_facets": ["not-client-addressable"],

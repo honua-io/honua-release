@@ -175,7 +175,9 @@
           "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
           "then": {
             "properties": {
-              "entitlement_policy_revision": { "type": "string" },
+              "entitlement_policy_revision": {
+                "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1"]
+              },
               "evidence_receipt": {
                 "oneOf": [
                   { "type": "null" },
@@ -211,6 +213,30 @@
                   }
                 ]
               }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "entitlement_policy_revision": { "const": "honua-pro-feature-subscriptions-v1" } },
+            "required": ["entitlement_policy_revision"]
+          },
+          "then": {
+            "properties": {
+              "deployment_target": { "const": "licensed-release" },
+              "auth_policy_revision": { "const": "api-key-protected-v1" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "entitlement_policy_revision": { "const": "esri-arcgis-pro-arcpy-v1" } },
+            "required": ["entitlement_policy_revision"]
+          },
+          "then": {
+            "properties": {
+              "deployment_target": { "const": "windows-licensed" },
+              "auth_policy_revision": { "const": "anonymous-and-protected-v1" }
             }
           }
         }
