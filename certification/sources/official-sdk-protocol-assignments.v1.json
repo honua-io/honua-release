@@ -1,0 +1,51 @@
+{
+  "schema": "honua.official-sdk-protocol-assignments/v1",
+  "revision": "2026-08-21.1",
+  "tracking_issues": [
+    "https://github.com/honua-io/honua-server/issues/3381",
+    "https://github.com/honua-io/honua-sdk-js/issues/39",
+    "https://github.com/honua-io/honua-sdk-python/issues/21",
+    "https://github.com/honua-io/honua-sdk-dotnet/issues/31"
+  ],
+  "clients": [
+    {"name": "@honua/sdk-js", "version": "0.1.7-beta.0", "lane": "sdk-js-protocol"},
+    {"name": "Honua SDK Python", "version": "0.1.11", "lane": "sdk-python-protocol"},
+    {"name": "Honua SDK .NET", "version": "1.6.0", "lane": "sdk-dotnet-protocol"}
+  ],
+  "scenario_facets": ["positive", "negative", "auth", "media-schema"],
+  "capabilities": [
+    "editing.featureserver-edits",
+    "geocoding.batch",
+    "geocoding.forward",
+    "geocoding.reverse",
+    "process.geoprocessing",
+    "process.ogc-api-processes",
+    "routing.solve",
+    "serve.3d-tiles-scene",
+    "serve.elevation",
+    "serve.geoservices-featureserver",
+    "serve.geoservices-geocodeserver",
+    "serve.geoservices-geometry-service",
+    "serve.geoservices-imageserver",
+    "serve.geoservices-mapserver",
+    "serve.geoservices-root",
+    "serve.geoservices-vectortileserver",
+    "serve.i3s-scene",
+    "serve.odata",
+    "serve.ogc-api-coverages",
+    "serve.ogc-api-edr",
+    "serve.ogc-api-features",
+    "serve.ogc-api-maps",
+    "serve.ogc-api-records",
+    "serve.ogc-api-tiles",
+    "serve.sensorthings",
+    "serve.stac",
+    "serve.vector-tiles",
+    "serve.wcs",
+    "serve.wfs",
+    "serve.wms",
+    "serve.wmts",
+    "styling.auto-suggest",
+    "styling.ogc-api-styles"
+  ]
+}

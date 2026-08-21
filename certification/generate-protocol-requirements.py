@@ -167,6 +167,37 @@ def main() -> None:
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
             )
 
+    assignments = load(SOURCES / "canonical-client-assignments.v1.json")
+    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
+    for assignment in assignments["assignments"]:
+        capability = server_by_key.get(assignment["capability_key"])
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        for client_id in assignment["clients"]:
+            client = assignments["clients"][client_id]
+            version = client["version"].replace("{server_sha}", revisions["server"]["commit"])
+            add(
+                capability=assignment["capability_key"], surface=assignment["surface"],
+                operation=assignment["capability_key"], client=client["name"],
+                lane=f"{client['lane']}-{slug(assignment['surface'])}", version=version,
+                contract=f"canonical-client-assignments@{assignments['revision']}",
+                facets=assignment["scenario_facets"],
+            )
+
+    sdk_protocols = load(SOURCES / "official-sdk-protocol-assignments.v1.json")
+    for capability_key in sdk_protocols["capabilities"]:
+        capability = server_by_key.get(capability_key)
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        for client in sdk_protocols["clients"]:
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=capability_key, client=client["name"],
+                lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
+                contract=f"official-sdk-protocol-assignments@{sdk_protocols['revision']}",
+                facets=sdk_protocols["scenario_facets"],
+            )
+
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     esri_clients = [
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False),
@@ -202,7 +233,7 @@ def main() -> None:
         elif "tiles" in name or "wmts" in name or "wms" in name:
             clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
         elif "wcs" in name or "coverage" in name:
-            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.34", "owslib")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.36.0", "owslib")]
         else:
             clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python")]
         for client, version, lane in clients:
@@ -218,12 +249,14 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.4",
+        "revision": "2026-08-21-complete.6",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
             "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
-            "clients, official MCP SDK/Inspector operations, and executable operation contracts for all three Honua SDKs. "
+            "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
+            "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, "
+            "and executable operation contracts for all three Honua SDKs. "
             "The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."

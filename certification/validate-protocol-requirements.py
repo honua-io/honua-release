@@ -15,6 +15,15 @@ def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
     revisions = json.loads((ROOT / "sources" / "source-revisions.v1.json").read_text(encoding="utf-8"))["sources"]
+    assignments = json.loads(
+        (ROOT / "sources" / "canonical-client-assignments.v1.json").read_text(encoding="utf-8")
+    )
+    sdk_protocols = json.loads(
+        (ROOT / "sources" / "official-sdk-protocol-assignments.v1.json").read_text(encoding="utf-8")
+    )
+    server = json.loads(
+        (ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
+    )
     jsonschema.validate(catalog, schema)
     if catalog["source_revisions"] != revisions:
         raise ValueError("Catalog source revisions differ from the pinned source manifest.")
@@ -42,6 +51,70 @@ def main() -> None:
         raise ValueError(
             "Protocol certification denominator is missing SDK operation lanes: "
             f"{sorted(missing_sdk_lanes)}"
+        )
+    present_assignments = {
+        (
+            row["capability_key"],
+            row["surface"],
+            row["canonical_client"],
+            row["client_version"],
+        )
+        for row in catalog["requirements"]
+    }
+    expected_assignments = set()
+    for assignment in assignments["assignments"]:
+        for client_id in assignment["clients"]:
+            client = assignments["clients"][client_id]
+            expected_assignments.add((
+                assignment["capability_key"],
+                assignment["surface"],
+                client["name"],
+                client["version"].replace("{server_sha}", revisions["server"]["commit"]),
+            ))
+    missing_assignments = expected_assignments - present_assignments
+    if missing_assignments:
+        raise ValueError(
+            "Protocol certification denominator is missing governed canonical-client assignments: "
+            f"{sorted(missing_assignments)}"
+        )
+    expected_sdk_protocols = {
+        (
+            capability_key,
+            client["name"],
+            client["version"],
+        )
+        for capability_key in sdk_protocols["capabilities"]
+        for client in sdk_protocols["clients"]
+    }
+    present_sdk_protocols = {
+        (
+            row["capability_key"],
+            row["canonical_client"],
+            row["client_version"],
+        )
+        for row in catalog["requirements"]
+        if row["contract_revision"]
+        == f"official-sdk-protocol-assignments@{sdk_protocols['revision']}"
+    }
+    missing_sdk_protocols = expected_sdk_protocols - present_sdk_protocols
+    if missing_sdk_protocols:
+        raise ValueError(
+            "Protocol certification denominator is missing official SDK protocol parity cells: "
+            f"{sorted(missing_sdk_protocols)}"
+        )
+    protocol_prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
+    implemented_protocols = {
+        capability["key"]
+        for capability in server["capabilities"]
+        if capability["key"].startswith(protocol_prefixes)
+        and capability.get("maturity", {}).get("implemented")
+    }
+    declared_protocols = set(sdk_protocols["capabilities"])
+    if implemented_protocols != declared_protocols:
+        raise ValueError(
+            "Official SDK protocol assignments differ from the implemented public protocol surface "
+            f"(missing={sorted(implemented_protocols - declared_protocols)}, "
+            f"unexpected={sorted(declared_protocols - implemented_protocols)})"
         )
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
 
