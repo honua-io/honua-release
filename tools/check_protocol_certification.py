@@ -31,7 +31,7 @@ CELL_FIELDS = {
     "producer_source_sha",
     "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at",
 }
-SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
@@ -156,7 +156,7 @@ def evaluate(
     else:
         external_cut_at = _timestamp(expected_cut_at)
     if not isinstance(candidate_sha, str) or not SHA_RE.fullmatch(candidate_sha):
-        fail("candidate.source_sha", "candidate source_sha must be 7-40 lowercase hex characters")
+        fail("candidate.source_sha", "candidate source_sha must be a full 40-character lowercase hex SHA")
     if not isinstance(candidate_digest, str) or not DIGEST_RE.fullmatch(candidate_digest):
         fail("candidate.image_digest", "candidate image_digest must be a sha256 digest")
     if cut_at is None:
@@ -229,6 +229,10 @@ def evaluate(
             fail(prefix, f"unknown required_tier {raw['required_tier']!r}")
         if raw["result"] not in RESULTS:
             fail(prefix, f"unknown result {raw['result']!r}")
+        if raw["source_sha"] is not None and (
+            not isinstance(raw["source_sha"], str) or not SHA_RE.fullmatch(raw["source_sha"])
+        ):
+            fail(prefix, "cell source_sha must be a full 40-character lowercase hex SHA")
         if not isinstance(raw["licensed"], bool) or not isinstance(raw["addressable_by_client"], bool):
             fail(prefix, "licensed and addressable_by_client must be booleans")
         facets = raw["scenario_facets"]
@@ -305,7 +309,7 @@ def evaluate(
                 fail(prefix, "release evidence started before independently frozen candidate cut")
 
     for group, rows in supported_groups.items():
-        if tier == "release" and not any(row.get("addressable_by_client") for row in rows):
+        if tier in {"nightly", "release"} and not any(row.get("addressable_by_client") for row in rows):
             fail("addressability", f"supported operation has no addressable canonical client: {group}")
 
     if not scoped:
