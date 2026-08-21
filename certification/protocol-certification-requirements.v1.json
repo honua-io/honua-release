@@ -1,8 +1,8 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-08-21-complete.6",
+  "revision": "2026-08-21-complete.7",
   "complete": true,
-  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, and executable operation contracts for all three Honua SDKs. The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
+  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, executable operation contracts for all three Honua SDKs, and explicit fail-closed blockers for every implemented capability whose canonical-client applicability is not yet assigned. The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
   "source_revisions": {
     "server": {
       "repository": "honua-io/honua-server",
@@ -57,6 +57,26 @@
         "media-schema"
       ],
       "contract_revision": "server-capability-matrix@77658f534c8d75ec3c3cdbfa2f65ac12870a87f7",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "admin.control-plane",
+      "surface": "admin-control-plane",
+      "operation": "admin.control-plane",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-admin-control-plane",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
@@ -250,6 +270,46 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
+      "capability_key": "ai.grounding",
+      "surface": "ai-grounding",
+      "operation": "ai.grounding",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ai-grounding",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "ai.mcp-discovery",
+      "surface": "ai-mcp-discovery",
+      "operation": "ai.mcp-discovery",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ai-mcp-discovery",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
       "capability_key": "ai.mcp-discovery",
       "surface": "sdk-js",
       "operation": "HONUA_AGENT_TOOL_NAMES",
@@ -292,6 +352,286 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
+      "capability_key": "ai.spec-apply",
+      "surface": "ai-spec-apply",
+      "operation": "ai.spec-apply",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ai-spec-apply",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "ai.spec-artifacts",
+      "surface": "ai-spec-artifacts",
+      "operation": "ai.spec-artifacts",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ai-spec-artifacts",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "alerts.evaluation",
+      "surface": "alerts-evaluation",
+      "operation": "alerts.evaluation",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-alerts-evaluation",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.buffer-aggregate",
+      "surface": "analytics-buffer-aggregate",
+      "operation": "analytics.buffer-aggregate",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-buffer-aggregate",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.clustering",
+      "surface": "analytics-clustering",
+      "operation": "analytics.clustering",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-clustering",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analytics-content",
+      "operation": "analytics.content",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-content",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.density",
+      "surface": "analytics-density",
+      "operation": "analytics.density",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-density",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.line-of-sight",
+      "surface": "analytics-line-of-sight",
+      "operation": "analytics.line-of-sight",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-line-of-sight",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.reporting",
+      "surface": "analytics-reporting",
+      "operation": "analytics.reporting",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-reporting",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.slice",
+      "surface": "analytics-slice",
+      "operation": "analytics.slice",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-slice",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.spatial-join",
+      "surface": "analytics-spatial-join",
+      "operation": "analytics.spatial-join",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-spatial-join",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.sun-shadow",
+      "surface": "analytics-sun-shadow",
+      "operation": "analytics.sun-shadow",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-sun-shadow",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "analytics.viewshed",
+      "surface": "analytics-viewshed",
+      "operation": "analytics.viewshed",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-analytics-viewshed",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "collaboration.map-sessions",
+      "surface": "collaboration-map-sessions",
+      "operation": "collaboration.map-sessions",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-collaboration-map-sessions",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
       "capability_key": "collaboration.map-sessions",
       "surface": "sdk-js",
       "operation": "@honua/sdk-js/collaboration",
@@ -311,6 +651,26 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
+    },
+    {
+      "capability_key": "discovery.capability-manifest",
+      "surface": "discovery-capability-manifest",
+      "operation": "discovery.capability-manifest",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-discovery-capability-manifest",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "discovery.capability-manifest",
@@ -695,6 +1055,26 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
+    },
+    {
+      "capability_key": "enrichment.datasets",
+      "surface": "enrichment-datasets",
+      "operation": "enrichment.datasets",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-enrichment-datasets",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "esri.feature-server",
@@ -23401,6 +23781,46 @@
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
+      "capability_key": "fieldops.forms",
+      "surface": "fieldops-forms",
+      "operation": "fieldops.forms",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-fieldops-forms",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "fieldops.offline-sync",
+      "surface": "fieldops-offline-sync",
+      "operation": "fieldops.offline-sync",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-fieldops-offline-sync",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
       "capability_key": "fieldops.offline-sync",
       "surface": "sdk-js",
       "operation": "HonuaOfflineRegion (src/offline/region.ts)",
@@ -29737,6 +30157,26 @@
     },
     {
       "capability_key": "identity.oidc",
+      "surface": "identity-oidc",
+      "operation": "identity.oidc",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-identity-oidc",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "identity.oidc",
       "surface": "sdk-js",
       "operation": "HonuaOAuth2Provider (src/core/auth/oauth2-provider.ts)",
       "maturity": "supported",
@@ -29755,6 +30195,26 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
+    },
+    {
+      "capability_key": "identity.portal-sharing",
+      "surface": "identity-portal-sharing",
+      "operation": "identity.portal-sharing",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-identity-portal-sharing",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "identity.portal-sharing",
@@ -29800,6 +30260,26 @@
     },
     {
       "capability_key": "identity.portal-token",
+      "surface": "identity-portal-token",
+      "operation": "identity.portal-token",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-identity-portal-token",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "identity.portal-token",
       "surface": "sdk-js",
       "operation": "PortalCompat.generateToken (src/esri-compat/portal.ts)",
       "maturity": "supported",
@@ -29818,6 +30298,106 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
+    },
+    {
+      "capability_key": "identity.saml",
+      "surface": "identity-saml",
+      "operation": "identity.saml",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-identity-saml",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "identity.scim",
+      "surface": "identity-scim",
+      "operation": "identity.scim",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-identity-scim",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "import.file",
+      "surface": "import-file",
+      "operation": "import.file",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-import-file",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "import.geoserver",
+      "surface": "import-geoserver",
+      "operation": "import.geoserver",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-import-geoserver",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "import.geoservices",
+      "surface": "import-geoservices",
+      "operation": "import.geoservices",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-import-geoservices",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "mcp.resource",
@@ -31669,6 +32249,26 @@
     },
     {
       "capability_key": "ops.health",
+      "surface": "ops-health",
+      "operation": "ops.health",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ops-health",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "ops.health",
       "surface": "sdk-python",
       "operation": "honua_sdk.AsyncHonuaClient.readiness",
       "maturity": "supported",
@@ -31687,6 +32287,26 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
+    },
+    {
+      "capability_key": "ops.observability",
+      "surface": "ops-observability",
+      "operation": "ops.observability",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-ops-observability",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "ops.observability",
@@ -31771,6 +32391,26 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
+    },
+    {
+      "capability_key": "printing.pdf-output",
+      "surface": "printing-pdf-output",
+      "operation": "printing.pdf-output",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-printing-pdf-output",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "process.geoprocessing",
@@ -32174,6 +32814,26 @@
     },
     {
       "capability_key": "raster.cloud-cog-serving",
+      "surface": "raster-cloud-cog-serving",
+      "operation": "raster.cloud-cog-serving",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-raster-cloud-cog-serving",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "raster.cloud-cog-serving",
       "surface": "sdk-js",
       "operation": "StacCogAssetSession",
       "maturity": "supported",
@@ -32213,6 +32873,26 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
+    },
+    {
+      "capability_key": "raster.multidim-coverage",
+      "surface": "raster-multidim-coverage",
+      "operation": "raster.multidim-coverage",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-raster-multidim-coverage",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "raster.multidim-coverage",
@@ -32297,6 +32977,26 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
+    },
+    {
+      "capability_key": "raster.terrain-rgb",
+      "surface": "raster-terrain-rgb",
+      "operation": "raster.terrain-rgb",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-raster-terrain-rgb",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "routing.solve",
@@ -32494,6 +33194,26 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
+      "capability_key": "scene.bim-ingest",
+      "surface": "scene-bim-ingest",
+      "operation": "scene.bim-ingest",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-scene-bim-ingest",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
       "capability_key": "scene.catalog",
       "surface": "sdk-python",
       "operation": "honua_sdk.protocols.SceneClient.get_scene",
@@ -32534,6 +33254,26 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
+    },
+    {
+      "capability_key": "scene.pointcloud-ingest",
+      "surface": "scene-pointcloud-ingest",
+      "operation": "scene.pointcloud-ingest",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-scene-pointcloud-ingest",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
       "capability_key": "sdk-dotnet.abstractions",
@@ -45055,6 +45795,26 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
+      "capability_key": "streaming.feature-subscriptions",
+      "surface": "streaming-feature-subscriptions",
+      "operation": "streaming.feature-subscriptions",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-streaming-feature-subscriptions",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
       "capability_key": "styling.auto-suggest",
       "surface": "styling-auto-suggest",
       "operation": "styling.auto-suggest",
@@ -45384,6 +46144,66 @@
         "media-schema"
       ],
       "contract_revision": "official-sdk-protocol-assignments@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "temporal.extent-discovery",
+      "surface": "temporal-extent-discovery",
+      "operation": "temporal.extent-discovery",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-temporal-extent-discovery",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "temporal.filtering",
+      "surface": "temporal-filtering",
+      "operation": "temporal.filtering",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-temporal-filtering",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "temporal.histogram",
+      "surface": "temporal-histogram",
+      "operation": "temporal.histogram",
+      "maturity": "supported",
+      "canonical_client": "UNASSIGNED CANONICAL CLIENT",
+      "client_lane": "canonical-client-unassigned-temporal-histogram",
+      "client_version": "pending-3387",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "canonical-client-applicability@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     }

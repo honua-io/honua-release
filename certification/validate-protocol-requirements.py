@@ -21,6 +21,9 @@ def main() -> None:
     sdk_protocols = json.loads(
         (ROOT / "sources" / "official-sdk-protocol-assignments.v1.json").read_text(encoding="utf-8")
     )
+    applicability = json.loads(
+        (ROOT / "sources" / "canonical-client-applicability.v1.json").read_text(encoding="utf-8")
+    )
     server = json.loads(
         (ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
     )
@@ -115,6 +118,41 @@ def main() -> None:
             "Official SDK protocol assignments differ from the implemented public protocol surface "
             f"(missing={sorted(implemented_protocols - declared_protocols)}, "
             f"unexpected={sorted(declared_protocols - implemented_protocols)})"
+        )
+    implemented_capabilities = {
+        capability["key"]
+        for capability in server["capabilities"]
+        if capability.get("maturity", {}).get("implemented")
+    }
+    unassigned_capabilities = set(applicability["unassigned_capabilities"])
+    if len(unassigned_capabilities) != len(applicability["unassigned_capabilities"]):
+        raise ValueError("Canonical-client applicability contains duplicate unassigned capabilities.")
+    overlap = declared_protocols & unassigned_capabilities
+    if overlap:
+        raise ValueError(
+            "Capabilities cannot be both SDK-assigned and canonical-client-unassigned: "
+            f"{sorted(overlap)}"
+        )
+    classified_capabilities = declared_protocols | unassigned_capabilities
+    if implemented_capabilities != classified_capabilities:
+        raise ValueError(
+            "Canonical-client applicability differs from the implemented capability surface "
+            f"(unclassified={sorted(implemented_capabilities - classified_capabilities)}, "
+            f"unexpected={sorted(classified_capabilities - implemented_capabilities)})"
+        )
+    present_unassigned = {
+        row["capability_key"]
+        for row in catalog["requirements"]
+        if row["canonical_client"] == "UNASSIGNED CANONICAL CLIENT"
+        and row["client_version"] == "pending-3387"
+        and row["contract_revision"]
+        == f"canonical-client-applicability@{applicability['revision']}"
+    }
+    if unassigned_capabilities != present_unassigned:
+        raise ValueError(
+            "Protocol certification denominator is missing canonical-client assignment blockers "
+            f"(missing={sorted(unassigned_capabilities - present_unassigned)}, "
+            f"unexpected={sorted(present_unassigned - unassigned_capabilities)})"
         )
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
 

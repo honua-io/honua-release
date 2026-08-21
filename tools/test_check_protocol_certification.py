@@ -118,7 +118,7 @@ def test_candidate_and_cells_require_full_source_shas_at_every_tier():
         assert any("full 40-character" in finding["why"] for finding in report["findings"])
 
 
-def test_owned_denominator_can_form_a_valid_nightly_ledger():
+def test_owned_denominator_fails_closed_while_canonical_clients_are_unassigned():
     requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
     assert error is None
     cells = []
@@ -147,7 +147,34 @@ def test_owned_denominator_can_form_a_valid_nightly_ledger():
 
     report = cert.evaluate(ledger, "nightly", requirements=requirements, now=NOW)
 
-    assert report["overall_status"] == "pass", report["findings"]
+    unassigned = [
+        row for row in requirements["requirements"]
+        if row["canonical_client"] == cert.UNASSIGNED_CANONICAL_CLIENT
+    ]
+    if unassigned:
+        assert report["overall_status"] == "fail"
+        assert sum(
+            "canonical client applicability is unassigned" in finding["why"]
+            for finding in report["findings"]
+        ) == len(unassigned)
+    else:
+        assert report["overall_status"] == "pass", report["findings"]
+
+
+def test_unassigned_canonical_client_cannot_be_fabricated_as_a_pass():
+    cell = _cell(
+        canonical_client=cert.UNASSIGNED_CANONICAL_CLIENT,
+        client_lane="canonical-client-unassigned-serve-cog",
+        client_version="pending-3387",
+    )
+
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        "canonical client applicability is unassigned" in finding["why"]
+        for finding in report["findings"]
+    )
 
 
 def test_nightly_older_than_seven_days_fails():
