@@ -29,6 +29,18 @@ status: rc                             # draft | rc | released
 snapshotDate: "2026-08-20"             # honua-server re-pin date; #83 re-pin was 2026-08-17, rc.1 freeze 2026-08-01
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
+# Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
+# deliberately blocks certification until honua-evidence publishes the exact-candidate ledger and
+# this reviewed manifest pins its immutable commit and byte digest.
+protocolCertification:
+  candidateCutAt: "2026-08-20T00:00:00Z"
+  ledger:
+    status: pending
+    repository: "honua-io/honua-evidence"
+    commit: pending
+    path: "protocol-certification.json"
+    sha256: pending
+
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:

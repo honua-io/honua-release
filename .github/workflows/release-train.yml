@@ -25,14 +25,6 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
-      protocol_matrix_url:
-        description: "Immutable URL for the exact-candidate honua.protocol-certification/v1 ledger"
-        required: true
-        type: string
-      candidate_cut_at:
-        description: "Independently frozen ISO-8601 timestamp for this exact candidate"
-        required: true
-        type: string
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -51,6 +43,11 @@ jobs:
     outputs:
       server_sha: ${{ steps.candidate.outputs.server_sha }}
       server_digest: ${{ steps.candidate.outputs.server_digest }}
+      certification_repository: ${{ steps.candidate.outputs.certification_repository }}
+      certification_commit: ${{ steps.candidate.outputs.certification_commit }}
+      certification_path: ${{ steps.candidate.outputs.certification_path }}
+      certification_sha256: ${{ steps.candidate.outputs.certification_sha256 }}
+      candidate_cut_at: ${{ steps.candidate.outputs.candidate_cut_at }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -85,8 +82,15 @@ jobs:
           import yaml
           manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
           server = manifest["components"]["honua-server"]
+          certification = manifest["protocolCertification"]
+          ledger = certification["ledger"]
           print(f"server_sha={server['sha']}")
           print(f"server_digest={server['digest']}")
+          print(f"certification_repository={ledger['repository']}")
+          print(f"certification_commit={ledger['commit']}")
+          print(f"certification_path={ledger['path']}")
+          print(f"certification_sha256={ledger['sha256']}")
+          print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -210,11 +214,14 @@ jobs:
     needs: [freeze, gate_conformance]
     uses: ./.github/workflows/gate-protocol-certification.yml
     with:
-      matrix_url: ${{ inputs.protocol_matrix_url }}
+      matrix_repository: ${{ needs.freeze.outputs.certification_repository }}
+      matrix_commit: ${{ needs.freeze.outputs.certification_commit }}
+      matrix_path: ${{ needs.freeze.outputs.certification_path }}
+      matrix_sha256: ${{ needs.freeze.outputs.certification_sha256 }}
       tier: release
       expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
       expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
-      expected_cut_at: ${{ inputs.candidate_cut_at }}
+      expected_cut_at: ${{ needs.freeze.outputs.candidate_cut_at }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────

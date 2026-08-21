@@ -37,6 +37,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -119,9 +120,39 @@ def _component_version_kind(comp: dict) -> str:
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
-    for key in ("platformRelease", "status", "components"):
+    for key in ("platformRelease", "status", "components", "protocolCertification"):
         if key not in manifest:
             f.error(f"manifest: missing required top-level key {key!r}")
+
+    certification = manifest.get("protocolCertification") or {}
+    cut = str(certification.get("candidateCutAt", "")).strip()
+    try:
+        parsed_cut = datetime.fromisoformat(cut.replace("Z", "+00:00"))
+        if parsed_cut.tzinfo is None:
+            raise ValueError
+    except ValueError:
+        f.error("manifest: protocolCertification.candidateCutAt must be a timezone-aware ISO-8601 timestamp")
+
+    ledger = certification.get("ledger") or {}
+    ledger_status = str(ledger.get("status", "")).strip()
+    if ledger_status not in {"pending", "bound"}:
+        f.error("manifest: protocolCertification.ledger.status must be 'pending' or 'bound'")
+    if ledger.get("repository") != "honua-io/honua-evidence":
+        f.error("manifest: protocol certification ledger must be owned by honua-io/honua-evidence")
+    ledger_path = str(ledger.get("path", "")).strip()
+    if not ledger_path or ledger_path.startswith("/") or ".." in ledger_path.split("/"):
+        f.error("manifest: protocol certification ledger path must be a safe repository-relative path")
+    if ledger_status == "bound":
+        if not re.fullmatch(r"[0-9a-f]{40}", str(ledger.get("commit", "")), re.I):
+            f.error("manifest: bound protocol certification ledger commit must be a full SHA")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(ledger.get("sha256", "")), re.I):
+            f.error("manifest: bound protocol certification ledger sha256 must be an exact digest")
+    elif ledger_status == "pending":
+        if ledger.get("commit") != "pending" or ledger.get("sha256") != "pending":
+            f.error("manifest: pending protocol certification ledger must use explicit pending commit and digest sentinels")
+        if manifest.get("status") == "released":
+            f.error("manifest: a released platform cannot have a pending protocol certification ledger")
+
     components = manifest.get("components") or {}
     if not isinstance(components, dict) or not components:
         f.error("manifest: 'components' must be a non-empty mapping")
