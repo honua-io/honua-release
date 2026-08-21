@@ -100,6 +100,9 @@ def main() -> None:
             )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
+    dotnet_addressable_operations = sum(
+        operation["status"] != "non-addressable" for operation in dotnet["operations"]
+    )
     tier_order = ("pr", "nightly", "release")
     for operation in dotnet["operations"]:
         required_tier = next(
@@ -288,7 +291,8 @@ def main() -> None:
             "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, "
             "executable operation contracts for all three Honua SDKs, and explicit fail-closed blockers for every "
             "implemented capability whose canonical-client applicability is not yet assigned. "
-            "The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions "
+            f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
+            "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
