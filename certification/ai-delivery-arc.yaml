@@ -102,6 +102,8 @@ journey:
         - { id: style-map-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
         - { id: set-map-buffer-visibility, kind: mcp, tool: honua_studio_set_layer_visibility }
         - { id: set-map-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-map-widget, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-map-control, kind: mcp, tool: honua_studio_add_control }
         - { id: validate-map-draft, kind: mcp, tool: honua_studio_validate_draft }
         - { id: save-map-version, kind: mcp, tool: honua_studio_save_version }
         - { id: get-map-version, kind: mcp, tool: honua_studio_get_version }
@@ -109,6 +111,8 @@ journey:
         - { id: create-app-draft, kind: mcp, tool: honua_studio_create_draft }
         - { id: add-app-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
         - { id: add-app-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-app-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-app-view, kind: mcp, tool: honua_studio_set_view }
         - { id: add-app-chart, kind: mcp, tool: honua_studio_add_widget }
         - { id: add-app-layer-control, kind: mcp, tool: honua_studio_add_control }
         - { id: bind-app-chart-interaction, kind: mcp, tool: honua_studio_bind_interaction }
@@ -117,6 +121,11 @@ journey:
         - { id: get-app-version, kind: mcp, tool: honua_studio_get_version }
         - { id: reopen-app-version, kind: mcp, tool: honua_studio_reopen_version }
         - { id: create-dashboard-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-dashboard-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-dashboard-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-dashboard-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-dashboard-chart, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-dashboard-layer-control, kind: mcp, tool: honua_studio_add_control }
         - { id: validate-dashboard-draft, kind: mcp, tool: honua_studio_validate_draft }
         - { id: save-dashboard-version, kind: mcp, tool: honua_studio_save_version }
         - { id: get-dashboard-version, kind: mcp, tool: honua_studio_get_version }

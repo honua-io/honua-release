@@ -79,7 +79,7 @@ jobs:
       - name: Resolve the reviewed sdk-js journey pin
         run: |
           set -euo pipefail
-          TRUSTED_SHA="001451a5aff1db1e724b572bdd06978a489e9a25"
+          TRUSTED_SHA="1e895f886c70bc1e6e8518f07325cc34a7fed081"
           SHA="$(python - <<'PY'
           import yaml
           print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-sdk-js"]["sha"])
@@ -94,7 +94,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-js
-          ref: 001451a5aff1db1e724b572bdd06978a489e9a25
+          ref: 1e895f886c70bc1e6e8518f07325cc34a7fed081
           path: _sdk-js
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -170,7 +170,7 @@ jobs:
           import yaml
           components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
           expected = {
-              "honua-sdk-js": ("001451a5aff1db1e724b572bdd06978a489e9a25", "0.1.7-beta.0"),
+              "honua-sdk-js": ("1e895f886c70bc1e6e8518f07325cc34a7fed081", "0.1.7-beta.0"),
               "honua-sdk-python": ("953f2b3ba2cbb2d947b13c8ac5848cebe1860a76", "0.1.10"),
               "honua-sdk-dotnet": ("a5fb6f54a34524ea19e9e635e4c6aa258aec11c5", "1.6.0"),
           }
@@ -268,7 +268,7 @@ jobs:
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+          TRUSTED_SHA="6c04acf6bd41f05447221ed7ef98c39bcac56f5f"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -290,7 +290,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          ref: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -353,7 +353,7 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          E2E_CONSOLE_SHA: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different

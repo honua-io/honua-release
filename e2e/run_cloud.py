@@ -36,6 +36,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -63,6 +64,9 @@ _CLOUD_CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID",
 
 _READY_ATTEMPTS = 36
 _READY_DELAY_SECONDS = 5.0
+_AWS_SECRET_ARN = re.compile(
+    r"arn:(?:aws|aws-us-gov|aws-cn):secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+"
+)
 
 _AI_ARC_REQUIRED_ENV = (
     "HONUA_DEVOPS_DIR",
@@ -110,6 +114,8 @@ def _sha256(path: Path) -> str:
 
 def _write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # lgtm[py/clear-text-storage-sensitive-data] The only credential-shaped fields written by this
+    # helper are validated AWS Secrets Manager ARNs. Credential values remain process-only.
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -299,8 +305,11 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         raise ProvisionError(
             "AWS ECS AI delivery arc Terraform outputs omit DB/admin secret-reference handoff"
         ) from error
-    if not all(isinstance(value, str) and value for value in (db_host, admin_ref, db_ref)):
+    if not isinstance(db_host, str) or not db_host:
         raise ProvisionError("AWS ECS AI delivery arc Terraform handoff values are empty")
+    if not all(isinstance(reference, str) and _AWS_SECRET_ARN.fullmatch(reference)
+               for reference in (admin_ref, db_ref)):
+        raise ProvisionError("AWS ECS AI delivery arc handoff secret references are not AWS ARNs")
 
     server = components.get("honua-server") or {}
     expected_image = f"{server.get('image')}@{server.get('digest')}"

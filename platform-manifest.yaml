@@ -255,8 +255,9 @@ components:
     version: "0.1.7-beta.0"            # release tag js-sdk-v0.1.7-beta.0; published on npm
     # 2026.1 integration pin: honua-sdk-js#1375 carries the candidate-bound zero-to-map
     # driver, three-family Studio version lifecycle, admin inventory, and resealed derived/sample
-    # evidence. Strict `samples:verify` passed against these exact bytes after the Noble reseal.
-    sha: "001451a5aff1db1e724b572bdd06978a489e9a25"   # branch: release/2026-1-integration
+    # evidence. Strict `samples:verify` passed for all 35 examples, 7 reserved journeys, and 21
+    # routes against the final two-pass Noble reseal at this exact commit.
+    sha: "1e895f886c70bc1e6e8518f07325cc34a7fed081"   # branch: release/2026-1-integration
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
@@ -317,7 +318,7 @@ components:
     # provision, teardown, and full real-model receipt contracts. Its source/checks are green; this
     # pin does not claim a live receipt until the release cloud cell supplies HTTPS, focused Console
     # approval, provider credentials, and a manifest-pinned Studio full-model runner.
-    sha: "3fc229d3ed19fb5e1cccf33ee95a837f407e6037"   # branch: agent/2026-1-aws-ai-arc, PR #149
+    sha: "e50c5010ad68ec5e60feb70d4e7ddd58aa7ea017"   # branch: agent/2026-1-aws-ai-arc, PR #149
     status: "source-ready-awaiting-live-aws-ecs-receipts"
 
   honua-iac:
