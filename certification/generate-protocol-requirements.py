@@ -198,6 +198,22 @@ def main() -> None:
                 facets=sdk_protocols["scenario_facets"],
             )
 
+    applicability = load(SOURCES / "canonical-client-applicability.v1.json")
+    for capability_key in applicability["unassigned_capabilities"]:
+        capability = server_by_key.get(capability_key)
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        add(
+            capability=capability_key,
+            surface=slug(capability_key),
+            operation=capability_key,
+            client="UNASSIGNED CANONICAL CLIENT",
+            lane=f"canonical-client-unassigned-{slug(capability_key)}",
+            version="pending-3387",
+            contract=f"canonical-client-applicability@{applicability['revision']}",
+            facets=["positive"],
+        )
+
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     esri_clients = [
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False),
@@ -249,14 +265,15 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.6",
+        "revision": "2026-08-21-complete.7",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
             "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
             "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
             "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, "
-            "and executable operation contracts for all three Honua SDKs. "
+            "executable operation contracts for all three Honua SDKs, and explicit fail-closed blockers for every "
+            "implemented capability whose canonical-client applicability is not yet assigned. "
             "The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."

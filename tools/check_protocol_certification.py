@@ -43,6 +43,7 @@ REQUIREMENT_FIELDS = {
     "fixture_revision",
 }
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
+UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -259,6 +260,11 @@ def evaluate(
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
+        if raw["canonical_client"] == UNASSIGNED_CANONICAL_CLIENT:
+            fail(
+                prefix,
+                "canonical client applicability is unassigned; resolve the governed tracking issue",
+            )
         if raw["source_sha"] != candidate_sha:
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
         if raw["image_digest"] != candidate_digest:
