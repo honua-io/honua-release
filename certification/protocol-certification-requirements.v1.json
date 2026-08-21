@@ -10,7 +10,7 @@
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "0b81b9190d208cdacbc5b12005e5eabe77731eec"
+      "commit": "5673a41ed169e4cc6d86819d1257bccbbb3ca2b9"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
@@ -18,7 +18,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5"
+      "commit": "1e5807e442b9ce979fe91c228e917bba32abd22e"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
@@ -139,7 +139,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -160,7 +160,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -181,7 +181,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -202,7 +202,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -223,7 +223,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -244,7 +244,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -265,7 +265,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -326,7 +326,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -347,7 +347,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -648,7 +648,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -689,7 +689,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -710,7 +710,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -731,7 +731,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -926,7 +926,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -947,7 +947,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -968,7 +968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -989,7 +989,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -23837,7 +23837,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -23858,7 +23858,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24589,7 +24589,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24610,7 +24610,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -24742,7 +24742,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29492,7 +29492,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29514,7 +29514,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29535,7 +29535,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -29557,7 +29557,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30192,7 +30192,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30233,7 +30233,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30254,7 +30254,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -30295,7 +30295,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32325,7 +32325,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32346,7 +32346,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32367,7 +32367,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32388,7 +32388,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32429,7 +32429,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32450,7 +32450,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32540,7 +32540,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32631,7 +32631,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32653,7 +32653,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32675,7 +32675,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32697,7 +32697,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32849,7 +32849,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -32870,7 +32870,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33015,7 +33015,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33105,7 +33105,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33126,7 +33126,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33147,7 +33147,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33168,7 +33168,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33189,7 +33189,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -33291,7 +33291,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33311,7 +33311,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33331,7 +33331,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33351,7 +33351,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33371,7 +33371,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33391,7 +33391,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33411,7 +33411,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33431,7 +33431,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33451,7 +33451,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33471,7 +33471,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33491,7 +33491,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33512,7 +33512,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33532,7 +33532,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33552,7 +33552,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33572,7 +33572,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33592,7 +33592,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33612,7 +33612,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33632,7 +33632,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33652,7 +33652,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33672,7 +33672,107 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
+    },
+    {
+      "capability_key": "sdk-dotnet.abstractions",
+      "surface": "abstractions",
+      "operation": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.CreateReplicaAsync(string,string,IReadOnlyList<int>?,CancellationToken)",
+      "maturity": "supported",
+      "canonical_client": "Honua SDK .NET",
+      "client_lane": "sdk-dotnet-certification",
+      "client_version": "1.6.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
+    },
+    {
+      "capability_key": "sdk-dotnet.abstractions",
+      "surface": "abstractions",
+      "operation": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.ExtractChangesAsync(string,string,CancellationToken)",
+      "maturity": "supported",
+      "canonical_client": "Honua SDK .NET",
+      "client_lane": "sdk-dotnet-certification",
+      "client_version": "1.6.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
+    },
+    {
+      "capability_key": "sdk-dotnet.abstractions",
+      "surface": "abstractions",
+      "operation": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.ExtractChangesAsync(string,string,string?,CancellationToken)",
+      "maturity": "supported",
+      "canonical_client": "Honua SDK .NET",
+      "client_lane": "sdk-dotnet-certification",
+      "client_version": "1.6.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
+    },
+    {
+      "capability_key": "sdk-dotnet.abstractions",
+      "surface": "abstractions",
+      "operation": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.SynchronizeReplicaAsync(string,string,string,CancellationToken)",
+      "maturity": "supported",
+      "canonical_client": "Honua SDK .NET",
+      "client_lane": "sdk-dotnet-certification",
+      "client_version": "1.6.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
+    },
+    {
+      "capability_key": "sdk-dotnet.abstractions",
+      "surface": "abstractions",
+      "operation": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.UnRegisterReplicaAsync(string,string,CancellationToken)",
+      "maturity": "supported",
+      "canonical_client": "Honua SDK .NET",
+      "client_lane": "sdk-dotnet-certification",
+      "client_version": "1.6.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33692,7 +33792,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33712,7 +33812,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33732,7 +33832,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33752,7 +33852,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33772,7 +33872,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33792,7 +33892,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33812,7 +33912,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33832,7 +33932,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33852,7 +33952,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33872,7 +33972,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33892,7 +33992,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33912,7 +34012,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33932,7 +34032,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33952,7 +34052,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33972,7 +34072,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -33992,7 +34092,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34012,7 +34112,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34032,7 +34132,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34052,7 +34152,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34072,7 +34172,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34092,7 +34192,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34112,7 +34212,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34132,7 +34232,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34152,7 +34252,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34172,7 +34272,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34192,7 +34292,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34212,7 +34312,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34232,7 +34332,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34252,7 +34352,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34272,7 +34372,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34292,7 +34392,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34312,7 +34412,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34332,7 +34432,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34352,7 +34452,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34372,7 +34472,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34392,7 +34492,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34412,7 +34512,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34432,7 +34532,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34452,7 +34552,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34472,7 +34572,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34492,7 +34592,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34512,7 +34612,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34532,7 +34632,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34552,7 +34652,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34572,7 +34672,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34592,7 +34692,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34612,7 +34712,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34632,7 +34732,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34652,7 +34752,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34672,7 +34772,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34692,7 +34792,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34712,7 +34812,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34732,7 +34832,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34752,7 +34852,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34772,7 +34872,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34792,7 +34892,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34812,7 +34912,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34832,7 +34932,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34852,7 +34952,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34872,7 +34972,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34892,7 +34992,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34912,7 +35012,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34932,7 +35032,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34952,7 +35052,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34972,7 +35072,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -34992,7 +35092,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35012,7 +35112,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35032,7 +35132,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35052,7 +35152,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35072,7 +35172,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35092,7 +35192,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35112,7 +35212,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35132,7 +35232,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35152,7 +35252,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35172,7 +35272,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35192,7 +35292,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35212,7 +35312,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35232,7 +35332,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35252,7 +35352,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35272,7 +35372,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35292,7 +35392,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35312,7 +35412,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35332,7 +35432,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35352,7 +35452,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35372,7 +35472,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35392,7 +35492,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35412,7 +35512,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35432,7 +35532,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35452,7 +35552,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35472,7 +35572,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35492,7 +35592,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35512,7 +35612,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35532,7 +35632,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35552,7 +35652,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35572,7 +35672,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35592,7 +35692,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35612,7 +35712,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35632,7 +35732,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35652,7 +35752,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35672,7 +35772,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35692,7 +35792,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35712,7 +35812,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35732,7 +35832,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35752,7 +35852,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35772,7 +35872,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35792,7 +35892,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35812,7 +35912,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35833,7 +35933,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35853,7 +35953,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35873,7 +35973,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35893,7 +35993,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35913,7 +36013,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35933,7 +36033,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35953,7 +36053,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35973,7 +36073,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -35994,7 +36094,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36014,7 +36114,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36034,7 +36134,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36054,7 +36154,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36075,7 +36175,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36095,7 +36195,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36116,7 +36216,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36136,7 +36236,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36156,7 +36256,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36176,7 +36276,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36196,7 +36296,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36216,7 +36316,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36236,7 +36336,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36256,7 +36356,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36276,7 +36376,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36296,7 +36396,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36316,7 +36416,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36336,7 +36436,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36356,7 +36456,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36376,7 +36476,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36396,7 +36496,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36416,7 +36516,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36436,7 +36536,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36456,7 +36556,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36476,7 +36576,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36496,7 +36596,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36516,7 +36616,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36536,7 +36636,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36556,7 +36656,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36576,7 +36676,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36596,7 +36696,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36616,7 +36716,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36636,7 +36736,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36656,7 +36756,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36676,7 +36776,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36696,7 +36796,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36716,7 +36816,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36736,7 +36836,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36756,7 +36856,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36776,7 +36876,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36796,7 +36896,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36816,7 +36916,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36836,7 +36936,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36856,7 +36956,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36876,7 +36976,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36896,7 +36996,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36916,7 +37016,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36936,7 +37036,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36956,7 +37056,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36976,7 +37076,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -36996,7 +37096,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37016,7 +37116,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37036,7 +37136,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37056,7 +37156,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37076,7 +37176,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37097,7 +37197,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37117,7 +37217,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37137,7 +37237,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37157,7 +37257,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37177,7 +37277,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37197,7 +37297,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37217,7 +37317,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37237,7 +37337,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37257,7 +37357,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37277,7 +37377,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37297,7 +37397,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37317,7 +37417,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37337,7 +37437,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37357,7 +37457,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37377,7 +37477,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37397,7 +37497,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37417,7 +37517,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37437,7 +37537,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37457,7 +37557,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37477,7 +37577,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37497,7 +37597,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37517,67 +37617,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "sdk-dotnet.grpc",
-      "surface": "grpc",
-      "operation": "Honua.Sdk.Grpc.HonuaGrpcClient.ApplyEditsAsync(Models.ApplyEditsRequest,CancellationToken)",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet-certification",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive"
-      ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "sdk-dotnet.grpc",
-      "surface": "grpc",
-      "operation": "Honua.Sdk.Grpc.HonuaGrpcClient.QueryFeaturesAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet-certification",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive"
-      ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "sdk-dotnet.grpc",
-      "surface": "grpc",
-      "operation": "Honua.Sdk.Grpc.HonuaGrpcClient.QueryFeaturesStreamAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet-certification",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive"
-      ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37597,7 +37637,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37617,7 +37657,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37637,7 +37677,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37657,7 +37697,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37677,7 +37717,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37697,7 +37737,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37717,7 +37757,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37737,7 +37777,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37757,7 +37797,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37777,7 +37817,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37797,7 +37837,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37817,7 +37857,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37837,7 +37877,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37857,7 +37897,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37877,7 +37917,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37897,7 +37937,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37918,7 +37958,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37938,7 +37978,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37958,7 +37998,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37978,7 +38018,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -37998,7 +38038,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38018,7 +38058,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38038,7 +38078,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38058,7 +38098,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38078,7 +38118,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38098,7 +38138,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38118,7 +38158,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38138,7 +38178,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38158,7 +38198,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38178,7 +38218,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38198,7 +38238,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38218,7 +38258,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38238,7 +38278,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38258,7 +38298,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38278,7 +38318,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38299,7 +38339,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38319,7 +38359,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38339,7 +38379,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38359,7 +38399,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38379,7 +38419,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38399,7 +38439,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38419,7 +38459,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38439,7 +38479,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38459,7 +38499,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38479,7 +38519,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38499,7 +38539,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38519,7 +38559,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38539,7 +38579,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38559,7 +38599,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38579,7 +38619,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38599,7 +38639,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38619,7 +38659,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38639,7 +38679,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38659,7 +38699,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38679,7 +38719,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38699,7 +38739,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38719,7 +38759,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38739,7 +38779,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38759,7 +38799,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38779,7 +38819,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38799,7 +38839,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38819,7 +38859,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38839,7 +38879,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38859,7 +38899,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38879,7 +38919,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38899,7 +38939,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38919,7 +38959,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -38939,7 +38979,7 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "sdk-dotnet-certification@0b81b9190d208cdacbc5b12005e5eabe77731eec",
+      "contract_revision": "sdk-dotnet-certification@5673a41ed169e4cc6d86819d1257bccbbb3ca2b9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
@@ -39224,7 +39264,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39245,7 +39285,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39266,7 +39306,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39287,7 +39327,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39309,7 +39349,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39331,7 +39371,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39353,7 +39393,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39484,7 +39524,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39742,7 +39782,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39763,7 +39803,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39853,7 +39893,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -39874,7 +39914,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40027,7 +40067,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40049,7 +40089,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40070,7 +40110,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40091,7 +40131,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40112,7 +40152,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40265,7 +40305,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40286,7 +40326,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40308,7 +40348,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40330,7 +40370,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40439,7 +40479,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40926,7 +40966,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -40948,7 +40988,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -41057,7 +41097,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42321,7 +42361,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42342,7 +42382,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42364,7 +42404,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42385,7 +42425,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42406,7 +42446,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42801,7 +42841,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42823,7 +42863,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42844,7 +42884,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42866,7 +42906,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42888,7 +42928,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -42975,7 +43015,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43222,7 +43262,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43244,7 +43284,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43265,7 +43305,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43330,7 +43370,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43513,7 +43553,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43535,7 +43575,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43557,7 +43597,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43579,7 +43619,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43600,7 +43640,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43621,7 +43661,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43891,7 +43931,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43913,7 +43953,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43956,7 +43996,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43977,7 +44017,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -43998,7 +44038,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44019,7 +44059,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44270,7 +44310,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44291,7 +44331,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44423,7 +44463,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44445,7 +44485,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44467,7 +44507,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44488,7 +44528,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44556,7 +44596,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44577,7 +44617,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44598,7 +44638,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44619,7 +44659,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44640,7 +44680,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44730,7 +44770,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44821,7 +44861,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44842,7 +44882,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -44961,7 +45001,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45094,7 +45134,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45115,7 +45155,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45323,7 +45363,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45344,7 +45384,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45365,7 +45405,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45498,7 +45538,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45519,7 +45559,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45789,7 +45829,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45810,7 +45850,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45968,7 +46008,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -45989,7 +46029,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-certification@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46010,7 +46050,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46189,7 +46229,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },
@@ -46210,7 +46250,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@c06b2b9d8c181184b629f3e0ffbaa0cfcd9cbbf5",
+      "contract_revision": "sdk-js-coverage@1e5807e442b9ce979fe91c228e917bba32abd22e",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
     },

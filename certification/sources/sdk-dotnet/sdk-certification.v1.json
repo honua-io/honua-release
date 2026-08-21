@@ -5,9 +5,9 @@
   "trackingIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
   "complete": false,
   "summary": {
-    "total": 301,
+    "total": 303,
     "exercised": 22,
-    "gap": 261,
+    "gap": 263,
     "non-addressable": 18
   },
   "operations": [
@@ -6163,87 +6163,6 @@
       "disposition": "Concrete public SDK operation has no canonical live certification test."
     },
     {
-      "id": "Honua.Sdk.Grpc.HonuaGrpcClient.ApplyEditsAsync(Models.ApplyEditsRequest,CancellationToken)",
-      "surface": "grpc",
-      "client": "Honua.Sdk.Grpc.HonuaGrpcClient",
-      "operation": "ApplyEditsAsync",
-      "signature": "ApplyEditsAsync(Models.ApplyEditsRequest,CancellationToken)",
-      "status": "gap",
-      "requiredTiers": [
-        "nightly",
-        "release"
-      ],
-      "scenarioFacets": [
-        "mutation"
-      ],
-      "tests": [],
-      "implementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "implementationTests": {
-        "Honua.Sdk.Grpc.HonuaGrpcClient": []
-      },
-      "missingImplementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
-      "disposition": "Concrete public SDK operation has no canonical live certification test."
-    },
-    {
-      "id": "Honua.Sdk.Grpc.HonuaGrpcClient.QueryFeaturesAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "surface": "grpc",
-      "client": "Honua.Sdk.Grpc.HonuaGrpcClient",
-      "operation": "QueryFeaturesAsync",
-      "signature": "QueryFeaturesAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "status": "gap",
-      "requiredTiers": [
-        "nightly",
-        "release"
-      ],
-      "scenarioFacets": [
-        "read-only"
-      ],
-      "tests": [],
-      "implementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "implementationTests": {
-        "Honua.Sdk.Grpc.HonuaGrpcClient": []
-      },
-      "missingImplementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
-      "disposition": "Concrete public SDK operation has no canonical live certification test."
-    },
-    {
-      "id": "Honua.Sdk.Grpc.HonuaGrpcClient.QueryFeaturesStreamAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "surface": "grpc",
-      "client": "Honua.Sdk.Grpc.HonuaGrpcClient",
-      "operation": "QueryFeaturesStreamAsync",
-      "signature": "QueryFeaturesStreamAsync(Models.QueryFeaturesRequest,CancellationToken)",
-      "status": "gap",
-      "requiredTiers": [
-        "nightly",
-        "release"
-      ],
-      "scenarioFacets": [
-        "read-only"
-      ],
-      "tests": [],
-      "implementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "implementationTests": {
-        "Honua.Sdk.Grpc.HonuaGrpcClient": []
-      },
-      "missingImplementations": [
-        "Honua.Sdk.Grpc.HonuaGrpcClient"
-      ],
-      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
-      "disposition": "Concrete public SDK operation has no canonical live certification test."
-    },
-    {
       "id": "Honua.Sdk.Grpc.IHonuaGrpcClient.ApplyEditsAsync(ApplyEditsRequest,CancellationToken)",
       "surface": "grpc",
       "client": "Honua.Sdk.Grpc.IHonuaGrpcClient",
@@ -6540,6 +6459,141 @@
       },
       "missingImplementations": [
         "Honua.Sdk.Grpc.HonuaProcessGrpcClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.CreateReplicaAsync(string,string,IReadOnlyList<int>?,CancellationToken)",
+      "surface": "abstractions",
+      "client": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient",
+      "operation": "CreateReplicaAsync",
+      "signature": "CreateReplicaAsync(string,string,IReadOnlyList<int>?,CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "mutation"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Offline.ReplicaSyncClient": []
+      },
+      "missingImplementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.ExtractChangesAsync(string,string,CancellationToken)",
+      "surface": "abstractions",
+      "client": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient",
+      "operation": "ExtractChangesAsync",
+      "signature": "ExtractChangesAsync(string,string,CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "read-only"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Offline.ReplicaSyncClient": []
+      },
+      "missingImplementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.ExtractChangesAsync(string,string,string?,CancellationToken)",
+      "surface": "abstractions",
+      "client": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient",
+      "operation": "ExtractChangesAsync",
+      "signature": "ExtractChangesAsync(string,string,string?,CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "read-only"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Offline.ReplicaSyncClient": []
+      },
+      "missingImplementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.SynchronizeReplicaAsync(string,string,string,CancellationToken)",
+      "surface": "abstractions",
+      "client": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient",
+      "operation": "SynchronizeReplicaAsync",
+      "signature": "SynchronizeReplicaAsync(string,string,string,CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "mutation"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Offline.ReplicaSyncClient": []
+      },
+      "missingImplementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
+      "disposition": "Concrete public SDK operation has no canonical live certification test."
+    },
+    {
+      "id": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient.UnRegisterReplicaAsync(string,string,CancellationToken)",
+      "surface": "abstractions",
+      "client": "Honua.Sdk.Offline.Abstractions.IReplicaSyncClient",
+      "operation": "UnRegisterReplicaAsync",
+      "signature": "UnRegisterReplicaAsync(string,string,CancellationToken)",
+      "status": "gap",
+      "requiredTiers": [
+        "nightly",
+        "release"
+      ],
+      "scenarioFacets": [
+        "read-only"
+      ],
+      "tests": [],
+      "implementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ],
+      "implementationTests": {
+        "Honua.Sdk.Offline.ReplicaSyncClient": []
+      },
+      "missingImplementations": [
+        "Honua.Sdk.Offline.ReplicaSyncClient"
       ],
       "ownerIssue": "https://github.com/honua-io/honua-sdk-dotnet/issues/31",
       "disposition": "Concrete public SDK operation has no canonical live certification test."
