@@ -3,7 +3,6 @@
   "sourceRepository": "honua-io/honua-sdk-js",
   "canonicalClient": "@honua/sdk-js",
   "clientVersion": "0.1.7-beta.0",
-  "fixtureRevision": "0.1.0-alpha.3",
   "operations": [
     {
       "capability_key": "serve.geoservices-featureserver",

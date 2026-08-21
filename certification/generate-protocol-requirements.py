@@ -26,8 +26,13 @@ def slug(value: str) -> str:
 
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
-    existing = load(OUTPUT)
-    requirements = [row for row in existing["requirements"] if row["capability_key"].startswith("format.")]
+    format_source = json.loads(
+        (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
+    )
+    fixture_pins = json.loads(
+        (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
+    )["fixtures"]
+    requirements = list(format_source["requirements"])
     seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
 
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
@@ -82,7 +87,7 @@ def main() -> None:
                 operation=operation["operation"], client=contract["canonicalClient"],
                 lane=f"{source_name}-certification", version=contract["clientVersion"],
                 contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
-                fixture=contract["fixtureRevision"], facets=operation["scenario_facets"],
+                fixture=fixture_pins["sdk-js"], facets=operation["scenario_facets"],
             )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")

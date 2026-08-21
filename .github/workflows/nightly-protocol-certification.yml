@@ -1,0 +1,23 @@
+name: Nightly protocol certification
+
+on:
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    uses: ./.github/workflows/gate-protocol-certification.yml
+    with:
+      matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
+      matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
+      matrix_path: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_PATH }}
+      matrix_sha256: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_SHA256 }}
+      tier: nightly
+      expected_source_sha: ${{ vars.PROTOCOL_CERTIFICATION_SOURCE_SHA }}
+      expected_image_digest: ${{ vars.PROTOCOL_CERTIFICATION_IMAGE_DIGEST }}
+      expected_cut_at: ${{ vars.PROTOCOL_CERTIFICATION_CUT_AT }}
+    secrets: inherit

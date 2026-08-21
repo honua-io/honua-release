@@ -61,6 +61,7 @@ def _requirements(*cells, complete=True):
         "schema": cert.REQUIREMENTS_SCHEMA_ID,
         "revision": "requirements-test-v1",
         "complete": complete,
+        "source_revisions": {"server": {"commit": SHA}},
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS}
             for cell in (cells or [_cell()])
@@ -71,11 +72,29 @@ def _requirements(*cells, complete=True):
 def _evaluate(ledger, tier, **kwargs):
     if tier == "release":
         kwargs.setdefault("expected_cut_at", CUT)
+    requirements = kwargs.pop("requirements", _requirements(*ledger["cells"]))
     return cert.evaluate(
         ledger,
         tier,
-        requirements=_requirements(*ledger["cells"]),
+        requirements=requirements,
         **kwargs,
+    )
+
+
+def test_catalog_server_revision_must_match_candidate():
+    requirements = _requirements()
+    requirements["source_revisions"]["server"]["commit"] = "f" * 40
+    report = _evaluate(
+        _ledger(),
+        "nightly",
+        expected_source_sha=SHA,
+        requirements=requirements,
+        now=NOW,
+    )
+    assert report["overall_status"] == "fail"
+    assert any(
+        finding["check"] == "requirements.source_revisions.server.commit"
+        for finding in report["findings"]
     )
 
 

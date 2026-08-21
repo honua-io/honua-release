@@ -118,6 +118,15 @@ def evaluate(
             requirements = {}
     if requirements.get("schema") != REQUIREMENTS_SCHEMA_ID:
         fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
+    catalog_server_sha = (
+        requirements.get("source_revisions", {}).get("server", {}).get("commit")
+    )
+    if expected_source_sha and catalog_server_sha != expected_source_sha:
+        fail(
+            "requirements.source_revisions.server.commit",
+            f"owned requirements server source {catalog_server_sha!r} "
+            f"does not match expected candidate {expected_source_sha!r}",
+        )
     owned_revision = requirements.get("revision")
     owned_complete = requirements.get("complete")
     owned_rows = requirements.get("requirements")
