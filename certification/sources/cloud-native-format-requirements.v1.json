@@ -29,13 +29,29 @@
         "max_full_object_downloads": 16,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "asset.version",
           "root.boundingVolume",
-          "content.uri"
-        ]
+          "content.uri",
+          "content_count"
+        ],
+        "expected_metadata": {
+          "asset.version": "1.1",
+          "root.boundingVolume": {
+            "region": [
+              -3.141592653589793,
+              -1.5707963267948966,
+              3.141592653589793,
+              1.5707963267948966,
+              0.0,
+              100.0
+            ]
+          },
+          "content.uri": "content/0.glb",
+          "content_count": 1
+        }
       }
     },
     {
@@ -65,14 +81,25 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "crs",
           "dimensions",
           "band_count",
-          "nodata"
-        ]
+          "nodata",
+          "overview_count"
+        ],
+        "expected_metadata": {
+          "crs": "EPSG:4326",
+          "dimensions": [
+            256,
+            256
+          ],
+          "band_count": 1,
+          "nodata": -9999.0,
+          "overview_count": 3
+        }
       }
     },
     {
@@ -102,14 +129,25 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "crs",
           "dimensions",
           "band_count",
-          "nodata"
-        ]
+          "nodata",
+          "overview_count"
+        ],
+        "expected_metadata": {
+          "crs": "EPSG:4326",
+          "dimensions": [
+            256,
+            256
+          ],
+          "band_count": 1,
+          "nodata": -9999.0,
+          "overview_count": 3
+        }
       }
     },
     {
@@ -140,14 +178,25 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "crs",
           "dimensions",
           "band_count",
-          "nodata"
-        ]
+          "nodata",
+          "overview_count"
+        ],
+        "expected_metadata": {
+          "crs": "EPSG:4326",
+          "dimensions": [
+            256,
+            256
+          ],
+          "band_count": 1,
+          "nodata": -9999.0,
+          "overview_count": 3
+        }
       }
     },
     {
@@ -201,13 +250,25 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geometry_type",
           "feature_count",
-          "crs"
-        ]
+          "crs",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geometry_type": "Point",
+          "feature_count": 6,
+          "crs": "EPSG:4326",
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -237,13 +298,25 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geometry_type",
           "feature_count",
-          "crs"
-        ]
+          "crs",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geometry_type": "Point",
+          "feature_count": 6,
+          "crs": "EPSG:4326",
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -273,13 +346,25 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geometry_type",
           "feature_count",
-          "crs"
-        ]
+          "crs",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geometry_type": "Point",
+          "feature_count": 6,
+          "crs": "EPSG:4326",
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -309,13 +394,25 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geometry_type",
           "feature_count",
-          "crs"
-        ]
+          "crs",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geometry_type": "Point",
+          "feature_count": 6,
+          "crs": "EPSG:4326",
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -345,14 +442,29 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geo.version",
           "primary_column",
           "geometry_encoding",
-          "crs"
-        ]
+          "crs",
+          "feature_count",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geo.version": "1.1.0",
+          "primary_column": "geometry",
+          "geometry_encoding": "WKB",
+          "crs": "EPSG:4326",
+          "feature_count": 6,
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -382,14 +494,29 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geo.version",
           "primary_column",
           "geometry_encoding",
-          "crs"
-        ]
+          "crs",
+          "feature_count",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geo.version": "1.1.0",
+          "primary_column": "geometry",
+          "geometry_encoding": "WKB",
+          "crs": "EPSG:4326",
+          "feature_count": 6,
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -419,14 +546,29 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "geo.version",
           "primary_column",
           "geometry_encoding",
-          "crs"
-        ]
+          "crs",
+          "feature_count",
+          "bounds"
+        ],
+        "expected_metadata": {
+          "geo.version": "1.1.0",
+          "primary_column": "geometry",
+          "geometry_encoding": "WKB",
+          "crs": "EPSG:4326",
+          "feature_count": 6,
+          "bounds": [
+            -122.4194,
+            0.0,
+            179.5,
+            86.0
+          ]
+        }
       }
     },
     {
@@ -455,13 +597,34 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "dataset_shape",
           "data_type",
-          "dimensions"
-        ]
+          "dimensions",
+          "chunk_shape",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "dataset_shape": [
+            4,
+            8,
+            16
+          ],
+          "data_type": "float32",
+          "dimensions": [
+            "time",
+            "y",
+            "x"
+          ],
+          "chunk_shape": [
+            1,
+            4,
+            4
+          ],
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -490,13 +653,34 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "dataset_shape",
           "data_type",
-          "dimensions"
-        ]
+          "dimensions",
+          "chunk_shape",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "dataset_shape": [
+            4,
+            8,
+            16
+          ],
+          "data_type": "float32",
+          "dimensions": [
+            "time",
+            "y",
+            "x"
+          ],
+          "chunk_shape": [
+            1,
+            4,
+            4
+          ],
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -526,13 +710,34 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "dataset_shape",
           "data_type",
-          "dimensions"
-        ]
+          "dimensions",
+          "chunk_shape",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "dataset_shape": [
+            4,
+            8,
+            16
+          ],
+          "data_type": "float32",
+          "dimensions": [
+            "time",
+            "y",
+            "x"
+          ],
+          "chunk_shape": [
+            1,
+            4,
+            4
+          ],
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -562,13 +767,34 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "dataset_shape",
           "data_type",
-          "dimensions"
-        ]
+          "dimensions",
+          "chunk_shape",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "dataset_shape": [
+            4,
+            8,
+            16
+          ],
+          "data_type": "float32",
+          "dimensions": [
+            "time",
+            "y",
+            "x"
+          ],
+          "chunk_shape": [
+            1,
+            4,
+            4
+          ],
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -597,13 +823,34 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "dataset_shape",
           "data_type",
-          "dimensions"
-        ]
+          "dimensions",
+          "chunk_shape",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "dataset_shape": [
+            4,
+            8,
+            16
+          ],
+          "data_type": "float32",
+          "dimensions": [
+            "time",
+            "y",
+            "x"
+          ],
+          "chunk_shape": [
+            1,
+            4,
+            4
+          ],
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -657,14 +904,30 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "spec_version",
           "tile_type",
           "bounds",
-          "zoom_range"
-        ]
+          "zoom_range",
+          "tile_count"
+        ],
+        "expected_metadata": {
+          "spec_version": "3",
+          "tile_type": "mvt",
+          "bounds": [
+            -180.0,
+            -90.0,
+            180.0,
+            90.0
+          ],
+          "zoom_range": [
+            0,
+            2
+          ],
+          "tile_count": 21
+        }
       }
     },
     {
@@ -694,14 +957,30 @@
         "max_full_object_downloads": 0,
         "min_range_requests": 1,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "spec_version",
           "tile_type",
           "bounds",
-          "zoom_range"
-        ]
+          "zoom_range",
+          "tile_count"
+        ],
+        "expected_metadata": {
+          "spec_version": "3",
+          "tile_type": "mvt",
+          "bounds": [
+            -180.0,
+            -90.0,
+            180.0,
+            90.0
+          ],
+          "zoom_range": [
+            0,
+            2
+          ],
+          "tile_count": 21
+        }
       }
     },
     {
@@ -731,14 +1010,30 @@
         "max_full_object_downloads": 1,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "spec_version",
           "tile_type",
           "bounds",
-          "zoom_range"
-        ]
+          "zoom_range",
+          "tile_count"
+        ],
+        "expected_metadata": {
+          "spec_version": "3",
+          "tile_type": "mvt",
+          "bounds": [
+            -180.0,
+            -90.0,
+            180.0,
+            90.0
+          ],
+          "zoom_range": [
+            0,
+            2
+          ],
+          "tile_count": 21
+        }
       }
     },
     {
@@ -790,14 +1085,30 @@
         "max_full_object_downloads": 16,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "zarr_format",
           "shape",
           "chunks",
-          "dtype"
-        ]
+          "dtype",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "zarr_format": 2,
+          "shape": [
+            4,
+            8,
+            16
+          ],
+          "chunks": [
+            1,
+            4,
+            4
+          ],
+          "dtype": "<f4",
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -827,14 +1138,30 @@
         "max_full_object_downloads": 16,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "zarr_format",
           "shape",
           "chunks",
-          "dtype"
-        ]
+          "dtype",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "zarr_format": 2,
+          "shape": [
+            4,
+            8,
+            16
+          ],
+          "chunks": [
+            1,
+            4,
+            4
+          ],
+          "dtype": "<f4",
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -865,14 +1192,30 @@
         "max_full_object_downloads": 16,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "zarr_format",
           "shape",
           "chunks",
-          "dtype"
-        ]
+          "dtype",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "zarr_format": 2,
+          "shape": [
+            4,
+            8,
+            16
+          ],
+          "chunks": [
+            1,
+            4,
+            4
+          ],
+          "dtype": "<f4",
+          "chunk_count": 32
+        }
       }
     },
     {
@@ -902,14 +1245,30 @@
         "max_full_object_downloads": 16,
         "min_range_requests": 0,
         "min_cache_hits": 0,
-        "max_coordinate_error": 0.000001,
-        "max_geometry_error": 0.000001,
+        "max_coordinate_error": 1e-06,
+        "max_geometry_error": 1e-06,
         "required_metadata": [
           "zarr_format",
           "shape",
           "chunks",
-          "dtype"
-        ]
+          "dtype",
+          "chunk_count"
+        ],
+        "expected_metadata": {
+          "zarr_format": 2,
+          "shape": [
+            4,
+            8,
+            16
+          ],
+          "chunks": [
+            1,
+            4,
+            4
+          ],
+          "dtype": "<f4",
+          "chunk_count": 32
+        }
       }
     }
   ]
