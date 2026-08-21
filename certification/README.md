@@ -54,8 +54,9 @@ honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run
   live release recording. Local Docker and AWS ECS are both required execution
   targets; an ECS provisioning receipt cannot substitute for its full delivery-arc
   receipt. The SDK contract requires distinct map/app/dashboard immutable
-  save/read/reopen actions through the server Studio MCP lifecycle. AWS and
-  real-model Studio producers use target/check-bearing
+  save/read/reopen actions through the server Studio MCP lifecycle, followed by
+  separately governed map/app/dashboard publication and exact public-URL probes.
+  Local Docker and AWS ECS use dedicated strict real-model schemas; a generic
   `release-evidence-receipt.schema.json`. (#121–#123.)
 - **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)

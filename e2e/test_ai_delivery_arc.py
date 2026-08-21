@@ -42,4 +42,8 @@ def test_checker_forwards_every_required_external_receipt(monkeypatch, tmp_path:
 def test_full_aws_arc_receipt_is_a_distinct_required_input():
     assert ("aws-ecs-provision", "E2E_AI_AWS_RECEIPT") in arc.EXTERNAL_RECEIPT_ENV
     assert ("aws-ecs-ai-delivery-arc", "E2E_AI_AWS_ARC_RECEIPT") in arc.EXTERNAL_RECEIPT_ENV
+    assert ("aws-ecs-real-model-ai-arc", "E2E_AI_AWS_MODEL_RECEIPT") in arc.EXTERNAL_RECEIPT_ENV
+    assert ("aws-ecs-real-model-ai-arc", "E2E_AI_AWS_MODEL_EVIDENCE") in arc.EXTERNAL_EVIDENCE_ENV
+    assert ("local-docker-real-model-ai-arc", "E2E_AI_LOCAL_MODEL_RECEIPT") in arc.EXTERNAL_RECEIPT_ENV
+    assert ("local-docker-real-model-ai-arc", "E2E_AI_LOCAL_MODEL_EVIDENCE") in arc.EXTERNAL_EVIDENCE_ENV
     assert len({env_name for _, env_name in arc.EXTERNAL_RECEIPT_ENV}) == len(arc.EXTERNAL_RECEIPT_ENV)

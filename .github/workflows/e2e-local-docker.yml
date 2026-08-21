@@ -16,6 +16,7 @@ on:
       - "e2e/**"
       - "certification/ai-delivery-arc.yaml"
       - "certification/release-evidence-receipt.schema.json"
+      - "certification/*-real-model-ai-arc*.schema.json"
       - "tools/check_ai_delivery_arc.py"
       - "tools/test_check_ai_delivery_arc.py"
       - "release-notes/2026.1-ai-delivery-arc.md"

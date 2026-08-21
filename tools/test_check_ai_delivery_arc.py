@@ -141,19 +141,41 @@ def plan() -> dict:
             {"variable": f"{family}ReopenedDraftId", "pointers": ["/draftId"]},
             {"variable": f"{family}ReopenedBaseVersionId", "pointers": ["/baseVersionId"]},
         ]
-    by_id["propose-publication"]["captures"] = [
-        {"variable": "proposalGeneration", "pointers": ["/generation"]}
-    ]
+        by_id[f"propose-{family}-publication"]["captures"] = [
+            {"variable": f"{family}ProposalGeneration", "pointers": ["/generation"]}
+        ]
+        by_id[f"save-{family}-publication-version"]["captures"] = [
+            {"variable": f"{family}PublicationVersionId", "pointers": ["/versionId"]},
+            {"variable": f"{family}PublicationContentHash", "pointers": ["/contentHash"]},
+        ]
     by_id["console-approval"]["captures"] = [
         {"variable": "candidateId", "pointers": ["/candidate/candidateId"]},
         {"variable": "releaseId", "pointers": ["/candidate/releaseId"]},
+        *[
+            {"variable": f"{family}{suffix}", "pointers": [f"/{section}/{family}/{pointer}"]}
+            for family in ("map", "app", "dashboard")
+            for suffix, section, pointer in (
+                ("ProposalId", "proposals", "proposalId"),
+                ("PublicationId", "publications", "publicationId"),
+                ("PublicationStatus", "publications", "status"),
+                ("PublicUrl", "publications", "publicUrl"),
+            )
+        ],
         {"variable": "shareUrl", "pointers": ["/shareUrl"]},
     ]
+    by_id["verify-map-public-url"]["url"] = "${mapPublicUrl}"
+    by_id["verify-share-url"]["url"] = "${shareUrl}"
+    by_id["verify-dashboard-public-url"]["url"] = "${dashboardPublicUrl}"
     return {
         "schemaVersion": CONTRACT["journey"]["schemaVersion"],
         "journeyId": CONTRACT["journey"]["journeyId"],
         "releaseContract": CONTRACT["releaseContract"],
-        "variables": {"route": "zero-to-map", "serviceName": "zero-to-map"},
+        "variables": {
+            "route": "zero-to-map",
+            "mapRoute": "zero-to-map-map",
+            "dashboardRoute": "zero-to-map-dashboard",
+            "serviceName": "zero-to-map",
+        },
         "stages": stages,
     }
 
@@ -180,7 +202,11 @@ def receipt_for(plan_value: dict, *, mode: str, status: str) -> dict:
                         "status": "successful",
                     },
                     "receipt": {"source": "external-receipt", "sha256": "3" * 64},
-                    "http": {"url": "https://example.test/apps/zero-to-map", "status": 200},
+                    "http": {
+                        "url": "https://example.test/apps/zero-to-map",
+                        "status": 200,
+                        "identityMatched": True,
+                    },
                 }[kind]
                 captures = {
                     capture["variable"]: f"fixture-{capture['variable']}"
@@ -347,12 +373,275 @@ def test_live_failure_names_stage_action_and_tool(tmp_path: Path):
     }
 
 
+def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
+    joins = {
+        name: f"joined-{name}"
+        for name in (
+            "candidateId", "releaseId", "serviceName", "connectionId", "parcelsLayerId",
+            "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
+            "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+            *(
+                f"{family}{suffix}"
+                for family in ("map", "app", "dashboard")
+                for suffix in (
+                    "ItemId", "VersionId", "ContentHash", "ReopenedDraftId",
+                    "PublicationVersionId", "PublicationContentHash", "ProposalId",
+                    "PublicationId", "PublicationStatus", "PublicUrl", "AuditCorrelationId",
+                )
+            ),
+        )
+    }
+    joins.update(
+        {
+            "candidateId": candidate_id,
+            "releaseId": manifest_value["platformRelease"],
+            **{
+                f"{family}PublicationStatus": "published"
+                for family in ("map", "app", "dashboard")
+            },
+            **{
+                f"{family}PublicUrl": f"https://example.test/{family}/published"
+                for family in ("map", "app", "dashboard")
+            },
+        }
+    )
+
+    def call(
+        role: str,
+        name: str,
+        identity: str | tuple[str, ...],
+        *,
+        family: str | None = None,
+        kind: str = "mcp",
+    ) -> dict:
+        return {
+            "role": role,
+            **({"family": family} if family else {}),
+            "kind": kind,
+            "name": name,
+            "status": "passed",
+            "responseSha256": "7" * 64,
+            "result": {
+                "status": "completed",
+                "identities": {
+                    key: joins[key]
+                    for key in ((identity,) if isinstance(identity, str) else identity)
+                },
+            },
+        }
+
+    admin_calls = (
+        ("server-status", None, "honua_admin_server_status", "connectionId"),
+        ("connection-create", None, "honua_admin_connection_create", "connectionId"),
+        ("connection-test", None, "honua_admin_connection_test", "connectionId"),
+        ("import-upload-url", "parcels", "honua_admin_import_upload_url", "parcelsLayerId"),
+        ("import-upload-url", "zoning", "honua_admin_import_upload_url", "zoningLayerId"),
+        ("layer-publish", "parcels", "honua_admin_layer_publish", "parcelsLayerId"),
+        ("layer-publish", "zoning", "honua_admin_layer_publish", "zoningLayerId"),
+        (
+            "service-access",
+            None,
+            "honua_admin_service_set_access_policy",
+            ("connectionId", "serviceName"),
+        ),
+    )
+    esri_calls = (
+        ("list-tasks", "mcp", "honua_esri_gp_list_tasks"),
+        ("describe-buffer", "mcp", "honua_esri_gp_describe_task"),
+        ("execute-buffer", "mcp", "honua_esri_gp_execute_task"),
+        ("wait-buffer", "mcp-resource", f"honua://jobs/{joins['esriMcpJobId']}"),
+        (
+            "read-buffer-results",
+            "mcp-resource",
+            f"honua://jobs/{joins['esriMcpJobId']}/results",
+        ),
+    )
+    lanes = {
+        "admin": {
+            "promptSha256": "1" * 64,
+            "transcriptSha256": "2" * 64,
+            "calls": [
+                call(role, tool, identity, family=family)
+                for role, family, tool, identity in admin_calls
+            ],
+        },
+        "esriGp": {
+            "promptSha256": "1" * 64,
+            "transcriptSha256": "2" * 64,
+            "calls": [
+                call(
+                    role,
+                    name,
+                    (
+                        ("esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId")
+                        if role == "read-buffer-results"
+                        else "esriMcpJobId"
+                    ),
+                    kind=kind,
+                )
+                for role, kind, name in esri_calls
+            ],
+        },
+        "nativeAnalysis": {
+            "promptSha256": "1" * 64,
+            "transcriptSha256": "2" * 64,
+            "calls": [
+                call("execute-buffer", "honua_buffer_features", "directAnalysisJobId"),
+                call(
+                    "wait-buffer",
+                    f"honua://jobs/{joins['directAnalysisJobId']}",
+                    "directAnalysisJobId",
+                    kind="mcp-resource",
+                ),
+                call(
+                    "read-buffer-results",
+                    f"honua://jobs/{joins['directAnalysisJobId']}/results",
+                    ("directAnalysisJobId", "bufferArtifactId"),
+                    kind="mcp-resource",
+                ),
+            ],
+        },
+        "studioPublication": {
+            "promptSha256": "1" * 64,
+            "transcriptSha256": "2" * 64,
+            "calls": [
+                call(
+                    role,
+                    tool,
+                    {
+                        "create-draft": (f"{family}ItemId",),
+                        "save-version": (
+                            f"{family}VersionId",
+                            f"{family}ContentHash",
+                            f"{family}PublicationVersionId",
+                            f"{family}PublicationContentHash",
+                        ),
+                        "reopen-version": (f"{family}ReopenedDraftId",),
+                        "propose-publication": (f"{family}ProposalId",),
+                    }.get(role, (f"{family}ItemId",)),
+                    family=family,
+                )
+                for family in ("map", "app", "dashboard")
+                for role, tool in gate.AWS_MODEL_STUDIO_ROLES
+            ],
+        },
+    }
+    source = {"repository": "honua-io/honua-studio", "sha": manifest_value["components"]["honua-studio"]["sha"]}
+    model = {"provider": "openai", "modelId": "gpt-live-model"}
+    common = {
+        "candidateId": candidate_id,
+        "releaseId": manifest_value["platformRelease"],
+        "endpointSha256": "3" * 64,
+        "source": source,
+        "model": model,
+        "promptVersion": "honua.aws-ecs.ai-arc.prompt/v1",
+        "evalVersion": "honua.aws-ecs.ai-arc.eval/v1",
+        "transcriptSha256": "4" * 64,
+    }
+    evidence = {
+        "schemaVersion": "honua.aws-ecs.real-model-ai-arc-evidence/v1",
+        **common,
+        "target": "aws-ecs",
+        "provisionReceiptSha256": "5" * 64,
+        "checkpointDigest": "6" * 64,
+        "lanes": lanes,
+        "joins": joins,
+    }
+    receipt = {
+        "schemaVersion": "honua.aws-ecs.real-model-ai-arc/v1",
+        "id": "aws-ecs-real-model-ai-arc",
+        "status": "passed",
+        "target": "aws-ecs",
+        **common,
+        "components": {
+            name: manifest_value["components"][name]["sha"]
+            for name in ("honua-server", "honua-sdk-js", "honua-console", "honua-studio", "honua-devops", "honua-iac")
+        },
+        "deterministic": {
+            "target": "aws-ecs",
+            "provisionReceiptSha256": "5" * 64,
+            "checkpointDigest": "6" * 64,
+        },
+        "lanes": lanes,
+        "joins": joins,
+        "checks": {
+            check: "passed"
+            for check in next(
+                receipt for receipt in CONTRACT["externalReceipts"]
+                if receipt["id"] == "aws-ecs-real-model-ai-arc"
+            )["claims"]["requiredChecks"]
+        },
+    }
+    return receipt, evidence
+
+
+def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    receipt.update(
+        {
+            "schemaVersion": "honua.local-docker.real-model-ai-arc/v1",
+            "id": "local-docker-real-model-ai-arc",
+            "target": "local-docker",
+            "promptVersion": "honua.local-docker.ai-arc.prompt/v1",
+            "evalVersion": "honua.local-docker.ai-arc.eval/v1",
+            "deterministic": {
+                "target": "local-docker",
+                "checkpointDigest": receipt["deterministic"]["checkpointDigest"],
+            },
+        }
+    )
+    evidence.update(
+        {
+            "schemaVersion": "honua.local-docker.real-model-ai-arc-evidence/v1",
+            "target": "local-docker",
+            "promptVersion": receipt["promptVersion"],
+            "evalVersion": receipt["evalVersion"],
+        }
+    )
+    evidence.pop("provisionReceiptSha256")
+    return receipt, evidence
+
+
+def validate_aws_model_documents(
+    tmp_path: Path, receipt: dict, evidence: dict
+) -> gate.Findings:
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    evidence_path = tmp_path / "model-evidence.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt["evidence"] = {
+        "url": "https://example.test/model-evidence.json",
+        "sha256": gate._sha256(evidence_path),
+    }
+    receipt_path = tmp_path / "model-receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    contract = {
+        "externalReceipts": [
+            next(
+                expected
+                for expected in CONTRACT["externalReceipts"]
+                if expected["id"] == "aws-ecs-real-model-ai-arc"
+            )
+        ]
+    }
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        contract,
+        {"aws-ecs-real-model-ai-arc": (receipt_path, receipt)},
+        {"aws-ecs-real-model-ai-arc": (evidence_path, evidence)},
+    )
+    return findings
+
+
 def test_live_external_receipts_join_component_pins(tmp_path: Path):
     manifest_value = manifest()
     manifest_path = tmp_path / "platform-manifest.yaml"
     manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
     identity = gate.candidate_identity(manifest_value, manifest_path)
     supplied = {}
+    supplied_evidence = {}
     expected_receipts = {
         expected["id"]: expected for expected in CONTRACT["externalReceipts"]
     }
@@ -361,6 +650,26 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         repository = expected["sourceRepository"]
         path = tmp_path / f"{receipt_id}.json"
         expected_claims = expected.get("claims") or {}
+        if receipt_id in {
+            "aws-ecs-real-model-ai-arc",
+            "local-docker-real-model-ai-arc",
+        }:
+            documents = (
+                aws_real_model_documents
+                if receipt_id == "aws-ecs-real-model-ai-arc"
+                else local_real_model_documents
+            )
+            value, evidence_value = documents(manifest_value, identity["candidateId"])
+            evidence_path = tmp_path / f"{receipt_id}-evidence.json"
+            evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
+            value["evidence"] = {
+                "url": f"https://example.test/{receipt_id}-evidence.json",
+                "sha256": gate._sha256(evidence_path),
+            }
+            path.write_text(json.dumps(value), encoding="utf-8")
+            supplied[receipt_id] = (path, value)
+            supplied_evidence[receipt_id] = (evidence_path, evidence_value)
+            continue
         value = {
             "schemaVersion": "honua.release.evidence-receipt/v1",
             "id": receipt_id,
@@ -394,14 +703,19 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         supplied[receipt_id] = (path, value)
 
     findings, records = gate.validate_external_receipts(
-        manifest_value, manifest_path, CONTRACT, supplied
+        manifest_value,
+        manifest_path,
+        CONTRACT,
+        supplied,
+        evidence_documents=supplied_evidence,
     )
 
     assert findings.status == "pass", (findings.errors, findings.blockers)
     assert {record["id"] for record in records} == {
         "aws-ecs-provision",
         "aws-ecs-ai-delivery-arc",
-        "studio-real-model",
+        "aws-ecs-real-model-ai-arc",
+        "local-docker-real-model-ai-arc",
     }
     identity_components = gate.candidate_identity(manifest_value, manifest_path)["components"]
     assert identity_components["honua-devops"]["sha"] == "f" * 40
@@ -419,6 +733,43 @@ def test_missing_full_aws_arc_receipt_blocks_even_when_provisioning_exists(tmp_p
 
     assert findings.status == "blocked"
     assert any("aws-ecs-ai-delivery-arc" in blocker for blocker in findings.blockers)
+
+
+def test_aws_real_model_receipt_rejects_missing_family_and_fabricated_id(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    receipt, evidence = aws_real_model_documents(manifest_value, identity["candidateId"])
+    calls = receipt["lanes"]["studioPublication"]["calls"]
+    receipt["lanes"]["studioPublication"]["calls"] = [
+        call for call in calls if call.get("family") != "dashboard"
+    ]
+    receipt["lanes"]["admin"]["calls"][0]["result"]["identities"] = {
+        "fabricatedConnectionId": "not-a-deterministic-resource"
+    }
+    evidence["lanes"] = receipt["lanes"]
+
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+
+    assert findings.status == "fail"
+    assert any("fabricates or disagrees" in error for error in findings.errors)
+    assert any("studioPublication" in error and "dashboard" in error for error in findings.errors)
+
+
+def test_aws_real_model_receipt_rejects_generic_studio_only_blob(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    receipt, evidence = aws_real_model_documents(manifest_value, identity["candidateId"])
+    receipt["lanes"] = {"studioPublication": receipt["lanes"]["studioPublication"]}
+    evidence["lanes"] = receipt["lanes"]
+
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+
+    assert findings.status == "fail"
+    assert any("four required natural-language lanes" in error for error in findings.errors)
 
 
 def test_live_pass_without_per_action_evidence_fails(tmp_path: Path):
@@ -474,3 +825,55 @@ def test_live_final_share_url_must_be_public_https(tmp_path: Path):
 
     assert findings.status == "fail"
     assert any("public HTTPS" in error for error in findings.errors)
+
+
+def test_live_map_and_dashboard_probes_must_match_exact_console_urls(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    console = next(
+        action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+        if action["id"] == "console-approval"
+    )
+    public_urls = {
+        "mapPublicUrl": "https://example.test/maps/published-map",
+        "shareUrl": "https://example.test/apps/published-app",
+        "appPublicUrl": "https://example.test/apps/published-app",
+        "dashboardPublicUrl": "https://example.test/dashboards/published-dashboard",
+    }
+    console["captures"].update(
+        {
+            "candidateId": gate.candidate_identity(manifest_value, manifest_path)["candidateId"],
+            "releaseId": manifest_value["platformRelease"],
+            **public_urls,
+        }
+    )
+    actions = {
+        action["id"]: action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+    }
+    actions["verify-map-public-url"]["evidence"]["url"] = public_urls["mapPublicUrl"]
+    actions["verify-share-url"]["evidence"]["url"] = public_urls["shareUrl"]
+    actions["verify-dashboard-public-url"]["evidence"]["url"] = (
+        "https://example.test/dashboards/a-different-dashboard"
+    )
+
+    findings, _ = gate.validate_receipt(
+        manifest_value,
+        manifest_path,
+        CONTRACT,
+        plan_value,
+        receipt,
+        expected_mode="live",
+    )
+
+    assert findings.status == "fail"
+    assert any(
+        "verify-dashboard-public-url did not probe its exact Console URL" in error
+        for error in findings.errors
+    )

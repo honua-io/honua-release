@@ -9,6 +9,7 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
@@ -339,6 +340,65 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     values = json.loads(var_files[0].read_text(encoding="utf-8"))
     assert values["honua_connection_encryption_master_key"] is None
     assert "honua_connection_encryption_master_key" not in _tf_vars(args)
+
+
+def test_terraform_target_applies_one_saved_plan_and_exposes_secret_free_evidence(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    target = ecs(run_id="r1")
+    monkeypatch.setattr(target, "_iac_root", lambda: tmp_path)
+    calls = []
+
+    def terraform(_root, *args, **_kwargs):
+        calls.append(args)
+        if args[0] == "plan":
+            plan_path = Path(next(arg for arg in args if arg.startswith("-out=")).split("=", 1)[1])
+            plan_path.write_bytes(b"one exact saved plan")
+        if args[:3] == ("output", "-raw", "honua_url"):
+            return subprocess.CompletedProcess(args, 0, "https://ecs.example.test", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_tf", terraform)
+
+    assert target.provision(redis_enabled=False) == "https://ecs.example.test"
+    plan_call = next(args for args in calls if args[0] == "plan")
+    apply_call = next(args for args in calls if args[0] == "apply")
+    plan_path = Path(next(arg for arg in plan_call if arg.startswith("-out=")).split("=", 1)[1])
+    assert apply_call == ("apply", "-auto-approve", str(plan_path))
+    assert target.provision_evidence == {
+        "terraformPlanSha256": hashlib.sha256(b"one exact saved plan").hexdigest(),
+        "terraformApply": "passed",
+    }
+
+    target.teardown(redis_enabled=False)
+    assert not plan_path.exists()
+    assert target.teardown_evidence == {
+        "terraformDestroy": "passed",
+        "cleanupVerified": "passed",
+    }
+
+
+def test_aws_ai_arc_refuses_the_current_plain_http_ecs_endpoint():
+    with __import__("pytest").raises(ProvisionError, match="requires a public HTTPS endpoint"):
+        run_cloud._prepare_aws_ecs_ai_arc(
+            object(),
+            "http://plain-alb.example.test",
+            {"ready": True, "status": 200},
+        )
+
+
+def test_ai_arc_producer_command_is_json_argv_and_rejects_inline_secrets(monkeypatch):
+    monkeypatch.setenv("HONUA_TEST_PRODUCER", '["npm","run","release:producer"]')
+    assert run_cloud._producer_command("HONUA_TEST_PRODUCER") == [
+        "npm", "run", "release:producer"
+    ]
+    monkeypatch.setenv("HONUA_TEST_PRODUCER", '["tool","--password=not-a-secret"]')
+    with __import__("pytest").raises(ProvisionError, match="must not carry credential values"):
+        run_cloud._producer_command("HONUA_TEST_PRODUCER")
 
 
 def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):

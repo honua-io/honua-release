@@ -27,6 +27,44 @@ except ImportError as exc:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+AWS_MODEL_LANES = ("admin", "esriGp", "nativeAnalysis", "studioPublication")
+AWS_MODEL_ROSTER = {
+    "admin": {
+        ("server-status", None, "mcp", "honua_admin_server_status"),
+        ("connection-create", None, "mcp", "honua_admin_connection_create"),
+        ("connection-test", None, "mcp", "honua_admin_connection_test"),
+        ("import-upload-url", "parcels", "mcp", "honua_admin_import_upload_url"),
+        ("import-upload-url", "zoning", "mcp", "honua_admin_import_upload_url"),
+        ("layer-publish", "parcels", "mcp", "honua_admin_layer_publish"),
+        ("layer-publish", "zoning", "mcp", "honua_admin_layer_publish"),
+        ("service-access", None, "mcp", "honua_admin_service_set_access_policy"),
+    },
+    "esriGp": {
+        ("list-tasks", None, "mcp", "honua_esri_gp_list_tasks"),
+        ("describe-buffer", None, "mcp", "honua_esri_gp_describe_task"),
+        ("execute-buffer", None, "mcp", "honua_esri_gp_execute_task"),
+        ("wait-buffer", None, "mcp-resource", "honua://jobs/{esriMcpJobId}"),
+        ("read-buffer-results", None, "mcp-resource", "honua://jobs/{esriMcpJobId}/results"),
+    },
+    "nativeAnalysis": {
+        ("execute-buffer", None, "mcp", "honua_buffer_features"),
+        ("wait-buffer", None, "mcp-resource", "honua://jobs/{directAnalysisJobId}"),
+        ("read-buffer-results", None, "mcp-resource", "honua://jobs/{directAnalysisJobId}/results"),
+    },
+}
+AWS_MODEL_STUDIO_ROLES = {
+    ("create-draft", "honua_studio_create_draft"),
+    ("add-layer", "honua_studio_add_layer"),
+    ("set-layer-style", "honua_studio_set_layer_style"),
+    ("set-view", "honua_studio_set_view"),
+    ("add-widget", "honua_studio_add_widget"),
+    ("add-control", "honua_studio_add_control"),
+    ("validate-draft", "honua_studio_validate_draft"),
+    ("save-version", "honua_studio_save_version"),
+    ("get-version", "honua_studio_get_version"),
+    ("reopen-version", "honua_studio_reopen_version"),
+    ("propose-publication", "honua_studio_propose_publication"),
+}
 
 
 @dataclass
@@ -382,11 +420,14 @@ def validate_external_receipts(
     manifest_path: Path,
     contract: dict,
     receipts: dict[str, tuple[Path, dict]],
+    evidence_documents: dict[str, tuple[Path, dict]] | None = None,
+    journey_receipt: dict | None = None,
 ) -> tuple[Findings, list[dict]]:
     findings = Findings()
     records: list[dict] = []
     identity = candidate_identity(manifest, manifest_path)
     components = manifest.get("components") or {}
+    evidence_documents = evidence_documents or {}
     for expected in contract.get("externalReceipts") or []:
         receipt_id = expected.get("id")
         supplied = receipts.get(receipt_id)
@@ -394,6 +435,59 @@ def validate_external_receipts(
             findings.blockers.append(f"live journey is missing external receipt {receipt_id} ({expected.get('issue')})")
             continue
         path, receipt = supplied
+        model_contracts = {
+            "certification/aws-ecs-real-model-ai-arc.schema.json": {
+                "target": "aws-ecs",
+                "id": "aws-ecs-real-model-ai-arc",
+                "receiptVersion": "honua.aws-ecs.real-model-ai-arc/v1",
+                "evidenceVersion": "honua.aws-ecs.real-model-ai-arc-evidence/v1",
+                "promptVersion": "honua.aws-ecs.ai-arc.prompt/v1",
+                "evalVersion": "honua.aws-ecs.ai-arc.eval/v1",
+            },
+            "certification/local-docker-real-model-ai-arc.schema.json": {
+                "target": "local-docker",
+                "id": "local-docker-real-model-ai-arc",
+                "receiptVersion": "honua.local-docker.real-model-ai-arc/v1",
+                "evidenceVersion": "honua.local-docker.real-model-ai-arc-evidence/v1",
+                "promptVersion": "honua.local-docker.ai-arc.prompt/v1",
+                "evalVersion": "honua.local-docker.ai-arc.eval/v1",
+            },
+        }
+        model_contract = model_contracts.get(expected.get("receiptSchema"))
+        if model_contract is not None:
+            model_evidence = evidence_documents.get(receipt_id)
+            if model_evidence is None:
+                findings.blockers.append(
+                    f"live journey is missing external evidence for {receipt_id} ({expected.get('evidenceSchema')})"
+                )
+                continue
+            evidence_path, evidence_document = model_evidence
+            _validate_real_model_receipt(
+                findings,
+                manifest,
+                identity,
+                expected,
+                model_contract,
+                path,
+                receipt,
+                evidence_path,
+                evidence_document,
+                journey_receipt if model_contract["target"] == "local-docker" else None,
+            )
+            records.append(
+                {
+                    "id": receipt_id,
+                    "path": str(path),
+                    "receiptSha256": _sha256(path),
+                    "evidencePath": str(evidence_path),
+                    "evidenceSha256": _sha256(evidence_path),
+                    "source": receipt.get("source") or {},
+                    "components": receipt.get("components") or {},
+                    "evidence": receipt.get("evidence") or {},
+                    "claims": {"target": receipt.get("target"), "checks": receipt.get("checks") or {}},
+                }
+            )
+            continue
         if receipt.get("schemaVersion") != "honua.release.evidence-receipt/v1":
             findings.errors.append(f"external receipt {receipt_id} has an unsupported schemaVersion")
         if receipt.get("id") != receipt_id or receipt.get("status") != "passed":
@@ -445,6 +539,217 @@ def validate_external_receipts(
             }
         )
     return findings, records
+
+
+def _validate_real_model_receipt(
+    findings: Findings,
+    manifest: dict,
+    identity: dict,
+    expected: dict,
+    model_contract: dict[str, str],
+    receipt_path: Path,
+    receipt: dict,
+    evidence_path: Path,
+    evidence_document: dict,
+    journey_receipt: dict | None,
+) -> None:
+    target = model_contract["target"]
+    receipt_fields = {
+        "schemaVersion", "id", "status", "target", "candidateId", "releaseId",
+        "endpointSha256", "source", "components", "model", "promptVersion",
+        "evalVersion", "transcriptSha256", "deterministic", "lanes", "joins",
+        "checks", "evidence",
+    }
+    if set(receipt) != receipt_fields:
+        findings.errors.append("AWS ECS real-model receipt has unexpected or missing fields")
+    if (
+        receipt.get("schemaVersion") != model_contract["receiptVersion"]
+        or receipt.get("id") != model_contract["id"]
+        or receipt.get("status") != "passed"
+        or receipt.get("target") != target
+    ):
+        findings.errors.append(f"{target} real-model receipt has the wrong schema/id/status/target")
+    if receipt.get("candidateId") != identity.get("candidateId") or receipt.get("releaseId") != manifest.get("platformRelease"):
+        findings.errors.append("AWS ECS real-model receipt is not bound to the exact candidate/release")
+    if not SHA256.fullmatch(str(receipt.get("endpointSha256", ""))):
+        findings.errors.append("AWS ECS real-model receipt has no endpoint SHA-256")
+    source = receipt.get("source") or {}
+    studio_sha = ((manifest.get("components") or {}).get("honua-studio") or {}).get("sha")
+    if source != {"repository": "honua-io/honua-studio", "sha": studio_sha}:
+        findings.errors.append("AWS ECS real-model receipt is not from the pinned Studio runner")
+    expected_components = {
+        name: (manifest.get("components") or {}).get(name, {}).get("sha")
+        for name in expected.get("boundComponents") or []
+    }
+    if receipt.get("components") != expected_components:
+        findings.errors.append("AWS ECS real-model receipt does not bind all manifest component SHAs")
+    model = receipt.get("model") or {}
+    if model.get("provider") not in {"anthropic", "bedrock", "openai"} or not model.get("modelId"):
+        findings.errors.append("AWS ECS real-model receipt has no live provider/model identity")
+    if receipt.get("promptVersion") != model_contract["promptVersion"] or receipt.get("evalVersion") != model_contract["evalVersion"]:
+        findings.errors.append(f"{target} real-model receipt has the wrong prompt/eval version")
+    if not SHA256.fullmatch(str(receipt.get("transcriptSha256", ""))):
+        findings.errors.append("AWS ECS real-model receipt has no transcript SHA-256")
+    deterministic = receipt.get("deterministic") or {}
+    expected_deterministic_fields = {"target", "checkpointDigest"}
+    if target == "aws-ecs":
+        expected_deterministic_fields.add("provisionReceiptSha256")
+    if (
+        set(deterministic) != expected_deterministic_fields
+        or deterministic.get("target") != target
+        or not SHA256.fullmatch(str(deterministic.get("checkpointDigest", "")))
+        or (
+            target == "aws-ecs"
+            and not SHA256.fullmatch(str(deterministic.get("provisionReceiptSha256", "")))
+        )
+    ):
+        findings.errors.append(f"{target} real-model receipt has no exact deterministic checkpoint join")
+    checks = receipt.get("checks") or {}
+    for check in (expected.get("claims") or {}).get("requiredChecks") or []:
+        if checks.get(check) != "passed":
+            findings.errors.append(f"AWS ECS real-model receipt does not prove {check}=passed")
+    lanes = receipt.get("lanes") or {}
+    required_lanes = set(AWS_MODEL_LANES)
+    if set(lanes) != required_lanes:
+        findings.errors.append("AWS ECS real-model receipt does not cover the four required natural-language lanes")
+    observed: dict[str, set[tuple[str, str | None, str, str]]] = {
+        name: set() for name in required_lanes
+    }
+    observed_identity_keys: dict[str, set[str]] = {
+        name: set() for name in required_lanes
+    }
+    joins = receipt.get("joins") or {}
+    for lane_name, lane in (lanes.items() if isinstance(lanes, dict) else []):
+        if not isinstance(lane, dict) or not SHA256.fullmatch(str(lane.get("promptSha256", ""))) or not SHA256.fullmatch(str(lane.get("transcriptSha256", ""))):
+            findings.errors.append(f"AWS ECS real-model lane {lane_name} lacks prompt/transcript hashes")
+            continue
+        calls = lane.get("calls") or []
+        if not isinstance(calls, list) or not calls:
+            findings.errors.append(f"AWS ECS real-model lane {lane_name} has no calls")
+            continue
+        for call in calls:
+            if not isinstance(call, dict) or call.get("status") != "passed" or not SHA256.fullmatch(str(call.get("responseSha256", ""))):
+                findings.errors.append(f"AWS ECS real-model lane {lane_name} contains an unproved call")
+                continue
+            role = call.get("role")
+            family = call.get("family")
+            kind = call.get("kind")
+            name = call.get("name")
+            if (
+                not isinstance(role, str)
+                or family not in {None, "map", "app", "dashboard", "parcels", "zoning"}
+                or kind not in {"mcp", "mcp-resource"}
+                or not isinstance(name, str)
+                or not name
+            ):
+                findings.errors.append(f"AWS ECS real-model lane {lane_name} has a malformed call identity")
+                continue
+            observed.setdefault(lane_name, set()).add((role, family, kind, name))
+            result = call.get("result") or {}
+            identities = result.get("identities") or {}
+            if str(result.get("status", "")).lower() not in {"passed", "completed", "succeeded", "successful"} or not isinstance(identities, dict) or not identities:
+                findings.errors.append(f"AWS ECS real-model lane {lane_name} call {name} has no successful joined result")
+                continue
+            for key, value in identities.items():
+                if key not in joins or joins.get(key) != value:
+                    findings.errors.append(f"AWS ECS real-model call {name} fabricates or disagrees on identity {key}")
+                else:
+                    observed_identity_keys.setdefault(lane_name, set()).add(key)
+    expected_roster = {lane: set(roster) for lane, roster in AWS_MODEL_ROSTER.items()}
+    expected_roster["esriGp"] = {
+        (role, family, kind, name.format(esriMcpJobId=joins.get("esriMcpJobId", "")))
+        for role, family, kind, name in expected_roster["esriGp"]
+    }
+    expected_roster["nativeAnalysis"] = {
+        (role, family, kind, name.format(directAnalysisJobId=joins.get("directAnalysisJobId", "")))
+        for role, family, kind, name in expected_roster["nativeAnalysis"]
+    }
+    expected_roster["studioPublication"] = {
+        (role, family, "mcp", tool)
+        for family in ("map", "app", "dashboard")
+        for role, tool in AWS_MODEL_STUDIO_ROLES
+    }
+    for lane_name, required in expected_roster.items():
+        missing = required - observed.get(lane_name, set())
+        if missing:
+            findings.errors.append(f"AWS ECS real-model lane {lane_name} lacks required calls {sorted(missing)}")
+    required_lane_joins = {
+        "admin": {"connectionId", "parcelsLayerId", "zoningLayerId", "serviceName"},
+        "esriGp": {"esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId"},
+        "nativeAnalysis": {"directAnalysisJobId", "bufferArtifactId"},
+        "studioPublication": {
+            *{
+                f"{family}{suffix}"
+                for family in ("map", "app", "dashboard")
+                for suffix in (
+                    "ItemId", "VersionId", "ReopenedDraftId", "PublicationVersionId",
+                    "ProposalId",
+                )
+            },
+        },
+    }
+    for lane_name, required in required_lane_joins.items():
+        missing = required - observed_identity_keys.get(lane_name, set())
+        if missing:
+            findings.errors.append(
+                f"AWS ECS real-model lane {lane_name} result evidence omits joins {sorted(missing)}"
+            )
+    required_joins = {
+        "candidateId", "releaseId", "serviceName", "connectionId", "parcelsLayerId",
+        "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
+        "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+        *{
+            f"{family}{suffix}"
+            for family in ("map", "app", "dashboard")
+            for suffix in (
+                "ItemId", "VersionId", "ContentHash", "ReopenedDraftId",
+                "PublicationVersionId", "PublicationContentHash", "ProposalId",
+                "PublicationId", "PublicationStatus", "PublicUrl", "AuditCorrelationId",
+            )
+        },
+    }
+    if not isinstance(joins, dict) or required_joins - set(joins):
+        findings.errors.append(f"{target} real-model receipt omits deterministic joins {sorted(required_joins - set(joins or {}))}")
+    elif joins.get("candidateId") != receipt.get("candidateId") or joins.get("releaseId") != receipt.get("releaseId"):
+        findings.errors.append("AWS ECS real-model joins do not bind the exact candidate/release")
+    for family in ("map", "app", "dashboard"):
+        if joins.get(f"{family}PublicationStatus") != "published":
+            findings.errors.append(
+                f"AWS ECS real-model join {family}PublicationStatus is not published"
+            )
+        if not _is_public_https_url(joins.get(f"{family}PublicUrl")):
+            findings.errors.append(f"{target} real-model join {family}PublicUrl is not public HTTPS")
+    if journey_receipt is not None:
+        deterministic_captures = {
+            key: value
+            for action in _receipt_action_map(journey_receipt).values()
+            for key, value in (action.get("captures") or {}).items()
+        }
+        for key in required_joins & set(deterministic_captures):
+            if joins.get(key) != deterministic_captures[key]:
+                findings.errors.append(
+                    f"{target} real-model join {key} differs from deterministic journey evidence"
+                )
+    evidence = receipt.get("evidence") or {}
+    if not _is_public_https_url(evidence.get("url")) or not SHA256.fullmatch(str(evidence.get("sha256", ""))):
+        findings.errors.append("AWS ECS real-model receipt has no public content-addressed evidence")
+    elif _sha256(evidence_path) != evidence.get("sha256"):
+        findings.errors.append("AWS ECS real-model evidence bytes do not match its receipt SHA-256")
+    evidence_bindings = {
+        "schemaVersion": model_contract["evidenceVersion"],
+        "candidateId": receipt.get("candidateId"), "releaseId": receipt.get("releaseId"),
+        "endpointSha256": receipt.get("endpointSha256"), "source": source, "model": model,
+        "promptVersion": receipt.get("promptVersion"), "evalVersion": receipt.get("evalVersion"),
+        "transcriptSha256": receipt.get("transcriptSha256"), "target": target,
+        "checkpointDigest": deterministic.get("checkpointDigest"), "lanes": lanes, "joins": joins,
+    }
+    if target == "aws-ecs":
+        evidence_bindings["provisionReceiptSha256"] = deterministic.get("provisionReceiptSha256")
+    if evidence_document != evidence_bindings:
+        findings.errors.append("AWS ECS real-model evidence document is not an exact receipt binding")
+    serialized = json.dumps({"receipt": receipt, "evidence": evidence_document}, sort_keys=True).lower()
+    if any(token in serialized for token in ("password", "authorization", "api_key", "apikey", "secretstring", "fixture")):
+        findings.errors.append("AWS ECS real-model evidence contains forbidden secret/fixture material")
 
 
 def validate_receipt(
@@ -527,8 +832,25 @@ def validate_receipt(
                 findings.errors.append(f"live action {action_id} is passed without execution evidence")
                 continue
             kind = plan_action.get("kind")
-            if kind == "cli" and evidence.get("exitCode") != 0:
-                findings.errors.append(f"live CLI action {action_id} has no successful exit-code evidence")
+            if kind == "cli":
+                if evidence.get("target") == "aws-ecs":
+                    if action_id == "install-local" and (
+                        evidence.get("terraformPlan") != "passed"
+                        or evidence.get("terraformApply") != "passed"
+                        or not str(evidence.get("serverImage", "")).startswith("ghcr.io/honua-io/honua-server:")
+                    ):
+                        findings.errors.append(
+                            "live AWS ECS install action has no image and Terraform provision evidence"
+                        )
+                    elif action_id == "install-status" and (
+                        evidence.get("readiness") != "passed"
+                        or evidence.get("adminMcpHandoff") != "passed"
+                    ):
+                        findings.errors.append(
+                            "live AWS ECS status action has no readiness/admin MCP handoff evidence"
+                        )
+                elif evidence.get("exitCode") != 0:
+                    findings.errors.append(f"live CLI action {action_id} has no successful exit-code evidence")
             elif kind == "mcp" and (
                 evidence.get("tool") != plan_action.get("tool") or evidence.get("isError") is not False
             ):
@@ -545,13 +867,15 @@ def validate_receipt(
                 or not SHA256.fullmatch(str(evidence.get("sha256", "")))
             ):
                 findings.errors.append(f"live receipt action {action_id} has no content-addressed evidence")
-            elif kind == "http" and (
-                evidence.get("status") != plan_action.get("expectedStatus")
-                or not _is_public_https_url(evidence.get("url"))
-            ):
-                findings.errors.append(
-                    f"live HTTP action {action_id} has no matching public HTTPS URL/status evidence"
-                )
+            elif kind == "http":
+                if (
+                    evidence.get("status") != plan_action.get("expectedStatus")
+                    or not _is_public_https_url(evidence.get("url"))
+                    or evidence.get("identityMatched") is not True
+                ):
+                    findings.errors.append(
+                        f"live HTTP action {action_id} has no identity-matched public HTTPS URL/status evidence"
+                    )
 
             captures = action.get("captures") or {}
             for variable in _capture_names(plan_action):
@@ -569,6 +893,17 @@ def validate_receipt(
             findings.errors.append("Console receipt releaseId is not the manifest platformRelease")
         if not _is_public_https_url(captures.get("shareUrl")):
             findings.errors.append("Console receipt shareUrl is not a public HTTPS URL")
+        final_urls = {
+            "verify-map-public-url": captures.get("mapPublicUrl"),
+            "verify-share-url": captures.get("shareUrl"),
+            "verify-dashboard-public-url": captures.get("dashboardPublicUrl"),
+        }
+        for action_id, public_url in final_urls.items():
+            if not _is_public_https_url(public_url):
+                findings.errors.append(f"Console receipt {action_id} URL is not public HTTPS")
+            action_evidence = (receipt_actions.get(action_id) or {}).get("evidence") or {}
+            if action_evidence.get("url") != public_url:
+                findings.errors.append(f"live HTTP action {action_id} did not probe its exact Console URL")
         evidence = console.get("evidence") or {}
         if evidence.get("source") != "external-receipt" or not SHA256.fullmatch(str(evidence.get("sha256", ""))):
             findings.errors.append("Console checkpoint has no content-addressed external receipt evidence")
@@ -639,6 +974,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ID=PATH",
         help="candidate-bound external receipt; repeat for AWS and real-model Studio evidence",
     )
+    parser.add_argument(
+        "--external-evidence",
+        action="append",
+        default=[],
+        metavar="ID=PATH",
+        help="content-addressed evidence document for a dedicated external receipt",
+    )
     parser.add_argument("--mode", choices=("contract", "live"), default="contract")
     parser.add_argument("--json-out", type=Path, required=True)
     parser.add_argument("--require-real", action="store_true")
@@ -683,8 +1025,20 @@ def main(argv: list[str] | None = None) -> int:
                     receipt_id, raw_path = entry.split("=", 1)
                     path = Path(raw_path)
                     supplied[receipt_id] = (path, _load_json(path))
+                supplied_evidence: dict[str, tuple[Path, dict]] = {}
+                for entry in args.external_evidence:
+                    if "=" not in entry:
+                        raise ValueError("--external-evidence requires ID=PATH")
+                    receipt_id, raw_path = entry.split("=", 1)
+                    path = Path(raw_path)
+                    supplied_evidence[receipt_id] = (path, _load_json(path))
                 external_findings, external_records = validate_external_receipts(
-                    manifest, args.manifest, contract, supplied
+                    manifest,
+                    args.manifest,
+                    contract,
+                    supplied,
+                    supplied_evidence,
+                    receipt,
                 )
         report = build_report(
             manifest,

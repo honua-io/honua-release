@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/aws-ecs-real-model-ai-arc-evidence.v1.json",
+  "title": "Honua secret-free AWS ECS real-model call/result evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "releaseId",
+    "endpointSha256",
+    "source",
+    "model",
+    "promptVersion",
+    "evalVersion",
+    "transcriptSha256",
+    "target",
+    "provisionReceiptSha256",
+    "checkpointDigest",
+    "lanes",
+    "joins"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.aws-ecs.real-model-ai-arc-evidence/v1" },
+    "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "endpointSha256": { "$ref": "#/$defs/sha256" },
+    "source": {
+      "type": "object",
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "honua-io/honua-studio" },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": ["provider", "modelId"],
+      "properties": {
+        "provider": { "enum": ["anthropic", "bedrock", "openai"] },
+        "modelId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "promptVersion": { "const": "honua.aws-ecs.ai-arc.prompt/v1" },
+    "evalVersion": { "const": "honua.aws-ecs.ai-arc.eval/v1" },
+    "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "target": { "const": "aws-ecs" },
+    "provisionReceiptSha256": { "$ref": "#/$defs/sha256" },
+    "checkpointDigest": { "$ref": "#/$defs/sha256" },
+    "lanes": {
+      "type": "object",
+      "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
+      "properties": {
+        "admin": { "$ref": "#/$defs/lane" },
+        "esriGp": { "$ref": "#/$defs/lane" },
+        "nativeAnalysis": { "$ref": "#/$defs/lane" },
+        "studioPublication": { "$ref": "#/$defs/lane" }
+      },
+      "additionalProperties": false
+    },
+    "joins": {
+      "type": "object",
+      "minProperties": 18,
+      "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lane": {
+      "type": "object",
+      "required": ["promptSha256", "transcriptSha256", "calls"],
+      "properties": {
+        "promptSha256": { "$ref": "#/$defs/sha256" },
+        "transcriptSha256": { "$ref": "#/$defs/sha256" },
+        "calls": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/call" } }
+      },
+      "additionalProperties": false
+    },
+    "call": {
+      "type": "object",
+      "required": ["role", "kind", "name", "status", "responseSha256", "result"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "family": { "enum": ["map", "app", "dashboard", "parcels", "zoning"] },
+        "kind": { "enum": ["mcp", "mcp-resource"] },
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "const": "passed" },
+        "responseSha256": { "$ref": "#/$defs/sha256" },
+        "result": {
+          "type": "object",
+          "required": ["status", "identities"],
+          "properties": {
+            "status": { "type": "string", "minLength": 1 },
+            "identities": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

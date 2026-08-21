@@ -35,7 +35,7 @@ candidate:
 executionTargets:
   - id: local-docker
     journeyReceipt: sdk-zero-to-map
-    supportingReceipts: [ studio-real-model ]
+    supportingReceipts: [ local-docker-real-model-ai-arc ]
     requiredChecks:
       - candidate-image-install
       - admin-configure-and-publish
@@ -49,6 +49,7 @@ executionTargets:
   - id: aws-ecs
     provisionReceipt: aws-ecs-provision
     journeyReceipt: aws-ecs-ai-delivery-arc
+    supportingReceipts: [ aws-ecs-real-model-ai-arc ]
     requiredChecks:
       - candidate-image-install
       - admin-configure-and-publish
@@ -122,13 +123,20 @@ journey:
         - { id: reopen-dashboard-version, kind: mcp, tool: honua_studio_reopen_version }
     - id: proposal
       requiredActions:
-        - { id: propose-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: propose-map-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-map-publication-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: propose-app-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-app-publication-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: propose-dashboard-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-dashboard-publication-version, kind: mcp, tool: honua_studio_save_version }
     - id: console
       requiredActions:
         - { id: console-approval, kind: receipt }
     - id: artifact
       requiredActions:
+        - { id: verify-map-public-url, kind: http }
         - { id: verify-share-url, kind: http }
+        - { id: verify-dashboard-public-url, kind: http }
 
 joins:
   esriGpWait:
@@ -176,9 +184,26 @@ joins:
     matches:
       /journeyId: "${journeyId}"
       /releaseContract: "${releaseContract}"
-      /proposal/draftId: "${appReopenedDraftId}"
-      /proposal/generation: "${proposalGeneration}"
-      /proposal/route: "${route}"
+      /candidate/candidateId: "${candidateId}"
+      /candidate/releaseId: "${releaseId}"
+      /proposals/map/draftId: "${mapReopenedDraftId}"
+      /proposals/map/generation: "${mapProposalGeneration}"
+      /proposals/map/route: "${mapRoute}"
+      /proposals/app/draftId: "${appReopenedDraftId}"
+      /proposals/app/generation: "${appProposalGeneration}"
+      /proposals/app/route: "${route}"
+      /proposals/dashboard/draftId: "${dashboardReopenedDraftId}"
+      /proposals/dashboard/generation: "${dashboardProposalGeneration}"
+      /proposals/dashboard/route: "${dashboardRoute}"
+      /publications/map/itemId: "${mapItemId}"
+      /publications/map/versionId: "${mapPublicationVersionId}"
+      /publications/map/status: published
+      /publications/app/itemId: "${appItemId}"
+      /publications/app/versionId: "${appPublicationVersionId}"
+      /publications/app/status: published
+      /publications/dashboard/itemId: "${dashboardItemId}"
+      /publications/dashboard/versionId: "${dashboardPublicationVersionId}"
+      /publications/dashboard/status: published
       /resources/connectionId: "${connectionId}"
       /resources/serviceId: "${serviceName}"
       /resources/layerIds/parcels: "${parcelsLayerId}"
@@ -205,25 +230,58 @@ joins:
       /resources/studio/dashboard/contentHash: "${dashboardContentHash}"
       /resources/studio/dashboard/reopenedDraftId: "${dashboardReopenedDraftId}"
     requiredPointers:
-      - /candidate/candidateId
-      - /candidate/releaseId
-      - /proposal/proposalId
-      - /proposal/executionOperationId
-      - /audit/correlationId
-      - /audit/operationId
+      - /proposals/map/proposalId
+      - /proposals/map/executionOperationId
+      - /proposals/app/proposalId
+      - /proposals/app/executionOperationId
+      - /proposals/dashboard/proposalId
+      - /proposals/dashboard/executionOperationId
+      - /publications/map/requestId
+      - /publications/map/publicationId
+      - /publications/map/publicUrl
+      - /publications/app/requestId
+      - /publications/app/publicationId
+      - /publications/app/publicUrl
+      - /publications/dashboard/requestId
+      - /publications/dashboard/publicationId
+      - /publications/dashboard/publicUrl
+      - /audit/map/correlationId
+      - /audit/map/operationId
+      - /audit/app/correlationId
+      - /audit/app/operationId
+      - /audit/dashboard/correlationId
+      - /audit/dashboard/operationId
       - /checks/health
       - /checks/audit
       - /checks/recovery
       - /shareUrl
     equalPointers:
-      - [ /proposal/executionOperationId, /audit/operationId ]
-      - [ /proposal/draftId, /resources/studio/app/reopenedDraftId ]
+      - [ /proposals/map/proposalId, /publications/map/requestId ]
+      - [ /proposals/map/executionOperationId, /audit/map/operationId ]
+      - [ /proposals/map/draftId, /resources/studio/map/reopenedDraftId ]
+      - [ /proposals/app/proposalId, /publications/app/requestId ]
+      - [ /proposals/app/executionOperationId, /audit/app/operationId ]
+      - [ /proposals/app/draftId, /resources/studio/app/reopenedDraftId ]
+      - [ /proposals/dashboard/proposalId, /publications/dashboard/requestId ]
+      - [ /proposals/dashboard/executionOperationId, /audit/dashboard/operationId ]
+      - [ /proposals/dashboard/draftId, /resources/studio/dashboard/reopenedDraftId ]
+      - [ /shareUrl, /publications/app/publicUrl ]
       - [ /resources/jobs/esriMcp, /resources/gp/jobId ]
-  consoleArtifact:
+  consoleMapArtifact:
+    producerAction: console-approval
+    capture: mapPublicUrl
+    consumerAction: verify-map-public-url
+    template: "${mapPublicUrl}"
+  consoleAppArtifact:
     producerAction: console-approval
     capture: shareUrl
     consumerAction: verify-share-url
     template: "${shareUrl}"
+  consoleDashboardArtifact:
+    producerAction: console-approval
+    capture: dashboardPublicUrl
+    consumerAction: verify-dashboard-public-url
+    template: "${dashboardPublicUrl}"
 
 externalReceipts:
   - id: aws-ecs-provision
@@ -261,18 +319,53 @@ externalReceipts:
         - governed-publication-approval
         - console-audit-recovery
         - public-share-http-200
-  - id: studio-real-model
-    issue: honua-studio#40/#41
-    receiptSchema: certification/release-evidence-receipt.schema.json
+  - id: aws-ecs-real-model-ai-arc
+    issue: honua-release#123/honua-devops#149
+    receiptSchema: certification/aws-ecs-real-model-ai-arc.schema.json
+    evidenceSchema: certification/aws-ecs-real-model-ai-arc-evidence.schema.json
     sourceComponent: honua-studio
     sourceRepository: honua-io/honua-studio
-    boundComponents: [ honua-studio ]
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
+    claims:
+      target: aws-ecs
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - natural-language-admin-setup-config-publish
+        - natural-language-esri-gp
+        - natural-language-native-analysis
+        - natural-language-map-app-dashboard-composition-publication
+        - deterministic-id-join
+        - same-endpoint-candidate
+        - no-secret-serialization
+  - id: local-docker-real-model-ai-arc
+    issue: honua-studio#40/#41
+    receiptSchema: certification/local-docker-real-model-ai-arc.schema.json
+    evidenceSchema: certification/local-docker-real-model-ai-arc-evidence.schema.json
+    sourceComponent: honua-studio
+    sourceRepository: honua-io/honua-studio
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
     claims:
       target: local-docker
       journeyId: 2026.1-zero-to-map
       releaseContract: honua-release#123/D9.3
       requiredChecks:
-        - real-model-turn
-        - map-compose-save-reopen
-        - app-compose-save-reopen
-        - dashboard-compose-save-reopen
+        - natural-language-admin-setup-config-publish
+        - natural-language-esri-gp
+        - natural-language-native-analysis
+        - natural-language-map-app-dashboard-composition-publication
+        - deterministic-id-join
+        - same-endpoint-candidate
+        - no-secret-serialization

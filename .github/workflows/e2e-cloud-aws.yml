@@ -65,6 +65,10 @@ on:
     secrets:
       RELEASE_GH_TOKEN:
         required: false
+      OPENAI_API_KEY:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped — aggregate of the parity cells + the iac-live wrapper"
@@ -85,6 +89,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       iac_ref: ${{ steps.pins.outputs.iac_ref }}
+      devops_ref: ${{ steps.pins.outputs.devops_ref }}
+      sdk_ref: ${{ steps.pins.outputs.sdk_ref }}
+      studio_ref: ${{ steps.pins.outputs.studio_ref }}
+      console_ref: ${{ steps.pins.outputs.console_ref }}
       helm_ref: ${{ steps.pins.outputs.helm_ref }}
       server_ref: ${{ steps.pins.outputs.server_ref }}
       server_image: ${{ steps.pins.outputs.server_image }}
@@ -115,6 +123,10 @@ jobs:
           server = components.get("honua-server") or {}
           pins = {
               "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
+              "devops_ref": str((components.get("honua-devops") or {}).get("sha", "")),
+              "sdk_ref": str((components.get("honua-sdk-js") or {}).get("sha", "")),
+              "studio_ref": str((components.get("honua-studio") or {}).get("sha", "")),
+              "console_ref": str((components.get("honua-console") or {}).get("sha", "")),
               "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
               "server_ref": str(server.get("sha", "")),
           }
@@ -294,6 +306,42 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
 
+      - name: Checkout honua-devops (AWS ECS AI arc producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-devops
+          ref: ${{ needs.candidate.outputs.devops_ref }}
+          path: _honua-devops
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-sdk-js (deterministic AI arc driver)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-js
+          ref: ${{ needs.candidate.outputs.sdk_ref }}
+          path: _honua-sdk-js
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-studio (real-model producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-studio
+          ref: ${{ needs.candidate.outputs.studio_ref }}
+          path: _honua-studio
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-console (approval/audit/recovery producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-console
+          ref: ${{ needs.candidate.outputs.console_ref }}
+          path: _honua-console
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -346,7 +394,21 @@ jobs:
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_DEVOPS_DIR: ${{ github.workspace }}/_honua-devops
+          HONUA_SDK_JS_DIR: ${{ github.workspace }}/_honua-sdk-js
+          HONUA_STUDIO_DIR: ${{ github.workspace }}/_honua-studio
+          HONUA_CONSOLE_DIR: ${{ github.workspace }}/_honua-console
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
+          HONUA_PLATFORM_MANIFEST: ${{ github.workspace }}/platform-manifest.yaml
+          HONUA_AI_ARC_FIXTURE_BASE_URL: ${{ vars.HONUA_AI_ARC_FIXTURE_BASE_URL }}
+          HONUA_AI_ARC_OUT: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}
+          HONUA_AI_ARC_CONSOLE_PRODUCER: ${{ vars.HONUA_AI_ARC_CONSOLE_PRODUCER }}
+          HONUA_AI_ARC_CONSOLE_KEY_SECRET_REF: ${{ vars.HONUA_AI_ARC_CONSOLE_KEY_SECRET_REF }}
+          HONUA_AI_ARC_MODEL_PRODUCER: ${{ vars.HONUA_AI_ARC_MODEL_PRODUCER }}
+          HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
+          HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
@@ -382,6 +444,14 @@ jobs:
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
+          if-no-files-found: warn
+
+      - name: Upload AWS ECS AI delivery-arc evidence
+        if: always() && matrix.target == 'aws-ecs'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aws-ecs-ai-delivery-arc-redis-${{ matrix.redis }}
+          path: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}
           if-no-files-found: warn
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────

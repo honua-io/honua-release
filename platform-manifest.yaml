@@ -314,12 +314,12 @@ components:
 
   honua-devops:
     version: "pre-release"             # no releases/tags; pinned by sha
-    # Exact trunk source for the D9.3 AWS receipt producer. Its 23 executed check-runs were green on
-    # 2026-08-20 (six live/publish lanes intentionally skipped), but devops#147 has not yet produced
-    # the candidate-bound aws-ecs-provision receipt. The source pin makes that dependency visible;
-    # it does not turn the open provisioning work into release evidence.
-    sha: "2426ac9d6e63476a9dbd293a3da9b2febdbcf5f2"   # branch: trunk, source-only evidence producer
-    status: "source-only-awaiting-aws-ecs-receipt"
+    # honua-devops#149 owns the fail-closed AWS ECS prepare/resume/finalize producer and the strict
+    # provision, teardown, and full real-model receipt contracts. Its source/checks are green; this
+    # pin does not claim a live receipt until the release cloud cell supplies HTTPS, focused Console
+    # approval, provider credentials, and a manifest-pinned Studio full-model runner.
+    sha: "3fc229d3ed19fb5e1cccf33ee95a837f407e6037"   # branch: agent/2026-1-aws-ai-arc, PR #149
+    status: "source-ready-awaiting-live-aws-ecs-receipts"
 
   honua-iac:
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha

@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/aws-ecs-real-model-ai-arc.v1.json",
+  "title": "Honua candidate-bound AWS ECS real-model AI delivery arc",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "status",
+    "target",
+    "candidateId",
+    "releaseId",
+    "endpointSha256",
+    "source",
+    "components",
+    "model",
+    "promptVersion",
+    "evalVersion",
+    "transcriptSha256",
+    "deterministic",
+    "lanes",
+    "joins",
+    "checks",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.aws-ecs.real-model-ai-arc/v1" },
+    "id": { "const": "aws-ecs-real-model-ai-arc" },
+    "status": { "const": "passed" },
+    "target": { "const": "aws-ecs" },
+    "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "endpointSha256": { "$ref": "#/$defs/sha256" },
+    "source": {
+      "type": "object",
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "honua-io/honua-studio" },
+        "sha": { "$ref": "#/$defs/sha" }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "honua-server",
+        "honua-sdk-js",
+        "honua-console",
+        "honua-studio",
+        "honua-devops",
+        "honua-iac"
+      ],
+      "properties": {
+        "honua-server": { "$ref": "#/$defs/sha" },
+        "honua-sdk-js": { "$ref": "#/$defs/sha" },
+        "honua-console": { "$ref": "#/$defs/sha" },
+        "honua-studio": { "$ref": "#/$defs/sha" },
+        "honua-devops": { "$ref": "#/$defs/sha" },
+        "honua-iac": { "$ref": "#/$defs/sha" }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": ["provider", "modelId"],
+      "properties": {
+        "provider": { "enum": ["anthropic", "bedrock", "openai"] },
+        "modelId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "promptVersion": { "const": "honua.aws-ecs.ai-arc.prompt/v1" },
+    "evalVersion": { "const": "honua.aws-ecs.ai-arc.eval/v1" },
+    "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "deterministic": {
+      "type": "object",
+      "required": ["target", "provisionReceiptSha256", "checkpointDigest"],
+      "properties": {
+        "target": { "const": "aws-ecs" },
+        "provisionReceiptSha256": { "$ref": "#/$defs/sha256" },
+        "checkpointDigest": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "lanes": {
+      "type": "object",
+      "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
+      "properties": {
+        "admin": { "$ref": "#/$defs/lane" },
+        "esriGp": { "$ref": "#/$defs/lane" },
+        "nativeAnalysis": { "$ref": "#/$defs/lane" },
+        "studioPublication": { "$ref": "#/$defs/lane" }
+      },
+      "additionalProperties": false
+    },
+    "joins": {
+      "type": "object",
+      "minProperties": 18,
+      "additionalProperties": {
+        "type": ["string", "number", "integer", "boolean"]
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "natural-language-admin-setup-config-publish",
+        "natural-language-esri-gp",
+        "natural-language-native-analysis",
+        "natural-language-map-app-dashboard-composition-publication",
+        "deterministic-id-join",
+        "same-endpoint-candidate",
+        "no-secret-serialization"
+      ],
+      "properties": {
+        "natural-language-admin-setup-config-publish": { "const": "passed" },
+        "natural-language-esri-gp": { "const": "passed" },
+        "natural-language-native-analysis": { "const": "passed" },
+        "natural-language-map-app-dashboard-composition-publication": { "const": "passed" },
+        "deterministic-id-join": { "const": "passed" },
+        "same-endpoint-candidate": { "const": "passed" },
+        "no-secret-serialization": { "const": "passed" }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["url", "sha256"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^https://" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lane": {
+      "type": "object",
+      "required": ["promptSha256", "transcriptSha256", "calls"],
+      "properties": {
+        "promptSha256": { "$ref": "#/$defs/sha256" },
+        "transcriptSha256": { "$ref": "#/$defs/sha256" },
+        "calls": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/call" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "call": {
+      "type": "object",
+      "required": ["role", "kind", "name", "status", "responseSha256", "result"],
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "family": { "enum": ["map", "app", "dashboard", "parcels", "zoning"] },
+        "kind": { "enum": ["mcp", "mcp-resource"] },
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "const": "passed" },
+        "responseSha256": { "$ref": "#/$defs/sha256" },
+        "result": {
+          "type": "object",
+          "required": ["status", "identities"],
+          "properties": {
+            "status": { "type": "string", "minLength": 1 },
+            "identities": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": ["string", "number", "integer", "boolean"]
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
