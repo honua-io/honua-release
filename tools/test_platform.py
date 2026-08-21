@@ -60,6 +60,29 @@ def test_committed_manifest_and_matrix_are_valid():
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
 
 
+def test_structure_rejects_untrusted_or_unpinned_certification_ledger():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    ledger = manifest["protocolCertification"]["ledger"]
+    ledger.update(status="bound", repository="attacker/example", commit="main", sha256="unknown")
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("owned by honua-io/honua-evidence" in e for e in f.errors)
+    assert any("commit must be a full SHA" in e for e in f.errors)
+    assert any("sha256 must be an exact digest" in e for e in f.errors)
+
+
+def test_structure_rejects_actor_replayable_or_released_pending_candidate_state():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["protocolCertification"]["candidateCutAt"] = "not-a-cut"
+    manifest["status"] = "released"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("candidateCutAt" in e for e in f.errors)
+    assert any("released platform cannot" in e for e in f.errors)
+
+
 # ---- structure rules can fail ---------------------------------------------------------------------
 def test_structure_rejects_unknown_client():
     manifest, matrix = _real_files()
