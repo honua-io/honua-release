@@ -6583,7 +6583,7 @@
         "release"
       ],
       "scenarioFacets": [
-        "read-only"
+        "mutation"
       ],
       "tests": [],
       "implementations": [
