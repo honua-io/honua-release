@@ -1,0 +1,638 @@
+{
+  "schema": "honua.sdk-js-protocol-certification/v1",
+  "sourceRepository": "honua-io/honua-sdk-js",
+  "canonicalClient": "@honua/sdk-js",
+  "clientVersion": "0.1.7-beta.0",
+  "fixtureRevision": "0.1.0-alpha.3",
+  "operations": [
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "metadata",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "query",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "count",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "object-ids",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "add-features",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "update-features",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "delete-features",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-featureserver",
+      "surface": "featureserver",
+      "operation": "attachments",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-geocodeserver",
+      "surface": "geocoding",
+      "operation": "forward",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-geocodeserver",
+      "surface": "geocoding",
+      "operation": "reverse",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-geometry-service",
+      "surface": "geometryserver",
+      "operation": "project",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-geometry-service",
+      "surface": "geometryserver",
+      "operation": "buffer",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.geoprocessing",
+      "surface": "gpserver",
+      "operation": "submit-job",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.geoprocessing",
+      "surface": "gpserver",
+      "operation": "job-status",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "grpc.web",
+      "surface": "grpc-web",
+      "operation": "query",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "grpc.web",
+      "surface": "grpc-web",
+      "operation": "rest-parity",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "grpc.web",
+      "surface": "grpc-web",
+      "operation": "authentication",
+      "scenario_facets": [
+        "positive",
+        "auth",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "grpc.web",
+      "surface": "grpc-web",
+      "operation": "retry",
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-imageserver",
+      "surface": "imageserver",
+      "operation": "metadata",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-imageserver",
+      "surface": "imageserver",
+      "operation": "export-image",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-mapserver",
+      "surface": "mapserver",
+      "operation": "metadata",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-mapserver",
+      "surface": "mapserver",
+      "operation": "query",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-mapserver",
+      "surface": "mapserver",
+      "operation": "count",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-mapserver",
+      "surface": "mapserver",
+      "operation": "export",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.odata",
+      "surface": "odata",
+      "operation": "metadata",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.odata",
+      "surface": "odata",
+      "operation": "entity-page",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-features",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-features",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-features",
+      "operation": "collections",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-features",
+      "operation": "items",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-features",
+      "operation": "item",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-maps",
+      "surface": "ogc-maps",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-maps",
+      "surface": "ogc-maps",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-maps",
+      "surface": "ogc-maps",
+      "operation": "render",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.ogc-api-processes",
+      "surface": "ogc-processes",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.ogc-api-processes",
+      "surface": "ogc-processes",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.ogc-api-processes",
+      "surface": "ogc-processes",
+      "operation": "list",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "process.ogc-api-processes",
+      "surface": "ogc-processes",
+      "operation": "describe",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-records",
+      "surface": "ogc-records",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-records",
+      "surface": "ogc-records",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-records",
+      "surface": "ogc-records",
+      "operation": "collections",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-records",
+      "surface": "ogc-records",
+      "operation": "search",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-records",
+      "surface": "ogc-records",
+      "operation": "cursor-pagination",
+      "scenario_facets": [
+        "positive",
+        "pagination",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-tiles",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-tiles",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-tiles",
+      "operation": "tile-matrix-sets",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-tiles",
+      "operation": "tilesets",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-tiles",
+      "operation": "tile",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-coverages",
+      "surface": "ogc-coverages",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-coverages",
+      "surface": "ogc-coverages",
+      "operation": "conformance",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-coverages",
+      "surface": "ogc-coverages",
+      "operation": "coverage",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "streaming.feature-subscriptions",
+      "surface": "realtime",
+      "operation": "subscribe",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "streaming.feature-subscriptions",
+      "surface": "realtime",
+      "operation": "resume",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "routing.solve",
+      "surface": "routing",
+      "operation": "solve",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.stac",
+      "surface": "stac",
+      "operation": "landing",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.stac",
+      "surface": "stac",
+      "operation": "collections",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.stac",
+      "surface": "stac",
+      "operation": "collection",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.stac",
+      "surface": "stac",
+      "operation": "search",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wcs",
+      "surface": "wcs",
+      "operation": "capabilities",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wcs",
+      "surface": "wcs",
+      "operation": "get-coverage",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs",
+      "operation": "capabilities",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs",
+      "operation": "get-feature",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wms",
+      "surface": "wms",
+      "operation": "capabilities",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wms",
+      "surface": "wms",
+      "operation": "get-map",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wmts",
+      "surface": "wmts",
+      "operation": "capabilities",
+      "scenario_facets": [
+        "positive",
+        "metadata",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wmts",
+      "surface": "wmts",
+      "operation": "get-tile",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    }
+  ]
+}
