@@ -156,6 +156,19 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
     assert exceeding_report["overall_status"] == "fail"
     assert any("max_requests" in finding["why"] for finding in exceeding_report["findings"])
 
+    for field, invalid in (
+        ("requests", -1),
+        ("transferred_bytes", 1.5),
+        ("range_requests", -1),
+        ("coordinate_error", float("nan")),
+        ("geometry_error", -0.1),
+    ):
+        invalid_cell = copy.deepcopy(passing)
+        invalid_cell["budget_observations"][field] = invalid
+        invalid_report = _evaluate(_ledger(invalid_cell), "nightly", now=NOW)
+        assert invalid_report["overall_status"] == "fail"
+        assert any(field in finding["why"] for finding in invalid_report["findings"])
+
 
 def test_fresh_nightly_required_cell_passes():
     report = _evaluate(_ledger(), "nightly", expected_source_sha=SHA, now=NOW)

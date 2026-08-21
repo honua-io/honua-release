@@ -14,6 +14,25 @@ SOURCES = ROOT / "sources"
 SUPPORTED = {"implemented", "partial", "covered"}
 FIXTURE = "docker/cng/seed.sql@{source_sha}"
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
+PR_SDK_SMOKE_OPERATIONS = {
+    "sdk-js": {
+        ("featureserver", "metadata"),
+        ("featureserver", "query"),
+        ("grpc-web", "query"),
+        ("imageserver", "export-image"),
+        ("ogc-features", "items"),
+        ("realtime", "subscribe"),
+        ("stac", "search"),
+        ("wmts", "get-tile"),
+    },
+    "sdk-python": {
+        ("geoservices-root", "list-services"),
+        ("geoservices-featureserver", "layer-metadata"),
+        ("geoservices-featureserver", "query"),
+        ("ogc-api-features", "items"),
+        ("ogc-api-processes", "list-processes"),
+    },
+}
 
 
 def load(path: Path) -> Any:
@@ -97,6 +116,12 @@ def main() -> None:
                     else contract["fixtureRevision"]
                 ),
                 facets=operation["scenario_facets"],
+                required_tier=(
+                    "pr"
+                    if (operation["surface"], operation["operation"])
+                    in PR_SDK_SMOKE_OPERATIONS[source_name]
+                    else "nightly"
+                ),
             )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
