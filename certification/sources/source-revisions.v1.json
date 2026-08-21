@@ -3,23 +3,23 @@
   "sources": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "77658f534c8d75ec3c3cdbfa2f65ac12870a87f7"
+      "commit": "0f17880681fdb3a27d04829b8df88d26df8e5c67"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "92be47e362a5cddb6eebfbcfbc10e3bf2b2af524"
+      "commit": "40de842292eaef19afacf6a7f83a150fb9de6e0c"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "be375f9f80ce3fec70516d07c5da53c25aebb35f"
+      "commit": "2c87556f9a6beb6ec6f0f99d06971c2d82aec1f0"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "0ff2c8c7e455ffe27ddd2749f02f8d6b3bbcb17e"
+      "commit": "ffb561d2e342023b51f7899c523be1a35c780339"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
-      "commit": "6b5293feca83f5643b8e4fc5cfe514023d05b916"
+      "commit": "14e9c9a19ab420b7ddcfa48697080478fff3b08a"
     },
     "cloud-native-guide": {
       "repository": "cloudnativegeo/cloud-optimized-geospatial-formats-guide",
