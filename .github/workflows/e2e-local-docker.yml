@@ -78,7 +78,7 @@ jobs:
       - name: Resolve the reviewed sdk-js journey pin
         run: |
           set -euo pipefail
-          TRUSTED_SHA="7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6"
+          TRUSTED_SHA="001451a5aff1db1e724b572bdd06978a489e9a25"
           SHA="$(python - <<'PY'
           import yaml
           print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-sdk-js"]["sha"])
@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-js
-          ref: 7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6
+          ref: 001451a5aff1db1e724b572bdd06978a489e9a25
           path: _sdk-js
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -169,7 +169,7 @@ jobs:
           import yaml
           components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
           expected = {
-              "honua-sdk-js": ("7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6", "0.1.7-beta.0"),
+              "honua-sdk-js": ("001451a5aff1db1e724b572bdd06978a489e9a25", "0.1.7-beta.0"),
               "honua-sdk-python": ("953f2b3ba2cbb2d947b13c8ac5848cebe1860a76", "0.1.10"),
               "honua-sdk-dotnet": ("a5fb6f54a34524ea19e9e635e4c6aa258aec11c5", "1.6.0"),
           }
