@@ -155,7 +155,7 @@ def main() -> None:
             operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
             version="1.6.0", contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
             auth_policy="api-key-protected-v1",
-            fixture="sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
+            fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
             facets=facets, required_tier=required_tier,
         )
 
