@@ -32,6 +32,9 @@ EXTERNAL_EVIDENCE_ENV = (
     ("local-docker-real-model-ai-arc", "E2E_AI_LOCAL_MODEL_EVIDENCE"),
     ("aws-ecs-real-model-ai-arc", "E2E_AI_AWS_MODEL_EVIDENCE"),
 )
+TARGET_SDK_RECEIPT_ENV = (
+    ("aws-ecs", "E2E_AI_AWS_SDK_RECEIPT"),
+)
 
 
 def truthy(name: str) -> bool:
@@ -61,6 +64,9 @@ def checker(*, mode: str, include_receipt: bool, require_real: bool) -> int:
         for receipt_id, env_name in EXTERNAL_EVIDENCE_ENV:
             if os.environ.get(env_name):
                 command.extend(("--external-evidence", f"{receipt_id}={os.environ[env_name]}"))
+        for target, env_name in TARGET_SDK_RECEIPT_ENV:
+            if os.environ.get(env_name):
+                command.extend(("--target-sdk-receipt", f"{target}={os.environ[env_name]}"))
     if require_real:
         command.append("--require-real")
     return subprocess.run(command, cwd=REPO_ROOT, check=False).returncode
@@ -110,6 +116,7 @@ def main() -> int:
             "E2E_AI_DB_PASSWORD": os.environ.get("E2E_AI_DB_PASSWORD"),
             **{env_name: os.environ.get(env_name) for _, env_name in EXTERNAL_RECEIPT_ENV},
             **{env_name: os.environ.get(env_name) for _, env_name in EXTERNAL_EVIDENCE_ENV},
+            **{env_name: os.environ.get(env_name) for _, env_name in TARGET_SDK_RECEIPT_ENV},
         }
         missing = [name for name, value in required.items() if not value]
         if missing:

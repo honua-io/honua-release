@@ -95,7 +95,10 @@ content-addressed `E2E_AI_LOCAL_MODEL_EVIDENCE`, `E2E_AI_AWS_RECEIPT` for the EC
 Terraform/readiness/handoff run and `E2E_AI_AWS_ARC_RECEIPT` for the separate
 full journey executed against that still-live ECS endpoint, and the dedicated
 `E2E_AI_AWS_MODEL_RECEIPT`/`E2E_AI_AWS_MODEL_EVIDENCE` pair. None is inferred
-from a successful apply.
+from a successful apply. `E2E_AI_AWS_SDK_RECEIPT` must point to the live
+`sdk-journey.json` produced during that same ECS lifetime; every AWS model call
+is hash-bound to its exact SDK action receipt, just as the local model receipt
+is bound to the local SDK receipt.
 
 In strict `aws-ecs` cloud cells, `run_cloud.py` owns one lifetime: it applies
 one saved Terraform plan, waits for readiness, invokes the manifest-pinned
@@ -109,7 +112,11 @@ manifest-pinned SDK schema, writes byte-identical aggregate bytes to the Studio
 and SDK receipt paths, and emits Console-owned browser/runtime evidence to
 `HONUA_AI_ARC_CONSOLE_EVIDENCE`. Console receives only
 `HONUA_AI_ARC_CONSOLE_TOKEN`; the model/admin credential is never present in its
-process environment.
+process environment. Studio prepare receives only the purpose-specific secret
+referenced by `HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF`; this reference must
+not equal Terraform's bootstrap admin-secret reference. DevOps subprocesses
+retain only the AWS/OIDC identity needed to resolve their own references and
+explicitly scrub Studio, Console, broad Admin/API, and provider credentials.
 
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
@@ -157,16 +164,11 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
 `teardown()` + a backstop reaper (sweeping every example root) always run.
 
-The parity workflow does not yet produce `aws-ecs-ai-delivery-arc`; its current
-extended MCP/Studio/GP coverage is explicitly blocked. `honua-devops#149`
-produces a secretless `honua.mcp-proxy.handoff/v1` file after its Terraform
-apply, but that handoff is client configuration rather than a candidate-bound
-release receipt and the SDK journey's install stage is currently Docker-only.
-Replaying Terraform in this repository would duplicate provisioning and is not
-an acceptable workaround. The remaining producer must reuse the devops handoff,
-run stages 2-7 against its ECS MCP URL before devops teardown, and bind that live
-receipt to the provision receipt and exact manifest. Until then, a strict
-2026.1 train must remain red.
+The ECS cell reuses the one DevOps provision handoff, runs the SDK, Studio, and
+Console producers before teardown, and uploads their source artifacts together.
+The release checker still remains red until those artifacts are explicitly
+provided and candidate-bound; it never infers a journey pass from Terraform or
+readiness alone.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

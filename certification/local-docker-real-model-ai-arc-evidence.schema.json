@@ -48,8 +48,25 @@
       "additionalProperties": false
     },
     "joins": {
-      "type": "object", "minProperties": 45,
-      "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+      "type": "object",
+      "required": [
+        "candidateId", "releaseId", "serviceName", "connectionId",
+        "parcelsLayerId", "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId",
+        "esriMcpArtifactId", "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+        "mapItemId", "mapVersionId", "mapContentHash", "mapReopenedDraftId",
+        "mapPublicationVersionId", "mapPublicationContentHash", "mapProposalId", "mapPublicationId",
+        "mapPublicationStatus", "mapPublicUrl", "mapAuditCorrelationId", "appItemId",
+        "appVersionId", "appContentHash", "appReopenedDraftId", "appPublicationVersionId",
+        "appPublicationContentHash", "appProposalId", "appPublicationId", "appPublicationStatus",
+        "appPublicUrl", "appAuditCorrelationId", "dashboardItemId", "dashboardVersionId",
+        "dashboardContentHash", "dashboardReopenedDraftId", "dashboardPublicationVersionId", "dashboardPublicationContentHash",
+        "dashboardProposalId", "dashboardPublicationId", "dashboardPublicationStatus", "dashboardPublicUrl",
+        "dashboardAuditCorrelationId"
+      ],
+      "patternProperties": {
+        "^(?:candidateId|releaseId|serviceName|connectionId|parcelsLayerId|zoningLayerId|esriMcpJobId|esriMcpResultPackageId|esriMcpArtifactId|gpServerJobId|directAnalysisJobId|bufferArtifactId|mapItemId|mapVersionId|mapContentHash|mapReopenedDraftId|mapPublicationVersionId|mapPublicationContentHash|mapProposalId|mapPublicationId|mapPublicationStatus|mapPublicUrl|mapAuditCorrelationId|appItemId|appVersionId|appContentHash|appReopenedDraftId|appPublicationVersionId|appPublicationContentHash|appProposalId|appPublicationId|appPublicationStatus|appPublicUrl|appAuditCorrelationId|dashboardItemId|dashboardVersionId|dashboardContentHash|dashboardReopenedDraftId|dashboardPublicationVersionId|dashboardPublicationContentHash|dashboardProposalId|dashboardPublicationId|dashboardPublicationStatus|dashboardPublicUrl|dashboardAuditCorrelationId)$": { "type": ["string", "number", "integer", "boolean"] }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

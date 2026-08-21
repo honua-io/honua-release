@@ -78,8 +78,19 @@ _AI_ARC_REQUIRED_ENV = (
     "HONUA_AI_PROVIDER",
     "HONUA_AI_MODEL",
     "HONUA_AI_ARC_OUT",
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF",
     "HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF",
     "HONUA_RUN_URL",
+)
+
+_DEVOPS_FORBIDDEN_ENV = (
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL",
+    "HONUA_AI_ARC_CONSOLE_TOKEN",
+    "HONUA_ADMIN_KEY",
+    "HONUA_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
 )
 
 _AI_ARC_CHILD_CREDENTIAL_ENV = (
@@ -160,6 +171,14 @@ def _run_secretless(
     if result.returncode not in expected_codes:
         expected = ", ".join(str(code) for code in expected_codes)
         raise ProvisionError(f"{label} exited {result.returncode}; expected {expected}")
+
+
+def _devops_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """Retain AWS/OIDC runtime access while excluding unrelated application credentials."""
+    environment = dict(os.environ if source is None else source)
+    for name in _DEVOPS_FORBIDDEN_ENV:
+        environment.pop(name, None)
+    return environment
 
 
 def _resolve_aws_secret(reference: str, label: str = "scoped admin secret") -> str:
@@ -326,6 +345,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         secret_refs = deploy_contract["secret_refs"]
         admin_ref = secret_refs["admin_password"]
         db_ref = secret_refs["db_connection"]
+        prepare_credential_ref = os.environ["HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF"]
     except (KeyError, TypeError, ProvisionError) as error:
         raise ProvisionError(
             "AWS ECS AI delivery arc Terraform outputs omit DB/admin secret-reference handoff"
@@ -333,8 +353,12 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
     if not isinstance(db_host, str) or not db_host:
         raise ProvisionError("AWS ECS AI delivery arc Terraform handoff values are empty")
     if not all(isinstance(reference, str) and _AWS_SECRET_ARN.fullmatch(reference)
-               for reference in (admin_ref, db_ref)):
+               for reference in (admin_ref, db_ref, prepare_credential_ref)):
         raise ProvisionError("AWS ECS AI delivery arc handoff secret references are not AWS ARNs")
+    if prepare_credential_ref == admin_ref:
+        raise ProvisionError(
+            "AWS ECS AI delivery arc prepare credential must not reuse the bootstrap admin secret"
+        )
 
     server = components.get("honua-server") or {}
     expected_image = f"{server.get('image')}@{server.get('digest')}"
@@ -392,7 +416,11 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         "--db-connection-secret-ref", db_ref, "--checkpoint", str(paths["checkpoint"]),
         "--sdk-receipt", str(paths["sdkReceipt"]), "--source-sha", components["honua-devops"]["sha"],
     ]
-    _run_secretless([sys.executable, str(producer), "prepare", *common], env=dict(os.environ), label="AWS ECS AI arc prepare")
+    _run_secretless(
+        [sys.executable, str(producer), "prepare", *common],
+        env=_devops_environment(),
+        label="AWS ECS AI arc prepare",
+    )
 
     producer_env = {
         **os.environ,
@@ -419,12 +447,12 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         studio_root=studio_root,
         console_root=console_root,
         producer_env=producer_env,
-        prepare_credential_ref=admin_ref,
+        prepare_credential_ref=prepare_credential_ref,
         console_token_ref=os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"],
     )
     _run_secretless(
         _devops_resume_command(producer, common, paths),
-        env=dict(os.environ),
+        env=_devops_environment(),
         label="AWS ECS AI arc resume",
     )
     return {
@@ -475,7 +503,7 @@ def _finalize_aws_ecs_ai_arc(target, context: dict) -> None:
             "--provision-receipt", str(paths["provisionReceipt"]),
             "--arc-receipt", str(paths["arcReceipt"]),
         ],
-        env=dict(os.environ),
+        env=_devops_environment(),
         label="AWS ECS AI arc finalization",
     )
 

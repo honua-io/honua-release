@@ -398,7 +398,7 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
     inherited_value = os.urandom(24).hex()
 
     def resolve(reference, label="scoped admin secret"):
-        return {"admin-ref": admin_value, "console-ref": console_value}[reference]
+        return {"prepare-ref": admin_value, "console-ref": console_value}[reference]
 
     def run(command, *, env, label, cwd=None, expected_codes=(0,)):
         calls.append((command, dict(env), label, cwd, expected_codes))
@@ -416,7 +416,7 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
             "HONUA_AI_ARC_CONSOLE_TOKEN": inherited_value,
             "HONUA_AI_ARC_CHECKPOINT": "checkpoint.json",
         },
-        prepare_credential_ref="admin-ref",
+        prepare_credential_ref="prepare-ref",
         console_token_ref="console-ref",
     )
 
@@ -443,6 +443,29 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
     assert "HONUA_API_KEY" not in console_env
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[0][1]
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[2][1]
+
+
+def test_devops_environment_retains_aws_identity_but_scrubs_unrelated_credentials():
+    environment = run_cloud._devops_environment(
+        {
+            "AWS_ACCESS_KEY_ID": "ephemeral-oidc-access",
+            "AWS_SESSION_TOKEN": "ephemeral-oidc-session",
+            "HONUA_RUN_URL": "https://example.test/run",
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": "prepare-secret",
+            "HONUA_AI_ARC_CONSOLE_TOKEN": "console-secret",
+            "HONUA_ADMIN_KEY": "admin-secret",
+            "HONUA_API_KEY": "api-secret",
+            "OPENAI_API_KEY": "model-secret",
+            "ANTHROPIC_API_KEY": "model-secret",
+            "AZURE_OPENAI_API_KEY": "model-secret",
+        }
+    )
+
+    assert environment == {
+        "AWS_ACCESS_KEY_ID": "ephemeral-oidc-access",
+        "AWS_SESSION_TOKEN": "ephemeral-oidc-session",
+        "HONUA_RUN_URL": "https://example.test/run",
+    }
 
 
 def test_devops_resume_consumes_aggregate_and_sdk_projection_as_distinct_inputs():

@@ -419,7 +419,7 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
     ) -> dict:
         return {
             "actionId": action_id,
-            "actionReceiptSha256": hashlib.sha256(action_id.encode("utf-8")).hexdigest(),
+            "actionReceiptSha256": gate._canonical_sha256({"id": action_id}),
             "role": role,
             **({"family": family} if family else {}),
             "kind": kind,
@@ -526,6 +526,19 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
     return receipt, evidence
 
 
+def model_journey_receipt() -> dict:
+    return {
+        "stages": [
+            {
+                "actions": [
+                    {"id": action_id}
+                    for action_id, *_ in gate.MODEL_ACTION_SPECS
+                ]
+            }
+        ]
+    }
+
+
 def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
     receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
     receipt.update(
@@ -584,6 +597,7 @@ def validate_aws_model_documents(
         contract,
         {"aws-ecs-real-model-ai-arc": (receipt_path, receipt)},
         {"aws-ecs-real-model-ai-arc": (evidence_path, evidence)},
+        {"aws-ecs": model_journey_receipt()},
     )
     return findings
 
@@ -661,6 +675,10 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         CONTRACT,
         supplied,
         evidence_documents=supplied_evidence,
+        target_journey_receipts={
+            "aws-ecs": model_journey_receipt(),
+            "local-docker": model_journey_receipt(),
+        },
     )
 
     assert findings.status == "pass", (findings.errors, findings.blockers)
@@ -766,7 +784,8 @@ def test_real_model_schemas_admit_every_canonical_action_transport():
     canonical_kinds = {spec[4] for spec in gate.MODEL_ACTION_SPECS}
     manifest_value = manifest()
     receipt, _ = aws_real_model_documents(manifest_value, "manifest-sha256:" + "a" * 64)
-    required_join_count = len(receipt["joins"])
+    required_join_names = set(receipt["joins"])
+    assert required_join_names == set(gate.MODEL_JOIN_NAMES)
     for schema_name in (
         "aws-ecs-real-model-ai-arc.schema.json",
         "aws-ecs-real-model-ai-arc-evidence.schema.json",
@@ -774,13 +793,53 @@ def test_real_model_schemas_admit_every_canonical_action_transport():
     ):
         schema = json.loads((ROOT / "certification" / schema_name).read_text(encoding="utf-8"))
         assert set(schema["$defs"]["call"]["properties"]["kind"]["enum"]) == canonical_kinds
-        assert schema["properties"]["joins"]["minProperties"] == required_join_count
+        joins_schema = schema["properties"]["joins"]
+        assert set(joins_schema["required"]) == required_join_names
+        assert joins_schema["additionalProperties"] is False
+        assert len(joins_schema["patternProperties"]) == 1
     local_evidence_schema = json.loads(
         (ROOT / "certification" / "local-docker-real-model-ai-arc-evidence.schema.json").read_text(
             encoding="utf-8"
         )
     )
-    assert local_evidence_schema["properties"]["joins"]["minProperties"] == required_join_count
+    joins_schema = local_evidence_schema["properties"]["joins"]
+    assert set(joins_schema["required"]) == required_join_names
+    assert joins_schema["additionalProperties"] is False
+    assert len(joins_schema["patternProperties"]) == 1
+
+
+def test_real_model_receipt_rejects_extra_secret_shaped_join(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    candidate_id = gate.candidate_identity(manifest_value, manifest_path)["candidateId"]
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    receipt["joins"]["accessToken"] = "forwardable-credential"
+    evidence["joins"] = receipt["joins"]
+
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+
+    assert findings.status == "fail"
+    assert any("non-canonical deterministic joins" in error for error in findings.errors)
+    assert any("forbidden secret" in error for error in findings.errors)
+
+
+def test_aws_model_receipt_requires_sdk_action_digest_and_gpserver_join(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    candidate_id = gate.candidate_identity(manifest_value, manifest_path)["candidateId"]
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    gp_call = receipt["lanes"]["nativeAnalysis"]["calls"][0]
+    gp_call["actionReceiptSha256"] = "f" * 64
+    gp_call["result"]["identities"].pop("gpServerJobId")
+    evidence["lanes"] = receipt["lanes"]
+
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+
+    assert findings.status == "fail"
+    assert any("buffer-esri-gpserver" in error and "SDK journey receipt" in error for error in findings.errors)
+    assert any("buffer-esri-gpserver" in error and "gpServerJobId" in error for error in findings.errors)
 
 
 def test_real_model_action_roster_is_the_release_contract_inventory():

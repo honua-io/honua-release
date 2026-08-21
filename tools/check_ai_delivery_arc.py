@@ -90,6 +90,20 @@ MODEL_ACTION_SPECS = (
     ("propose-dashboard-publication", "studioPublication", "propose-publication", "dashboard", "mcp", "honua_studio_propose_publication"),
     ("save-dashboard-publication-version", "studioPublication", "save-version", "dashboard", "mcp", "honua_studio_save_version"),
 )
+MODEL_JOIN_NAMES = (
+    "candidateId", "releaseId", "serviceName", "connectionId", "parcelsLayerId",
+    "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
+    "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+    *(
+        f"{family}{suffix}"
+        for family in ("map", "app", "dashboard")
+        for suffix in (
+            "ItemId", "VersionId", "ContentHash", "ReopenedDraftId",
+            "PublicationVersionId", "PublicationContentHash", "ProposalId",
+            "PublicationId", "PublicationStatus", "PublicUrl", "AuditCorrelationId",
+        )
+    ),
+)
 
 
 @dataclass
@@ -123,11 +137,15 @@ def _canonical_sha256(value: Any) -> str:
 
 def _contains_forbidden_evidence(value: Any, tokens: tuple[str, ...]) -> bool:
     lowered = tuple(token.lower() for token in tokens)
+    safe_control_fields = {"no-secret-serialization"}
 
     def visit(item: Any, field_name: str | None = None) -> bool:
         if isinstance(item, dict):
             return any(
-                any(token in str(name).lower() for token in lowered)
+                (
+                    str(name).lower() not in safe_control_fields
+                    and any(token in str(name).lower() for token in lowered)
+                )
                 or visit(child, str(name).lower())
                 for name, child in item.items()
             )
@@ -473,13 +491,14 @@ def validate_external_receipts(
     contract: dict,
     receipts: dict[str, tuple[Path, dict]],
     evidence_documents: dict[str, tuple[Path, dict]] | None = None,
-    journey_receipt: dict | None = None,
+    target_journey_receipts: dict[str, dict] | None = None,
 ) -> tuple[Findings, list[dict]]:
     findings = Findings()
     records: list[dict] = []
     identity = candidate_identity(manifest, manifest_path)
     components = manifest.get("components") or {}
     evidence_documents = evidence_documents or {}
+    target_journey_receipts = target_journey_receipts or {}
     for expected in contract.get("externalReceipts") or []:
         receipt_id = expected.get("id")
         supplied = receipts.get(receipt_id)
@@ -514,6 +533,12 @@ def validate_external_receipts(
                 )
                 continue
             evidence_path, evidence_document = model_evidence
+            target_journey_receipt = target_journey_receipts.get(model_contract["target"])
+            if target_journey_receipt is None:
+                findings.blockers.append(
+                    f"live journey is missing the {model_contract['target']} SDK action receipt"
+                )
+                continue
             _validate_real_model_receipt(
                 findings,
                 manifest,
@@ -524,7 +549,7 @@ def validate_external_receipts(
                 receipt,
                 evidence_path,
                 evidence_document,
-                journey_receipt if model_contract["target"] == "local-docker" else None,
+                target_journey_receipt,
             )
             records.append(
                 {
@@ -766,10 +791,19 @@ def _validate_real_model_receipt(
                     findings.errors.append(f"{target} real-model call {name} fabricates or disagrees on identity {key}")
                 else:
                     observed_identity_keys.setdefault(lane_name, set()).add(key)
+            required_call_identities = {
+                "buffer-esri-gpserver": {"gpServerJobId"},
+            }.get(action_id, set())
+            missing_call_identities = required_call_identities - set(identities)
+            if missing_call_identities:
+                findings.errors.append(
+                    f"{target} real-model action {action_id} omits result joins "
+                    f"{sorted(missing_call_identities)}"
+                )
     required_lane_joins = {
         "admin": {"connectionId", "parcelsLayerId", "zoningLayerId", "serviceName"},
         "esriGp": {"esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId"},
-        "nativeAnalysis": {"directAnalysisJobId", "bufferArtifactId"},
+        "nativeAnalysis": {"gpServerJobId", "directAnalysisJobId", "bufferArtifactId"},
         "studioPublication": {
             *{
                 f"{family}{suffix}"
@@ -787,22 +821,13 @@ def _validate_real_model_receipt(
             findings.errors.append(
                 f"{target} real-model lane {lane_name} result evidence omits joins {sorted(missing)}"
             )
-    required_joins = {
-        "candidateId", "releaseId", "serviceName", "connectionId", "parcelsLayerId",
-        "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
-        "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
-        *{
-            f"{family}{suffix}"
-            for family in ("map", "app", "dashboard")
-            for suffix in (
-                "ItemId", "VersionId", "ContentHash", "ReopenedDraftId",
-                "PublicationVersionId", "PublicationContentHash", "ProposalId",
-                "PublicationId", "PublicationStatus", "PublicUrl", "AuditCorrelationId",
-            )
-        },
-    }
-    if not isinstance(joins, dict) or required_joins - set(joins):
-        findings.errors.append(f"{target} real-model receipt omits deterministic joins {sorted(required_joins - set(joins or {}))}")
+    required_joins = set(MODEL_JOIN_NAMES)
+    if not isinstance(joins, dict) or set(joins) != required_joins:
+        findings.errors.append(
+            f"{target} real-model receipt has non-canonical deterministic joins "
+            f"(missing={sorted(required_joins - set(joins or {}))}, "
+            f"extra={sorted(set(joins or {}) - required_joins)})"
+        )
     elif joins.get("candidateId") != receipt.get("candidateId") or joins.get("releaseId") != receipt.get("releaseId"):
         findings.errors.append(f"{target} real-model joins do not bind the exact candidate/release")
     for family in ("map", "app", "dashboard"):
@@ -845,7 +870,10 @@ def _validate_real_model_receipt(
         findings.errors.append(f"{target} real-model evidence document is not an exact receipt binding")
     if _contains_forbidden_evidence(
         {"receipt": receipt, "evidence": evidence_document},
-        ("password", "authorization", "api_key", "apikey", "secretstring", "fixture"),
+        (
+            "password", "authorization", "credential", "api_key", "apikey",
+            "accesskey", "secret", "token", "bearer", "secretstring", "fixture",
+        ),
     ):
         findings.errors.append(f"{target} real-model evidence contains forbidden secret/fixture material")
 
@@ -1066,6 +1094,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--sdk-receipt", type=Path)
     parser.add_argument(
+        "--target-sdk-receipt",
+        action="append",
+        default=[],
+        metavar="TARGET=PATH",
+        help="live target-specific SDK journey receipt; repeat for local-docker and aws-ecs",
+    )
+    parser.add_argument(
         "--external-receipt",
         action="append",
         default=[],
@@ -1116,6 +1151,27 @@ def main(argv: list[str] | None = None) -> int:
                 expected_mode=args.mode,
             )
             if args.mode == "live":
+                target_journey_receipts: dict[str, dict] = {}
+                if receipt is not None:
+                    target_journey_receipts["local-docker"] = receipt
+                for entry in args.target_sdk_receipt:
+                    if "=" not in entry:
+                        raise ValueError("--target-sdk-receipt requires TARGET=PATH")
+                    target, raw_path = entry.split("=", 1)
+                    if target not in {"local-docker", "aws-ecs"}:
+                        raise ValueError(f"unsupported target SDK receipt: {target}")
+                    target_receipt = _load_json(Path(raw_path))
+                    target_findings, _ = validate_receipt(
+                        manifest,
+                        args.manifest,
+                        contract,
+                        plan,
+                        target_receipt,
+                        expected_mode="live",
+                    )
+                    receipt_findings.errors.extend(target_findings.errors)
+                    receipt_findings.blockers.extend(target_findings.blockers)
+                    target_journey_receipts[target] = target_receipt
                 supplied: dict[str, tuple[Path, dict]] = {}
                 for entry in args.external_receipt:
                     if "=" not in entry:
@@ -1136,7 +1192,7 @@ def main(argv: list[str] | None = None) -> int:
                     contract,
                     supplied,
                     supplied_evidence,
-                    receipt,
+                    target_journey_receipts,
                 )
         report = build_report(
             manifest,

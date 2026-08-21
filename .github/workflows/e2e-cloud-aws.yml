@@ -65,10 +65,6 @@ on:
     secrets:
       RELEASE_GH_TOKEN:
         required: false
-      OPENAI_API_KEY:
-        required: false
-      ANTHROPIC_API_KEY:
-        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped — aggregate of the parity cells + the iac-live wrapper"
@@ -414,11 +410,10 @@ jobs:
           HONUA_AI_ARC_FIXTURE_BASE_URL: ${{ vars.HONUA_AI_ARC_FIXTURE_BASE_URL }}
           HONUA_AI_ARC_CONSOLE_ORIGIN: ${{ vars.HONUA_AI_ARC_CONSOLE_ORIGIN }}
           HONUA_AI_ARC_OUT: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}
+          HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF: ${{ vars.HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF }}
           HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF: ${{ vars.HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF }}
           HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
           HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
