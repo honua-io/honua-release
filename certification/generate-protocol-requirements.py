@@ -253,12 +253,36 @@ def main() -> None:
                 facets=assignment["scenario_facets"],
             )
 
+    protocol_harness = load(SOURCES / "server" / "protocol-harness-assignments.v1.json")
+    harness_source_sha = revisions["server-certification"]["commit"]
+    harness_contract = (
+        f"server-protocol-harness@{protocol_harness['revision']}+{harness_source_sha}"
+    )
+    harness_capabilities = {
+        assignment["capability_key"] for assignment in protocol_harness["assignments"]
+    }
+    for assignment in protocol_harness["assignments"]:
+        capability = server_by_key.get(assignment["capability_key"])
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        add(
+            capability=assignment["capability_key"], surface=assignment["surface"],
+            operation=assignment["operation"], client=protocol_harness["canonical_client"],
+            lane=protocol_harness["client_lane"], version=f"source@{harness_source_sha}",
+            contract=harness_contract,
+            auth_policy=protocol_harness["auth_policy_revision"],
+            target=protocol_harness["deployment_target"],
+            fixture=f"server-test-fixtures@{harness_source_sha}",
+            facets=assignment["scenario_facets"],
+            required_tier=protocol_harness["required_tier"],
+        )
+
     sdk_protocols = load(SOURCES / "official-sdk-protocol-assignments.v1.json")
     for capability_key in sdk_protocols["capabilities"]:
         capability = server_by_key.get(capability_key)
         if not capability or not capability.get("maturity", {}).get("implemented"):
             continue
-        if not any(
+        if capability_key not in harness_capabilities and not any(
             sdk_capability_operations.get((client["source"], capability_key))
             for client in sdk_protocols["clients"]
         ):
@@ -294,7 +318,7 @@ def main() -> None:
             continue
         contract = f"canonical-client-applicability@{applicability['revision']}"
         if classification == "official-sdk-required":
-            if not any(
+            if capability_key not in harness_capabilities and not any(
                 sdk_capability_operations.get((client["source"], capability_key))
                 for client in sdk_protocols["clients"]
             ):
@@ -393,7 +417,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.9",
+        "revision": "2026-08-21-complete.10",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
@@ -402,7 +426,8 @@ def main() -> None:
             "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol "
             "and every Honua-specific application capability, executable operation contracts for all three Honua "
             "SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, "
-            "and pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities. "
+            "pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, "
+            "and exact operation-to-test contracts for the server protocol integration harness. "
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
