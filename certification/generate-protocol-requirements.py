@@ -58,7 +58,6 @@ def main() -> None:
         })
 
     sdk_sources = [
-        ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
         ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", "0.1.0-alpha.3"),
     ]
@@ -219,7 +218,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.3",
+        "revision": "2026-08-21-complete.4",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "

@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-08-21-complete.3",
+  "revision": "2026-08-21-complete.4",
   "complete": true,
   "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, official MCP SDK/Inspector operations, and executable operation contracts for all three Honua SDKs. The .NET contract contributes 272 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
   "source_revisions": {
@@ -59,132 +59,6 @@
       "contract_revision": "server-capability-matrix@77658f534c8d75ec3c3cdbfa2f65ac12870a87f7",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminConfigClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminConnectionsClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminMetadataClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminRolesClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminServicesClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "admin.control-plane",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminUsersClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "admin.control-plane",
@@ -418,132 +292,6 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
-      "capability_key": "ai.spec-apply",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Spec.IHonuaSpecClient.ApplyAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "ai.spec-apply",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Spec.IHonuaSpecClient.CancelAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "ai.spec-artifacts",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Spec.IHonuaSpecClient.GetArtifactAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "alerts.dwell",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminAlertsClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "analytics.reporting",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Studio.IHonuaStudioReportsClient.GetReportAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "analytics.reporting",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Studio.IHonuaStudioReportsClient.RenderReportAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
       "capability_key": "collaboration.map-sessions",
       "surface": "sdk-js",
       "operation": "@honua/sdk-js/collaboration",
@@ -563,27 +311,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "discovery.capability-manifest",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Studio.Capabilities.IHonuaCapabilityManifestClient.GetManifestAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "discovery.capability-manifest",
@@ -755,27 +482,6 @@
     },
     {
       "capability_key": "editing.featureserver-edits",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.FeatureServer.IHonuaFeatureServerEditClient.ApplyEditsAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "editing.featureserver-edits",
       "surface": "sdk-js",
       "operation": "@honua/sdk-js/esri-compat",
       "maturity": "supported",
@@ -920,27 +626,6 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
-    },
-    {
-      "capability_key": "enrichment.datasets",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Abstractions.Data.IHonuaEnrichmentDataClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "esri.feature-server",
@@ -23647,174 +23332,6 @@
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
-      "capability_key": "fieldops.forms",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Field.Forms.CalculatedFieldEvaluator",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.forms",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Field.Forms.FieldFormSchemaMapper",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.forms",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Field.Forms.FormValidator",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.forms",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Field.Records.DuplicateDetector",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.forms",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Field.Records.RecordWorkflow",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.offline-sync",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Offline.OfflineDownloadPlanner",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.offline-sync",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Offline.OfflineSyncEngine",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "fieldops.offline-sync",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Offline.ReplicaSyncClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
       "capability_key": "fieldops.offline-sync",
       "surface": "sdk-js",
       "operation": "HonuaOfflineRegion (src/offline/region.ts)",
@@ -24429,69 +23946,6 @@
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
     },
     {
-      "capability_key": "geocoding.batch",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.Geocoding.IHonuaBatchGeocodingClient.BatchGeocodeDetailedAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "geocoding.batch",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.BatchGeocodeAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "geocoding.forward",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ForwardGeocodeAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
       "capability_key": "geocoding.forward",
       "surface": "sdk-js",
       "operation": "HonuaGeocoder.forward",
@@ -24574,27 +24028,6 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
-    },
-    {
-      "capability_key": "geocoding.reverse",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ReverseGeocodeAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "geocoding.reverse",
@@ -30028,48 +29461,6 @@
     },
     {
       "capability_key": "identity.oidc",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminIdentityClient.CreateOidcProviderAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.oidc",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminIdentityClient.TestOidcProviderAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.oidc",
       "surface": "sdk-js",
       "operation": "HonuaOAuth2Provider (src/core/auth/oauth2-provider.ts)",
       "maturity": "supported",
@@ -30088,90 +29479,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "identity.oidc-multi-provider",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminIdentityClient.GetIdentityProvidersAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.oidc-multi-provider",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminIdentityClient.ListOidcProvidersAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.portal-sharing",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.CreatePublicLinkAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.portal-sharing",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.UpdateAccessAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "identity.portal-sharing",
@@ -30217,48 +29524,6 @@
     },
     {
       "capability_key": "identity.portal-token",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.CreateEmbedTokenAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.portal-token",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.RevokeEmbedTokenAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "identity.portal-token",
       "surface": "sdk-js",
       "operation": "PortalCompat.generateToken (src/esri-compat/portal.ts)",
       "maturity": "supported",
@@ -30277,27 +29542,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "import.geoserver",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.HonuaAdminMigrationClientExtensions.ScanMigrationSourceAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "mcp.resource",
@@ -32170,27 +31414,6 @@
     },
     {
       "capability_key": "ops.observability",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminObservabilityClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "ops.observability",
       "surface": "sdk-js",
       "operation": "replayDiagnosticBundle (src/diagnostics/replay.ts)",
       "maturity": "supported",
@@ -32209,27 +31432,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "plugin.sdk",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Abstractions.Plugins.HonuaPluginManifest",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "plugin.sdk",
@@ -32335,48 +31537,6 @@
       "contract_revision": "sdk-js-certification@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "process.geoprocessing",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Grpc.IHonuaProcessGrpcClient.SubmitJobAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "process.geoprocessing",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Processes.IHonuaProcessesClient.SubmitJobAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "process.geoprocessing",
@@ -32507,27 +31667,6 @@
       "contract_revision": "sdk-js-certification@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "process.ogc-api-processes",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Processes.IHonuaProcessesClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "process.ogc-api-processes",
@@ -32720,27 +31859,6 @@
     },
     {
       "capability_key": "routing.solve",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "routing.solve",
       "surface": "sdk-js",
       "operation": "assertRoutingCapability",
       "maturity": "supported",
@@ -32843,27 +31961,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "scene.catalog",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Scenes.HonuaSceneClient.ListScenesAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "scene.catalog",
@@ -38357,27 +37454,6 @@
     },
     {
       "capability_key": "serve.3d-tiles-scene",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Scenes.HonuaSceneClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.3d-tiles-scene",
       "surface": "sdk-python",
       "operation": "honua_sdk.protocols.AsyncSceneClient",
       "maturity": "supported",
@@ -38459,27 +37535,6 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
-    },
-    {
-      "capability_key": "serve.elevation",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Abstractions.Data.IHonuaElevationDataClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "serve.elevation",
@@ -38911,27 +37966,6 @@
     },
     {
       "capability_key": "serve.geoservices-featureserver",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.FeatureServer.HonuaFeatureServerClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.geoservices-featureserver",
       "surface": "sdk-python",
       "operation": "honua_sdk.AsyncHonuaClient.feature_server",
       "maturity": "supported",
@@ -39036,27 +38070,6 @@
       "fixture_revision": "0.1.0-alpha.3"
     },
     {
-      "capability_key": "serve.geoservices-geocodeserver",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
       "capability_key": "serve.geoservices-geometry-service",
       "surface": "geometryserver",
       "operation": "buffer",
@@ -39097,27 +38110,6 @@
       "contract_revision": "sdk-js-certification@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "serve.geoservices-geometry-service",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.GeometryServer.HonuaGeometryServerClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "serve.geoservices-geometry-service",
@@ -39224,48 +38216,6 @@
       "contract_revision": "sdk-js-certification@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "serve.geoservices-imageserver",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.ImageServer.HonuaImageServerClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.geoservices-imageserver",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.GeoServices.ImageServer.HonuaImageServerRasterDataClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "serve.geoservices-imageserver",
@@ -41419,69 +40369,6 @@
     },
     {
       "capability_key": "serve.ogc-api-features",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.HonuaOgcFeaturesClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.ogc-api-features",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.IHonuaOgcFeaturesEditClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.ogc-api-features",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.IHonuaOgcFeaturesPatchClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.ogc-api-features",
       "surface": "sdk-js",
       "operation": "Source with locator.layout=ogc-api or auto",
       "maturity": "supported",
@@ -41868,27 +40755,6 @@
     },
     {
       "capability_key": "serve.ogc-api-records",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Catalogs.Records.HonuaOgcRecordsClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "serve.ogc-api-records",
       "surface": "sdk-js",
       "operation": "Source protocol ogc-records",
       "maturity": "supported",
@@ -42206,27 +41072,6 @@
       "contract_revision": "sdk-python-coverage@2c4a544d5502b7ca9080d05ebf04c8a99d70d6c9",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
-    },
-    {
-      "capability_key": "serve.stac",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Catalogs.Stac.HonuaStacClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "serve.stac",
@@ -42611,27 +41456,6 @@
       "contract_revision": "server-capability-matrix@77658f534c8d75ec3c3cdbfa2f65ac12870a87f7",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}"
-    },
-    {
-      "capability_key": "serve.wfs",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.Wfs.IHonuaWfsClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "serve.wfs",
@@ -43329,48 +42153,6 @@
     },
     {
       "capability_key": "streaming.feature-subscriptions",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Abstractions.Features.IHonuaFeatureStreamClient.SubscribeAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "streaming.feature-subscriptions",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.Admin.IHonuaAdminStreamingOperationsClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "streaming.feature-subscriptions",
       "surface": "sdk-js",
       "operation": "@honua/sdk-js/realtime",
       "maturity": "supported",
@@ -43389,48 +42171,6 @@
       "contract_revision": "sdk-js-coverage@a3ce26df59a18516233bafcbce97f97a2d767fa6",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "0.1.0-alpha.3"
-    },
-    {
-      "capability_key": "styling.defaults",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.Styles.IHonuaOgcStylesClient.ListStylesAsync",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
-    },
-    {
-      "capability_key": "styling.ogc-api-styles",
-      "surface": "sdk-dotnet",
-      "operation": "Honua.Sdk.OgcFeatures.Styles.IHonuaOgcStylesClient",
-      "maturity": "supported",
-      "canonical_client": "Honua SDK .NET",
-      "client_lane": "sdk-dotnet",
-      "client_version": "1.6.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "media-schema"
-      ],
-      "contract_revision": "sdk-dotnet-coverage@573c5416ffa982ebf97b331d34b1d9c8721931a1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"
     },
     {
       "capability_key": "styling.ogc-api-styles",
