@@ -1,6 +1,6 @@
 {
     "schema":  "honua.protocol-certification-requirements/v1",
-    "revision":  "2026-08-20-bootstrap.2",
+    "revision":  "2026-08-21-bootstrap.3",
     "complete":  false,
     "scope_notes":  "Expanded cloud-native denominator with exact canonical-client selections. Release certification remains intentionally impossible until every supported protocol operation, SDK operation, and live API binding is populated under honua-release#157.",
     "requirements":  [
@@ -23,7 +23,8 @@
                                                      "media-schema"
                                                  ],
                              "contract_revision":  "geoparquet-1.1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.geoparquet",
@@ -44,7 +45,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "geoparquet-1.1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.geoparquet",
@@ -65,7 +67,8 @@
                                                      "media-schema"
                                                  ],
                              "contract_revision":  "geoparquet-1.1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.flatgeobuf",
@@ -86,7 +89,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "flatgeobuf-current",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.flatgeobuf",
@@ -107,7 +111,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "flatgeobuf-current",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.flatgeobuf",
@@ -128,7 +133,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "flatgeobuf-current",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.flatgeobuf",
@@ -149,7 +155,8 @@
                                                      "media-schema"
                                                  ],
                              "contract_revision":  "flatgeobuf-current",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.pmtiles",
@@ -170,7 +177,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "pmtiles-3",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.pmtiles",
@@ -191,7 +199,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "pmtiles-3",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.pmtiles",
@@ -212,7 +221,8 @@
                                                      "media-schema"
                                                  ],
                              "contract_revision":  "pmtiles-3",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.cog",
@@ -234,7 +244,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "cog-1.0",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.cog",
@@ -255,7 +266,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "cog-1.0",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.cog",
@@ -276,7 +288,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "cog-1.0",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.hdf5-netcdf",
@@ -297,7 +310,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "hdf5-cloud-optimized-v1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.hdf5-netcdf",
@@ -317,7 +331,8 @@
                                                      "metadata"
                                                  ],
                              "contract_revision":  "hdf5-cloud-optimized-v1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.hdf5-netcdf",
@@ -337,7 +352,8 @@
                                                      "metadata"
                                                  ],
                              "contract_revision":  "hdf5-cloud-optimized-v1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.hdf5-netcdf",
@@ -357,7 +373,8 @@
                                                      "metadata"
                                                  ],
                              "contract_revision":  "hdf5-cloud-optimized-v1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.hdf5-netcdf",
@@ -378,7 +395,8 @@
                                                      "crs-axis"
                                                  ],
                              "contract_revision":  "hdf5-cloud-optimized-v1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.zarr",
@@ -398,7 +416,8 @@
                                                      "metadata"
                                                  ],
                              "contract_revision":  "zarr-v2",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.zarr",
@@ -420,7 +439,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "zarr-v2",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.zarr",
@@ -441,7 +461,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "zarr-v2",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.zarr",
@@ -462,7 +483,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "zarr-v2",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "protocol.stac",
@@ -483,7 +505,8 @@
                                                      "pagination"
                                                  ],
                              "contract_revision":  "stac-api-1.0",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.stac-zarr",
@@ -504,7 +527,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "roadmap",
-                             "auth_policy_revision":  "unselected"
+                             "auth_policy_revision":  "unselected",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.3d-tiles",
@@ -525,7 +549,8 @@
                                                      "recovery"
                                                  ],
                              "contract_revision":  "3d-tiles-1.1",
-                             "auth_policy_revision":  "anonymous-v1"
+                             "auth_policy_revision":  "anonymous-v1",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.kerchunk",
@@ -547,7 +572,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "roadmap",
-                             "auth_policy_revision":  "unselected"
+                             "auth_policy_revision":  "unselected",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          },
                          {
                              "capability_key":  "format.copc",
@@ -569,7 +595,8 @@
                                                      "range-efficiency"
                                                  ],
                              "contract_revision":  "copc-1.0",
-                             "auth_policy_revision":  "unselected"
+                             "auth_policy_revision":  "unselected",
+                             "fixture_revision":  "docker/cng/seed.sql@{source_sha}"
                          }
                      ]
 }

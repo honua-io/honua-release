@@ -19,7 +19,8 @@
         "required": [
           "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
           "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
-          "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision"
+          "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
+          "fixture_revision"
         ],
         "properties": {
           "capability_key": { "type": "string", "minLength": 1 },
@@ -36,7 +37,8 @@
           "addressability_reason": { "type": ["string", "null"] },
           "scenario_facets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
           "contract_revision": { "type": "string", "minLength": 1 },
-          "auth_policy_revision": { "type": "string", "minLength": 1 }
+          "auth_policy_revision": { "type": "string", "minLength": 1 },
+          "fixture_revision": { "type": "string", "minLength": 1 }
         }
       }
     }

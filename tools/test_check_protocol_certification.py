@@ -162,6 +162,16 @@ def test_scoped_cells_must_match_ledger_candidate_without_cli_pins():
     assert any("ledger candidate" in finding["why"] for finding in report["findings"])
 
 
+def test_required_cell_fixture_must_match_owned_revision():
+    ledger = _ledger(_cell(fixture_revision="stale-fixture"))
+    requirements = _requirements(_cell(fixture_revision="docker/cng/seed.sql@{source_sha}"))
+
+    report = cert.evaluate(ledger, "nightly", requirements=requirements, now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any("fixture_revision" in finding["why"] for finding in report["findings"])
+
+
 def test_future_candidate_and_evidence_timestamps_fail():
     ledger = _ledger(_cell(started_at="2099-01-01T00:00:00Z", completed_at="2099-01-01T00:01:00Z"))
     ledger["generated_at"] = "2099-01-01T00:02:00Z"
