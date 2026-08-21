@@ -38,7 +38,9 @@ REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
     "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
+    "fixture_revision",
 }
+REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -67,7 +69,7 @@ def _requirement_signature(value: dict) -> tuple[object, ...]:
     return tuple(
         tuple(value[field]) if field == "scenario_facets" and isinstance(value.get(field), list)
         else value.get(field)
-        for field in sorted(REQUIREMENT_FIELDS)
+        for field in sorted(REQUIREMENT_ID_FIELDS)
     )
 
 
@@ -176,7 +178,10 @@ def evaluate(
         fail("cells", "cells must be a non-empty array")
         return _report(tier, [], findings)
 
-    owned_signatures = {_requirement_signature(row) for row in owned_rows if isinstance(row, dict)}
+    owned_by_signature = {
+        _requirement_signature(row): row for row in owned_rows if isinstance(row, dict)
+    }
+    owned_signatures = set(owned_by_signature)
     ledger_signatures = {_requirement_signature(row) for row in cells if isinstance(row, dict)}
     if len(owned_signatures) != len(owned_rows):
         fail("requirements", "owned requirements contain invalid or duplicate normalized cells")
@@ -256,6 +261,23 @@ def evaluate(
             continue
         if raw["result"] != "pass":
             fail(prefix, f"required addressable {tier} cell result is {raw['result']!r}, expected 'pass'")
+
+        expected_requirement = owned_by_signature.get(_requirement_signature(raw))
+        expected_fixture_template = (
+            expected_requirement.get("fixture_revision")
+            if isinstance(expected_requirement, dict)
+            else None
+        )
+        if not isinstance(expected_fixture_template, str) or not expected_fixture_template.strip():
+            fail(prefix, "owned requirement must define a non-empty fixture_revision")
+        elif isinstance(raw["source_sha"], str):
+            expected_fixture = expected_fixture_template.replace("{source_sha}", raw["source_sha"])
+            if raw["fixture_revision"] != expected_fixture:
+                fail(
+                    prefix,
+                    f"fixture_revision {raw['fixture_revision']!r} does not match owned expectation "
+                    f"{expected_fixture!r}",
+                )
 
         completed = _timestamp(raw["completed_at"])
         started = _timestamp(raw["started_at"])
