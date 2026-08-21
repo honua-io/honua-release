@@ -215,12 +215,11 @@ components:
 
   honua-console:
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    sha: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"   # branch: trunk HEAD at re-pin time
-    # Public multi-architecture candidate built from this SHA by Console Container run 32369440068.
-    # That run smoke-tested the digest, attached provenance, verified anonymous GHCR pull access,
-    # and promoted the same digest to immutable and floating nightly tags.
-    image: "ghcr.io/honua-io/honua-console:candidate-2cd3a73a6b10-32369440068-1"
-    digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
+    # honua-console#338 is the exact focused approval/audit/recovery receipt producer used by the
+    # AI-arc gate. Its prior image was built from a different source SHA, so no stale image/digest is
+    # carried across this source advance; shipping remains blocked until this SHA has an artifact.
+    sha: "6c04acf6bd41f05447221ed7ef98c39bcac56f5f"   # branch: feat/console-product-mode, PR #338
+    status: "source-ready-awaiting-candidate-image"
 
   honua-studio:
     version: "pre-release"             # no releases/tags; private package.json declares 0.0.0
@@ -229,7 +228,7 @@ components:
     # there is no released build, container or static bundle yet, so image/digest are deliberately
     # absent. The AI-delivery-arc gate remains blocked until a candidate artifact is published from
     # this commit (or the manifest advances source+artifact together); never infer an image name.
-    sha: "6a63bc156d829c4e34b73968f60d8d8525d4892c"   # branch: main, source-only candidate
+    sha: "c0c67666cf5345f0ae86e2644161ba15437ab571"   # branch: feat/real-model-ai-arc, PR #45
     status: "source-only-awaiting-candidate-image"
 
   honua-sdk-dotnet:

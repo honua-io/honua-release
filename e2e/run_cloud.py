@@ -71,9 +71,7 @@ _AI_ARC_REQUIRED_ENV = (
     "HONUA_STUDIO_DIR",
     "HONUA_AI_ARC_FIXTURE_BASE_URL",
     "HONUA_AI_ARC_OUT",
-    "HONUA_AI_ARC_CONSOLE_PRODUCER",
-    "HONUA_AI_ARC_CONSOLE_KEY_SECRET_REF",
-    "HONUA_AI_ARC_MODEL_PRODUCER",
+    "HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF",
     "HONUA_RUN_URL",
 )
 
@@ -128,31 +126,20 @@ def _git_head(path: Path) -> str:
     return result.stdout.strip()
 
 
-def _producer_command(env_name: str) -> list[str]:
-    try:
-        value = json.loads(os.environ[env_name])
-    except (KeyError, json.JSONDecodeError) as error:
-        raise ProvisionError(f"{env_name} must be a JSON array of command arguments") from error
-    if not isinstance(value, list) or not value or not all(isinstance(arg, str) and arg for arg in value):
-        raise ProvisionError(f"{env_name} must be a non-empty JSON array of command arguments")
-    forbidden = ("password=", "authorization=", "api_key=", "apikey=", "secretstring=")
-    if any(token in arg.lower() for arg in value for token in forbidden):
-        raise ProvisionError(f"{env_name} must not carry credential values in process arguments")
-    return value
-
-
 def _run_secretless(
-    command: list[str], *, env: dict[str, str], label: str, cwd: Path | None = None
+    command: list[str], *, env: dict[str, str], label: str, cwd: Path | None = None,
+    expected_codes: tuple[int, ...] = (0,),
 ) -> None:
     try:
         result = subprocess.run(command, env=env, cwd=cwd, check=False)
     except OSError as error:
         raise ProvisionError(f"{label} could not start") from error
-    if result.returncode != 0:
-        raise ProvisionError(f"{label} exited {result.returncode}")
+    if result.returncode not in expected_codes:
+        expected = ", ".join(str(code) for code in expected_codes)
+        raise ProvisionError(f"{label} exited {result.returncode}; expected {expected}")
 
 
-def _resolve_aws_secret(reference: str) -> str:
+def _resolve_aws_secret(reference: str, label: str = "scoped admin secret") -> str:
     try:
         result = subprocess.run(
             [
@@ -164,11 +151,61 @@ def _resolve_aws_secret(reference: str) -> str:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as error:
-        raise ProvisionError("AWS ECS AI delivery arc could not resolve its scoped admin secret") from error
+        raise ProvisionError(f"AWS ECS AI delivery arc could not resolve its {label}") from error
     value = result.stdout.strip()
     if not value:
-        raise ProvisionError("AWS ECS AI delivery arc resolved an empty scoped admin secret")
+        raise ProvisionError(f"AWS ECS AI delivery arc resolved an empty {label}")
     return value
+
+
+def _studio_command(phase: str) -> list[str]:
+    if phase not in {"prepare", "resume"}:
+        raise ValueError(f"unsupported Studio AI arc phase: {phase}")
+    return ["npm", "run", "release:real-model-ai-arc", "--", phase, "--execute", "--yes"]
+
+
+def _run_ai_arc_approval_boundary(
+    *, studio_root: Path, console_root: Path, producer_env: dict[str, str],
+    admin_secret_ref: str, console_token_ref: str,
+) -> None:
+    # Model/admin credentials and the focused Console approval credential have deliberately
+    # disjoint process environments. In particular, the Console producer refuses broad keys.
+    boundary_env = dict(producer_env)
+    boundary_env.pop("HONUA_ADMIN_KEY", None)
+    boundary_env.pop("HONUA_API_KEY", None)
+    boundary_env.pop("HONUA_AI_ARC_CONSOLE_TOKEN", None)
+    admin_secret = _resolve_aws_secret(admin_secret_ref)
+    try:
+        studio_prepare_env = {**boundary_env, "HONUA_ADMIN_KEY": admin_secret}
+        _run_secretless(
+            _studio_command("prepare"),
+            env=studio_prepare_env,
+            label="full Admin/GP/Studio real-model prepare",
+            cwd=studio_root,
+            expected_codes=(2,),
+        )
+        studio_prepare_env.pop("HONUA_ADMIN_KEY", None)
+        admin_secret = ""
+
+        console_token = _resolve_aws_secret(console_token_ref, "scoped Console approval token")
+        try:
+            _run_secretless(
+                ["npm", "run", "receipt:console"],
+                env={**boundary_env, "HONUA_AI_ARC_CONSOLE_TOKEN": console_token},
+                label="focused Console approval/audit/recovery producer",
+                cwd=console_root / "e2e" / "playwright",
+            )
+        finally:
+            console_token = ""
+
+        _run_secretless(
+            _studio_command("resume"),
+            env=boundary_env,
+            label="full Admin/GP/Studio real-model resume",
+            cwd=studio_root,
+        )
+    finally:
+        admin_secret = ""
 
 
 def _ai_arc_paths() -> dict[str, Path]:
@@ -181,6 +218,7 @@ def _ai_arc_paths() -> dict[str, Path]:
         "checkpoint": out / "checkpoint.json",
         "sdkReceipt": out / "sdk-journey.json",
         "consoleReceipt": out / "console-receipt.json",
+        "sdkConsoleReceipt": out / "sdk-console-receipt.json",
         "modelReceipt": out / "real-model-receipt.json",
         "modelEvidence": out / "real-model-evidence.json",
         "preTeardown": out / "pre-teardown-evidence.json",
@@ -190,6 +228,19 @@ def _ai_arc_paths() -> dict[str, Path]:
         "provisionReceipt": out / "aws-ecs-provision-receipt.json",
         "arcReceipt": out / "aws-ecs-ai-delivery-arc-receipt.json",
     }
+
+
+def _devops_resume_command(
+    producer: Path, common: list[str], paths: dict[str, Path]
+) -> list[str]:
+    return [
+        sys.executable, str(producer), "resume", *common,
+        "--console-receipt", str(paths["consoleReceipt"]),
+        "--sdk-console-receipt", str(paths["sdkConsoleReceipt"]),
+        "--real-model-receipt", str(paths["modelReceipt"]),
+        "--real-model-evidence", str(paths["modelEvidence"]),
+        "--pre-teardown-evidence", str(paths["preTeardown"]),
+    ]
 
 
 def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
@@ -313,6 +364,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         **os.environ,
         "HONUA_AI_ARC_CHECKPOINT": str(paths["checkpoint"]),
         "HONUA_AI_ARC_CONSOLE_RECEIPT": str(paths["consoleReceipt"]),
+        "HONUA_AI_ARC_SDK_CONSOLE_RECEIPT": str(paths["sdkConsoleReceipt"]),
         "HONUA_AI_ARC_REAL_MODEL_RECEIPT": str(paths["modelReceipt"]),
         "HONUA_AI_ARC_REAL_MODEL_EVIDENCE": str(paths["modelEvidence"]),
         "HONUA_AI_ARC_PROVISION_BINDING": str(paths["provisionBinding"]),
@@ -322,40 +374,17 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         ),
         "HONUA_PLATFORM_MANIFEST": str(manifest_path),
         "HONUA_AI_ARC_EVIDENCE_URL": run_url,
+        "HONUA_AI_ARC_SOURCE_SHA": components["honua-studio"]["sha"],
     }
-    console_secret = _resolve_aws_secret(os.environ["HONUA_AI_ARC_CONSOLE_KEY_SECRET_REF"])
-    producer_env["HONUA_ADMIN_KEY"] = console_secret
-    producer_env["HONUA_API_KEY"] = console_secret
-    try:
-        _run_secretless(
-            _producer_command("HONUA_AI_ARC_CONSOLE_PRODUCER"),
-            env=producer_env,
-            label="focused Console approval/audit/recovery producer",
-            cwd=console_root,
-        )
-        console_secret = ""
-        admin_secret = _resolve_aws_secret(admin_ref)
-        producer_env["HONUA_ADMIN_KEY"] = admin_secret
-        producer_env["HONUA_API_KEY"] = admin_secret
-        _run_secretless(
-            _producer_command("HONUA_AI_ARC_MODEL_PRODUCER"),
-            env=producer_env,
-            label="full Admin/GP/Studio real-model producer",
-            cwd=studio_root,
-        )
-    finally:
-        producer_env.pop("HONUA_ADMIN_KEY", None)
-        producer_env.pop("HONUA_API_KEY", None)
-        console_secret = ""
-        admin_secret = ""
+    _run_ai_arc_approval_boundary(
+        studio_root=studio_root,
+        console_root=console_root,
+        producer_env=producer_env,
+        admin_secret_ref=admin_ref,
+        console_token_ref=os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"],
+    )
     _run_secretless(
-        [
-            sys.executable, str(producer), "resume", *common,
-            "--console-receipt", str(paths["consoleReceipt"]),
-            "--real-model-receipt", str(paths["modelReceipt"]),
-            "--real-model-evidence", str(paths["modelEvidence"]),
-            "--pre-teardown-evidence", str(paths["preTeardown"]),
-        ],
+        _devops_resume_command(producer, common, paths),
         env=dict(os.environ),
         label="AWS ECS AI arc resume",
     )

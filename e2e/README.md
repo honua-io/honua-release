@@ -99,11 +99,13 @@ from a successful apply.
 
 In strict `aws-ecs` cloud cells, `run_cloud.py` owns one lifetime: it applies
 one saved Terraform plan, waits for readiness, invokes the manifest-pinned
-DevOps producer through pause/Console+model/resume, destroys and verifies empty
-Terraform state, then seals the two final release receipts. Producer commands
-are JSON argv arrays in `HONUA_AI_ARC_CONSOLE_PRODUCER` and
-`HONUA_AI_ARC_MODEL_PRODUCER`; all receipt/output paths are passed via
-`HONUA_AI_ARC_*` environment variables so credentials never enter argv.
+DevOps producer through deterministic prepare/pause, Studio model prepare/pause,
+focused Console approval, Studio model resume, and deterministic SDK resume;
+it then destroys and verifies empty Terraform state and seals the two final
+release receipts. Studio runs `release:real-model-ai-arc prepare|resume`; Console
+runs `receipt:console` and emits both the aggregate receipt Studio consumes and
+the strict SDK projection. Console receives only `HONUA_AI_ARC_CONSOLE_TOKEN`;
+the model/admin credential is never present in its process environment.
 
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 

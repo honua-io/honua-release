@@ -391,14 +391,71 @@ def test_aws_ai_arc_refuses_the_current_plain_http_ecs_endpoint():
         )
 
 
-def test_ai_arc_producer_command_is_json_argv_and_rejects_inline_secrets(monkeypatch):
-    monkeypatch.setenv("HONUA_TEST_PRODUCER", '["npm","run","release:producer"]')
-    assert run_cloud._producer_command("HONUA_TEST_PRODUCER") == [
-        "npm", "run", "release:producer"
+def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(monkeypatch):
+    calls = []
+    admin_value = os.urandom(24).hex()
+    console_value = os.urandom(24).hex()
+    inherited_value = os.urandom(24).hex()
+
+    def resolve(reference, label="scoped admin secret"):
+        return {"admin-ref": admin_value, "console-ref": console_value}[reference]
+
+    def run(command, *, env, label, cwd=None, expected_codes=(0,)):
+        calls.append((command, env, label, cwd, expected_codes))
+
+    monkeypatch.setattr(run_cloud, "_resolve_aws_secret", resolve)
+    monkeypatch.setattr(run_cloud, "_run_secretless", run)
+    studio = Path("studio")
+    console = Path("console")
+    run_cloud._run_ai_arc_approval_boundary(
+        studio_root=studio,
+        console_root=console,
+        producer_env={
+            "HONUA_ADMIN_KEY": inherited_value,
+            "HONUA_API_KEY": inherited_value,
+            "HONUA_AI_ARC_CONSOLE_TOKEN": inherited_value,
+            "HONUA_AI_ARC_CHECKPOINT": "checkpoint.json",
+        },
+        admin_secret_ref="admin-ref",
+        console_token_ref="console-ref",
+    )
+
+    assert [call[2] for call in calls] == [
+        "full Admin/GP/Studio real-model prepare",
+        "focused Console approval/audit/recovery producer",
+        "full Admin/GP/Studio real-model resume",
     ]
-    monkeypatch.setenv("HONUA_TEST_PRODUCER", '["tool","--password=not-a-secret"]')
-    with __import__("pytest").raises(ProvisionError, match="must not carry credential values"):
-        run_cloud._producer_command("HONUA_TEST_PRODUCER")
+    assert calls[0][0] == [
+        "npm", "run", "release:real-model-ai-arc", "--", "prepare", "--execute", "--yes"
+    ]
+    assert calls[0][4] == (2,)
+    assert calls[1][0] == ["npm", "run", "receipt:console"]
+    assert calls[1][3] == console / "e2e" / "playwright"
+    assert calls[2][0] == [
+        "npm", "run", "release:real-model-ai-arc", "--", "resume", "--execute", "--yes"
+    ]
+    console_env = calls[1][1]
+    assert console_env["HONUA_AI_ARC_CONSOLE_TOKEN"] == console_value
+    assert "HONUA_ADMIN_KEY" not in console_env
+    assert "HONUA_API_KEY" not in console_env
+    assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[0][1]
+    assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[2][1]
+
+
+def test_devops_resume_consumes_aggregate_and_sdk_projection_as_distinct_inputs():
+    paths = {
+        "consoleReceipt": Path("aggregate.json"),
+        "sdkConsoleReceipt": Path("sdk-projection.json"),
+        "modelReceipt": Path("model.json"),
+        "modelEvidence": Path("model-evidence.json"),
+        "preTeardown": Path("pre-teardown.json"),
+    }
+    command = run_cloud._devops_resume_command(Path("producer.py"), ["--manifest", "m.yaml"], paths)
+    aggregate_index = command.index("--console-receipt")
+    sdk_index = command.index("--sdk-console-receipt")
+    assert command[aggregate_index + 1] == "aggregate.json"
+    assert command[sdk_index + 1] == "sdk-projection.json"
+    assert command[aggregate_index + 1] != command[sdk_index + 1]
 
 
 def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
