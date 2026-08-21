@@ -90,6 +90,7 @@ def main() -> None:
     sdk_sources = [
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
         ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", "0.1.0-alpha.3"),
+        ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
     sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
     for source_name, collection, client, version, surface, fixture in sdk_sources:
@@ -102,7 +103,9 @@ def main() -> None:
             )
             for entrypoint in capability.get("entrypoints", []):
                 add(
-                    capability=capability["key"], surface=surface, operation=entrypoint,
+                    capability=capability["key"],
+                    surface=f"{surface}:{slug(capability['key'])}",
+                    operation=entrypoint,
                     client=client, lane=surface, version=version,
                     contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
                     auth_policy="anonymous-public-v1",
@@ -244,14 +247,17 @@ def main() -> None:
         capability = server_by_key.get(capability_key)
         if not capability or not capability.get("maturity", {}).get("implemented"):
             continue
-        for client in sdk_protocols["clients"]:
+        if not any(
+            sdk_capability_operations.get((client["source"], capability_key))
+            for client in sdk_protocols["clients"]
+        ):
             add(
                 capability=capability_key, surface=slug(capability_key),
-                operation=capability_key, client=client["name"],
-                lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
+                operation=f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
+                client="UNASSIGNED PROTOCOL HARNESS",
+                lane=f"protocol-harness-gap-{slug(capability_key)}", version="policy-v1",
                 contract=f"official-sdk-protocol-assignments@{sdk_protocols['revision']}",
-                auth_policy=client["auth_policy_revision"],
-                facets=sdk_protocols["scenario_facets"],
+                auth_policy="unassigned-protocol-harness-v1", facets=["positive"],
             )
 
     applicability = load(SOURCES / "canonical-client-applicability.v1.json")
@@ -277,17 +283,17 @@ def main() -> None:
             continue
         contract = f"canonical-client-applicability@{applicability['revision']}"
         if classification == "official-sdk-required":
-            for client in sdk_protocols["clients"]:
-                source_name = client["source"]
-                if sdk_capability_operations.get((source_name, capability_key)):
-                    continue
+            if not any(
+                sdk_capability_operations.get((client["source"], capability_key))
+                for client in sdk_protocols["clients"]
+            ):
                 add(
-                    capability=capability_key, surface=source_name,
-                    operation=f"UNASSIGNED SDK OPERATION CONTRACT:{capability_key}",
-                    client=client["name"],
-                    lane=f"{client['lane']}-operation-contract-gap-{slug(capability_key)}",
-                    version=client["version"], contract=contract,
-                    auth_policy=client["auth_policy_revision"], facets=["positive"],
+                    capability=capability_key, surface=slug(capability_key),
+                    operation=f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
+                    client="UNASSIGNED PROTOCOL HARNESS",
+                    lane=f"protocol-harness-gap-{slug(capability_key)}",
+                    version="policy-v1", contract=contract,
+                    auth_policy="unassigned-protocol-harness-v1", facets=["positive"],
                 )
             continue
         elif classification == "canonical-external-required":

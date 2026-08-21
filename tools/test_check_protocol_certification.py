@@ -38,7 +38,7 @@ def _cell(**overrides):
         "producer_source_sha": SHA,
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
-        "evidence_uri": "https://evidence.honua.io/runs/1",
+        "evidence_uri": "https://evidence.honua.io/data/sha256/" + "e" * 64,
         "evidence_digest": "sha256:" + "e" * 64,
         "facet_results": None,
         "started_at": "2026-08-20T10:00:00Z",
@@ -306,7 +306,7 @@ def test_unassigned_sdk_operation_contract_cannot_be_fabricated_as_a_pass():
 
     assert report["overall_status"] == "fail"
     assert any(
-        "official SDK operation contract is unassigned" in finding["why"]
+        "client/protocol harness contract is unassigned" in finding["why"]
         for finding in report["findings"]
     )
 
