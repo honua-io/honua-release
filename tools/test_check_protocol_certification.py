@@ -87,7 +87,6 @@ def test_catalog_server_revision_must_match_candidate():
     report = _evaluate(
         _ledger(),
         "nightly",
-        expected_source_sha=SHA,
         requirements=requirements,
         now=NOW,
     )

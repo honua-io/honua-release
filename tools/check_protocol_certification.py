@@ -182,6 +182,12 @@ def evaluate(
             fail("candidate.cut_at", "ledger candidate cut does not match the independently frozen candidate cut")
     if expected_source_sha and candidate_sha != expected_source_sha:
         fail("candidate.source_sha", f"ledger candidate {candidate_sha!r} does not match expected {expected_source_sha!r}")
+    if catalog_server_sha != candidate_sha:
+        fail(
+            "requirements.source_revisions.server.commit",
+            f"owned requirements server source {catalog_server_sha!r} "
+            f"does not match ledger candidate {candidate_sha!r}",
+        )
     if expected_image_digest and candidate_digest != expected_image_digest:
         fail("candidate.image_digest", f"ledger candidate {candidate_digest!r} does not match expected {expected_image_digest!r}")
 

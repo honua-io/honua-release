@@ -907,7 +907,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "editing.featureserver-edits",
@@ -32563,7 +32563,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "process.ogc-api-processes",
@@ -39547,7 +39547,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -39568,7 +39568,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -39589,7 +39589,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -39610,7 +39610,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -39631,7 +39631,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -40655,7 +40655,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.geoservices-root",
@@ -42699,7 +42699,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.ogc-api-features",
@@ -42720,7 +42720,7 @@
       ],
       "contract_revision": "sdk-python-certification@be375f9f80ce3fec70516d07c5da53c25aebb35f",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "0.1.0-alpha.3"
+      "fixture_revision": "geospatial-grpc@0.2.0-alpha.1"
     },
     {
       "capability_key": "serve.ogc-api-features",
