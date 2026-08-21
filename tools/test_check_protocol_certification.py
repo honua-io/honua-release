@@ -239,6 +239,24 @@ def test_pass_rejects_digest_valid_but_semantically_empty_receipt():
     assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
 
+def test_cli_receipt_root_requires_exact_materialized_bytes(tmp_path):
+    cell = _cell()
+    ledger = _ledger(cell)
+    requirements = _requirements(cell)
+    missing = cert.evaluate(
+        ledger, "nightly", requirements=requirements, now=NOW, receipt_root=tmp_path,
+    )
+    assert missing["overall_status"] == "fail"
+    receipt_path = tmp_path / cell["evidence_digest"][7:]
+    receipt_path.write_bytes(json.dumps(
+        cell["evidence_receipt"], sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8"))
+    present = cert.evaluate(
+        ledger, "nightly", requirements=requirements, now=NOW, receipt_root=tmp_path,
+    )
+    assert present["overall_status"] == "pass"
+
+
 def test_duplicate_normalized_key_fails():
     cell = _cell()
     report = _evaluate(_ledger(cell, copy.deepcopy(cell)), "nightly", now=NOW)
