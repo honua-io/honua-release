@@ -1,0 +1,142 @@
+{
+  "service": "version-management-server",
+  "display_name": "VersionManagementServer (branch versioning)",
+  "prefix": "V(",
+  "source_doc": "docs/reference/compatibility/geoservices-parity.md",
+  "generated_from": "honua-server (geoservices-rest-parity.json)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 4,
+    "partial": 3,
+    "not_implemented": 4,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 7,
+    "total": 11
+  },
+  "cases": [
+    {
+      "id": "V(-OP-LIST-VERSIONS-VERSION-INFO",
+      "kind": "operation",
+      "group": "operations",
+      "name": "List versions; version info",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VersionManagementServer/versions; GET /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}",
+      "notes": "Lists and resolves real versions from the version manager, filtered by the access policy (private versions are visible to owner/admin only). A non-visible version returns 404 rather than 403, so existence is not leaked; an invalid GUID returns 400. Providers without versioning return an empty list rather than an error."
+    },
+    {
+      "id": "V(-OP-ALTER-VERSION-DELETE-VERSION",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Alter version; delete version",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/alter; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/delete",
+      "notes": "Alter updates name/access/description; delete removes the version and returns 409 rather than deleting mid-reconcile/post. Both are owner-or-admin gated. The returned moment is wall-clock time, not a branch generation."
+    },
+    {
+      "id": "V(-OP-RECONCILE-POST-RESOLVECONFLICTS-INSPECTC",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Reconcile; post; resolveConflicts; inspectConflicts",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/inspectConflicts; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/post; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/reconcile; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/resolveConflicts",
+      "notes": "Real reconcile/post over the Postgres version manager: conflictResolution/resolutionPolicy/abortIfConflicts and conflictDetection (including the Esri tokens) are honoured, withPost=true posts inline, and async=true returns 202 with a pollable job; lock contention returns 409 and an unsupported policy 400. inspectConflicts returns the pending conflict set with three-way base/DEFAULT/version images and per-field diffs; resolveConflicts applies per-feature {layerId, objectId, choice} resolutions. Providers without versioning return 501 rather than fabricating success."
+    },
+    {
+      "id": "V(-OP-VERSION-JOB-STATUS",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Version job status",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/jobs/{jobId}",
+      "notes": "Polls the durable job runner for an async reconcile/post; a job GUID belonging to another service or version returns 404."
+    },
+    {
+      "id": "V(-OP-SERVICE-METADATA",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Service metadata",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /rest/services/{serviceId}/VersionManagementServer",
+      "notes": "Returns a hardcoded descriptor (defaultVersionName \"sde.DEFAULT\", capabilities \"Create,Delete,Alter,Reconcile,Post\") after a service-read check only. It does not consult the provider's versioning support, so a non-Postgres store advertises five capabilities whose mutations then return 501."
+    },
+    {
+      "id": "V(-OP-CREATE-VERSION",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Create version",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "POST /rest/services/{serviceId}/VersionManagementServer/create",
+      "notes": "Creates a real version and maps a duplicate name to 409, but parentVersion is accepted and ignored (always null), so a version can only be branched from DEFAULT."
+    },
+    {
+      "id": "V(-OP-STARTREADING-STOPREADING-STARTEDITING-ST",
+      "kind": "operation",
+      "group": "operations",
+      "name": "startReading; stopReading; startEditing; stopEditing",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/startEditing; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/startReading; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/stopEditing; POST /rest/services/{serviceId}/VersionManagementServer/versions/{versionGuid}/stopReading",
+      "notes": "Stateless acknowledgements: Honua holds no Esri edit/read session and issues no session token, because edits land per-request via gdbVersion rather than inside a server-held session. startEditing does resolve the version, return its durable branch generation as moment, and return 409 mid-reconcile/post; stopEditing has no saveEdits semantics (there is nothing to commit or discard). A client that depends on session tokens will not get Esri's behaviour."
+    },
+    {
+      "id": "V(-OP-NO-ESRI-EDIT-READ-SESSION-MODEL-START-ST",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "no Esri edit/read session model: start/stop Reading/Editing are stateless acknowledgements with no session token",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "V(-OP-CREATE-IGNORES-PARENTVERSION-SO-VERSIONS",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "create ignores parentVersion, so versions branch only from DEFAULT",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "V(-OP-SERVICE-METADATA-HARDCODES-ITS-CAPABILIT",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "service metadata hardcodes its capabilities and does not reflect provider versioning support",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "V(-OP-BRANCH-VERSIONING-IS-BACKED-BY-POSTGRES-",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "branch versioning is backed by Postgres only; other providers return 501 on mutations",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    }
+  ]
+}

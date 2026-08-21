@@ -1,0 +1,142 @@
+{
+  "service": "na-server",
+  "display_name": "NAServer",
+  "prefix": "NA",
+  "source_doc": "docs/reference/compatibility/geoservices-parity.md",
+  "generated_from": "honua-server (geoservices-rest-parity.json)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 4,
+    "partial": 3,
+    "not_implemented": 4,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 7,
+    "total": 11
+  },
+  "cases": [
+    {
+      "id": "NA-OP-CLOSESTFACILITY-SOLVECLOSESTFACILITY",
+      "kind": "operation",
+      "group": "operations",
+      "name": "ClosestFacility solveClosestFacility",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /rest/services/{serviceId}/NAServer/ClosestFacility/solveClosestFacility",
+      "notes": "Parses incidents and facilities into the canonical closest-facility request, ranks by network impedance, and materializes the closest routes through the configured IRoutingProvider."
+    },
+    {
+      "id": "NA-OP-ROUTE-SOLVE",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Route solve",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/NAServer/Route/solve; POST /rest/services/{serviceId}/NAServer/Route/solve",
+      "notes": "GET query parameters and POST form parameters share one handler that parses stops, inSR/outSR, returnRoutes, returnDirections, barriers/polylineBarriers/polygonBarriers, and travelMode, delegates to the configured IRoutingProvider, and returns Esri route and directions feature sets."
+    },
+    {
+      "id": "NA-OP-SERVICEAREA-SOLVESERVICEAREA",
+      "kind": "operation",
+      "group": "operations",
+      "name": "ServiceArea solveServiceArea",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /rest/services/{serviceId}/NAServer/ServiceArea/solveServiceArea",
+      "notes": "Parses facilities, defaultBreaks, inSR/outSR, travelDirection, barriers/polylineBarriers/polygonBarriers, and travelMode, validates provider-advertised travel-direction/barrier/mode support, and returns Esri saPolygons."
+    },
+    {
+      "id": "NA-OP-LOCATIONALLOCATION-SOLVELOCATIONALLOCATI",
+      "kind": "operation",
+      "group": "operations",
+      "name": "LocationAllocation solveLocationAllocation",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "POST /rest/services/{serviceId}/NAServer/LocationAllocation/solveLocationAllocation",
+      "notes": "Implements minimize-impedance, maximize-coverage, and cutoff-required minimize-facilities over the canonical cost matrix. Minimize-facilities uses deterministic O(F\u00c2\u00b2D) greedy set cover with the standard H(D) approximation bound, cancellation, and configured input caps. Maximize-attendance, maximize-capacitated-coverage, maximize-market-share, and target-market-share are explicitly rejected because their required transformation, capacity, competitor, and attractiveness inputs are not modeled."
+    },
+    {
+      "id": "NA-OP-ODCOSTMATRIX-SOLVEODCOSTMATRIX",
+      "kind": "operation",
+      "group": "operations",
+      "name": "ODCostMatrix solveODCostMatrix",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "POST /rest/services/{serviceId}/NAServer/ODCostMatrix/solveODCostMatrix",
+      "notes": "Computes ranked origin/destination impedance cells through the canonical routing provider. esriNAODOutputNoLines preserves the cost-only fast path; esriNAODOutputStraightLines returns two-vertex polylines in outSR (the pgRouting provider batch-transforms all cells through PostGIS in one query). Providers without straight-line capability and true-shape modes return precise GeoServices 400 responses."
+    },
+    {
+      "id": "NA-PRM-BARRIERS-POLYLINEBARRIERS-POLYGONBARRIER",
+      "kind": "parameter",
+      "group": "parameterCoverage:solve",
+      "name": "barriers, polylineBarriers, polygonBarriers",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "",
+      "notes": "Point, line, and polygon barriers are parsed from Esri FeatureSets and threaded into the solve; the pgRouting provider excludes the graph edges each barrier restricts (point = nearest edge, line/polygon = every intersecting edge). Providers that do not advertise a barrier kind return a GeoServices 400. Bounded by Routing:MaxBarriers. Supported on Route/solve and ServiceArea/solveServiceArea."
+    },
+    {
+      "id": "NA-PRM-TRAVELMODE",
+      "kind": "parameter",
+      "group": "parameterCoverage:solve",
+      "name": "travelMode",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "",
+      "notes": "travelMode (bare token or Esri travel-mode object name) is validated against the selected dataset's verified travel_profiles metadata; unsupported modes return a GeoServices 400. Profile and column identifiers are validated and both impedance columns must exist. The selected forward/reverse columns drive Route, ServiceArea, ClosestFacility, OD matrix, and LocationAllocation. Existing datasets remain driving-only by default."
+    },
+    {
+      "id": "NA-OP-OD-COST-MATRIX-TRUE-SHAPE-NETWORK-GEOMET",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "OD cost matrix true-shape network geometry (straight lines are implemented)",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "NA-OP-LOCATION-ALLOCATION-OBJECTIVES-REQUIRING",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "Location-allocation objectives requiring unmodeled capacity, competitor, attractiveness, or impedance-transformation inputs",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "NA-OP-BUILT-IN-TOPOLOGY-SHIPS-DRIVING-WEIGHTS-",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "Built-in topology ships driving weights only; operators must provide and register real non-driving cost columns",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "NA-OP-NETWORK-DATASET-EDITING",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "network-dataset editing (Phase 2: edge/vertex CRUD + topology rebuild)",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    }
+  ]
+}

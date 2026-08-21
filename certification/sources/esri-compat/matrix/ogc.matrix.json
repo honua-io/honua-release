@@ -1,0 +1,186 @@
+{
+  "service": "ogc",
+  "display_name": "OGC Protocols (API Features/Tiles/Records + WFS/WMS/WMTS/WCS)",
+  "prefix": "OGC",
+  "source_doc": "src/Honua.Protocols.OgcApi, src/Honua.Protocols.OgcClassic",
+  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 13,
+    "partial": 2,
+    "not_implemented": 0,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 15,
+    "total": 15
+  },
+  "cases": [
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-LANDING",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features landing",
+      "esri_path": "/ogc/features",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features",
+      "notes": "Live 200. Landing page with conformance + collections links."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-CONFORMANCE",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features conformance",
+      "esri_path": "/ogc/features/conformance",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/conformance",
+      "notes": "Live 200. Advertises ogcapi-features-1 core/oas30/geojson conformance classes."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features collections",
+      "esri_path": "/ogc/features/collections",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/collections",
+      "notes": "Live 200. Lists feature collections from the catalog."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-COLLECTION",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features collection",
+      "esri_path": "/ogc/features/collections/{collectionId}",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/collections/{collectionId}",
+      "notes": "Per-collection metadata + queryables links."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-ITEMS",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features items (query)",
+      "esri_path": "/ogc/features/collections/{collectionId}/items",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/collections/{collectionId}/items",
+      "notes": "bbox/datetime/limit/offset filtering; GeoJSON FeatureCollection."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-ITEM",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features item",
+      "esri_path": "/ogc/features/collections/{collectionId}/items/{featureId}",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/collections/{collectionId}/items/{featureId}",
+      "notes": "Single feature by id."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-TRANSACTIONS",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features transactions (create/batch)",
+      "esri_path": "/ogc/features/collections/{collectionId}/items",
+      "methods": "POST",
+      "status": "partial",
+      "endpoint": "POST /ogc/features/collections/{collectionId}/items[/batch]",
+      "notes": "Create + batch endpoints registered (Part 4-style); not full OGC transactions surface."
+    },
+    {
+      "id": "OGC-OP-OGC-API-FEATURES-QUERYABLES",
+      "kind": "operation",
+      "group": "ogcapi-features",
+      "name": "OGC API Features queryables",
+      "esri_path": "/ogc/features/collections/{collectionId}/queryables",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/features/collections/{collectionId}/queryables",
+      "notes": "Queryable property schema for the collection."
+    },
+    {
+      "id": "OGC-OP-OGC-API-TILES-LANDING-TILESETS",
+      "kind": "operation",
+      "group": "ogcapi-tiles",
+      "name": "OGC API Tiles landing + tilesets",
+      "esri_path": "/ogc/tiles",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/tiles, /ogc/tiles/tiles, /ogc/tiles/tileMatrixSets",
+      "notes": "Live 200. Vector/raster tilesets; WebMercatorQuad tile matrix set."
+    },
+    {
+      "id": "OGC-OP-OGC-API-TILES-TILE",
+      "kind": "operation",
+      "group": "ogcapi-tiles",
+      "name": "OGC API Tiles tile",
+      "esri_path": "/ogc/tiles/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/tiles/tiles/{tms}/{z}/{y}/{x}",
+      "notes": "Dataset + per-collection tile fetch (vector tiles when single layer)."
+    },
+    {
+      "id": "OGC-OP-OGC-API-RECORDS-DISCOVERY",
+      "kind": "operation",
+      "group": "ogcapi-records",
+      "name": "OGC API Records discovery",
+      "esri_path": "/ogc/records",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/records, /ogc/records/collections[/{id}/items]",
+      "notes": "Live 200. Read-only metadata record discovery over catalog services/layers."
+    },
+    {
+      "id": "OGC-OP-WMS-GETCAPABILITIES-GETMAP-GETFEATUREINF",
+      "kind": "operation",
+      "group": "wms",
+      "name": "WMS GetCapabilities/GetMap/GetFeatureInfo",
+      "esri_path": "/ogc/services/{serviceId}/wms",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/services/{serviceId}/wms (also /rest/services/{id}/MapServer/WMS)",
+      "notes": "Live 200 GetCapabilities against the test MapServer."
+    },
+    {
+      "id": "OGC-OP-WMTS-GETCAPABILITIES-GETTILE",
+      "kind": "operation",
+      "group": "wmts",
+      "name": "WMTS GetCapabilities/GetTile",
+      "esri_path": "/ogc/services/{serviceId}/wmts",
+      "methods": "GET",
+      "status": "implemented",
+      "endpoint": "GET /ogc/services/{serviceId}/wmts (also /rest/services/{id}/MapServer/WMTS)",
+      "notes": "Live 200 GetCapabilities. WebMercatorQuad."
+    },
+    {
+      "id": "OGC-OP-WFS-2-0",
+      "kind": "operation",
+      "group": "wfs",
+      "name": "WFS 2.0 (GetCapabilities/GetFeature/Transaction)",
+      "esri_path": "/wfs",
+      "methods": "GET, POST",
+      "status": "implemented",
+      "endpoint": "GET/POST /wfs",
+      "notes": "Live 200 GetCapabilities. Single dispatcher endpoint; WFS-T Insert/Update/Replace/Delete + stored queries. (GetFeature 500 fixed in #1750.)"
+    },
+    {
+      "id": "OGC-OP-WCS-2-0-COVERAGE",
+      "kind": "operation",
+      "group": "wcs",
+      "name": "WCS 2.0 coverage",
+      "esri_path": "/ogc/services/{serviceId}/wcs",
+      "methods": "GET",
+      "status": "partial",
+      "endpoint": "GET /ogc/services/{serviceId}/wcs",
+      "notes": "Registered for ImageServer-backed coverages; per-service enablement required (ImageServer parity lists WCS as partial)."
+    }
+  ]
+}
