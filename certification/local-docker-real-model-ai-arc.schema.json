@@ -56,10 +56,14 @@
     "transcriptSha256": { "$ref": "#/$defs/sha256" },
     "deterministic": {
       "type": "object",
-      "required": ["target", "checkpointDigest"],
+      "required": [
+        "target", "checkpointDigest", "consoleAggregateSha256", "consoleEvidenceSha256"
+      ],
       "properties": {
         "target": { "const": "local-docker" },
-        "checkpointDigest": { "$ref": "#/$defs/sha256" }
+        "checkpointDigest": { "$ref": "#/$defs/sha256" },
+        "consoleAggregateSha256": { "$ref": "#/$defs/sha256" },
+        "consoleEvidenceSha256": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },
@@ -75,7 +79,7 @@
       "additionalProperties": false
     },
     "joins": {
-      "type": "object", "minProperties": 40,
+      "type": "object", "minProperties": 45,
       "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
     },
     "checks": {
@@ -120,11 +124,16 @@
     },
     "call": {
       "type": "object",
-      "required": ["role", "kind", "name", "status", "responseSha256", "result"],
+      "required": [
+        "actionId", "actionReceiptSha256", "role", "kind", "name",
+        "status", "responseSha256", "result"
+      ],
       "properties": {
+        "actionId": { "type": "string", "minLength": 1 },
+        "actionReceiptSha256": { "$ref": "#/$defs/sha256" },
         "role": { "type": "string", "minLength": 1 },
         "family": { "enum": ["map", "app", "dashboard", "parcels", "zoning"] },
-        "kind": { "enum": ["mcp", "mcp-resource"] },
+        "kind": { "enum": ["mcp", "mcp-resource", "gpserver"] },
         "name": { "type": "string", "minLength": 1 },
         "status": { "const": "passed" },
         "responseSha256": { "$ref": "#/$defs/sha256" },

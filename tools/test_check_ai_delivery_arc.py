@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -407,14 +408,18 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
     )
 
     def call(
+        action_id: str,
+        lane: str,
         role: str,
         name: str,
-        identity: str | tuple[str, ...],
+        identities: tuple[str, ...],
         *,
         family: str | None = None,
         kind: str = "mcp",
     ) -> dict:
         return {
+            "actionId": action_id,
+            "actionReceiptSha256": hashlib.sha256(action_id.encode("utf-8")).hexdigest(),
             "role": role,
             **({"family": family} if family else {}),
             "kind": kind,
@@ -422,110 +427,52 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
             "status": "passed",
             "responseSha256": "7" * 64,
             "result": {
-                "status": "completed",
-                "identities": {
-                    key: joins[key]
-                    for key in ((identity,) if isinstance(identity, str) else identity)
-                },
+                "status": "reconciled",
+                "identities": {key: joins[key] for key in identities},
             },
         }
 
-    admin_calls = (
-        ("server-status", None, "honua_admin_server_status", "connectionId"),
-        ("connection-create", None, "honua_admin_connection_create", "connectionId"),
-        ("connection-test", None, "honua_admin_connection_test", "connectionId"),
-        ("import-upload-url", "parcels", "honua_admin_import_upload_url", "parcelsLayerId"),
-        ("import-upload-url", "zoning", "honua_admin_import_upload_url", "zoningLayerId"),
-        ("layer-publish", "parcels", "honua_admin_layer_publish", "parcelsLayerId"),
-        ("layer-publish", "zoning", "honua_admin_layer_publish", "zoningLayerId"),
-        (
-            "service-access",
-            None,
-            "honua_admin_service_set_access_policy",
-            ("connectionId", "serviceName"),
+    lane_identity_keys = {
+        "admin": (
+            "candidateId", "connectionId", "parcelsLayerId", "zoningLayerId", "serviceName",
         ),
-    )
-    esri_calls = (
-        ("list-tasks", "mcp", "honua_esri_gp_list_tasks"),
-        ("describe-buffer", "mcp", "honua_esri_gp_describe_task"),
-        ("execute-buffer", "mcp", "honua_esri_gp_execute_task"),
-        ("wait-buffer", "mcp-resource", f"honua://jobs/{joins['esriMcpJobId']}"),
-        (
-            "read-buffer-results",
-            "mcp-resource",
-            f"honua://jobs/{joins['esriMcpJobId']}/results",
+        "esriGp": (
+            "candidateId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
         ),
-    )
-    lanes = {
-        "admin": {
-            "promptSha256": "1" * 64,
-            "transcriptSha256": "2" * 64,
-            "calls": [
-                call(role, tool, identity, family=family)
-                for role, family, tool, identity in admin_calls
-            ],
-        },
-        "esriGp": {
-            "promptSha256": "1" * 64,
-            "transcriptSha256": "2" * 64,
-            "calls": [
-                call(
-                    role,
-                    name,
-                    (
-                        ("esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId")
-                        if role == "read-buffer-results"
-                        else "esriMcpJobId"
-                    ),
-                    kind=kind,
-                )
-                for role, kind, name in esri_calls
-            ],
-        },
-        "nativeAnalysis": {
-            "promptSha256": "1" * 64,
-            "transcriptSha256": "2" * 64,
-            "calls": [
-                call("execute-buffer", "honua_buffer_features", "directAnalysisJobId"),
-                call(
-                    "wait-buffer",
-                    f"honua://jobs/{joins['directAnalysisJobId']}",
-                    "directAnalysisJobId",
-                    kind="mcp-resource",
-                ),
-                call(
-                    "read-buffer-results",
-                    f"honua://jobs/{joins['directAnalysisJobId']}/results",
-                    ("directAnalysisJobId", "bufferArtifactId"),
-                    kind="mcp-resource",
-                ),
-            ],
-        },
-        "studioPublication": {
-            "promptSha256": "1" * 64,
-            "transcriptSha256": "2" * 64,
-            "calls": [
-                call(
-                    role,
-                    tool,
-                    {
-                        "create-draft": (f"{family}ItemId",),
-                        "save-version": (
-                            f"{family}VersionId",
-                            f"{family}ContentHash",
-                            f"{family}PublicationVersionId",
-                            f"{family}PublicationContentHash",
-                        ),
-                        "reopen-version": (f"{family}ReopenedDraftId",),
-                        "propose-publication": (f"{family}ProposalId",),
-                    }.get(role, (f"{family}ItemId",)),
-                    family=family,
-                )
+        "nativeAnalysis": (
+            "candidateId", "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+        ),
+        "studioPublication": (
+            "candidateId",
+            *(
+                f"{family}{suffix}"
                 for family in ("map", "app", "dashboard")
-                for role, tool in gate.AWS_MODEL_STUDIO_ROLES
-            ],
-        },
+                for suffix in (
+                    "ItemId", "VersionId", "ReopenedDraftId", "PublicationVersionId",
+                    "ProposalId",
+                )
+            ),
+        ),
     }
+    lanes = {
+        lane: {"promptSha256": "1" * 64, "transcriptSha256": "2" * 64, "calls": []}
+        for lane in gate.AWS_MODEL_LANES
+    }
+    for action_id, lane, role, family, kind, name in gate.MODEL_ACTION_SPECS:
+        lanes[lane]["calls"].append(
+            call(
+                action_id,
+                lane,
+                role,
+                name.format(
+                    esriMcpJobId=joins["esriMcpJobId"],
+                    directAnalysisJobId=joins["directAnalysisJobId"],
+                ),
+                lane_identity_keys[lane],
+                family=family,
+                kind=kind,
+            )
+        )
     source = {"repository": "honua-io/honua-studio", "sha": manifest_value["components"]["honua-studio"]["sha"]}
     model = {"provider": "openai", "modelId": "gpt-live-model"}
     common = {
@@ -544,6 +491,8 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
         "target": "aws-ecs",
         "provisionReceiptSha256": "5" * 64,
         "checkpointDigest": "6" * 64,
+        "consoleAggregateSha256": "8" * 64,
+        "consoleEvidenceSha256": "9" * 64,
         "lanes": lanes,
         "joins": joins,
     }
@@ -561,6 +510,8 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
             "target": "aws-ecs",
             "provisionReceiptSha256": "5" * 64,
             "checkpointDigest": "6" * 64,
+            "consoleAggregateSha256": "8" * 64,
+            "consoleEvidenceSha256": "9" * 64,
         },
         "lanes": lanes,
         "joins": joins,
@@ -587,6 +538,8 @@ def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple
             "deterministic": {
                 "target": "local-docker",
                 "checkpointDigest": receipt["deterministic"]["checkpointDigest"],
+                "consoleAggregateSha256": receipt["deterministic"]["consoleAggregateSha256"],
+                "consoleEvidenceSha256": receipt["deterministic"]["consoleEvidenceSha256"],
             },
         }
     )
@@ -770,6 +723,80 @@ def test_aws_real_model_receipt_rejects_generic_studio_only_blob(tmp_path: Path)
 
     assert findings.status == "fail"
     assert any("four required natural-language lanes" in error for error in findings.errors)
+
+
+def test_aws_real_model_receipt_requires_exact_ordered_action_roster(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    candidate_id = gate.candidate_identity(manifest_value, manifest_path)["candidateId"]
+
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    receipt["lanes"]["admin"]["calls"].pop()
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+    assert findings.status == "fail"
+    assert any("canonical action multiplicity" in error for error in findings.errors)
+
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    receipt["lanes"]["admin"]["calls"].append(
+        json.loads(json.dumps(receipt["lanes"]["admin"]["calls"][-1]))
+    )
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+    assert findings.status == "fail"
+    assert any("canonical action multiplicity" in error for error in findings.errors)
+    assert any("extra non-canonical action" in error for error in findings.errors)
+
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    calls = receipt["lanes"]["admin"]["calls"]
+    calls[0], calls[1] = calls[1], calls[0]
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+    assert findings.status == "fail"
+    assert any("call 0 is not canonical action admin-status" in error for error in findings.errors)
+
+    receipt, evidence = aws_real_model_documents(manifest_value, candidate_id)
+    calls = receipt["lanes"]["admin"]["calls"]
+    for field in ("actionId", "actionReceiptSha256"):
+        calls[0][field], calls[1][field] = calls[1][field], calls[0][field]
+    findings = validate_aws_model_documents(tmp_path, receipt, evidence)
+    assert findings.status == "fail"
+    assert any("call 0 is not canonical action admin-status" in error for error in findings.errors)
+
+
+def test_real_model_schemas_admit_every_canonical_action_transport():
+    canonical_kinds = {spec[4] for spec in gate.MODEL_ACTION_SPECS}
+    manifest_value = manifest()
+    receipt, _ = aws_real_model_documents(manifest_value, "manifest-sha256:" + "a" * 64)
+    required_join_count = len(receipt["joins"])
+    for schema_name in (
+        "aws-ecs-real-model-ai-arc.schema.json",
+        "aws-ecs-real-model-ai-arc-evidence.schema.json",
+        "local-docker-real-model-ai-arc.schema.json",
+    ):
+        schema = json.loads((ROOT / "certification" / schema_name).read_text(encoding="utf-8"))
+        assert set(schema["$defs"]["call"]["properties"]["kind"]["enum"]) == canonical_kinds
+        assert schema["properties"]["joins"]["minProperties"] == required_join_count
+    local_evidence_schema = json.loads(
+        (ROOT / "certification" / "local-docker-real-model-ai-arc-evidence.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert local_evidence_schema["properties"]["joins"]["minProperties"] == required_join_count
+
+
+def test_real_model_action_roster_is_the_release_contract_inventory():
+    required_actions = [
+        action
+        for stage in CONTRACT["journey"]["stages"]
+        for action in stage["requiredActions"]
+        if action["kind"] in {"mcp", "mcp-resource", "gpserver"}
+    ]
+    assert [spec[0] for spec in gate.MODEL_ACTION_SPECS] == [
+        action["id"] for action in required_actions
+    ]
+    for spec, required in zip(gate.MODEL_ACTION_SPECS, required_actions, strict=True):
+        assert spec[4] == required["kind"]
+        if "tool" in required:
+            assert spec[5] == required["tool"]
 
 
 def test_live_pass_without_per_action_evidence_fails(tmp_path: Path):

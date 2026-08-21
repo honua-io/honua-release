@@ -16,6 +16,8 @@
     "target",
     "provisionReceiptSha256",
     "checkpointDigest",
+    "consoleAggregateSha256",
+    "consoleEvidenceSha256",
     "lanes",
     "joins"
   ],
@@ -48,6 +50,8 @@
     "target": { "const": "aws-ecs" },
     "provisionReceiptSha256": { "$ref": "#/$defs/sha256" },
     "checkpointDigest": { "$ref": "#/$defs/sha256" },
+    "consoleAggregateSha256": { "$ref": "#/$defs/sha256" },
+    "consoleEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "lanes": {
       "type": "object",
       "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
@@ -61,7 +65,7 @@
     },
     "joins": {
       "type": "object",
-      "minProperties": 18,
+      "minProperties": 45,
       "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
     }
   },
@@ -79,11 +83,16 @@
     },
     "call": {
       "type": "object",
-      "required": ["role", "kind", "name", "status", "responseSha256", "result"],
+      "required": [
+        "actionId", "actionReceiptSha256", "role", "kind", "name",
+        "status", "responseSha256", "result"
+      ],
       "properties": {
+        "actionId": { "type": "string", "minLength": 1 },
+        "actionReceiptSha256": { "$ref": "#/$defs/sha256" },
         "role": { "type": "string", "minLength": 1 },
         "family": { "enum": ["map", "app", "dashboard", "parcels", "zoning"] },
-        "kind": { "enum": ["mcp", "mcp-resource"] },
+        "kind": { "enum": ["mcp", "mcp-resource", "gpserver"] },
         "name": { "type": "string", "minLength": 1 },
         "status": { "const": "passed" },
         "responseSha256": { "$ref": "#/$defs/sha256" },

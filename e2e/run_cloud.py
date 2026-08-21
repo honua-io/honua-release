@@ -74,9 +74,25 @@ _AI_ARC_REQUIRED_ENV = (
     "HONUA_CONSOLE_DIR",
     "HONUA_STUDIO_DIR",
     "HONUA_AI_ARC_FIXTURE_BASE_URL",
+    "HONUA_AI_ARC_CONSOLE_ORIGIN",
+    "HONUA_AI_PROVIDER",
+    "HONUA_AI_MODEL",
     "HONUA_AI_ARC_OUT",
     "HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF",
     "HONUA_RUN_URL",
+)
+
+_AI_ARC_CHILD_CREDENTIAL_ENV = (
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL",
+    "HONUA_AI_ARC_CONSOLE_TOKEN",
+    "HONUA_ADMIN_KEY",
+    "HONUA_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
 )
 
 
@@ -173,17 +189,21 @@ def _studio_command(phase: str) -> list[str]:
 
 def _run_ai_arc_approval_boundary(
     *, studio_root: Path, console_root: Path, producer_env: dict[str, str],
-    admin_secret_ref: str, console_token_ref: str,
+    prepare_credential_ref: str, console_token_ref: str,
 ) -> None:
     # Model/admin credentials and the focused Console approval credential have deliberately
     # disjoint process environments. In particular, the Console producer refuses broad keys.
     boundary_env = dict(producer_env)
-    boundary_env.pop("HONUA_ADMIN_KEY", None)
-    boundary_env.pop("HONUA_API_KEY", None)
-    boundary_env.pop("HONUA_AI_ARC_CONSOLE_TOKEN", None)
-    admin_secret = _resolve_aws_secret(admin_secret_ref)
+    for name in _AI_ARC_CHILD_CREDENTIAL_ENV:
+        boundary_env.pop(name, None)
+    prepare_credential = _resolve_aws_secret(
+        prepare_credential_ref, "scoped AI arc prepare credential"
+    )
     try:
-        studio_prepare_env = {**boundary_env, "HONUA_ADMIN_KEY": admin_secret}
+        studio_prepare_env = {
+            **boundary_env,
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": prepare_credential,
+        }
         _run_secretless(
             _studio_command("prepare"),
             env=studio_prepare_env,
@@ -191,16 +211,16 @@ def _run_ai_arc_approval_boundary(
             cwd=studio_root,
             expected_codes=(2,),
         )
-        studio_prepare_env.pop("HONUA_ADMIN_KEY", None)
-        admin_secret = ""
+        studio_prepare_env.pop("HONUA_AI_ARC_PREPARE_CREDENTIAL", None)
+        prepare_credential = ""
 
         console_token = _resolve_aws_secret(console_token_ref, "scoped Console approval token")
         try:
             _run_secretless(
-                ["npm", "run", "receipt:console"],
+                ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"],
                 env={**boundary_env, "HONUA_AI_ARC_CONSOLE_TOKEN": console_token},
                 label="focused Console approval/audit/recovery producer",
-                cwd=console_root / "e2e" / "playwright",
+                cwd=console_root,
             )
         finally:
             console_token = ""
@@ -212,7 +232,7 @@ def _run_ai_arc_approval_boundary(
             cwd=studio_root,
         )
     finally:
-        admin_secret = ""
+        prepare_credential = ""
 
 
 def _ai_arc_paths() -> dict[str, Path]:
@@ -226,6 +246,8 @@ def _ai_arc_paths() -> dict[str, Path]:
         "sdkReceipt": out / "sdk-journey.json",
         "consoleReceipt": out / "console-receipt.json",
         "sdkConsoleReceipt": out / "sdk-console-receipt.json",
+        "consoleEvidence": out / "console-evidence.json",
+        "modelHandoff": out / "real-model-handoff.json",
         "modelReceipt": out / "real-model-receipt.json",
         "modelEvidence": out / "real-model-evidence.json",
         "preTeardown": out / "pre-teardown-evidence.json",
@@ -244,6 +266,8 @@ def _devops_resume_command(
         sys.executable, str(producer), "resume", *common,
         "--console-receipt", str(paths["consoleReceipt"]),
         "--sdk-console-receipt", str(paths["sdkConsoleReceipt"]),
+        "--console-evidence", str(paths["consoleEvidence"]),
+        "--real-model-handoff", str(paths["modelHandoff"]),
         "--real-model-receipt", str(paths["modelReceipt"]),
         "--real-model-evidence", str(paths["modelEvidence"]),
         "--pre-teardown-evidence", str(paths["preTeardown"]),
@@ -375,6 +399,12 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         "HONUA_AI_ARC_CHECKPOINT": str(paths["checkpoint"]),
         "HONUA_AI_ARC_CONSOLE_RECEIPT": str(paths["consoleReceipt"]),
         "HONUA_AI_ARC_SDK_CONSOLE_RECEIPT": str(paths["sdkConsoleReceipt"]),
+        "HONUA_AI_ARC_CONSOLE_EVIDENCE": str(paths["consoleEvidence"]),
+        "HONUA_AI_ARC_CONSOLE_RECEIPT_SCHEMA": str(
+            sdk_root / "mcp" / "release" / "zero-to-map" / "contracts" / "console-receipt.schema.json"
+        ),
+        "HONUA_AI_ARC_CONSOLE_ORIGIN": os.environ["HONUA_AI_ARC_CONSOLE_ORIGIN"].rstrip("/"),
+        "HONUA_AI_ARC_REAL_MODEL_HANDOFF": str(paths["modelHandoff"]),
         "HONUA_AI_ARC_REAL_MODEL_RECEIPT": str(paths["modelReceipt"]),
         "HONUA_AI_ARC_REAL_MODEL_EVIDENCE": str(paths["modelEvidence"]),
         "HONUA_AI_ARC_PROVISION_BINDING": str(paths["provisionBinding"]),
@@ -384,13 +414,12 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         ),
         "HONUA_PLATFORM_MANIFEST": str(manifest_path),
         "HONUA_AI_ARC_EVIDENCE_URL": run_url,
-        "HONUA_AI_ARC_SOURCE_SHA": components["honua-studio"]["sha"],
     }
     _run_ai_arc_approval_boundary(
         studio_root=studio_root,
         console_root=console_root,
         producer_env=producer_env,
-        admin_secret_ref=admin_ref,
+        prepare_credential_ref=admin_ref,
         console_token_ref=os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"],
     )
     _run_secretless(
@@ -582,6 +611,8 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     "journeyReceipt": str(ai_arc_context["paths"]["arcReceipt"]),
                     "modelReceipt": str(ai_arc_context["paths"]["modelReceipt"]),
                     "modelEvidence": str(ai_arc_context["paths"]["modelEvidence"]),
+                    "modelHandoff": str(ai_arc_context["paths"]["modelHandoff"]),
+                    "consoleEvidence": str(ai_arc_context["paths"]["consoleEvidence"]),
                     "finalEvidence": str(ai_arc_context["paths"]["finalEvidence"]),
                 }
             except ProvisionError as e:

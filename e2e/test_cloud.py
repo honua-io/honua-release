@@ -401,7 +401,7 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
         return {"admin-ref": admin_value, "console-ref": console_value}[reference]
 
     def run(command, *, env, label, cwd=None, expected_codes=(0,)):
-        calls.append((command, env, label, cwd, expected_codes))
+        calls.append((command, dict(env), label, cwd, expected_codes))
 
     monkeypatch.setattr(run_cloud, "_resolve_aws_secret", resolve)
     monkeypatch.setattr(run_cloud, "_run_secretless", run)
@@ -416,7 +416,7 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
             "HONUA_AI_ARC_CONSOLE_TOKEN": inherited_value,
             "HONUA_AI_ARC_CHECKPOINT": "checkpoint.json",
         },
-        admin_secret_ref="admin-ref",
+        prepare_credential_ref="admin-ref",
         console_token_ref="console-ref",
     )
 
@@ -429,12 +429,15 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
         "npm", "run", "release:real-model-ai-arc", "--", "prepare", "--execute", "--yes"
     ]
     assert calls[0][4] == (2,)
-    assert calls[1][0] == ["npm", "run", "receipt:console"]
-    assert calls[1][3] == console / "e2e" / "playwright"
+    assert calls[1][0] == ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"]
+    assert calls[1][3] == console
     assert calls[2][0] == [
         "npm", "run", "release:real-model-ai-arc", "--", "resume", "--execute", "--yes"
     ]
     console_env = calls[1][1]
+    assert calls[0][1]["HONUA_AI_ARC_PREPARE_CREDENTIAL"] == admin_value
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in console_env
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[2][1]
     assert console_env["HONUA_AI_ARC_CONSOLE_TOKEN"] == console_value
     assert "HONUA_ADMIN_KEY" not in console_env
     assert "HONUA_API_KEY" not in console_env
@@ -446,6 +449,8 @@ def test_devops_resume_consumes_aggregate_and_sdk_projection_as_distinct_inputs(
     paths = {
         "consoleReceipt": Path("aggregate.json"),
         "sdkConsoleReceipt": Path("sdk-projection.json"),
+        "consoleEvidence": Path("console-evidence.json"),
+        "modelHandoff": Path("model-handoff.json"),
         "modelReceipt": Path("model.json"),
         "modelEvidence": Path("model-evidence.json"),
         "preTeardown": Path("pre-teardown.json"),
@@ -453,8 +458,12 @@ def test_devops_resume_consumes_aggregate_and_sdk_projection_as_distinct_inputs(
     command = run_cloud._devops_resume_command(Path("producer.py"), ["--manifest", "m.yaml"], paths)
     aggregate_index = command.index("--console-receipt")
     sdk_index = command.index("--sdk-console-receipt")
+    evidence_index = command.index("--console-evidence")
+    handoff_index = command.index("--real-model-handoff")
     assert command[aggregate_index + 1] == "aggregate.json"
     assert command[sdk_index + 1] == "sdk-projection.json"
+    assert command[evidence_index + 1] == "console-evidence.json"
+    assert command[handoff_index + 1] == "model-handoff.json"
     assert command[aggregate_index + 1] != command[sdk_index + 1]
 
 

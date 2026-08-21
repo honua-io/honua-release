@@ -6,18 +6,18 @@
   "required": [
     "schemaVersion", "candidateId", "releaseId", "endpointSha256", "source",
     "model", "promptVersion", "evalVersion", "transcriptSha256", "target",
-    "checkpointDigest", "lanes", "joins"
+    "checkpointDigest", "consoleAggregateSha256", "consoleEvidenceSha256", "lanes", "joins"
   ],
   "properties": {
     "schemaVersion": { "const": "honua.local-docker.real-model-ai-arc-evidence/v1" },
     "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
     "releaseId": { "type": "string", "minLength": 1 },
-    "endpointSha256": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/sha256" },
+    "endpointSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
     "source": {
       "type": "object", "required": ["repository", "sha"],
       "properties": {
         "repository": { "const": "honua-io/honua-studio" },
-        "sha": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/sha" }
+        "sha": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha" }
       },
       "additionalProperties": false
     },
@@ -31,22 +31,24 @@
     },
     "promptVersion": { "const": "honua.local-docker.ai-arc.prompt/v1" },
     "evalVersion": { "const": "honua.local-docker.ai-arc.eval/v1" },
-    "transcriptSha256": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/sha256" },
+    "transcriptSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
     "target": { "const": "local-docker" },
-    "checkpointDigest": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/sha256" },
+    "checkpointDigest": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "consoleAggregateSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "consoleEvidenceSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
     "lanes": {
       "type": "object",
       "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
       "properties": {
-        "admin": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/lane" },
-        "esriGp": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/lane" },
-        "nativeAnalysis": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/lane" },
-        "studioPublication": { "$ref": "local-docker-real-model-ai-arc.schema.json#/$defs/lane" }
+        "admin": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "esriGp": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "nativeAnalysis": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "studioPublication": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" }
       },
       "additionalProperties": false
     },
     "joins": {
-      "type": "object", "minProperties": 40,
+      "type": "object", "minProperties": 45,
       "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
     }
   },

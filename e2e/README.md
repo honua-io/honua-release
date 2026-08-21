@@ -100,12 +100,16 @@ from a successful apply.
 In strict `aws-ecs` cloud cells, `run_cloud.py` owns one lifetime: it applies
 one saved Terraform plan, waits for readiness, invokes the manifest-pinned
 DevOps producer through deterministic prepare/pause, Studio model prepare/pause,
-focused Console approval, Studio model resume, and deterministic SDK resume;
+focused Console browser approval, Studio model resume, and deterministic SDK resume;
 it then destroys and verifies empty Terraform state and seals the two final
 release receipts. Studio runs `release:real-model-ai-arc prepare|resume`; Console
-runs `receipt:console` and emits both the aggregate receipt Studio consumes and
-the strict SDK projection. Console receives only `HONUA_AI_ARC_CONSOLE_TOKEN`;
-the model/admin credential is never present in its process environment.
+runs `npm --prefix e2e/playwright run receipt:console` against the separately
+bound `HONUA_AI_ARC_CONSOLE_ORIGIN`. It validates the aggregate against the
+manifest-pinned SDK schema, writes byte-identical aggregate bytes to the Studio
+and SDK receipt paths, and emits Console-owned browser/runtime evidence to
+`HONUA_AI_ARC_CONSOLE_EVIDENCE`. Console receives only
+`HONUA_AI_ARC_CONSOLE_TOKEN`; the model/admin credential is never present in its
+process environment.
 
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
