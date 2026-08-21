@@ -38,6 +38,7 @@ CELL_FIELDS = {
     "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
+OPTIONAL_CELL_FIELDS = {"test_ids"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -47,13 +48,15 @@ REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
-    "fixture_revision",
+    "fixture_revision", "test_ids",
     "budget_expectations",
 }
 
 
 def _owned_source_name(cell: dict) -> str:
     lane = str(cell.get("client_lane", ""))
+    if lane == "server-protocol-harness":
+        return "server-certification"
     if lane.startswith("sdk-js"):
         return "sdk-js"
     if lane.startswith("sdk-python"):
@@ -100,7 +103,7 @@ def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
 
 def _requirement_signature(value: dict) -> tuple[object, ...]:
     return tuple(
-        tuple(value[field]) if field == "scenario_facets" and isinstance(value.get(field), list)
+        tuple(value[field]) if field in {"scenario_facets", "test_ids"} and isinstance(value.get(field), list)
         else json.dumps(value[field], sort_keys=True) if field == "budget_expectations" and isinstance(value.get(field), dict)
         else value.get(field)
         for field in sorted(REQUIREMENT_ID_FIELDS)
@@ -194,6 +197,8 @@ def _valid_receipt(cell: dict) -> bool:
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
     identity_fields = set(RECEIPT_ID_FIELDS)
+    if isinstance(cell.get("test_ids"), list):
+        identity_fields.add("test_ids")
     if cell.get("licensed"):
         receipt_fields.add("entitlement")
         identity_fields.add("entitlement_policy_revision")
@@ -210,6 +215,10 @@ def _valid_receipt(cell: dict) -> bool:
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or (
+            isinstance(cell.get("test_ids"), list)
+            and identity.get("test_ids") != cell["test_ids"]
+        )
         or (
             cell.get("licensed")
             and identity.get("entitlement_policy_revision") != cell.get("entitlement_policy_revision")
@@ -371,7 +380,7 @@ def evaluate(
             fail(prefix, "cell must be an object")
             continue
         missing = sorted(CELL_FIELDS - raw.keys())
-        extra = sorted(raw.keys() - CELL_FIELDS)
+        extra = sorted(raw.keys() - CELL_FIELDS - OPTIONAL_CELL_FIELDS)
         if missing:
             fail(prefix, f"missing required fields: {', '.join(missing)}")
         if extra:
@@ -404,6 +413,14 @@ def evaluate(
             fail(prefix, "scenario_facets must be a non-empty unique array")
         elif unknown := sorted(set(facets) - FACETS):
             fail(prefix, f"unknown scenario facets: {', '.join(unknown)}")
+        test_ids = raw.get("test_ids")
+        if test_ids is not None and (
+            not isinstance(test_ids, list)
+            or not test_ids
+            or len(test_ids) != len(set(test_ids))
+            or any(not isinstance(test_id, str) or not test_id for test_id in test_ids)
+        ):
+            fail(prefix, "test_ids must be a non-empty unique string array when governed")
 
         evidence_digest = raw["evidence_digest"]
         evidence_receipt = raw["evidence_receipt"]
