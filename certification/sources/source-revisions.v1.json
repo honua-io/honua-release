@@ -15,7 +15,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "16f736efd07750a9da9964ed36be0a742147ecb5"
+      "commit": "a0e402f2598339000d4ee5a380ce874d1065d74a"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
