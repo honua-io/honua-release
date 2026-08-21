@@ -34,6 +34,7 @@ def _cell(**overrides):
         "contract_revision": "cog-1.0",
         "auth_policy_revision": "anonymous-v1",
         "source_sha": SHA,
+        "producer_source_sha": "c" * 40,
         "image_digest": DIGEST,
         "fixture_revision": "fixture-cog-v1",
         "evidence_uri": "https://evidence.honua.io/runs/1",
@@ -170,6 +171,13 @@ def test_required_cell_fixture_must_match_owned_revision():
 
     assert report["overall_status"] == "fail"
     assert any("fixture_revision" in finding["why"] for finding in report["findings"])
+
+
+def test_required_cell_needs_valid_producer_source_sha():
+    report = _evaluate(_ledger(_cell(producer_source_sha="not-a-sha")), "nightly", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any("producer_source_sha" in finding["why"] for finding in report["findings"])
 
 
 def test_future_candidate_and_evidence_timestamps_fail():

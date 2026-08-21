@@ -53,6 +53,7 @@ scenario_facets: [positive, negative, auth, pagination, limit, metadata]
 contract_revision: ogc-api-features-1.0
 auth_policy_revision: anonymous-v1
 source_sha: null
+producer_source_sha: null
 image_digest: null
 fixture_revision: null
 evidence_uri: null

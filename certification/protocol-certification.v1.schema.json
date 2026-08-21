@@ -35,6 +35,7 @@
         "client_lane", "client_version", "deployment_target", "required_tier", "licensed",
         "addressable_by_client", "addressability_reason", "result", "skip_reason",
         "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
+        "producer_source_sha",
         "image_digest", "fixture_revision", "evidence_uri", "started_at", "completed_at"
       ],
       "properties": {
@@ -63,6 +64,7 @@
         "contract_revision": { "type": "string", "minLength": 1 },
         "auth_policy_revision": { "type": "string", "minLength": 1 },
         "source_sha": { "type": ["string", "null"] },
+        "producer_source_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "image_digest": { "type": ["string", "null"] },
         "fixture_revision": { "type": ["string", "null"] },
         "evidence_uri": { "type": ["string", "null"] },
