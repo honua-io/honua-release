@@ -32,6 +32,13 @@ CELL_FIELDS = {
 }
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
+REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
+REQUIREMENT_FIELDS = {
+    "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
+    "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
+    "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
+}
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -56,6 +63,14 @@ def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
     return value, None
 
 
+def _requirement_signature(value: dict) -> tuple[object, ...]:
+    return tuple(
+        tuple(value[field]) if field == "scenario_facets" and isinstance(value.get(field), list)
+        else value.get(field)
+        for field in sorted(REQUIREMENT_FIELDS)
+    )
+
+
 def _in_scope(cell: dict, tier: str) -> bool:
     maturity = cell.get("maturity")
     if maturity in {"roadmap", "experimental", "internal"}:
@@ -75,6 +90,7 @@ def evaluate(
     expected_source_sha: str | None = None,
     expected_image_digest: str | None = None,
     now: datetime | None = None,
+    requirements: dict | None = None,
 ) -> dict:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     findings: list[dict[str, str]] = []
@@ -89,16 +105,35 @@ def evaluate(
         return _report(tier, [], findings)
     if ledger.get("schema") != SCHEMA_ID:
         fail("schema", f"schema must be {SCHEMA_ID!r}")
-    if not isinstance(ledger.get("requirements_revision"), str) or not ledger["requirements_revision"].strip():
-        fail("requirements_revision", "ledger must identify a non-empty requirements revision")
-    if not isinstance(ledger.get("requirements_complete"), bool):
-        fail("requirements_complete", "ledger must declare whether its denominator is complete")
-    elif tier == "release" and not ledger["requirements_complete"]:
-        fail("requirements_complete", "release certification requires a complete requirements denominator")
+    if requirements is None:
+        requirements, requirements_error = load_ledger(REQUIREMENTS_PATH)
+        if requirements_error:
+            fail("requirements", f"owned requirements unavailable: {requirements_error}")
+            requirements = {}
+    if requirements.get("schema") != REQUIREMENTS_SCHEMA_ID:
+        fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
+    owned_revision = requirements.get("revision")
+    owned_complete = requirements.get("complete")
+    owned_rows = requirements.get("requirements")
+    if not isinstance(owned_revision, str) or not owned_revision.strip():
+        fail("requirements", "owned requirements must identify a non-empty revision")
+    if ledger.get("requirements_revision") != owned_revision:
+        fail("requirements_revision", "ledger requirements revision does not match repository-owned requirements")
+    if not isinstance(owned_complete, bool):
+        fail("requirements", "owned requirements complete flag must be boolean")
+    if ledger.get("requirements_complete") != owned_complete:
+        fail("requirements_complete", "ledger completeness claim does not match repository-owned requirements")
+    if tier == "release" and owned_complete is not True:
+        fail("requirements_complete", "release certification requires a complete repository-owned denominator")
+    if not isinstance(owned_rows, list) or not owned_rows:
+        fail("requirements", "owned requirements must contain a non-empty requirements array")
+        owned_rows = []
 
     generated_at = _timestamp(ledger.get("generated_at"))
     if generated_at is None:
         fail("generated_at", "generated_at must be a timezone-aware ISO-8601 timestamp")
+    elif generated_at > now:
+        fail("generated_at", "generated_at cannot be in the future")
 
     candidate = ledger.get("candidate")
     if not isinstance(candidate, dict):
@@ -113,6 +148,8 @@ def evaluate(
         fail("candidate.image_digest", "candidate image_digest must be a sha256 digest")
     if cut_at is None:
         fail("candidate.cut_at", "candidate cut_at must be a timezone-aware ISO-8601 timestamp")
+    elif cut_at > now:
+        fail("candidate.cut_at", "candidate cut_at cannot be in the future")
     if expected_source_sha and candidate_sha != expected_source_sha:
         fail("candidate.source_sha", f"ledger candidate {candidate_sha!r} does not match expected {expected_source_sha!r}")
     if expected_image_digest and candidate_digest != expected_image_digest:
@@ -122,6 +159,21 @@ def evaluate(
     if not isinstance(cells, list) or not cells:
         fail("cells", "cells must be a non-empty array")
         return _report(tier, [], findings)
+
+    owned_signatures = {_requirement_signature(row) for row in owned_rows if isinstance(row, dict)}
+    ledger_signatures = {_requirement_signature(row) for row in cells if isinstance(row, dict)}
+    if len(owned_signatures) != len(owned_rows):
+        fail("requirements", "owned requirements contain invalid or duplicate normalized cells")
+    if len(ledger_signatures) != len(cells):
+        fail("requirements_denominator", "ledger contains invalid or duplicate requirement definitions")
+    missing_requirements = owned_signatures - ledger_signatures
+    unexpected_requirements = ledger_signatures - owned_signatures
+    if missing_requirements or unexpected_requirements:
+        fail(
+            "requirements_denominator",
+            f"ledger cell definitions differ from owned requirements "
+            f"(missing={len(missing_requirements)}, unexpected={len(unexpected_requirements)})",
+        )
 
     seen: set[tuple[object, ...]] = set()
     supported_groups: dict[tuple[object, ...], list[dict]] = {}
@@ -180,6 +232,10 @@ def evaluate(
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
+        if raw["source_sha"] != candidate_sha:
+            fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
+        if raw["image_digest"] != candidate_digest:
+            fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
         if not raw["addressable_by_client"]:
             continue
         if raw["result"] != "pass":
@@ -193,18 +249,18 @@ def evaluate(
         for field in required_provenance:
             if not isinstance(raw[field], str) or not raw[field].strip():
                 fail(prefix, f"required cell needs non-empty {field}")
-        if expected_source_sha and raw["source_sha"] != expected_source_sha:
-            fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match expected candidate")
+        if started is not None and started > now:
+            fail(prefix, "started_at cannot be in the future")
+        if completed is not None and completed > now:
+            fail(prefix, "completed_at cannot be in the future")
 
         if completed is not None and tier == "nightly" and (now - completed).total_seconds() > 168 * 3600:
             fail(prefix, "nightly evidence is older than 7 days")
         if completed is not None and raw["licensed"] and (now - completed).total_seconds() > 72 * 3600:
             fail(prefix, "licensed evidence is older than 72 hours")
         if tier == "release":
-            if not isinstance(raw["image_digest"], str) or raw["image_digest"] != candidate_digest:
-                fail(prefix, "release cell image_digest does not match ledger candidate")
-            if completed is not None and cut_at is not None and completed < cut_at:
-                fail(prefix, "release evidence completed before candidate cut")
+            if started is not None and cut_at is not None and started < cut_at:
+                fail(prefix, "release evidence started before candidate cut")
 
     for group, rows in supported_groups.items():
         if tier == "release" and not any(row.get("addressable_by_client") for row in rows):

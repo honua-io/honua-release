@@ -480,7 +480,7 @@
                              "scenario_facets":  [
                                                      "positive",
                                                      "metadata",
-                                                     "paging"
+                                                     "pagination"
                                                  ],
                              "contract_revision":  "stac-api-1.0",
                              "auth_policy_revision":  "anonymous-v1"
