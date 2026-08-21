@@ -60,7 +60,8 @@ def main() -> None:
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
             version: str, contract: str, target: str = "local-docker", licensed: bool = False,
             facets: list[str] | None = None, fixture: str = FIXTURE,
-            required_tier: str = "nightly") -> None:
+            required_tier: str = "nightly", addressable: bool = True,
+            addressability_reason: str | None = None) -> None:
         key = (surface, operation, client, version, target)
         if key in seen:
             return
@@ -76,8 +77,8 @@ def main() -> None:
             "deployment_target": target,
             "required_tier": required_tier,
             "licensed": licensed,
-            "addressable_by_client": True,
-            "addressability_reason": None,
+            "addressable_by_client": addressable,
+            "addressability_reason": addressability_reason,
             "scenario_facets": facets or ["positive", "metadata", "media-schema"],
             "contract_revision": contract,
             "auth_policy_revision": "anonymous-and-protected-v1",
@@ -241,20 +242,61 @@ def main() -> None:
             )
 
     applicability = load(SOURCES / "canonical-client-applicability.v1.json")
-    for capability_key in applicability["unassigned_capabilities"]:
+    allowed_classifications = {
+        "official-sdk-required",
+        "canonical-external-required",
+        "not-client-addressable",
+    }
+    decision_keys: set[str] = set()
+    for decision in applicability["decisions"]:
+        capability_key = decision["capability_key"]
+        classification = decision["classification"]
+        if capability_key in decision_keys:
+            raise ValueError(f"duplicate canonical-client applicability decision: {capability_key}")
+        decision_keys.add(capability_key)
+        if classification not in allowed_classifications:
+            raise ValueError(
+                f"unknown canonical-client applicability classification for {capability_key}: "
+                f"{classification}"
+            )
         capability = server_by_key.get(capability_key)
         if not capability or not capability.get("maturity", {}).get("implemented"):
             continue
-        add(
-            capability=capability_key,
-            surface=slug(capability_key),
-            operation=capability_key,
-            client="UNASSIGNED CANONICAL CLIENT",
-            lane=f"canonical-client-unassigned-{slug(capability_key)}",
-            version="pending-3387",
-            contract=f"canonical-client-applicability@{applicability['revision']}",
-            facets=["positive"],
-        )
+        contract = f"canonical-client-applicability@{applicability['revision']}"
+        if classification == "official-sdk-required":
+            clients = sdk_protocols["clients"]
+            facets = sdk_protocols["scenario_facets"]
+        elif classification == "canonical-external-required":
+            client_ids = decision.get("clients", [])
+            if not client_ids:
+                raise ValueError(f"canonical external decision has no clients: {capability_key}")
+            unknown_clients = set(client_ids) - set(applicability["clients"])
+            if unknown_clients:
+                raise ValueError(
+                    f"canonical external decision has unknown clients for {capability_key}: "
+                    f"{sorted(unknown_clients)}"
+                )
+            clients = [applicability["clients"][client_id] for client_id in client_ids]
+            facets = decision["scenario_facets"]
+        else:
+            reason = decision.get("reason")
+            if not reason:
+                raise ValueError(f"non-client-addressable decision has no reason: {capability_key}")
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=capability_key, client="NOT CLIENT ADDRESSABLE",
+                lane=f"not-client-addressable-{slug(capability_key)}", version="policy-v1",
+                contract=contract, facets=["not-client-addressable"], addressable=False,
+                addressability_reason=reason,
+            )
+            continue
+        for client in clients:
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=capability_key, client=client["name"],
+                lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
+                contract=contract, facets=facets,
+            )
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     esri_clients = [
@@ -307,15 +349,15 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.7",
+        "revision": "2026-08-21-complete.8",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
             "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
             "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
-            "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol, "
-            "executable operation contracts for all three Honua SDKs, and explicit fail-closed blockers for every "
-            "implemented capability whose canonical-client applicability is not yet assigned. "
+            "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol "
+            "and every Honua-specific application capability, executable operation contracts for all three Honua "
+            "SDKs, and pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities. "
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
