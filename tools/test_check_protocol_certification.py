@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -223,50 +224,42 @@ def test_candidate_and_cells_require_full_source_shas_at_every_tier():
         assert any("full 40-character" in finding["why"] for finding in report["findings"])
 
 
-def test_owned_denominator_fails_closed_while_canonical_clients_are_unassigned():
+def test_owned_denominator_has_no_unassigned_canonical_clients():
     requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
     assert error is None
-    server_sha = requirements["source_revisions"]["server"]["commit"]
-    cells = []
-    for requirement in requirements["requirements"]:
-        producer_source = cert._owned_source_name(requirement)
-        cell = {
-            **requirement,
-            "result": "pass" if requirement["addressable_by_client"] else "not-addressable",
-            "skip_reason": None,
-            "source_sha": server_sha,
-            "producer_source_sha": requirements["source_revisions"][producer_source]["commit"],
-            "image_digest": DIGEST,
-            "fixture_revision": requirement["fixture_revision"].replace("{source_sha}", server_sha),
-            "evidence_uri": "https://evidence.honua.io/runs/catalog-regression",
-            "started_at": "2026-08-20T10:00:00Z",
-            "completed_at": "2026-08-20T10:05:00Z",
-            "budget_observations": None,
-        }
-        cells.append(cell)
-    ledger = {
-        "schema": cert.SCHEMA_ID,
-        "requirements_revision": requirements["revision"],
-        "requirements_complete": requirements["complete"],
-        "generated_at": "2026-08-20T10:06:00Z",
-        "candidate": {"source_sha": server_sha, "image_digest": DIGEST, "cut_at": CUT},
-        "cells": cells,
-    }
-
-    report = cert.evaluate(ledger, "nightly", requirements=requirements, now=NOW)
-
     unassigned = [
         row for row in requirements["requirements"]
         if row["canonical_client"] == cert.UNASSIGNED_CANONICAL_CLIENT
     ]
-    if unassigned:
-        assert report["overall_status"] == "fail"
-        assert sum(
-            "canonical client applicability is unassigned" in finding["why"]
-            for finding in report["findings"]
-        ) == len(unassigned)
-    else:
-        assert report["overall_status"] == "pass", report["findings"]
+    assert unassigned == []
+
+
+def test_canonical_client_applicability_decisions_are_complete_and_governed():
+    source = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "canonical-client-applicability.v1.json")
+        .read_text(encoding="utf-8")
+    )
+    decisions = source["decisions"]
+    capability_keys = [decision["capability_key"] for decision in decisions]
+    allowed = {
+        "official-sdk-required",
+        "canonical-external-required",
+        "not-client-addressable",
+    }
+
+    assert len(decisions) == 41
+    assert len(capability_keys) == len(set(capability_keys))
+    assert all(decision["classification"] in allowed for decision in decisions)
+    assert all(
+        decision.get("clients") and decision.get("scenario_facets")
+        for decision in decisions
+        if decision["classification"] == "canonical-external-required"
+    )
+    assert all(
+        decision.get("reason")
+        for decision in decisions
+        if decision["classification"] == "not-client-addressable"
+    )
 
 
 def test_unassigned_canonical_client_cannot_be_fabricated_as_a_pass():
