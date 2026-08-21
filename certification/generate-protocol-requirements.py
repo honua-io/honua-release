@@ -51,7 +51,11 @@ def main() -> None:
         (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
     )["fixtures"]
     requirements = [
-        {**row, "budget_expectations": row.get("budget_expectations")}
+        {
+            **row,
+            "budget_expectations": row.get("budget_expectations"),
+            "entitlement_policy_revision": row.get("entitlement_policy_revision"),
+        }
         for row in format_source["requirements"]
     ]
     seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
@@ -59,6 +63,7 @@ def main() -> None:
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
             version: str, contract: str, auth_policy: str,
             target: str = "local-docker", licensed: bool = False,
+            entitlement_policy: str | None = None,
             facets: list[str] | None = None, fixture: str = FIXTURE,
             required_tier: str = "nightly", addressable: bool = True,
             addressability_reason: str | None = None) -> None:
@@ -77,6 +82,7 @@ def main() -> None:
             "deployment_target": target,
             "required_tier": required_tier,
             "licensed": licensed,
+            "entitlement_policy_revision": entitlement_policy,
             "addressable_by_client": addressable,
             "addressability_reason": addressability_reason,
             "scenario_facets": facets or ["positive", "metadata", "media-schema"],
@@ -119,7 +125,8 @@ def main() -> None:
                 operation=operation["operation"], client=contract["canonicalClient"],
                 lane=f"{source_name}-certification", version=contract["clientVersion"],
                 contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
-                auth_policy="anonymous-public-v1",
+                auth_policy=operation.get("authPolicyRevision", "anonymous-public-v1"),
+                target=operation.get("deploymentTarget", "local-docker"),
                 fixture=(
                     fixture_pins["sdk-js"]
                     if source_name == "sdk-js"
@@ -127,6 +134,7 @@ def main() -> None:
                 ),
                 facets=operation["scenario_facets"],
                 licensed=operation.get("licensed", False),
+                entitlement_policy=operation.get("entitlementPolicyRevision"),
                 required_tier=(
                     operation.get("requiredTier")
                     or (
@@ -334,10 +342,10 @@ def main() -> None:
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     esri_clients = [
-        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False),
-        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False),
-        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False),
-        ("ArcGIS Pro/arcpy", "3.5", "desktop-arcpy", "windows-licensed", True),
+        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None),
+        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None),
+        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None),
+        ("ArcGIS Pro/arcpy", "3.5", "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1"),
     ]
     for service in esri_index["services"]:
         matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
@@ -349,13 +357,13 @@ def main() -> None:
             facets = ["positive", "auth", "media-schema"]
             if "query" in case["name"].lower():
                 facets += ["pagination", "limit", "crs-axis"]
-            for client, version, lane, target, licensed in esri_clients:
+            for client, version, lane, target, licensed, entitlement_policy in esri_clients:
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
                     client=client, lane=f"{lane}-{service['service']}", version=version,
                     contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
-                    licensed=licensed, facets=facets,
+                    licensed=licensed, entitlement_policy=entitlement_policy, facets=facets,
                 )
 
     ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")

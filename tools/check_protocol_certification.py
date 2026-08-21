@@ -30,7 +30,7 @@ FACETS = {
 }
 CELL_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
-    "client_version", "deployment_target", "required_tier", "licensed",
+    "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision",
     "addressable_by_client", "addressability_reason", "result", "skip_reason",
     "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
     "producer_source_sha",
@@ -45,7 +45,7 @@ REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
 REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
-    "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
+    "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
     "fixture_revision",
     "budget_expectations",
@@ -162,20 +162,58 @@ RECEIPT_ID_FIELDS = (
 )
 
 
+def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
+    if not cell.get("licensed"):
+        return entitlement is None and cell.get("entitlement_policy_revision") is None
+    if not isinstance(entitlement, dict) or set(entitlement) != {
+        "policy_revision", "capability_key", "deployment_target", "verification",
+        "status", "checked_at", "license_fingerprint",
+    }:
+        return False
+    checked_at = _timestamp(entitlement.get("checked_at"))
+    started_at = _timestamp(cell.get("started_at"))
+    completed_at = _timestamp(cell.get("completed_at"))
+    return (
+        isinstance(cell.get("entitlement_policy_revision"), str)
+        and entitlement.get("policy_revision") == cell["entitlement_policy_revision"]
+        and entitlement.get("capability_key") == cell.get("capability_key")
+        and entitlement.get("deployment_target") == cell.get("deployment_target")
+        and entitlement.get("verification") == "live-server-capability-probe-v1"
+        and entitlement.get("status") == "active"
+        and isinstance(entitlement.get("license_fingerprint"), str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", entitlement["license_fingerprint"]) is not None
+        and checked_at is not None
+        and started_at is not None
+        and completed_at is not None
+        and started_at <= checked_at <= completed_at
+    )
+
+
 def _valid_receipt(cell: dict) -> bool:
     receipt = cell.get("evidence_receipt")
     facet_results = cell.get("facet_results")
-    if not isinstance(receipt, dict) or set(receipt) != {
-        "schema", "identity", "result", "facets", "payload_base64",
-    } or not isinstance(facet_results, dict):
+    receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
+    identity_fields = set(RECEIPT_ID_FIELDS)
+    if cell.get("licensed"):
+        receipt_fields.add("entitlement")
+        identity_fields.add("entitlement_policy_revision")
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != receipt_fields
+        or not isinstance(facet_results, dict)
+    ):
         return False
     identity = receipt.get("identity")
     facets = receipt.get("facets")
     if (
         receipt.get("schema") != "honua.certification-evidence-receipt/v1"
         or not isinstance(identity, dict)
-        or set(identity) != set(RECEIPT_ID_FIELDS)
+        or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or (
+            cell.get("licensed")
+            and identity.get("entitlement_policy_revision") != cell.get("entitlement_policy_revision")
+        )
         or receipt.get("result") != cell.get("result")
         or not isinstance(facets, dict)
         or set(facets) != set(cell.get("scenario_facets", []))
@@ -184,6 +222,7 @@ def _valid_receipt(cell: dict) -> bool:
             or facets[facet] != facet_results[facet].get("result")
             for facet in facets
         )
+        or not _valid_entitlement_assertion(cell, receipt.get("entitlement"))
         or not isinstance(receipt.get("payload_base64"), str)
     ):
         return False
@@ -574,6 +613,20 @@ def evaluate(
 
         if completed is not None and tier == "nightly" and (now - completed).total_seconds() > 168 * 3600:
             fail(prefix, "nightly evidence is older than 7 days")
+        if raw["licensed"]:
+            entitlement_policy = raw.get("entitlement_policy_revision")
+            if entitlement_policy == "honua-pro-feature-subscriptions-v1":
+                if raw.get("deployment_target") != "licensed-release":
+                    fail(prefix, "Honua Pro evidence must execute on the governed licensed-release target")
+                if raw.get("auth_policy_revision") != "api-key-protected-v1":
+                    fail(prefix, "Honua Pro evidence must execute the governed protected-auth policy")
+            elif entitlement_policy == "esri-arcgis-pro-arcpy-v1":
+                if raw.get("deployment_target") != "windows-licensed":
+                    fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
+            else:
+                fail(prefix, "licensed evidence must bind a governed entitlement policy")
+        elif raw.get("entitlement_policy_revision") is not None:
+            fail(prefix, "unlicensed evidence cannot claim an entitlement policy")
         if completed is not None and raw["licensed"] and (now - completed).total_seconds() > 72 * 3600:
             fail(prefix, "licensed evidence is older than 72 hours")
         if tier == "release":
