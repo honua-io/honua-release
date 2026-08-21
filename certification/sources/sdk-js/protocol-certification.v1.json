@@ -501,7 +501,10 @@
         "media-schema"
       ],
       "requiredTier": "release",
-      "licensed": true
+      "licensed": true,
+      "deploymentTarget": "licensed-release",
+      "authPolicyRevision": "api-key-protected-v1",
+      "entitlementPolicyRevision": "honua-pro-feature-subscriptions-v1"
     },
     {
       "capability_key": "streaming.feature-subscriptions",
@@ -512,7 +515,10 @@
         "media-schema"
       ],
       "requiredTier": "release",
-      "licensed": true
+      "licensed": true,
+      "deploymentTarget": "licensed-release",
+      "authPolicyRevision": "api-key-protected-v1",
+      "entitlementPolicyRevision": "honua-pro-feature-subscriptions-v1"
     },
     {
       "capability_key": "routing.solve",

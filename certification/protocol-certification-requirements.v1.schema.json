@@ -31,7 +31,7 @@
         "additionalProperties": false,
         "required": [
           "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
-          "client_version", "deployment_target", "required_tier", "licensed", "addressable_by_client",
+          "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
           "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
           "fixture_revision", "budget_expectations"
         ],
@@ -46,6 +46,7 @@
           "deployment_target": { "type": "string", "minLength": 1 },
           "required_tier": { "enum": ["pr", "nightly", "release"] },
           "licensed": { "type": "boolean" },
+          "entitlement_policy_revision": { "type": ["string", "null"], "pattern": "^[a-z0-9.-]+-v[0-9]+$" },
           "addressable_by_client": { "type": "boolean" },
           "addressability_reason": { "type": ["string", "null"] },
           "scenario_facets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },

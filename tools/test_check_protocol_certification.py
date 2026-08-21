@@ -29,6 +29,7 @@ def _cell(**overrides):
         "deployment_target": "local-docker",
         "required_tier": "nightly",
         "licensed": False,
+        "entitlement_policy_revision": None,
         "addressable_by_client": True,
         "addressability_reason": None,
         "result": "pass",
@@ -477,3 +478,30 @@ def test_release_rejects_naive_external_cut_without_throwing():
 
     assert report["overall_status"] == "fail"
     assert any(finding["check"] == "expected_cut_at" for finding in report["findings"])
+
+
+def test_licensed_receipt_requires_bound_live_entitlement_assertion():
+    value = _cell(
+        licensed=True,
+        entitlement_policy_revision="honua-pro-feature-subscriptions-v1",
+        deployment_target="licensed-release",
+        auth_policy_revision="api-key-protected-v1",
+    )
+    assert not cert._valid_receipt(value)
+
+    value["evidence_receipt"]["identity"]["entitlement_policy_revision"] = (
+        "honua-pro-feature-subscriptions-v1"
+    )
+    value["evidence_receipt"]["entitlement"] = {
+        "policy_revision": "honua-pro-feature-subscriptions-v1",
+        "capability_key": value["capability_key"],
+        "deployment_target": "licensed-release",
+        "verification": "live-server-capability-probe-v1",
+        "status": "active",
+        "checked_at": "2026-08-20T10:02:00Z",
+        "license_fingerprint": "sha256:" + "a" * 64,
+    }
+    assert cert._valid_receipt(value)
+
+    value["evidence_receipt"]["entitlement"]["deployment_target"] = "local-docker"
+    assert not cert._valid_receipt(value)
