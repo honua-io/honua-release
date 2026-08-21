@@ -1,0 +1,179 @@
+{
+    "schema":  "honua.protocol-operation-inventory/v1",
+    "source_sha":  "5e052a76b6485edbe78c3482488c58f66700bd59",
+    "fixture_version":  "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
+    "operations":  [
+                       {
+                           "kind":  "transport",
+                           "operation":  "initialize"
+                       },
+                       {
+                           "kind":  "transport",
+                           "operation":  "ping"
+                       },
+                       {
+                           "kind":  "transport",
+                           "operation":  "tools/list"
+                       },
+                       {
+                           "kind":  "transport",
+                           "operation":  "resources/templates/list"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:apply_style_preset"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:cancel_job"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:clarify_intent"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:create_app_package"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:create_map_package"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:validate_plan"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:execute_plan"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:geocode_address"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:geocode_addresses"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:get_style"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:ground_candidates"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:ingest_dataset"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:list_capabilities"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:list_layers"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:plan_analysis"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:preview_package"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:propose_operation"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:propose_rollback"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:ops_health"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:ops_findings"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:alert_events"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:operate_events"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:platform_release_status"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:deploy_operations"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:publish_service"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:publish_result"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:query_features"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:render_map"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:resolve_entity"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:solve_route"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:validate_package"
+                       },
+                       {
+                           "kind":  "tool",
+                           "operation":  "tools/call:validate_plan"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:App package"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Deployment"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Map package"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Ops findings"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Ops health"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Published service"
+                       },
+                       {
+                           "kind":  "resource",
+                           "operation":  "resources/read:Workspace"
+                       }
+                   ]
+}

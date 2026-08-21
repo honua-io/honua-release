@@ -13,6 +13,7 @@ OUTPUT = ROOT / "protocol-certification-requirements.v1.json"
 SOURCES = ROOT / "sources"
 SUPPORTED = {"implemented", "partial", "covered"}
 FIXTURE = "docker/cng/seed.sql@{source_sha}"
+IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
 
 
 def load(path: Path) -> Any:
@@ -27,15 +28,12 @@ def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
     existing = load(OUTPUT)
     requirements = [row for row in existing["requirements"] if row["capability_key"].startswith("format.")]
-    seen = {
-        (row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"])
-        for row in requirements
-    }
+    seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
 
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
             version: str, contract: str, target: str = "local-docker", licensed: bool = False,
-            facets: list[str] | None = None) -> None:
-        key = (capability, surface, operation, client, lane)
+            facets: list[str] | None = None, fixture: str = FIXTURE) -> None:
+        key = (surface, operation, client, version, target)
         if key in seen:
             return
         seen.add(key)
@@ -55,7 +53,7 @@ def main() -> None:
             "scenario_facets": facets or ["positive", "metadata", "media-schema"],
             "contract_revision": contract,
             "auth_policy_revision": "anonymous-and-protected-v1",
-            "fixture_revision": FIXTURE,
+            "fixture_revision": fixture,
         })
 
     sdk_sources = [
@@ -75,6 +73,37 @@ def main() -> None:
                     contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
                     facets=["positive", "media-schema"],
                 )
+
+    grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
+    grpc_fixture = f"geospatial-grpc-conformance@{grpc['fixture_version']}+{grpc['source_sha']}"
+    grpc_clients = (
+        ("Generated gRPC .NET client", "grpc-dotnet"),
+        ("Generated gRPC Python client", "grpc-python"),
+        ("Generated gRPC TypeScript client", "grpc-typescript"),
+    )
+    for rpc in grpc["operations"]:
+        operation = f"{rpc['service']}/{rpc['operation']}"
+        for client, lane in grpc_clients:
+            add(
+                capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
+                client=client, lane=lane, version=f"source@{grpc['source_sha']}",
+                contract=f"geospatial-grpc@{grpc['source_sha']}", fixture=grpc_fixture,
+                facets=["positive", "negative", "media-schema"],
+            )
+
+    mcp = load(SOURCES / "geospatial-mcp" / "operations.v1.json")
+    mcp_clients = (
+        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "1.30.0"),
+        ("MCP Inspector", "mcp-inspector", "2.3.0"),
+    )
+    for entry in mcp["operations"]:
+        for client, lane, version in mcp_clients:
+            add(
+                capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
+                client=client, lane=lane, version=version,
+                contract=f"geospatial-mcp@{mcp['source_sha']}",
+                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema"],
+            )
 
     server = load(SOURCES / "server" / "capability-matrix.v1.json")
     lane_clients = {
@@ -96,7 +125,7 @@ def main() -> None:
                 capability=capability["key"], surface=slug(suite), operation=capability["key"],
                 client="OGC CITE", lane=f"cite-{slug(suite)}", version=suite,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
-                facets=["positive", "malformed-input", "crs-axis", "media-schema"],
+                facets=["positive", "negative", "crs-axis", "media-schema"],
             )
         for interop in capability.get("interop", []):
             lane = interop["clientLane"]
@@ -121,9 +150,9 @@ def main() -> None:
                 continue
             if service["service"] == "ogc":
                 continue
-            facets = ["positive", "authorization", "media-schema"]
+            facets = ["positive", "auth", "media-schema"]
             if "query" in case["name"].lower():
-                facets += ["pagination-cursor", "result-limits", "crs-axis"]
+                facets += ["pagination", "limit", "crs-axis"]
             for client, version, lane, target, licensed in esri_clients:
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
@@ -138,19 +167,19 @@ def main() -> None:
             continue
         name = case["name"].lower()
         if "features" in name or "wfs" in name:
-            clients = [("OGC CITE", "current", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", "3.40", "qgis")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", "3.40", "qgis")]
         elif "tiles" in name or "wmts" in name or "wms" in name:
-            clients = [("OGC CITE", "current", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
         elif "wcs" in name or "coverage" in name:
-            clients = [("OGC CITE", "current", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.34", "owslib")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.34", "owslib")]
         else:
-            clients = [("OGC CITE", "current", "cite"), ("Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python")]
         for client, version, lane in clients:
             add(
                 capability="serve.ogc", surface="ogc", operation=case["id"], client=client,
                 lane=f"{lane}-ogc", version=version,
                 contract=f"esri-ogc-matrix@{revisions['esri-compat']['commit']}",
-                facets=["positive", "malformed-input", "authorization", "crs-axis", "media-schema"],
+                facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
             )
 
     requirements.sort(key=lambda row: (
@@ -158,11 +187,12 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.1",
+        "revision": "2026-08-21-complete.2",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
-            "Esri operation matrices, SDK entrypoints, and cloud-native canonical-client inventory. "
+            "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
+            "clients, and official MCP SDK/Inspector operations. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
         "source_revisions": revisions,

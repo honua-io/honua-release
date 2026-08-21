@@ -118,6 +118,38 @@ def test_candidate_and_cells_require_full_source_shas_at_every_tier():
         assert any("full 40-character" in finding["why"] for finding in report["findings"])
 
 
+def test_owned_denominator_can_form_a_valid_nightly_ledger():
+    requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    assert error is None
+    cells = []
+    for requirement in requirements["requirements"]:
+        cell = {
+            **requirement,
+            "result": "pass" if requirement["addressable_by_client"] else "not-addressable",
+            "skip_reason": None,
+            "source_sha": SHA,
+            "producer_source_sha": "c" * 40,
+            "image_digest": DIGEST,
+            "fixture_revision": requirement["fixture_revision"].replace("{source_sha}", SHA),
+            "evidence_uri": "https://evidence.honua.io/runs/catalog-regression",
+            "started_at": "2026-08-20T10:00:00Z",
+            "completed_at": "2026-08-20T10:05:00Z",
+        }
+        cells.append(cell)
+    ledger = {
+        "schema": cert.SCHEMA_ID,
+        "requirements_revision": requirements["revision"],
+        "requirements_complete": requirements["complete"],
+        "generated_at": "2026-08-20T10:06:00Z",
+        "candidate": {"source_sha": SHA, "image_digest": DIGEST, "cut_at": CUT},
+        "cells": cells,
+    }
+
+    report = cert.evaluate(ledger, "nightly", requirements=requirements, now=NOW)
+
+    assert report["overall_status"] == "pass", report["findings"]
+
+
 def test_nightly_older_than_seven_days_fails():
     report = _evaluate(_ledger(_cell(completed_at="2026-08-10T10:00:00Z")), "nightly", now=NOW)
     assert report["overall_status"] == "fail"
