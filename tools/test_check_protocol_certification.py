@@ -54,11 +54,14 @@ def _cell(**overrides):
     }
     value.update(overrides)
     if "evidence_receipt" not in overrides:
+        identity = {
+            field: value[field] for field in cert.RECEIPT_ID_FIELDS
+        }
+        if isinstance(value.get("test_ids"), list):
+            identity["test_ids"] = value["test_ids"]
         value["evidence_receipt"] = {
             "schema": "honua.certification-evidence-receipt/v1",
-            "identity": {
-                field: value[field] for field in cert.RECEIPT_ID_FIELDS
-            },
+            "identity": identity,
             "result": value["result"],
             "facets": {facet: "pass" for facet in value["scenario_facets"]},
             "payload_base64": "dGVzdA==",
@@ -128,7 +131,7 @@ def _requirements(*cells, complete=True):
         "complete": complete,
         "source_revisions": {"server": {"commit": SHA}},
         "requirements": [
-            {field: cell[field] for field in cert.REQUIREMENT_FIELDS}
+            {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
             for cell in (cells or [_cell()])
         ],
     }
@@ -177,6 +180,54 @@ def test_producer_source_sha_must_match_owned_client_revision():
     )
     assert report["overall_status"] == "fail"
     assert any("owned sdk-js revision" in finding["why"] for finding in report["findings"])
+
+
+def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
+    harness_sha = "c" * 40
+    test_ids = ["EdrEndpointsTests.Edr_Cube_ReturnsCoverageJsonGridSubset"]
+    cell = _cell(
+        capability_key="serve.ogc-api-edr",
+        surface="ogc-api-edr",
+        operation="GET /edr/collections/{collectionId}/cube",
+        canonical_client="Honua server public protocol integration harness",
+        client_lane="server-protocol-harness",
+        client_version=f"source@{harness_sha}",
+        producer_source_sha=harness_sha,
+        test_ids=test_ids,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["server-certification"] = {"commit": harness_sha}
+    passing = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert passing["overall_status"] == "pass"
+
+    wrong_tests = copy.deepcopy(cell)
+    wrong_tests["evidence_receipt"]["identity"]["test_ids"] = ["OtherTests.NotTheGovernedTest"]
+    wrong_tests["evidence_digest"] = cert._receipt_digest(wrong_tests["evidence_receipt"])
+    wrong_tests["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + wrong_tests["evidence_digest"][7:]
+    wrong_tests["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": wrong_tests["evidence_digest"]}
+        for facet in wrong_tests["scenario_facets"]
+    }
+    wrong_test_report = _evaluate(
+        _ledger(wrong_tests), "nightly", requirements=requirements, now=NOW,
+    )
+    assert wrong_test_report["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in wrong_test_report["findings"])
+
+    wrong_source = copy.deepcopy(cell)
+    wrong_source["producer_source_sha"] = "f" * 40
+    wrong_source["evidence_receipt"]["identity"]["producer_source_sha"] = "f" * 40
+    wrong_source["evidence_digest"] = cert._receipt_digest(wrong_source["evidence_receipt"])
+    wrong_source["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + wrong_source["evidence_digest"][7:]
+    wrong_source["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": wrong_source["evidence_digest"]}
+        for facet in wrong_source["scenario_facets"]
+    }
+    wrong_source_report = _evaluate(
+        _ledger(wrong_source), "nightly", requirements=requirements, now=NOW,
+    )
+    assert wrong_source_report["overall_status"] == "fail"
+    assert any("owned server-certification revision" in finding["why"] for finding in wrong_source_report["findings"])
 
 
 def test_cloud_native_pass_requires_owned_budget_and_observations():
