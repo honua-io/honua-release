@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/local-docker-real-model-ai-arc-evidence.v1.json",
+  "title": "Honua secret-free local Docker real-model call/result evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion", "candidateId", "releaseId", "endpointSha256", "source",
+    "model", "promptVersion", "evalVersion", "transcriptSha256", "target",
+    "checkpointDigest", "consoleAggregateSha256", "consoleEvidenceSha256", "lanes", "joins"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.local-docker.real-model-ai-arc-evidence/v1" },
+    "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "endpointSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "source": {
+      "type": "object", "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "honua-io/honua-studio" },
+        "sha": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha" }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object", "required": ["provider", "modelId"],
+      "properties": {
+        "provider": { "enum": ["anthropic", "bedrock", "openai"] },
+        "modelId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "promptVersion": { "const": "honua.local-docker.ai-arc.prompt/v1" },
+    "evalVersion": { "const": "honua.local-docker.ai-arc.eval/v1" },
+    "transcriptSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "target": { "const": "local-docker" },
+    "checkpointDigest": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "consoleAggregateSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "consoleEvidenceSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "lanes": {
+      "type": "object",
+      "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
+      "properties": {
+        "admin": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "esriGp": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "nativeAnalysis": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" },
+        "studioPublication": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/lane" }
+      },
+      "additionalProperties": false
+    },
+    "joins": {
+      "type": "object",
+      "required": [
+        "candidateId", "releaseId", "serviceName", "connectionId",
+        "parcelsLayerId", "zoningLayerId", "esriMcpJobId", "esriMcpResultPackageId",
+        "esriMcpArtifactId", "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
+        "mapItemId", "mapVersionId", "mapContentHash", "mapReopenedDraftId",
+        "mapPublicationVersionId", "mapPublicationContentHash", "mapProposalId", "mapPublicationId",
+        "mapPublicationStatus", "mapPublicUrl", "mapAuditCorrelationId", "appItemId",
+        "appVersionId", "appContentHash", "appReopenedDraftId", "appPublicationVersionId",
+        "appPublicationContentHash", "appProposalId", "appPublicationId", "appPublicationStatus",
+        "appPublicUrl", "appAuditCorrelationId", "dashboardItemId", "dashboardVersionId",
+        "dashboardContentHash", "dashboardReopenedDraftId", "dashboardPublicationVersionId", "dashboardPublicationContentHash",
+        "dashboardProposalId", "dashboardPublicationId", "dashboardPublicationStatus", "dashboardPublicUrl",
+        "dashboardAuditCorrelationId"
+      ],
+      "patternProperties": {
+        "^(?:candidateId|releaseId|serviceName|connectionId|parcelsLayerId|zoningLayerId|esriMcpJobId|esriMcpResultPackageId|esriMcpArtifactId|gpServerJobId|directAnalysisJobId|bufferArtifactId|mapItemId|mapVersionId|mapContentHash|mapReopenedDraftId|mapPublicationVersionId|mapPublicationContentHash|mapProposalId|mapPublicationId|mapPublicationStatus|mapPublicUrl|mapAuditCorrelationId|appItemId|appVersionId|appContentHash|appReopenedDraftId|appPublicationVersionId|appPublicationContentHash|appProposalId|appPublicationId|appPublicationStatus|appPublicUrl|appAuditCorrelationId|dashboardItemId|dashboardVersionId|dashboardContentHash|dashboardReopenedDraftId|dashboardPublicationVersionId|dashboardPublicationContentHash|dashboardProposalId|dashboardPublicationId|dashboardPublicationStatus|dashboardPublicUrl|dashboardAuditCorrelationId)$": { "type": ["string", "number", "integer", "boolean"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

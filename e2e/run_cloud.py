@@ -20,7 +20,7 @@ metrics-gated, STAC/EDR/OData/OGC-Features reachability) run for real. A genuine
 probe (a real break, not just "nothing seeded") reddens the run unconditionally — BLOCKED canary
 probes are reported but do not gate, since the ephemeral cloud cells have no seed-data story yet
 (distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
-pending the driver harness image, honua-release#35).
+pending the driver harness image, honua-release#129).
 
 An UNREACHABLE endpoint is not in that tolerated set (honua-release#128). "Nothing was seeded" is a
 missing input; "the deployment never answered" is a missing subject, and a cell that provisioned an
@@ -33,18 +33,23 @@ Exit code 0 only when the assembled status is "pass".
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 from pathlib import Path
+
+import yaml
 
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
-from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical,  # noqa: E402
-                              run_extended)
+from canonical_checks import (CheckResult, EXTENDED_SCENARIOS, is_endpoint_unreachable,  # noqa: E402
+                              make_fetch, run_canonical, run_extended)
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -59,6 +64,47 @@ _CLOUD_CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID",
 
 _READY_ATTEMPTS = 36
 _READY_DELAY_SECONDS = 5.0
+_AWS_SECRET_ARN = re.compile(
+    r"arn:(?:aws|aws-us-gov|aws-cn):secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+"
+)
+
+_AI_ARC_REQUIRED_ENV = (
+    "HONUA_DEVOPS_DIR",
+    "HONUA_SDK_JS_DIR",
+    "HONUA_CONSOLE_DIR",
+    "HONUA_STUDIO_DIR",
+    "HONUA_AI_ARC_FIXTURE_BASE_URL",
+    "HONUA_AI_ARC_CONSOLE_ORIGIN",
+    "HONUA_AI_PROVIDER",
+    "HONUA_AI_MODEL",
+    "HONUA_AI_ARC_OUT",
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF",
+    "HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF",
+    "HONUA_RUN_URL",
+)
+
+_DEVOPS_FORBIDDEN_ENV = (
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL",
+    "HONUA_AI_ARC_CONSOLE_TOKEN",
+    "HONUA_ADMIN_KEY",
+    "HONUA_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+)
+
+_AI_ARC_CHILD_CREDENTIAL_ENV = (
+    "HONUA_AI_ARC_PREPARE_CREDENTIAL",
+    "HONUA_AI_ARC_CONSOLE_TOKEN",
+    "HONUA_ADMIN_KEY",
+    "HONUA_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+)
 
 
 def _cloud_creds_present() -> bool:
@@ -83,6 +129,383 @@ def _mark_provision_attempt() -> None:
 def _check_dicts(results) -> list[dict]:
     return [{"name": r.name, "status": r.status, "why": r.why, **({"evidence": r.evidence} if r.evidence else {})}
             for r in results]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The only credential-shaped fields written here are validated Secrets Manager ARN references;
+    # credential values remain process-only.
+    # codeql[py/clear-text-storage-sensitive-data]
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _git_head(path: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProvisionError(f"AI delivery arc checkout identity unavailable: {path}") from error
+    return result.stdout.strip()
+
+
+def _run_secretless(
+    command: list[str], *, env: dict[str, str], label: str, cwd: Path | None = None,
+    expected_codes: tuple[int, ...] = (0,),
+) -> None:
+    try:
+        result = subprocess.run(command, env=env, cwd=cwd, check=False)
+    except OSError as error:
+        raise ProvisionError(f"{label} could not start") from error
+    if result.returncode not in expected_codes:
+        expected = ", ".join(str(code) for code in expected_codes)
+        raise ProvisionError(f"{label} exited {result.returncode}; expected {expected}")
+
+
+def _devops_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """Retain AWS/OIDC runtime access while excluding unrelated application credentials."""
+    environment = dict(os.environ if source is None else source)
+    for name in _DEVOPS_FORBIDDEN_ENV:
+        environment.pop(name, None)
+    return environment
+
+
+def _resolve_aws_secret(reference: str, label: str = "scoped admin secret") -> str:
+    try:
+        result = subprocess.run(
+            [
+                "aws", "secretsmanager", "get-secret-value", "--secret-id", reference,
+                "--query", "SecretString", "--output", "text",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProvisionError(f"AWS ECS AI delivery arc could not resolve its {label}") from error
+    value = result.stdout.strip()
+    if not value:
+        raise ProvisionError(f"AWS ECS AI delivery arc resolved an empty {label}")
+    return value
+
+
+def _studio_command(phase: str) -> list[str]:
+    if phase not in {"prepare", "resume"}:
+        raise ValueError(f"unsupported Studio AI arc phase: {phase}")
+    return ["npm", "run", "release:real-model-ai-arc", "--", phase, "--execute", "--yes"]
+
+
+def _run_ai_arc_approval_boundary(
+    *, studio_root: Path, console_root: Path, producer_env: dict[str, str],
+    prepare_credential_ref: str, console_token_ref: str,
+) -> None:
+    # Model/admin credentials and the focused Console approval credential have deliberately
+    # disjoint process environments. In particular, the Console producer refuses broad keys.
+    boundary_env = dict(producer_env)
+    for name in _AI_ARC_CHILD_CREDENTIAL_ENV:
+        boundary_env.pop(name, None)
+    prepare_credential = _resolve_aws_secret(
+        prepare_credential_ref, "scoped AI arc prepare credential"
+    )
+    try:
+        studio_prepare_env = {
+            **boundary_env,
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": prepare_credential,
+        }
+        _run_secretless(
+            _studio_command("prepare"),
+            env=studio_prepare_env,
+            label="full Admin/GP/Studio real-model prepare",
+            cwd=studio_root,
+            expected_codes=(2,),
+        )
+        studio_prepare_env.pop("HONUA_AI_ARC_PREPARE_CREDENTIAL", None)
+        prepare_credential = ""
+
+        console_token = _resolve_aws_secret(console_token_ref, "scoped Console approval token")
+        try:
+            _run_secretless(
+                ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"],
+                env={**boundary_env, "HONUA_AI_ARC_CONSOLE_TOKEN": console_token},
+                label="focused Console approval/audit/recovery producer",
+                cwd=console_root,
+            )
+        finally:
+            console_token = ""
+
+        _run_secretless(
+            _studio_command("resume"),
+            env=boundary_env,
+            label="full Admin/GP/Studio real-model resume",
+            cwd=studio_root,
+        )
+    finally:
+        prepare_credential = ""
+
+
+def _ai_arc_paths() -> dict[str, Path]:
+    out = Path(os.environ["HONUA_AI_ARC_OUT"])
+    return {
+        "out": out,
+        "handoff": out / "handoff.json",
+        "provisionEvidence": out / "provision-evidence.json",
+        "provisionBinding": out / "provision-binding.json",
+        "checkpoint": out / "checkpoint.json",
+        "sdkReceipt": out / "sdk-journey.json",
+        "consoleReceipt": out / "console-receipt.json",
+        "sdkConsoleReceipt": out / "sdk-console-receipt.json",
+        "consoleEvidence": out / "console-evidence.json",
+        "modelHandoff": out / "real-model-handoff.json",
+        "modelReceipt": out / "real-model-receipt.json",
+        "modelEvidence": out / "real-model-evidence.json",
+        "preTeardown": out / "pre-teardown-evidence.json",
+        "teardownProof": out / "teardown-proof.json",
+        "teardownEvidence": out / "teardown-evidence.json",
+        "finalEvidence": out / "final-evidence.json",
+        "provisionReceipt": out / "aws-ecs-provision-receipt.json",
+        "arcReceipt": out / "aws-ecs-ai-delivery-arc-receipt.json",
+    }
+
+
+def _devops_resume_command(
+    producer: Path, common: list[str], paths: dict[str, Path]
+) -> list[str]:
+    return [
+        sys.executable, str(producer), "resume", *common,
+        "--console-receipt", str(paths["consoleReceipt"]),
+        "--sdk-console-receipt", str(paths["sdkConsoleReceipt"]),
+        "--console-evidence", str(paths["consoleEvidence"]),
+        "--real-model-handoff", str(paths["modelHandoff"]),
+        "--real-model-receipt", str(paths["modelReceipt"]),
+        "--real-model-evidence", str(paths["modelEvidence"]),
+        "--pre-teardown-evidence", str(paths["preTeardown"]),
+    ]
+
+
+def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
+    if not endpoint.startswith("https://"):
+        raise ProvisionError(
+            "AWS ECS AI delivery arc requires a public HTTPS endpoint; the current ECS target exposes HTTP"
+        )
+    missing = [name for name in _AI_ARC_REQUIRED_ENV if not os.environ.get(name)]
+    if missing:
+        raise ProvisionError(f"AWS ECS AI delivery arc inputs are missing: {', '.join(missing)}")
+    run_url = os.environ["HONUA_RUN_URL"]
+    fixture_url = os.environ["HONUA_AI_ARC_FIXTURE_BASE_URL"]
+    if not run_url.startswith("https://") or not fixture_url.startswith("https://"):
+        raise ProvisionError("AWS ECS AI delivery arc requires HTTPS run evidence and fixture URLs")
+
+    manifest_path = Path(
+        os.environ.get("HONUA_PLATFORM_MANIFEST", str(Path(__file__).resolve().parents[1] / "platform-manifest.yaml"))
+    )
+    try:
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise ProvisionError("AWS ECS AI delivery arc platform manifest is unavailable") from error
+    components = manifest.get("components") if isinstance(manifest, dict) else None
+    if not isinstance(components, dict):
+        raise ProvisionError("AWS ECS AI delivery arc platform manifest has no components")
+    devops_root = Path(os.environ["HONUA_DEVOPS_DIR"])
+    sdk_root = Path(os.environ["HONUA_SDK_JS_DIR"])
+    console_root = Path(os.environ["HONUA_CONSOLE_DIR"])
+    studio_root = Path(os.environ["HONUA_STUDIO_DIR"])
+    for name, root in (
+        ("honua-devops", devops_root),
+        ("honua-sdk-js", sdk_root),
+        ("honua-console", console_root),
+        ("honua-studio", studio_root),
+    ):
+        pinned = (components.get(name) or {}).get("sha")
+        if _git_head(root) != pinned:
+            raise ProvisionError(f"AWS ECS AI delivery arc {name} checkout is not manifest-pinned")
+    producer = devops_root / "scripts" / "aws_ecs_ai_delivery_arc.py"
+    if not producer.is_file():
+        raise ProvisionError("manifest-pinned honua-devops has no AWS ECS AI delivery arc producer")
+
+    provision = target.provision_evidence
+    if (
+        provision.get("terraformApply") != "passed"
+        or len(provision.get("terraformPlanSha256", "")) != 64
+    ):
+        raise ProvisionError("AWS ECS AI delivery arc has no saved Terraform plan/apply evidence")
+    try:
+        db_host = target.output_json("db_endpoint")
+        deploy_contract = target.output_json("deploy_contract")
+        secret_refs = deploy_contract["secret_refs"]
+        admin_ref = secret_refs["admin_password"]
+        db_ref = secret_refs["db_connection"]
+        prepare_credential_ref = os.environ["HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF"]
+    except (KeyError, TypeError, ProvisionError) as error:
+        raise ProvisionError(
+            "AWS ECS AI delivery arc Terraform outputs omit DB/admin secret-reference handoff"
+        ) from error
+    if not isinstance(db_host, str) or not db_host:
+        raise ProvisionError("AWS ECS AI delivery arc Terraform handoff values are empty")
+    if not all(isinstance(reference, str) and _AWS_SECRET_ARN.fullmatch(reference)
+               for reference in (admin_ref, db_ref, prepare_credential_ref)):
+        raise ProvisionError("AWS ECS AI delivery arc handoff secret references are not AWS ARNs")
+    if prepare_credential_ref == admin_ref:
+        raise ProvisionError(
+            "AWS ECS AI delivery arc prepare credential must not reuse the bootstrap admin secret"
+        )
+
+    server = components.get("honua-server") or {}
+    expected_image = f"{server.get('image')}@{server.get('digest')}"
+    if os.environ.get("HONUA_ECS_IMAGE") != expected_image:
+        raise ProvisionError("AWS ECS target did not install the exact manifest image@digest")
+    candidate_id = f"manifest-sha256:{_sha256(manifest_path)}"
+    shas = {
+        name: (components.get(name) or {}).get("sha")
+        for name in ("honua-server", "honua-devops", "honua-iac")
+    }
+    paths = _ai_arc_paths()
+    handoff = {
+        "schemaVersion": "honua.mcp-proxy.handoff/v1",
+        "env": {"HONUA_BASE_URL": endpoint, "HONUA_MCP_REMOTE_URL": f"{endpoint.rstrip('/')}/mcp"},
+        "secretRefs": {"HONUA_ADMIN_KEY": admin_ref},
+    }
+    _write_json(paths["handoff"], handoff)
+    provision_evidence = {
+        "schemaVersion": "honua.release.aws-ecs-provision-evidence/v1",
+        "candidateId": candidate_id,
+        "releaseId": manifest.get("platformRelease"),
+        "endpoint": endpoint,
+        "serverImage": expected_image,
+        "components": shas,
+        "terraformPlanSha256": provision["terraformPlanSha256"],
+        "terraformApply": "passed",
+        "readiness": readiness,
+        "handoffSha256": _sha256(paths["handoff"]),
+    }
+    _write_json(paths["provisionEvidence"], provision_evidence)
+    binding = {
+        "schemaVersion": "honua.aws-ecs.provision-binding/v1",
+        "target": "aws-ecs",
+        "status": "ready",
+        "candidateId": candidate_id,
+        "releaseId": manifest.get("platformRelease"),
+        "endpoint": endpoint.rstrip("/"),
+        "adminKeySecretRef": admin_ref,
+        "serverImage": expected_image,
+        "components": shas,
+        "checks": {
+            "terraform-plan": "passed",
+            "terraform-apply": "passed",
+            "readiness": "passed",
+            "admin-mcp-handoff": "passed",
+        },
+        "evidence": {"url": run_url, "sha256": _sha256(paths["provisionEvidence"])},
+    }
+    _write_json(paths["provisionBinding"], binding)
+
+    common = [
+        "--manifest", str(manifest_path), "--sdk-root", str(sdk_root),
+        "--handoff", str(paths["handoff"]), "--provision-binding", str(paths["provisionBinding"]),
+        "--fixture-base-url", fixture_url, "--db-host", db_host,
+        "--db-connection-secret-ref", db_ref, "--checkpoint", str(paths["checkpoint"]),
+        "--sdk-receipt", str(paths["sdkReceipt"]), "--source-sha", components["honua-devops"]["sha"],
+    ]
+    _run_secretless(
+        [sys.executable, str(producer), "prepare", *common],
+        env=_devops_environment(),
+        label="AWS ECS AI arc prepare",
+    )
+
+    producer_env = {
+        **os.environ,
+        "HONUA_AI_ARC_CHECKPOINT": str(paths["checkpoint"]),
+        "HONUA_AI_ARC_CONSOLE_RECEIPT": str(paths["consoleReceipt"]),
+        "HONUA_AI_ARC_SDK_CONSOLE_RECEIPT": str(paths["sdkConsoleReceipt"]),
+        "HONUA_AI_ARC_CONSOLE_EVIDENCE": str(paths["consoleEvidence"]),
+        "HONUA_AI_ARC_CONSOLE_RECEIPT_SCHEMA": str(
+            sdk_root / "mcp" / "release" / "zero-to-map" / "contracts" / "console-receipt.schema.json"
+        ),
+        "HONUA_AI_ARC_CONSOLE_ORIGIN": os.environ["HONUA_AI_ARC_CONSOLE_ORIGIN"].rstrip("/"),
+        "HONUA_AI_ARC_REAL_MODEL_HANDOFF": str(paths["modelHandoff"]),
+        "HONUA_AI_ARC_REAL_MODEL_RECEIPT": str(paths["modelReceipt"]),
+        "HONUA_AI_ARC_REAL_MODEL_EVIDENCE": str(paths["modelEvidence"]),
+        "HONUA_AI_ARC_PROVISION_BINDING": str(paths["provisionBinding"]),
+        "HONUA_AI_ARC_ENDPOINT": endpoint.rstrip("/"),
+        "HONUA_AI_ARC_SDK_PLAN": str(
+            sdk_root / "mcp" / "release" / "zero-to-map" / "journey.v1.json"
+        ),
+        "HONUA_PLATFORM_MANIFEST": str(manifest_path),
+        "HONUA_AI_ARC_EVIDENCE_URL": run_url,
+    }
+    _run_ai_arc_approval_boundary(
+        studio_root=studio_root,
+        console_root=console_root,
+        producer_env=producer_env,
+        prepare_credential_ref=prepare_credential_ref,
+        console_token_ref=os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"],
+    )
+    _run_secretless(
+        _devops_resume_command(producer, common, paths),
+        env=_devops_environment(),
+        label="AWS ECS AI arc resume",
+    )
+    return {
+        "paths": paths,
+        "manifest": manifest,
+        "manifestPath": manifest_path,
+        "producer": producer,
+        "runUrl": run_url,
+        "candidateId": candidate_id,
+    }
+
+
+def _finalize_aws_ecs_ai_arc(target, context: dict) -> None:
+    teardown = target.teardown_evidence
+    if teardown != {"terraformDestroy": "passed", "cleanupVerified": "passed"}:
+        raise ProvisionError("AWS ECS AI delivery arc has no verified Terraform teardown evidence")
+    paths = context["paths"]
+    manifest = context["manifest"]
+    components = manifest["components"]
+    proof = {
+        "schemaVersion": "honua.release.aws-ecs-teardown-proof/v1",
+        "candidateId": context["candidateId"],
+        "releaseId": manifest["platformRelease"],
+        "checks": teardown,
+    }
+    _write_json(paths["teardownProof"], proof)
+    teardown_evidence = {
+        "schemaVersion": "honua.aws-ecs.teardown-evidence/v1",
+        "target": "aws-ecs",
+        "status": "passed",
+        "candidateId": context["candidateId"],
+        "releaseId": manifest["platformRelease"],
+        "components": {
+            name: components[name]["sha"] for name in ("honua-devops", "honua-iac")
+        },
+        "checks": {"terraform-destroy": "passed", "cleanup-verified": "passed"},
+        "evidence": {"url": context["runUrl"], "sha256": _sha256(paths["teardownProof"])},
+    }
+    _write_json(paths["teardownEvidence"], teardown_evidence)
+    _run_secretless(
+        [
+            sys.executable, str(context["producer"]), "finalize",
+            "--manifest", str(context["manifestPath"]),
+            "--pre-teardown-evidence", str(paths["preTeardown"]),
+            "--teardown-evidence", str(paths["teardownEvidence"]),
+            "--evidence-url", context["runUrl"],
+            "--final-evidence", str(paths["finalEvidence"]),
+            "--provision-receipt", str(paths["provisionReceipt"]),
+            "--arc-receipt", str(paths["arcReceipt"]),
+        ],
+        env=_devops_environment(),
+        label="AWS ECS AI arc finalization",
+    )
 
 
 def _wait_for_endpoint(endpoint: str, fetch, *, attempts: int = _READY_ATTEMPTS,
@@ -148,6 +571,9 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     endpoint = None
     checks = []
     canary_results = []
+    extended = []
+    ai_arc_context = None
+    teardown_completed = False
     try:
         _mark_provision_attempt()
         endpoint = target.provision(redis_enabled=redis_enabled)
@@ -165,6 +591,30 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
+        # The extended journey must run while the ephemeral endpoint still
+        # exists. Keeping it inside the provision/teardown try/finally avoids a
+        # future real driver being invoked against an environment already torn
+        # down (the old hardcoded BLOCKED implementation hid that ordering bug).
+        extended = run_extended(endpoint)
+        report["scenarioCoverage"] = _check_dicts(extended)
+        if target_name == "aws-ecs" and require_real:
+            ai_arc_context = _prepare_aws_ecs_ai_arc(target, endpoint, report["readiness"])
+            arc_evidence = ai_arc_context["paths"]["preTeardown"]
+            extended = [
+                CheckResult(
+                    name,
+                    "pass",
+                    "candidate-bound AWS ECS AI delivery arc passed before teardown",
+                    {"path": str(arc_evidence), "sha256": _sha256(arc_evidence)},
+                )
+                for name, _description in EXTENDED_SCENARIOS
+            ]
+            report["scenarioCoverage"] = _check_dicts(extended)
+            report["aiDeliveryArc"] = {
+                "status": "passed-before-teardown",
+                "checkpoint": str(ai_arc_context["paths"]["checkpoint"]),
+                "preTeardownEvidence": str(ai_arc_context["paths"]["preTeardown"]),
+            }
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
@@ -175,19 +625,34 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # failure of the cell, because the orphan is real — it is never swallowed.
         try:
             target.teardown(redis_enabled=redis_enabled)
+            teardown_completed = True
         except ProvisionError as e:
             prior = report.get("why")
             report["status"] = "fail"
             report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
+        if ai_arc_context is not None and teardown_completed:
+            try:
+                _finalize_aws_ecs_ai_arc(target, ai_arc_context)
+                report["aiDeliveryArc"] = {
+                    "status": "passed",
+                    "provisionReceipt": str(ai_arc_context["paths"]["provisionReceipt"]),
+                    "journeyReceipt": str(ai_arc_context["paths"]["arcReceipt"]),
+                    "modelReceipt": str(ai_arc_context["paths"]["modelReceipt"]),
+                    "modelEvidence": str(ai_arc_context["paths"]["modelEvidence"]),
+                    "modelHandoff": str(ai_arc_context["paths"]["modelHandoff"]),
+                    "consoleEvidence": str(ai_arc_context["paths"]["consoleEvidence"]),
+                    "finalEvidence": str(ai_arc_context["paths"]["finalEvidence"]),
+                }
+            except ProvisionError as e:
+                prior = report.get("why")
+                report["status"] = "fail"
+                report["why"] = (
+                    f"{prior}; AI delivery arc finalization failed: {e}"
+                    if prior else f"AI delivery arc finalization failed: {e}"
+                )
 
     if report.get("status") == "fail":
         return report
-
-    # Extended seam scenarios (MCP / Studio / GP-execute / top-demo). BLOCKED until the cloud harness
-    # image (honua-release#35) drives the real drivers here; require_real promotes that to FAIL so cloud
-    # MCP/Studio/GP/demo cert is genuinely gated for a per-RC cut, not assumed.
-    extended = run_extended(endpoint)
-    report["scenarioCoverage"] = _check_dicts(extended)
 
     # Verdict from the canonical set + the canary probes' genuine failures.
     failed = [c.name for c in checks if c.status == "fail"]
@@ -226,7 +691,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
         report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
-                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
+                         f"scenarios not-certified={ext_blocked} (needs honua-release#129 harness image)")
         return report
 
     # Parity vs the reference target, when one was provided.

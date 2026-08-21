@@ -9,6 +9,7 @@ Run: python -m pytest e2e/test_cloud.py    (or: python e2e/test_cloud.py)
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
@@ -216,11 +217,11 @@ def test_run_canonical_includes_capability_manifest():
 
 
 def test_extended_scenarios_blocked_pending_harness_image():
-    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#35.
+    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#129.
     ext = cc.run_extended("http://x")
     names = {r.name for r in ext}
     assert names == {"mcp-handshake", "studio-authoring", "gp-execute", "top-demo"}
-    assert all(r.status == "blocked" and "honua-release#35" in r.why for r in ext)
+    assert all(r.status == "blocked" and "honua-release#129" in r.why for r in ext)
 
 
 # ---- parity comparator ----------------------------------------------------------------------------
@@ -339,6 +340,154 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     values = json.loads(var_files[0].read_text(encoding="utf-8"))
     assert values["honua_connection_encryption_master_key"] is None
     assert "honua_connection_encryption_master_key" not in _tf_vars(args)
+
+
+def test_terraform_target_applies_one_saved_plan_and_exposes_secret_free_evidence(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    target = ecs(run_id="r1")
+    monkeypatch.setattr(target, "_iac_root", lambda: tmp_path)
+    calls = []
+
+    def terraform(_root, *args, **_kwargs):
+        calls.append(args)
+        if args[0] == "plan":
+            plan_path = Path(next(arg for arg in args if arg.startswith("-out=")).split("=", 1)[1])
+            plan_path.write_bytes(b"one exact saved plan")
+        if args[:3] == ("output", "-raw", "honua_url"):
+            return subprocess.CompletedProcess(args, 0, "https://ecs.example.test", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(target, "_tf", terraform)
+
+    assert target.provision(redis_enabled=False) == "https://ecs.example.test"
+    plan_call = next(args for args in calls if args[0] == "plan")
+    apply_call = next(args for args in calls if args[0] == "apply")
+    plan_path = Path(next(arg for arg in plan_call if arg.startswith("-out=")).split("=", 1)[1])
+    assert apply_call == ("apply", "-auto-approve", str(plan_path))
+    assert target.provision_evidence == {
+        "terraformPlanSha256": hashlib.sha256(b"one exact saved plan").hexdigest(),
+        "terraformApply": "passed",
+    }
+
+    target.teardown(redis_enabled=False)
+    assert not plan_path.exists()
+    assert target.teardown_evidence == {
+        "terraformDestroy": "passed",
+        "cleanupVerified": "passed",
+    }
+
+
+def test_aws_ai_arc_refuses_the_current_plain_http_ecs_endpoint():
+    with __import__("pytest").raises(ProvisionError, match="requires a public HTTPS endpoint"):
+        run_cloud._prepare_aws_ecs_ai_arc(
+            object(),
+            "http://plain-alb.example.test",
+            {"ready": True, "status": 200},
+        )
+
+
+def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(monkeypatch):
+    calls = []
+    admin_value = os.urandom(24).hex()
+    console_value = os.urandom(24).hex()
+    inherited_value = os.urandom(24).hex()
+
+    def resolve(reference, label="scoped admin secret"):
+        return {"prepare-ref": admin_value, "console-ref": console_value}[reference]
+
+    def run(command, *, env, label, cwd=None, expected_codes=(0,)):
+        calls.append((command, dict(env), label, cwd, expected_codes))
+
+    monkeypatch.setattr(run_cloud, "_resolve_aws_secret", resolve)
+    monkeypatch.setattr(run_cloud, "_run_secretless", run)
+    studio = Path("studio")
+    console = Path("console")
+    run_cloud._run_ai_arc_approval_boundary(
+        studio_root=studio,
+        console_root=console,
+        producer_env={
+            "HONUA_ADMIN_KEY": inherited_value,
+            "HONUA_API_KEY": inherited_value,
+            "HONUA_AI_ARC_CONSOLE_TOKEN": inherited_value,
+            "HONUA_AI_ARC_CHECKPOINT": "checkpoint.json",
+        },
+        prepare_credential_ref="prepare-ref",
+        console_token_ref="console-ref",
+    )
+
+    assert [call[2] for call in calls] == [
+        "full Admin/GP/Studio real-model prepare",
+        "focused Console approval/audit/recovery producer",
+        "full Admin/GP/Studio real-model resume",
+    ]
+    assert calls[0][0] == [
+        "npm", "run", "release:real-model-ai-arc", "--", "prepare", "--execute", "--yes"
+    ]
+    assert calls[0][4] == (2,)
+    assert calls[1][0] == ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"]
+    assert calls[1][3] == console
+    assert calls[2][0] == [
+        "npm", "run", "release:real-model-ai-arc", "--", "resume", "--execute", "--yes"
+    ]
+    console_env = calls[1][1]
+    assert calls[0][1]["HONUA_AI_ARC_PREPARE_CREDENTIAL"] == admin_value
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in console_env
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[2][1]
+    assert console_env["HONUA_AI_ARC_CONSOLE_TOKEN"] == console_value
+    assert "HONUA_ADMIN_KEY" not in console_env
+    assert "HONUA_API_KEY" not in console_env
+    assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[0][1]
+    assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[2][1]
+
+
+def test_devops_environment_retains_aws_identity_but_scrubs_unrelated_credentials():
+    environment = run_cloud._devops_environment(
+        {
+            "AWS_ACCESS_KEY_ID": "ephemeral-oidc-access",
+            "AWS_SESSION_TOKEN": "ephemeral-oidc-session",
+            "HONUA_RUN_URL": "https://example.test/run",
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": "prepare-secret",
+            "HONUA_AI_ARC_CONSOLE_TOKEN": "console-secret",
+            "HONUA_ADMIN_KEY": "admin-secret",
+            "HONUA_API_KEY": "api-secret",
+            "OPENAI_API_KEY": "model-secret",
+            "ANTHROPIC_API_KEY": "model-secret",
+            "AZURE_OPENAI_API_KEY": "model-secret",
+        }
+    )
+
+    assert environment == {
+        "AWS_ACCESS_KEY_ID": "ephemeral-oidc-access",
+        "AWS_SESSION_TOKEN": "ephemeral-oidc-session",
+        "HONUA_RUN_URL": "https://example.test/run",
+    }
+
+
+def test_devops_resume_consumes_aggregate_and_sdk_projection_as_distinct_inputs():
+    paths = {
+        "consoleReceipt": Path("aggregate.json"),
+        "sdkConsoleReceipt": Path("sdk-projection.json"),
+        "consoleEvidence": Path("console-evidence.json"),
+        "modelHandoff": Path("model-handoff.json"),
+        "modelReceipt": Path("model.json"),
+        "modelEvidence": Path("model-evidence.json"),
+        "preTeardown": Path("pre-teardown.json"),
+    }
+    command = run_cloud._devops_resume_command(Path("producer.py"), ["--manifest", "m.yaml"], paths)
+    aggregate_index = command.index("--console-receipt")
+    sdk_index = command.index("--sdk-console-receipt")
+    evidence_index = command.index("--console-evidence")
+    handoff_index = command.index("--real-model-handoff")
+    assert command[aggregate_index + 1] == "aggregate.json"
+    assert command[sdk_index + 1] == "sdk-projection.json"
+    assert command[evidence_index + 1] == "console-evidence.json"
+    assert command[handoff_index + 1] == "model-handoff.json"
+    assert command[aggregate_index + 1] != command[sdk_index + 1]
 
 
 def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
@@ -974,6 +1123,42 @@ def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
     _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=[])
     assert report["status"] == "blocked"
     assert "passed" not in report["why"] and "geoprocessing" in report["why"]
+
+
+def test_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch):
+    stub = _ServingStub()
+    registry = run_cloud.REGISTRY
+    attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
+    observed_teardown_counts = []
+    try:
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+        monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+        monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+        monkeypatch.setattr(
+            run_cloud,
+            "make_fetch",
+            lambda **kwargs: (lambda _url: cc.HttpResponse(200, "ready")),
+        )
+        monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+
+        def extended(_endpoint):
+            observed_teardown_counts.append(stub.torn_down)
+            return []
+
+        monkeypatch.setattr(run_cloud, "run_extended", extended)
+        report = run_cloud.run(
+            "stub", require_real=False, reference_endpoint=None, redis_enabled=False
+        )
+    finally:
+        run_cloud.REGISTRY = registry
+        run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS = attempts, delay
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
+
+    assert observed_teardown_counts == [0]
+    assert stub.torn_down == 1
+    assert report["status"] == "pass"
 
 
 if __name__ == "__main__":

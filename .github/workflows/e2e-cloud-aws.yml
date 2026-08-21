@@ -9,7 +9,7 @@
 #              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
 #              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
 #              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
-#              harness image (honua-release#35) to drive the real drivers against the cloud endpoint —
+#              harness image (honua-release#129) to drive the real drivers against the cloud endpoint —
 #              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
 #              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
 #   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
@@ -85,6 +85,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       iac_ref: ${{ steps.pins.outputs.iac_ref }}
+      devops_ref: ${{ steps.pins.outputs.devops_ref }}
+      sdk_ref: ${{ steps.pins.outputs.sdk_ref }}
+      studio_ref: ${{ steps.pins.outputs.studio_ref }}
+      console_ref: ${{ steps.pins.outputs.console_ref }}
       helm_ref: ${{ steps.pins.outputs.helm_ref }}
       server_ref: ${{ steps.pins.outputs.server_ref }}
       server_image: ${{ steps.pins.outputs.server_image }}
@@ -115,6 +119,10 @@ jobs:
           server = components.get("honua-server") or {}
           pins = {
               "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
+              "devops_ref": str((components.get("honua-devops") or {}).get("sha", "")),
+              "sdk_ref": str((components.get("honua-sdk-js") or {}).get("sha", "")),
+              "studio_ref": str((components.get("honua-studio") or {}).get("sha", "")),
+              "console_ref": str((components.get("honua-console") or {}).get("sha", "")),
               "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
               "server_ref": str(server.get("sha", "")),
           }
@@ -294,6 +302,42 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
 
+      - name: Checkout honua-devops (AWS ECS AI arc producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-devops
+          ref: ${{ needs.candidate.outputs.devops_ref }}
+          path: _honua-devops
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-sdk-js (deterministic AI arc driver)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-js
+          ref: ${{ needs.candidate.outputs.sdk_ref }}
+          path: _honua-sdk-js
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-studio (real-model producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-studio
+          ref: ${{ needs.candidate.outputs.studio_ref }}
+          path: _honua-studio
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Checkout honua-console (approval/audit/recovery producer)
+        if: matrix.target == 'aws-ecs'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-console
+          ref: ${{ needs.candidate.outputs.console_ref }}
+          path: _honua-console
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -307,6 +351,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: matrix.target == 'aws-ecs'
+        with:
+          node-version: "22"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
@@ -314,6 +362,13 @@ jobs:
         # PyYAML (canary quarantine, the EKS cell's chart dependency resolution) is a declared runner
         # dependency, so install the declared set rather than assuming the runner image carries it.
         run: python -m pip install -r e2e/requirements.txt pytest
+
+      - name: Install exact AI delivery-arc producers
+        if: matrix.target == 'aws-ecs'
+        run: |
+          npm ci --prefix _honua-sdk-js/mcp
+          npm ci --prefix _honua-studio
+          npm ci --prefix _honua-console/e2e/playwright
 
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic
@@ -346,7 +401,19 @@ jobs:
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_DEVOPS_DIR: ${{ github.workspace }}/_honua-devops
+          HONUA_SDK_JS_DIR: ${{ github.workspace }}/_honua-sdk-js
+          HONUA_STUDIO_DIR: ${{ github.workspace }}/_honua-studio
+          HONUA_CONSOLE_DIR: ${{ github.workspace }}/_honua-console
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
+          HONUA_PLATFORM_MANIFEST: ${{ github.workspace }}/platform-manifest.yaml
+          HONUA_AI_ARC_FIXTURE_BASE_URL: ${{ vars.HONUA_AI_ARC_FIXTURE_BASE_URL }}
+          HONUA_AI_ARC_CONSOLE_ORIGIN: ${{ vars.HONUA_AI_ARC_CONSOLE_ORIGIN }}
+          HONUA_AI_ARC_OUT: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}
+          HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF: ${{ vars.HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF }}
+          HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF: ${{ vars.HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF }}
+          HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
+          HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
@@ -382,6 +449,14 @@ jobs:
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
+          if-no-files-found: warn
+
+      - name: Upload AWS ECS AI delivery-arc evidence
+        if: always() && matrix.target == 'aws-ecs'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aws-ecs-ai-delivery-arc-redis-${{ matrix.redis }}
+          path: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}
           if-no-files-found: warn
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
@@ -563,7 +638,7 @@ jobs:
             echo "| cell | status | why |"; echo "|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#35)";
+            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#129)";
             jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
             echo "";
             echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";

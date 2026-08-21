@@ -48,7 +48,19 @@ The live check runs in the train (`gate_build_test`), nightly, and on dispatch �
 honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run only the self-tests.
 
 ## Other certification gates (separate workflows)
+- **D9.3 AI delivery arc** — `ai-delivery-arc.yaml` +
+  `tools/check_ai_delivery_arc.py` consume the exact manifest-pinned SDK journey,
+  bind all receipts to one candidate, and keep contract evidence distinct from a
+  live release recording. Local Docker and AWS ECS are both required execution
+  targets; an ECS provisioning receipt cannot substitute for its full delivery-arc
+  receipt. The SDK contract requires distinct map/app/dashboard immutable
+  save/read/reopen actions through the server Studio MCP lifecycle, followed by
+  separately governed map/app/dashboard publication and exact public-URL probes.
+  Local Docker and AWS ECS use dedicated strict real-model schemas; a generic
+  `release-evidence-receipt.schema.json`. (#121–#123.)
 - **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
+  A strict cut requires the manifest-pinned artifact from its customer-facing registry and rejects
+  every local source fallback; see `docs/PUBLIC-REGISTRY-READINESS.md` for the first-publish ledger.
 - **Manifest/matrix integrity** — `manifest-validate.yml` (the pinned set satisfies the matrix). (#1.)
 - **Cross-cloud parity** — `e2e-cloud-aws.yml` (canonical set on each deploy target). (Phase B.)

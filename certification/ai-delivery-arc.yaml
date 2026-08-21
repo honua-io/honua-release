@@ -1,0 +1,380 @@
+# D9.3 release contract for the 2026.1 AI delivery arc.
+#
+# This file describes what the release gate consumes; it is not a second journey
+# implementation. The executable plan and driver are owned by the manifest-pinned
+# honua-sdk-js checkout. tools/check_ai_delivery_arc.py rejects a plan that omits
+# one of these surfaces or cannot join its receipts to the exact candidate.
+
+schemaVersion: honua.ai-delivery-arc-contract/v1
+releaseContract: honua-release#123/D9.3
+
+inventory:
+  adminRestOperations: 396
+  publishedAdminTools: 119
+  adminToolPrefix: honua_admin_
+  completenessBoundary:
+    - admin-api
+    - operation-catalog
+    - honua-admin
+    - admin-mcp
+  consoleBoundary: focused-inspection-approval-operations-recovery
+
+candidate:
+  requiredComponents:
+    - honua-server
+    - honua-sdk-js
+    - honua-console
+    - honua-studio
+    - honua-devops
+    - honua-iac
+  candidateIdFormat: manifest-sha256
+
+# Both deployment paths must carry the whole customer journey. An ECS apply by
+# itself is useful infrastructure evidence, but it is not evidence that the AI
+# control plane, GP, Studio, Console, and public artifact work on that target.
+executionTargets:
+  - id: local-docker
+    journeyReceipt: sdk-zero-to-map
+    supportingReceipts: [ local-docker-real-model-ai-arc ]
+    requiredChecks:
+      - candidate-image-install
+      - admin-configure-and-publish
+      - esri-gp-mcp
+      - esri-gpserver
+      - native-analysis-artifact
+      - studio-map-app-dashboard-save-reopen
+      - governed-publication-approval
+      - console-audit-recovery
+      - public-share-http-200
+  - id: aws-ecs
+    provisionReceipt: aws-ecs-provision
+    journeyReceipt: aws-ecs-ai-delivery-arc
+    supportingReceipts: [ aws-ecs-real-model-ai-arc ]
+    requiredChecks:
+      - candidate-image-install
+      - admin-configure-and-publish
+      - esri-gp-mcp
+      - esri-gpserver
+      - native-analysis-artifact
+      - studio-map-app-dashboard-save-reopen
+      - governed-publication-approval
+      - console-audit-recovery
+      - public-share-http-200
+
+journey:
+  schemaVersion: honua.zero-to-map.plan/v1
+  journeyId: 2026.1-zero-to-map
+  stages:
+    - id: install
+      requiredActions:
+        - { id: install-local, kind: cli }
+        - { id: install-status, kind: cli }
+    - id: admin
+      requiredActions:
+        - { id: admin-status, kind: mcp, tool: honua_admin_server_status }
+        - { id: create-connection, kind: mcp, tool: honua_admin_connection_create }
+        - { id: test-connection, kind: mcp, tool: honua_admin_connection_test }
+        - { id: import-parcels, kind: mcp, tool: honua_admin_import_upload_url }
+        - { id: import-zoning, kind: mcp, tool: honua_admin_import_upload_url }
+        - { id: publish-parcels, kind: mcp, tool: honua_admin_layer_publish }
+        - { id: publish-zoning, kind: mcp, tool: honua_admin_layer_publish }
+        - { id: set-public-access, kind: mcp, tool: honua_admin_service_set_access_policy }
+        - { id: create-scoped-key, kind: mcp, tool: honua_admin_api_key_create }
+    - id: geoprocessing
+      requiredActions:
+        - { id: list-esri-gp-tasks, kind: mcp, tool: honua_esri_gp_list_tasks }
+        - { id: describe-esri-buffer, kind: mcp, tool: honua_esri_gp_describe_task }
+        # AI must execute the Esri-compatible task, not merely discover it.
+        - { id: buffer-esri-mcp, kind: mcp, tool: honua_esri_gp_execute_task }
+        - { id: wait-esri-mcp-buffer, kind: mcp-resource }
+        - { id: read-esri-mcp-buffer-results, kind: mcp-resource }
+        # The SDK GPServer adapter remains a separate protocol-compatibility proof.
+        - { id: buffer-esri-gpserver, kind: gpserver }
+        # Native dataset-reference analysis remains a separate first-class surface.
+        - { id: buffer-parcels, kind: mcp, tool: honua_buffer_features }
+        - { id: wait-direct-buffer, kind: mcp-resource }
+        - { id: read-direct-buffer-results, kind: mcp-resource }
+    - id: studio
+      requiredActions:
+        - { id: create-map-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-map-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-map-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-map-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-map-buffer-visibility, kind: mcp, tool: honua_studio_set_layer_visibility }
+        - { id: set-map-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-map-widget, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-map-control, kind: mcp, tool: honua_studio_add_control }
+        - { id: validate-map-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-map-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-map-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-map-version, kind: mcp, tool: honua_studio_reopen_version }
+        - { id: create-app-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-app-parcels-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: add-app-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-app-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-app-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-app-chart, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-app-layer-control, kind: mcp, tool: honua_studio_add_control }
+        - { id: bind-app-chart-interaction, kind: mcp, tool: honua_studio_bind_interaction }
+        - { id: validate-app-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-app-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-app-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-app-version, kind: mcp, tool: honua_studio_reopen_version }
+        - { id: create-dashboard-draft, kind: mcp, tool: honua_studio_create_draft }
+        - { id: add-dashboard-buffer-layer, kind: mcp, tool: honua_studio_add_layer }
+        - { id: style-dashboard-buffer-layer, kind: mcp, tool: honua_studio_set_layer_style }
+        - { id: set-dashboard-view, kind: mcp, tool: honua_studio_set_view }
+        - { id: add-dashboard-chart, kind: mcp, tool: honua_studio_add_widget }
+        - { id: add-dashboard-layer-control, kind: mcp, tool: honua_studio_add_control }
+        - { id: validate-dashboard-draft, kind: mcp, tool: honua_studio_validate_draft }
+        - { id: save-dashboard-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: get-dashboard-version, kind: mcp, tool: honua_studio_get_version }
+        - { id: reopen-dashboard-version, kind: mcp, tool: honua_studio_reopen_version }
+    - id: proposal
+      requiredActions:
+        - { id: propose-map-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-map-publication-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: propose-app-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-app-publication-version, kind: mcp, tool: honua_studio_save_version }
+        - { id: propose-dashboard-publication, kind: mcp, tool: honua_studio_propose_publication }
+        - { id: save-dashboard-publication-version, kind: mcp, tool: honua_studio_save_version }
+    - id: console
+      requiredActions:
+        - { id: console-approval, kind: receipt }
+    - id: artifact
+      requiredActions:
+        - { id: verify-map-public-url, kind: http }
+        - { id: verify-share-url, kind: http }
+        - { id: verify-dashboard-public-url, kind: http }
+
+joins:
+  esriGpWait:
+    producerAction: buffer-esri-mcp
+    capture: esriMcpJobId
+    consumerAction: wait-esri-mcp-buffer
+    template: "${esriMcpJobId}"
+  esriGpResults:
+    producerAction: wait-esri-mcp-buffer
+    capture: esriMcpResultsUri
+    consumerAction: read-esri-mcp-buffer-results
+    template: "${esriMcpResultsUri}"
+  directGpArtifact:
+    producerAction: read-direct-buffer-results
+    capture: bufferArtifactId
+    consumerAction: add-map-buffer-layer
+    template: "${bufferArtifactId}"
+  esriGpJob:
+    producerAction: buffer-esri-mcp
+    capture: esriMcpJobId
+    resultAction: read-esri-mcp-buffer-results
+    resultCapture: esriMcpResultJobId
+    equals: "${esriMcpJobId}"
+  gpServerJob:
+    producerAction: buffer-esri-gpserver
+    capture: gpServerJobId
+  directAnalysisJob:
+    producerAction: buffer-parcels
+    capture: directAnalysisJobId
+    resultAction: read-direct-buffer-results
+    resultCapture: directAnalysisResultJobId
+    equals: "${directAnalysisJobId}"
+  directAnalysisWait:
+    producerAction: buffer-parcels
+    capture: directAnalysisJobId
+    consumerAction: wait-direct-buffer
+    template: "${directAnalysisJobId}"
+  directAnalysisResults:
+    producerAction: wait-direct-buffer
+    capture: directAnalysisResultsUri
+    consumerAction: read-direct-buffer-results
+    template: "${directAnalysisResultsUri}"
+  studioConsole:
+    receiptAction: console-approval
+    matches:
+      /journeyId: "${journeyId}"
+      /releaseContract: "${releaseContract}"
+      /candidate/candidateId: "${candidateId}"
+      /candidate/releaseId: "${releaseId}"
+      /proposals/map/draftId: "${mapReopenedDraftId}"
+      /proposals/map/generation: "${mapProposalGeneration}"
+      /proposals/map/route: "${mapRoute}"
+      /proposals/app/draftId: "${appReopenedDraftId}"
+      /proposals/app/generation: "${appProposalGeneration}"
+      /proposals/app/route: "${route}"
+      /proposals/dashboard/draftId: "${dashboardReopenedDraftId}"
+      /proposals/dashboard/generation: "${dashboardProposalGeneration}"
+      /proposals/dashboard/route: "${dashboardRoute}"
+      /publications/map/itemId: "${mapItemId}"
+      /publications/map/versionId: "${mapPublicationVersionId}"
+      /publications/map/status: published
+      /publications/app/itemId: "${appItemId}"
+      /publications/app/versionId: "${appPublicationVersionId}"
+      /publications/app/status: published
+      /publications/dashboard/itemId: "${dashboardItemId}"
+      /publications/dashboard/versionId: "${dashboardPublicationVersionId}"
+      /publications/dashboard/status: published
+      /resources/connectionId: "${connectionId}"
+      /resources/serviceId: "${serviceName}"
+      /resources/layerIds/parcels: "${parcelsLayerId}"
+      /resources/layerIds/zoning: "${zoningLayerId}"
+      /resources/jobs/esriMcp: "${esriMcpJobId}"
+      /resources/jobs/gpServer: "${gpServerJobId}"
+      /resources/jobs/directAnalysis: "${directAnalysisJobId}"
+      /resources/gp/resultPackageId: "${esriMcpResultPackageId}"
+      /resources/gp/artifactId: "${esriMcpArtifactId}"
+      /resources/artifactId: "${bufferArtifactId}"
+      /resources/studio/map/draftId: "${mapDraftId}"
+      /resources/studio/map/itemId: "${mapItemId}"
+      /resources/studio/map/versionId: "${mapVersionId}"
+      /resources/studio/map/contentHash: "${mapContentHash}"
+      /resources/studio/map/reopenedDraftId: "${mapReopenedDraftId}"
+      /resources/studio/app/draftId: "${appDraftId}"
+      /resources/studio/app/itemId: "${appItemId}"
+      /resources/studio/app/versionId: "${appVersionId}"
+      /resources/studio/app/contentHash: "${appContentHash}"
+      /resources/studio/app/reopenedDraftId: "${appReopenedDraftId}"
+      /resources/studio/dashboard/draftId: "${dashboardDraftId}"
+      /resources/studio/dashboard/itemId: "${dashboardItemId}"
+      /resources/studio/dashboard/versionId: "${dashboardVersionId}"
+      /resources/studio/dashboard/contentHash: "${dashboardContentHash}"
+      /resources/studio/dashboard/reopenedDraftId: "${dashboardReopenedDraftId}"
+    requiredPointers:
+      - /proposals/map/proposalId
+      - /proposals/map/executionOperationId
+      - /proposals/app/proposalId
+      - /proposals/app/executionOperationId
+      - /proposals/dashboard/proposalId
+      - /proposals/dashboard/executionOperationId
+      - /publications/map/requestId
+      - /publications/map/publicationId
+      - /publications/map/publicUrl
+      - /publications/app/requestId
+      - /publications/app/publicationId
+      - /publications/app/publicUrl
+      - /publications/dashboard/requestId
+      - /publications/dashboard/publicationId
+      - /publications/dashboard/publicUrl
+      - /audit/map/correlationId
+      - /audit/map/operationId
+      - /audit/app/correlationId
+      - /audit/app/operationId
+      - /audit/dashboard/correlationId
+      - /audit/dashboard/operationId
+      - /checks/health
+      - /checks/audit
+      - /checks/recovery
+      - /shareUrl
+    equalPointers:
+      - [ /proposals/map/proposalId, /publications/map/requestId ]
+      - [ /proposals/map/executionOperationId, /audit/map/operationId ]
+      - [ /proposals/map/draftId, /resources/studio/map/reopenedDraftId ]
+      - [ /proposals/app/proposalId, /publications/app/requestId ]
+      - [ /proposals/app/executionOperationId, /audit/app/operationId ]
+      - [ /proposals/app/draftId, /resources/studio/app/reopenedDraftId ]
+      - [ /proposals/dashboard/proposalId, /publications/dashboard/requestId ]
+      - [ /proposals/dashboard/executionOperationId, /audit/dashboard/operationId ]
+      - [ /proposals/dashboard/draftId, /resources/studio/dashboard/reopenedDraftId ]
+      - [ /shareUrl, /publications/app/publicUrl ]
+      - [ /resources/jobs/esriMcp, /resources/gp/jobId ]
+  consoleMapArtifact:
+    producerAction: console-approval
+    capture: mapPublicUrl
+    consumerAction: verify-map-public-url
+    template: "${mapPublicUrl}"
+  consoleAppArtifact:
+    producerAction: console-approval
+    capture: shareUrl
+    consumerAction: verify-share-url
+    template: "${shareUrl}"
+  consoleDashboardArtifact:
+    producerAction: console-approval
+    capture: dashboardPublicUrl
+    consumerAction: verify-dashboard-public-url
+    template: "${dashboardPublicUrl}"
+
+externalReceipts:
+  - id: aws-ecs-provision
+    issue: honua-devops#147/honua-iac#143
+    receiptSchema: certification/release-evidence-receipt.schema.json
+    sourceComponent: honua-devops
+    sourceRepository: honua-io/honua-devops
+    boundComponents: [ honua-devops, honua-iac ]
+    claims:
+      target: aws-ecs
+      requiredChecks: [ terraform-plan, terraform-apply, readiness, admin-mcp-handoff, teardown ]
+  - id: aws-ecs-ai-delivery-arc
+    issue: honua-release#123/honua-devops#147
+    receiptSchema: certification/release-evidence-receipt.schema.json
+    sourceComponent: honua-devops
+    sourceRepository: honua-io/honua-devops
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
+    claims:
+      target: aws-ecs
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - candidate-image-install
+        - admin-configure-and-publish
+        - esri-gp-mcp
+        - esri-gpserver
+        - native-analysis-artifact
+        - studio-map-app-dashboard-save-reopen
+        - governed-publication-approval
+        - console-audit-recovery
+        - public-share-http-200
+  - id: aws-ecs-real-model-ai-arc
+    issue: honua-release#123/honua-devops#149
+    receiptSchema: certification/aws-ecs-real-model-ai-arc.schema.json
+    evidenceSchema: certification/aws-ecs-real-model-ai-arc-evidence.schema.json
+    sourceComponent: honua-studio
+    sourceRepository: honua-io/honua-studio
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
+    claims:
+      target: aws-ecs
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - natural-language-admin-setup-config-publish
+        - natural-language-esri-gp
+        - natural-language-native-analysis
+        - natural-language-map-app-dashboard-composition-publication
+        - deterministic-id-join
+        - same-endpoint-candidate
+        - no-secret-serialization
+  - id: local-docker-real-model-ai-arc
+    issue: honua-studio#40/#41
+    receiptSchema: certification/local-docker-real-model-ai-arc.schema.json
+    evidenceSchema: certification/local-docker-real-model-ai-arc-evidence.schema.json
+    sourceComponent: honua-studio
+    sourceRepository: honua-io/honua-studio
+    boundComponents:
+      - honua-server
+      - honua-sdk-js
+      - honua-console
+      - honua-studio
+      - honua-devops
+      - honua-iac
+    claims:
+      target: local-docker
+      journeyId: 2026.1-zero-to-map
+      releaseContract: honua-release#123/D9.3
+      requiredChecks:
+        - natural-language-admin-setup-config-publish
+        - natural-language-esri-gp
+        - natural-language-native-analysis
+        - natural-language-map-app-dashboard-composition-publication
+        - deterministic-id-join
+        - same-endpoint-candidate
+        - no-secret-serialization

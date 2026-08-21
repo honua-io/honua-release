@@ -7,7 +7,7 @@ way the release automation cannot satisfy on its own:
 
   * the intended settings live in git (certification/release-promotion-approval.yaml) so they are reviewable
     and diffable, and the live environment is compared against them;
-  * a designated HUMAN reviewer must be required by the GitHub environment, and neither a bot
+  * every eligible reviewer must belong to a bounded, attested HUMAN roster, and neither a bot
     principal nor the actor that started the promotion may satisfy that requirement;
   * promotion is restricted to the repository's protected default branch;
   * every failure mode — missing environment, unreadable metadata, weakened rule, expired or
@@ -40,6 +40,10 @@ KNOWN_SAFE_PROTECTION_RULE_TYPES = frozenset({"required_reviewers", "branch_poli
 
 # An "attestation" that never expires is not an attestation.
 MAX_ATTESTATION_AGE_DAYS = 365
+
+# GitHub environments accept no more than six required reviewers. Keeping the service limit in the
+# policy validator makes an impossible roster a hard configuration error rather than a false promise.
+GITHUB_MAX_REQUIRED_REVIEWERS = 6
 
 # Modes: `promote` is the enforcing path and requires the promotion identity to be supplied, so those
 # checks cannot be skipped by simply not passing the arguments. `drift` is the read-only monitor,
@@ -140,15 +144,48 @@ def load_policy(path: Path) -> dict:
             "environment.allowed_protection_rule_types must allow 'required_reviewers'"
         )
 
-    reviewer = approval.get("required_reviewer")
-    if not isinstance(reviewer, dict):
-        raise ApprovalPolicyError("approval.required_reviewer is required")
-    reviewer_id = reviewer.get("id")
-    if not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0:
-        raise ApprovalPolicyError("approval.required_reviewer.id must be a positive integer")
-    _require_text(reviewer, "login", "approval.required_reviewer")
-    if reviewer.get("kind") != "human":
-        raise ApprovalPolicyError("approval.required_reviewer.kind must be 'human'")
+    required_reviewers = approval.get("required_reviewers")
+    if not isinstance(required_reviewers, dict):
+        raise ApprovalPolicyError("approval.required_reviewers is required")
+    minimum = required_reviewers.get("minimum")
+    maximum = required_reviewers.get("maximum")
+    if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
+        raise ApprovalPolicyError("approval.required_reviewers.minimum must be a positive integer")
+    if (
+        not isinstance(maximum, int)
+        or isinstance(maximum, bool)
+        or not minimum <= maximum <= GITHUB_MAX_REQUIRED_REVIEWERS
+    ):
+        raise ApprovalPolicyError(
+            "approval.required_reviewers.maximum must be an integer from minimum through "
+            f"GitHub's limit of {GITHUB_MAX_REQUIRED_REVIEWERS}"
+        )
+
+    roster = required_reviewers.get("roster")
+    if not isinstance(roster, list) or not minimum <= len(roster) <= maximum:
+        raise ApprovalPolicyError(
+            "approval.required_reviewers.roster length must be within the declared minimum/maximum"
+        )
+    reviewer_ids: list[int] = []
+    reviewer_logins: list[str] = []
+    for index, reviewer in enumerate(roster):
+        where = f"approval.required_reviewers.roster[{index}]"
+        if not isinstance(reviewer, dict):
+            raise ApprovalPolicyError(f"{where} must be a mapping")
+        reviewer_id = reviewer.get("id")
+        if not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0:
+            raise ApprovalPolicyError(f"{where}.id must be a positive integer")
+        login = _require_text(reviewer, "login", where)
+        if reviewer.get("kind") != "human":
+            raise ApprovalPolicyError(f"{where}.kind must be 'human'")
+        if login.lower().endswith("[bot]"):
+            raise ApprovalPolicyError(f"{where}.login must name a human account")
+        reviewer_ids.append(reviewer_id)
+        reviewer_logins.append(login.lower())
+    if len(reviewer_ids) != len(set(reviewer_ids)):
+        raise ApprovalPolicyError("approval.required_reviewers.roster contains a duplicate id")
+    if len(reviewer_logins) != len(set(reviewer_logins)):
+        raise ApprovalPolicyError("approval.required_reviewers.roster contains a duplicate login")
 
     _require_true(approval, "require_prevent_self_review", "approval")
     _require_true(approval, "require_independent_promoting_actor", "approval")
@@ -157,6 +194,12 @@ def load_policy(path: Path) -> dict:
         not isinstance(name, str) or not name.strip() for name in principals
     ):
         raise ApprovalPolicyError("approval.automation_principals must be a list of names")
+    automation_logins = {str(name).strip().lower() for name in principals}
+    overlap = sorted(set(reviewer_logins) & automation_logins)
+    if overlap:
+        raise ApprovalPolicyError(
+            f"approval.required_reviewers.roster contains automation principal(s) {overlap}"
+        )
 
     _require_true(promotion, "require_protected_default_branch", "promotion")
     _require_true(promotion, "require_promotion_from_default_branch", "promotion")
@@ -218,7 +261,8 @@ def evaluate(
     approval = policy["approval"]
     promotion_policy = policy["promotion"]
     attestation = policy["attestation"]
-    reviewer_policy = approval["required_reviewer"]
+    reviewer_policy = approval["required_reviewers"]
+    reviewer_roster = reviewer_policy["roster"]
     expected_name = env_policy["name"]
     checks: list[dict] = []
 
@@ -237,12 +281,14 @@ def evaluate(
         record("environment-readable", True, f"environment {expected_name!r} metadata was read")
 
     if environment is not None:
-        # The #43 preflight, unchanged and unweakened: name, protected-branch-only deployment policy,
-        # exactly one required-reviewer rule, exactly one User reviewer, exact expected id.
+        # The #43 preflight, unchanged at the boundary: name, protected-branch-only deployment policy,
+        # exactly one required-reviewer rule, and only bounded, attested User reviewers.
         ok, why = validate_environment_metadata(
             environment,
             expected_name=expected_name,
-            expected_reviewer_id=reviewer_policy["id"],
+            expected_reviewer_ids=[reviewer["id"] for reviewer in reviewer_roster],
+            minimum_reviewers=reviewer_policy["minimum"],
+            maximum_reviewers=reviewer_policy["maximum"],
         )
         record("environment-policy", ok, why)
 
@@ -294,14 +340,29 @@ def evaluate(
             else f"required reviewer(s) are human accounts: {human_reviewers}",
         )
 
-        expected_login = reviewer_policy["login"]
+        expected_by_id = {reviewer["id"]: reviewer["login"] for reviewer in reviewer_roster}
+        observed_pairs = [
+            (
+                entry.get("reviewer", {}).get("id"),
+                entry.get("reviewer", {}).get("login"),
+            )
+            for entry in (reviewers if isinstance(reviewers, list) else [])
+            if isinstance(entry, dict) and isinstance(entry.get("reviewer"), dict)
+        ]
+        mismatched = [
+            (reviewer_id, login)
+            for reviewer_id, login in observed_pairs
+            if reviewer_id not in expected_by_id
+            or not isinstance(login, str)
+            or login.strip().lower() != expected_by_id[reviewer_id].strip().lower()
+        ]
         record(
             "reviewer-matches-policy",
-            reviewer_logins == [expected_login],
-            f"live reviewer(s) {reviewer_logins} do not match the attested reviewer "
-            f"{[expected_login]} — settings drifted from certification/release-promotion-approval.yaml"
-            if reviewer_logins != [expected_login]
-            else f"live reviewer matches the attested reviewer {expected_login!r}",
+            not mismatched,
+            f"live reviewer identity pair(s) {mismatched} are not in the attested roster — "
+            "settings drifted from certification/release-promotion-approval.yaml"
+            if mismatched
+            else f"all live reviewer identities belong to the attested roster: {reviewer_logins}",
         )
 
     # ── branch restriction ────────────────────────────────────────────────────────────────────
@@ -343,18 +404,20 @@ def evaluate(
             "promote mode requires the promoting actor, and none was supplied",
         )
     elif promotion_actor is not None or promotion_actor_id is not None:
+        roster_logins = {reviewer["login"].strip().lower() for reviewer in reviewer_roster}
+        roster_ids = {reviewer["id"] for reviewer in reviewer_roster}
         same_login = (
             isinstance(promotion_actor, str)
-            and promotion_actor.strip().lower() == reviewer_policy["login"].strip().lower()
+            and promotion_actor.strip().lower() in roster_logins
         )
-        same_id = promotion_actor_id is not None and promotion_actor_id == reviewer_policy["id"]
+        same_id = promotion_actor_id is not None and promotion_actor_id in roster_ids
         record(
             "independent-promoting-actor",
             not (same_login or same_id),
-            f"promotion was started by the required reviewer ({promotion_actor}) — approval would "
+            f"promotion was started by a declared reviewer ({promotion_actor}) — approval would "
             "not be independent of the actor requesting the release"
             if (same_login or same_id)
-            else f"promotion actor {promotion_actor!r} is not the required reviewer",
+            else f"promotion actor {promotion_actor!r} is not in the declared reviewer roster",
         )
 
     # ── attestation freshness + drift ─────────────────────────────────────────────────────────
@@ -404,9 +467,13 @@ def evaluate(
         "mode": mode,
         "environment": expected_name,
         "repository": env_policy["repository"],
-        "expected_reviewer": {
-            "id": reviewer_policy["id"],
-            "login": reviewer_policy["login"],
+        "expected_reviewers": {
+            "minimum": reviewer_policy["minimum"],
+            "maximum": reviewer_policy["maximum"],
+            "roster": [
+                {"id": reviewer["id"], "login": reviewer["login"]}
+                for reviewer in reviewer_roster
+            ],
         },
         "generatedAt": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "checks": checks,

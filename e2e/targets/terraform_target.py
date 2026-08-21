@@ -9,10 +9,12 @@ image + the honua-iac tree are all present.
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,6 +72,9 @@ class TerraformTarget(DeployTarget):
         self.region = region or os.environ.get("AWS_REGION", "us-east-1")
         self._workdir: Path | None = None
         self._last_vars: list[str] = []
+        self._plan_path: Path | None = None
+        self._provision_evidence: dict[str, str] = {}
+        self._teardown_evidence: dict[str, str] = {}
 
     # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
@@ -198,14 +203,43 @@ class TerraformTarget(DeployTarget):
         self._last_vars = self._vars(redis_enabled)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
-            self._tf(root, "apply", "-auto-approve", *self._last_vars)
+            plan_dir = Path(tempfile.mkdtemp(prefix=f"honua-release-{self.name}-plan-"))
+            self._plan_path = plan_dir / "candidate.tfplan"
+            self._tf(root, "plan", f"-out={self._plan_path}", *self._last_vars)
+            plan_sha256 = hashlib.sha256(self._plan_path.read_bytes()).hexdigest()
+            self._tf(root, "apply", "-auto-approve", str(self._plan_path))
+            self._provision_evidence = {
+                "terraformPlanSha256": plan_sha256,
+                "terraformApply": "passed",
+            }
             out = self._tf(root, "output", "-raw", self.spec.endpoint_output)
-        except subprocess.CalledProcessError as e:
-            raise ProvisionError(f"{self.name} terraform failed: {e.stderr or e.stdout or e}") from e
+        except (OSError, subprocess.CalledProcessError) as e:
+            detail = getattr(e, "stderr", None) or getattr(e, "stdout", None) or str(e)
+            raise ProvisionError(f"{self.name} terraform failed: {detail}") from e
         url = out.stdout.strip()
         if not url:
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
+
+    @property
+    def provision_evidence(self) -> dict[str, str]:
+        """Secret-free proof that apply consumed the exact saved Terraform plan."""
+        return dict(self._provision_evidence)
+
+    def output_json(self, name: str):
+        """Read one Terraform output without serializing it into the cloud gate report."""
+        root = self._workdir or self._iac_root()
+        if root is None:
+            raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
+        try:
+            value = self._tf(root, "output", "-json", name)
+            return json.loads(value.stdout)
+        except (json.JSONDecodeError, subprocess.CalledProcessError) as error:
+            raise ProvisionError(f"{self.name}: could not read Terraform output {name}") from error
+
+    @property
+    def teardown_evidence(self) -> dict[str, str]:
+        return dict(self._teardown_evidence)
 
     def teardown(self, redis_enabled: bool | None = None) -> None:
         # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
@@ -216,14 +250,35 @@ class TerraformTarget(DeployTarget):
         if root is None:
             return
         mode = False if redis_enabled is None else redis_enabled
+        cleanup_error: OSError | None = None
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode)), check=False)
         except OSError as error:
             raise ProvisionError(f"{self.name} teardown failed: {error}") from error
+        finally:
+            try:
+                if self._plan_path is not None:
+                    self._plan_path.unlink(missing_ok=True)
+                    self._plan_path.parent.rmdir()
+                    self._plan_path = None
+            except OSError as error:
+                cleanup_error = error
         if destroy.returncode != 0:
             detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
-            raise ProvisionError(f"{self.name} teardown failed: {detail}")
+            suffix = "; saved plan cleanup also failed" if cleanup_error else ""
+            raise ProvisionError(f"{self.name} teardown failed: {detail}{suffix}")
+        state = self._tf(root, "state", "list", check=False)
+        if state.returncode != 0 or state.stdout.strip():
+            raise ProvisionError(
+                f"{self.name} teardown failed: Terraform state is unavailable or still owns resources"
+            )
+        self._teardown_evidence = {
+            "terraformDestroy": "passed",
+            "cleanupVerified": "passed",
+        }
+        if cleanup_error is not None:
+            raise ProvisionError(f"{self.name} teardown failed: could not remove the saved Terraform plan")
 
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).

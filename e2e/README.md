@@ -47,6 +47,77 @@ make e2e-strict   # E2E_REQUIRE_REAL=1: BLOCKED/SKIPPED => FAIL (the real releas
 CI: `.github/workflows/e2e-local-docker.yml` runs on PRs touching `e2e/`/manifest, on `workflow_dispatch`,
 and is `workflow_call`-able by the release train's `gate_e2e`.
 
+### D9.3 AI delivery arc
+
+`ai_delivery_arc.py` consumes the zero-to-map plan and executable driver from
+the exact `honua-sdk-js` SHA pinned in `platform-manifest.yaml`. It does not copy
+or reimplement that driver. Contract mode validates the ordered seven-stage
+plan and emits an explicitly blocked SDK receipt. Live mode runs through the
+publication proposals once, writes a candidate/source/plan/endpoint-bound
+checkpoint, and pauses for the focused Console receipt. Resume atomically
+claims that checkpoint, so approval cannot replay connection, GP, or Studio
+side effects. The release
+checker additionally requires both AI execution of the Esri-compatible GP task
+and native direct analysis, plus the Studio/Console/final-URL receipt joins.
+The Studio section is three distinct lifecycle families: map, app, and
+dashboard. Each must save an immutable version, read that exact item/version
+pair, and reopen it as a new draft through the server MCP lifecycle tools;
+reading the original mutable draft does not count as reopen evidence. Each
+family then records a publication intent, saves a distinct intent-bearing
+version, joins the Console request/publication/audit identities, and probes its
+own final HTTPS URL. The app URL remains the entry-point share URL.
+
+`certification/ai-delivery-arc.yaml` names two certifying targets. Local Docker
+must carry the candidate-pinned SDK journey. AWS ECS must supply both the
+candidate-bound Terraform provision/handoff receipt and a second receipt proving
+that the same full admin to GP to Studio to Console to public-share arc ran on
+the ECS target. Both targets also require a dedicated real-model receipt over
+the same endpoint. It must prove natural-language tool selection across Admin,
+Esri GP, native analysis, and map/app/dashboard composition/publication, with
+exact joins to deterministic runtime IDs. A generic Studio transcript or a
+healthy ECS apply cannot satisfy the release gate.
+
+Every external receipt must declare its target and an explicit set of `checks`,
+all `passed`. The required checks include real-model map, app, and dashboard
+compose/save/reopen evidence and, on ECS, the complete downstream journey. The
+checker also rejects a live SDK action marked passed without kind-appropriate
+execution evidence or without its planned identity captures. The terminal share
+check must be HTTP 200 on a public HTTPS URL; loopback, private-address, and
+plain-HTTP receipts cannot certify publication.
+
+```bash
+E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
+E2E_REQUIRE_REAL=1 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
+```
+
+A strict live invocation also requires `E2E_AI_LOCAL_MODEL_RECEIPT` plus its
+content-addressed `E2E_AI_LOCAL_MODEL_EVIDENCE`, `E2E_AI_AWS_RECEIPT` for the ECS
+Terraform/readiness/handoff run and `E2E_AI_AWS_ARC_RECEIPT` for the separate
+full journey executed against that still-live ECS endpoint, and the dedicated
+`E2E_AI_AWS_MODEL_RECEIPT`/`E2E_AI_AWS_MODEL_EVIDENCE` pair. None is inferred
+from a successful apply. `E2E_AI_AWS_SDK_RECEIPT` must point to the live
+`sdk-journey.json` produced during that same ECS lifetime; every AWS model call
+is hash-bound to its exact SDK action receipt, just as the local model receipt
+is bound to the local SDK receipt.
+
+In strict `aws-ecs` cloud cells, `run_cloud.py` owns one lifetime: it applies
+one saved Terraform plan, waits for readiness, invokes the manifest-pinned
+DevOps producer through deterministic prepare/pause, Studio model prepare/pause,
+focused Console browser approval, Studio model resume, and deterministic SDK resume;
+it then destroys and verifies empty Terraform state and seals the two final
+release receipts. Studio runs `release:real-model-ai-arc prepare|resume`; Console
+runs `npm --prefix e2e/playwright run receipt:console` against the separately
+bound `HONUA_AI_ARC_CONSOLE_ORIGIN`. It validates the aggregate against the
+manifest-pinned SDK schema, writes byte-identical aggregate bytes to the Studio
+and SDK receipt paths, and emits Console-owned browser/runtime evidence to
+`HONUA_AI_ARC_CONSOLE_EVIDENCE`. Console receives only
+`HONUA_AI_ARC_CONSOLE_TOKEN`; the model/admin credential is never present in its
+process environment. Studio prepare receives only the purpose-specific secret
+referenced by `HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF`; this reference must
+not equal Terraform's bootstrap admin-secret reference. DevOps subprocesses
+retain only the AWS/OIDC identity needed to resolve their own references and
+explicitly scrub Studio, Console, broad Admin/API, and provider credentials.
+
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual
@@ -92,6 +163,12 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 **nightly** + on `workflow_dispatch`, and is `workflow_call`-able by the release train's
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
 `teardown()` + a backstop reaper (sweeping every example root) always run.
+
+The ECS cell reuses the one DevOps provision handoff, runs the SDK, Studio, and
+Console producers before teardown, and uploads their source artifacts together.
+The release checker still remains red until those artifacts are explicitly
+provided and candidate-bound; it never infers a journey pass from Terraform or
+readiness alone.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

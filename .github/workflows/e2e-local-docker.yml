@@ -14,6 +14,12 @@ on:
   pull_request:
     paths:
       - "e2e/**"
+      - "certification/ai-delivery-arc.yaml"
+      - "certification/release-evidence-receipt.schema.json"
+      - "certification/*-real-model-ai-arc*.schema.json"
+      - "tools/check_ai_delivery_arc.py"
+      - "tools/test_check_ai_delivery_arc.py"
+      - "release-notes/2026.1-ai-delivery-arc.md"
       # bumping the pinned honua-site revision changes what S9 certifies, so re-run the gate for it
       - "certification/conformance-evidence.yaml"
       - "platform-manifest.yaml"
@@ -47,6 +53,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # D9.3 canonical journey. The implementation is consumed from the exact sdk-js
+  # revision in platform-manifest.yaml; this repo owns only the candidate binding
+  # and release verdict. Contract mode is safe on PRs. A real train requires the
+  # live SDK receipt and all cross-component checkpoints, so BLOCKED is a hard red.
+  ai-delivery-arc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.19.0"
+
+      - name: Install release checker dependencies
+        run: python -m pip install pyyaml pytest
+
+      - name: Prove the delivery-arc gate can pass, block, and fail
+        run: python -m pytest tools/test_check_ai_delivery_arc.py -q
+
+      - name: Resolve the reviewed sdk-js journey pin
+        run: |
+          set -euo pipefail
+          TRUSTED_SHA="5950d762010cee8f1d0dfe4340c3abe85b16db1a"
+          SHA="$(python - <<'PY'
+          import yaml
+          print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-sdk-js"]["sha"])
+          PY
+          )"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::platform-manifest sdk-js sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
+
+      - name: Check out the manifest-pinned sdk-js
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-js
+          ref: 5950d762010cee8f1d0dfe4340c3abe85b16db1a
+          path: _sdk-js
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Build the pinned SDK journey bundle when present
+        if: ${{ hashFiles('_sdk-js/mcp/src/release/zero-to-map-cli.ts') != '' }}
+        run: |
+          set -euo pipefail
+          npm ci --prefix _sdk-js
+          npm run build --prefix _sdk-js
+          chmod +x _sdk-js/dist/src/cli/bin.js
+          npm ci --prefix _sdk-js/mcp
+
+      - name: Validate and run the D9.3 journey
+        env:
+          E2E_SDK_JS_DIR: ${{ github.workspace }}/_sdk-js
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+        run: python e2e/ai_delivery_arc.py
+
+      - name: Upload the candidate-bound delivery-arc receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-ai-delivery-arc-gate-report
+          path: |
+            e2e/out/ai-delivery-arc-receipt.json
+            e2e/out/sdk-zero-to-map-receipt.json
+          if-no-files-found: warn
+
   seam:
     runs-on: ubuntu-latest
     steps:
@@ -94,7 +170,7 @@ jobs:
           import yaml
           components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
           expected = {
-              "honua-sdk-js": ("7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6", "0.1.7-beta.0"),
+              "honua-sdk-js": ("5950d762010cee8f1d0dfe4340c3abe85b16db1a", "0.1.7-beta.0"),
               "honua-sdk-python": ("953f2b3ba2cbb2d947b13c8ac5848cebe1860a76", "0.1.10"),
               "honua-sdk-dotnet": ("a5fb6f54a34524ea19e9e635e4c6aa258aec11c5", "1.6.0"),
           }
@@ -192,7 +268,7 @@ jobs:
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+          TRUSTED_SHA="6c04acf6bd41f05447221ed7ef98c39bcac56f5f"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -214,7 +290,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          ref: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -277,7 +353,7 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          E2E_CONSOLE_SHA: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different

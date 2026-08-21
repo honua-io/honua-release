@@ -52,6 +52,25 @@ callable by the release train as a reusable gate (`workflow_call`, input `baseli
 Only dependency: `pyyaml`. `semver.py` is a minimal stdlib SemVer + range implementation (no
 third-party semver lib).
 
+## `check_ai_delivery_arc.py` — D9.3 candidate journey gate
+
+Consumes the manifest-pinned `honua-sdk-js` zero-to-map plan/receipt and checks
+the 396-operation Admin API boundary, 119-tool semantic MCP family, focused
+Console boundary, dual native + Esri-compatible AI GP execution, and distinct
+map/app/dashboard Studio immutable save/read/reopen identities before the
+proposal checkpoint, candidate identity, and final URL. Local Docker and
+AWS ECS are both required full-arc targets. External receipts must carry explicit
+target/check claims, and every passed SDK action must retain kind-appropriate
+execution evidence plus its planned identity captures. The final artifact must
+answer on a public HTTPS URL. The checker emits one
+manifest-digest-bound receipt with the first failing stage/action/tool named.
+
+```bash
+python tools/check_ai_delivery_arc.py --sdk-root ../honua-sdk-js \
+  --json-out e2e/out/ai-delivery-arc-receipt.json
+python -m pytest tools/test_check_ai_delivery_arc.py -q
+```
+
 ## `candidate_binding.py` — certified-candidate integrity boundary
 
 Packages the frozen `platform-manifest.yaml` and `compatibility-matrix.yaml` with the platform gate
