@@ -114,8 +114,9 @@ def _sha256(path: Path) -> str:
 
 def _write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    # lgtm[py/clear-text-storage-sensitive-data] The only credential-shaped fields written by this
-    # helper are validated AWS Secrets Manager ARNs. Credential values remain process-only.
+    # The only credential-shaped fields written here are validated Secrets Manager ARN references;
+    # credential values remain process-only.
+    # lgtm[py/clear-text-storage-sensitive-data]
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
