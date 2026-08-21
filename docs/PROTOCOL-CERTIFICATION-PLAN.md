@@ -147,9 +147,9 @@ Aggregate percentages never override a failed required cell. The target for rele
 | Kerchunk | honua-server #3378 | nightly/release after promotion | raster/storage security design | implemented surface and client receipts |
 | COPC | honua-server #2442/#3289/#3290 | nightly/release after promotion | 3D capability work | PDAL-verified range-serving receipts |
 | Esri and SOAP discovery | honua-esri-compat #74 | PR/nightly/release | Windows licensed runner, #158 | zero required skips and exact-candidate cert JSON |
-| SDK matrices | sdk-js #1113, sdk-python #197, sdk-dotnet #294 | PR/nightly/release | server candidate and #158 | versioned SDK coverage snapshots |
-| gRPC | geospatial-grpc #18 | PR/nightly/release | generated clients | fixture-versioned client receipts |
-| MCP | geospatial-mcp #1 | PR/nightly/release | conformance corpus | deterministic transport/eval receipts |
+| SDK matrices | sdk-js #39/#1113, sdk-python #21/#197, sdk-dotnet #31/#294, server #3381 | PR/nightly/release | server candidate and #158 | versioned SDK coverage snapshots |
+| gRPC | geospatial-grpc #88 (parent #18) | PR/nightly/release | generated clients and shared fixtures | fixture-versioned client receipts |
+| MCP | geospatial-mcp #78 (parent #1/#5) | PR/nightly/release | conformance corpus | deterministic transport/eval receipts |
 
 ## Release handling
 
