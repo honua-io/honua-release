@@ -6,7 +6,7 @@
   "source_revisions": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "a793f93fe580f382d4b4e41e3e8a445beb5a6411"
+      "commit": "e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
@@ -45,7 +45,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@a793f93fe580",
+      "client_version": "source@e3ab87cebb7b",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -56,7 +56,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -35113,7 +35113,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-processes",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -42194,7 +42194,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -42217,7 +42217,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -42229,7 +42229,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@a793f93fe580",
+      "client_version": "source@e3ab87cebb7b",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -42240,7 +42240,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -42263,7 +42263,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -42286,7 +42286,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43192,7 +43192,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43215,7 +43215,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43238,7 +43238,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43261,7 +43261,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43626,7 +43626,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@a793f93fe580",
+      "client_version": "source@e3ab87cebb7b",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -43637,7 +43637,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43660,7 +43660,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43683,7 +43683,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43706,7 +43706,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43853,7 +43853,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -43928,7 +43928,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44003,7 +44003,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44078,7 +44078,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44153,7 +44153,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44228,7 +44228,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44303,7 +44303,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44378,7 +44378,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44453,7 +44453,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44503,7 +44503,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44578,7 +44578,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44653,7 +44653,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44728,7 +44728,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44803,7 +44803,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44878,7 +44878,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44954,7 +44954,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-coverages",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45184,7 +45184,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-edr",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45328,7 +45328,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-features",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45394,7 +45394,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45520,7 +45520,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@a793f93fe580",
+      "client_version": "source@e3ab87cebb7b",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45531,7 +45531,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45554,7 +45554,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45577,7 +45577,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45812,7 +45812,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-maps",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45941,7 +45941,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45964,7 +45964,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -46064,7 +46064,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-records",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46409,7 +46409,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-tiles",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46471,7 +46471,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -46540,7 +46540,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -46732,7 +46732,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-sensorthings",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47038,7 +47038,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47275,7 +47275,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wcs",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47339,7 +47339,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47555,7 +47555,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@a793f93fe580",
+      "client_version": "source@e3ab87cebb7b",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47566,7 +47566,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47589,7 +47589,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47601,7 +47601,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wfs",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47639,7 +47639,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47663,7 +47663,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47687,7 +47687,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47711,7 +47711,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47911,7 +47911,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47934,7 +47934,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47971,7 +47971,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wms",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48007,7 +48007,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48031,7 +48031,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48209,7 +48209,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48232,7 +48232,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48269,7 +48269,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wmts",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48305,7 +48305,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48329,7 +48329,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "contract_revision": "server-capability-matrix@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48518,7 +48518,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-styles",
-      "client_version": "ets-selection@a793f93fe580f382d4b4e41e3e8a445beb5a6411",
+      "client_version": "ets-selection@e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,

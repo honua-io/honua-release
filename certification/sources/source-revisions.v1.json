@@ -3,7 +3,7 @@
   "sources": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "a793f93fe580f382d4b4e41e3e8a445beb5a6411"
+      "commit": "e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
