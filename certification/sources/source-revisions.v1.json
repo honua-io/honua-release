@@ -1,0 +1,11 @@
+{
+  "schema": "honua.protocol-certification-source-revisions/v1",
+  "sources": {
+    "server": {"repository":"honua-io/honua-server","commit":"7db653b0d560d52fcdca51e40162936d98cccef5"},
+    "sdk-dotnet": {"repository":"honua-io/honua-sdk-dotnet","commit":"bc5ffea6ece02e5d7b414fbb343639058f75dbb2"},
+    "sdk-python": {"repository":"honua-io/honua-sdk-python","commit":"5ec584274bdef993dad790b769b33b884a7dd6bd"},
+    "sdk-js": {"repository":"honua-io/honua-sdk-js","commit":"0534e1d4e1cb50a6b67ab1a765d8db51d46f25a6"},
+    "esri-compat": {"repository":"honua-io/honua-esri-compat","commit":"ff5462011872e7edf0c840a8189f5dd4143a75f7"},
+    "cloud-native-guide": {"repository":"cloudnativegeo/cloud-optimized-geospatial-formats-guide","commit":"0fabdf7c04ff135dd8160f39bf7a0fbb2f402f46"}
+  }
+}

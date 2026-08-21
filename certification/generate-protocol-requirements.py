@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Generate the complete protocol/client certification denominator."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).parent
+OUTPUT = ROOT / "protocol-certification-requirements.v1.json"
+SOURCES = ROOT / "sources"
+SUPPORTED = {"implemented", "partial", "covered"}
+FIXTURE = "docker/cng/seed.sql@{source_sha}"
+
+
+def load(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def main() -> None:
+    revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
+    existing = load(OUTPUT)
+    requirements = [row for row in existing["requirements"] if row["capability_key"].startswith("format.")]
+    seen = {
+        (row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"])
+        for row in requirements
+    }
+
+    def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
+            version: str, contract: str, target: str = "local-docker", licensed: bool = False,
+            facets: list[str] | None = None) -> None:
+        key = (capability, surface, operation, client, lane)
+        if key in seen:
+            return
+        seen.add(key)
+        requirements.append({
+            "capability_key": capability,
+            "surface": surface,
+            "operation": operation,
+            "maturity": "supported",
+            "canonical_client": client,
+            "client_lane": lane,
+            "client_version": version,
+            "deployment_target": target,
+            "required_tier": "nightly",
+            "licensed": licensed,
+            "addressable_by_client": True,
+            "addressability_reason": None,
+            "scenario_facets": facets or ["positive", "metadata", "media-schema"],
+            "contract_revision": contract,
+            "auth_policy_revision": "anonymous-and-protected-v1",
+            "fixture_revision": FIXTURE,
+        })
+
+    sdk_sources = [
+        ("sdk-dotnet", "coverage", "Honua SDK .NET", f"source-preview@{revisions['sdk-dotnet']['commit']}", "sdk-dotnet"),
+        ("sdk-python", "capabilities", "Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python"),
+        ("sdk-js", "capabilities", "Honua SDK JavaScript", "0.1.7-beta.0", "sdk-js"),
+    ]
+    for source_name, collection, client, version, surface in sdk_sources:
+        snapshot = load(SOURCES / source_name / "sdk-coverage.v1.json")
+        for capability in snapshot[collection]:
+            if capability.get("status") not in SUPPORTED:
+                continue
+            for entrypoint in capability.get("entrypoints", []):
+                add(
+                    capability=capability["key"], surface=surface, operation=entrypoint,
+                    client=client, lane=surface, version=version,
+                    contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
+                    facets=["positive", "media-schema"],
+                )
+
+    server = load(SOURCES / "server" / "capability-matrix.v1.json")
+    lane_clients = {
+        "desktop-qgis": ("QGIS", "3.40"),
+        "desktop-arcgis": ("ArcGIS Pro", "3.5"),
+        "ci-desktop": ("QGIS", "3.40"),
+        "js": ("Honua SDK JavaScript", "0.1.7-beta.0"),
+        "js-cesium": ("CesiumJS", "1.132.0"),
+        "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
+        "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
+        "bi-excel": ("Microsoft Excel", "Microsoft 365"),
+        "bi-powerbi": ("Microsoft Power BI", "2026.08"),
+        "ci-bi": ("Microsoft.OData.Client", "8.3"),
+    }
+    for capability in server["capabilities"]:
+        for cite in capability.get("cite", []):
+            suite = cite["suite"]
+            add(
+                capability=capability["key"], surface=slug(suite), operation=capability["key"],
+                client="OGC CITE", lane=f"cite-{slug(suite)}", version=suite,
+                contract=f"server-capability-matrix@{revisions['server']['commit']}",
+                facets=["positive", "malformed-input", "crs-axis", "media-schema"],
+            )
+        for interop in capability.get("interop", []):
+            lane = interop["clientLane"]
+            client, version = lane_clients.get(lane, (lane, f"pin@{revisions['server']['commit'][:12]}"))
+            add(
+                capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
+                client=client, lane=lane, version=version,
+                contract=f"server-capability-matrix@{revisions['server']['commit']}",
+            )
+
+    esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
+    esri_clients = [
+        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False),
+        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False),
+        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False),
+        ("ArcGIS Pro/arcpy", "3.5", "desktop-arcpy", "windows-licensed", True),
+    ]
+    for service in esri_index["services"]:
+        matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
+        for case in matrix["cases"]:
+            if case.get("status") not in SUPPORTED:
+                continue
+            if service["service"] == "ogc":
+                continue
+            facets = ["positive", "authorization", "media-schema"]
+            if "query" in case["name"].lower():
+                facets += ["pagination-cursor", "result-limits", "crs-axis"]
+            for client, version, lane, target, licensed in esri_clients:
+                add(
+                    capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
+                    client=client, lane=f"{lane}-{service['service']}", version=version,
+                    contract=f"esri-matrix@{revisions['esri-compat']['commit']}", target=target,
+                    licensed=licensed, facets=facets,
+                )
+
+    ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")
+    for case in ogc["cases"]:
+        if case.get("status") not in SUPPORTED:
+            continue
+        name = case["name"].lower()
+        if "features" in name or "wfs" in name:
+            clients = [("OGC CITE", "current", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", "3.40", "qgis")]
+        elif "tiles" in name or "wmts" in name or "wms" in name:
+            clients = [("OGC CITE", "current", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
+        elif "wcs" in name or "coverage" in name:
+            clients = [("OGC CITE", "current", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.34", "owslib")]
+        else:
+            clients = [("OGC CITE", "current", "cite"), ("Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python")]
+        for client, version, lane in clients:
+            add(
+                capability="serve.ogc", surface="ogc", operation=case["id"], client=client,
+                lane=f"{lane}-ogc", version=version,
+                contract=f"esri-ogc-matrix@{revisions['esri-compat']['commit']}",
+                facets=["positive", "malformed-input", "authorization", "crs-axis", "media-schema"],
+            )
+
+    requirements.sort(key=lambda row: (
+        row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"]
+    ))
+    output = {
+        "schema": "honua.protocol-certification-requirements/v1",
+        "revision": "2026-08-21-complete.1",
+        "complete": True,
+        "scope_notes": (
+            "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
+            "Esri operation matrices, SDK entrypoints, and cloud-native canonical-client inventory. "
+            "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
+        ),
+        "source_revisions": revisions,
+        "requirements": requirements,
+    }
+    OUTPUT.write_text(json.dumps(output, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    print(f"Wrote {OUTPUT} with {len(requirements)} required certification cells.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,77 @@
+{
+  "service": "geoservices-catalog",
+  "display_name": "Catalog / REST Info",
+  "prefix": "C/",
+  "source_doc": "docs/reference/compatibility/geoservices-parity.md",
+  "generated_from": "honua-server (geoservices-rest-parity.json)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 1,
+    "partial": 0,
+    "not_implemented": 3,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "stub": 1,
+    "total_supported": 1,
+    "total": 5
+  },
+  "cases": [
+    {
+      "id": "C/-OP-CATALOG",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Catalog (service directory)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services",
+      "notes": "Graph-backed service directory, RBAC-filtered per principal, listing every service type a publication exposes. Returns 401/403 rather than a misleading empty list when every publication is denied. Does not emit folders; currentVersion is deliberately omitted (see knownLimitations)."
+    },
+    {
+      "id": "C/-OP-REST-INFO",
+      "kind": "operation",
+      "group": "operations",
+      "name": "REST Info",
+      "esri_path": "",
+      "methods": "",
+      "status": "stub",
+      "endpoint": "GET /rest/info",
+      "notes": "Returns the spec-shaped {\"authInfo\":{\"isTokenBasedSecurity\":\u2026}} document, but the value is not wired to the portal-token configuration: it is always false, and tokenServicesUrl is absent from the response type entirely. An Esri client performing auth discovery at the canonical ArcGIS Server location is therefore told the server is not token-secured. /sharing/rest/info carries the real, configuration-driven authInfo. Tracked as a gap; the route is not removed because clients probe it."
+    },
+    {
+      "id": "C/-OP-REST-INFO-ALWAYS-REPORTS-ISTOKENBASEDSEC",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "/rest/info always reports isTokenBasedSecurity=false and omits tokenServicesUrl",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "C/-OP-NO-FOLDERS-IN-THE-CATALOG-RESPONSE",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "no folders in the catalog response",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "C/-OP-CURRENTVERSION-IS-DELIBERATELY-NOT-ADVER",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "currentVersion is deliberately not advertised",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    }
+  ]
+}

@@ -58,6 +58,12 @@ jobs:
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
 
+      - name: Validate complete protocol certification denominator
+        run: |
+          python certification/generate-protocol-requirements.py
+          git diff --exit-code -- certification/protocol-certification-requirements.v1.json
+          python certification/validate-protocol-requirements.py
+
       - name: Resolve drift baseline
         id: baseline
         env:
