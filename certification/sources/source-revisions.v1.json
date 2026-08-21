@@ -7,7 +7,7 @@
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "75627d785d0a03ca5a22983ff8608105ca5a2608"
+      "commit": "40751bc1b83f36c660f929738528eee3d4403e96"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
