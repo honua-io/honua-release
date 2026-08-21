@@ -21,7 +21,6 @@ PR_SDK_SMOKE_OPERATIONS = {
         ("grpc-web", "query"),
         ("imageserver", "export-image"),
         ("ogc-features", "items"),
-        ("realtime", "subscribe"),
         ("stac", "search"),
         ("wmts", "get-tile"),
     },
@@ -127,11 +126,15 @@ def main() -> None:
                     else contract["fixtureRevision"]
                 ),
                 facets=operation["scenario_facets"],
+                licensed=operation.get("licensed", False),
                 required_tier=(
-                    "pr"
-                    if (operation["surface"], operation["operation"])
-                    in PR_SDK_SMOKE_OPERATIONS[source_name]
-                    else "nightly"
+                    operation.get("requiredTier")
+                    or (
+                        "pr"
+                        if (operation["surface"], operation["operation"])
+                        in PR_SDK_SMOKE_OPERATIONS[source_name]
+                        else "nightly"
+                    )
                 ),
             )
 

@@ -48343,8 +48343,8 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
+      "required_tier": "release",
+      "licensed": true,
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -48365,8 +48365,8 @@
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
       "deployment_target": "local-docker",
-      "required_tier": "pr",
-      "licensed": false,
+      "required_tier": "release",
+      "licensed": true,
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [

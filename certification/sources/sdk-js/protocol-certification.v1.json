@@ -499,7 +499,9 @@
       "scenario_facets": [
         "positive",
         "media-schema"
-      ]
+      ],
+      "requiredTier": "release",
+      "licensed": true
     },
     {
       "capability_key": "streaming.feature-subscriptions",
@@ -508,7 +510,9 @@
       "scenario_facets": [
         "positive",
         "media-schema"
-      ]
+      ],
+      "requiredTier": "release",
+      "licensed": true
     },
     {
       "capability_key": "routing.solve",
