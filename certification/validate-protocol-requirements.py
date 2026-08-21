@@ -33,7 +33,13 @@ def main() -> None:
     if catalog["complete"] is not True:
         raise ValueError("Protocol certification denominator is not declared complete.")
     keys = [
-        (row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"])
+        (
+            row["surface"],
+            row["operation"],
+            row["canonical_client"],
+            row["client_version"],
+            row["deployment_target"],
+        )
         for row in catalog["requirements"]
     ]
     if len(keys) != len(set(keys)):
