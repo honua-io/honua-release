@@ -32,7 +32,10 @@ def main() -> None:
     fixture_pins = json.loads(
         (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
     )["fixtures"]
-    requirements = list(format_source["requirements"])
+    requirements = [
+        {**row, "budget_expectations": row.get("budget_expectations")}
+        for row in format_source["requirements"]
+    ]
     seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
 
     def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
@@ -60,6 +63,7 @@ def main() -> None:
             "contract_revision": contract,
             "auth_policy_revision": "anonymous-and-protected-v1",
             "fixture_revision": fixture,
+            "budget_expectations": None,
         })
 
     sdk_sources = [
