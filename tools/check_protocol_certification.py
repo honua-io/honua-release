@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--matrix", required=True)
     parser.add_argument("--tier", required=True, choices=sorted(TIERS))
     parser.add_argument("--expected-source-sha")
-    parser.add_argument("--expected-requirements-source-revision")
+    parser.add_argument("--expected-requirements-source-revision", required=True)
     parser.add_argument("--expected-image-digest")
     parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
     parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
