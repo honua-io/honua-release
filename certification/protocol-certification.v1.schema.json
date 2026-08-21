@@ -15,7 +15,7 @@
       "additionalProperties": false,
       "required": ["source_sha", "image_digest", "cut_at"],
       "properties": {
-        "source_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "cut_at": { "type": "string", "format": "date-time" }
       }
@@ -63,7 +63,7 @@
         },
         "contract_revision": { "type": "string", "minLength": 1 },
         "auth_policy_revision": { "type": "string", "minLength": 1 },
-        "source_sha": { "type": ["string", "null"] },
+        "source_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "producer_source_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "image_digest": { "type": ["string", "null"] },
         "fixture_revision": { "type": ["string", "null"] },

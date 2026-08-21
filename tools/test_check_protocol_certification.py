@@ -101,11 +101,21 @@ def test_non_addressable_requires_reason_and_matching_result():
     assert report["overall_status"] == "fail"
 
 
-def test_supported_operation_needs_an_addressable_client_at_release():
+def test_supported_operation_needs_an_addressable_client_at_nightly_and_release():
     cell = _cell(addressable_by_client=False, result="not-addressable", addressability_reason="API absent in client")
-    report = _evaluate(_ledger(cell), "release", now=NOW)
-    assert report["overall_status"] == "fail"
-    assert any(finding["check"] == "addressability" for finding in report["findings"])
+    for tier in ("nightly", "release"):
+        report = _evaluate(_ledger(cell), tier, now=NOW)
+        assert report["overall_status"] == "fail"
+        assert any(finding["check"] == "addressability" for finding in report["findings"])
+
+
+def test_candidate_and_cells_require_full_source_shas_at_every_tier():
+    for tier in ("pr", "nightly", "release"):
+        ledger = _ledger(_cell(source_sha="a" * 7))
+        ledger["candidate"]["source_sha"] = "a" * 7
+        report = _evaluate(ledger, tier, now=NOW)
+        assert report["overall_status"] == "fail"
+        assert any("full 40-character" in finding["why"] for finding in report["findings"])
 
 
 def test_nightly_older_than_seven_days_fails():
