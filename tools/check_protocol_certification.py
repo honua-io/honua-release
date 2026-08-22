@@ -492,7 +492,10 @@ def evaluate(
             )
         if raw["source_sha"] != candidate_sha:
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
-        if raw["image_digest"] != candidate_digest:
+        if raw["deployment_target"] == "source-test-host":
+            if raw["image_digest"] is not None:
+                fail(prefix, "source-test-host evidence must not claim candidate image execution")
+        elif raw["image_digest"] != candidate_digest:
             fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
         if not raw["addressable_by_client"]:
             continue

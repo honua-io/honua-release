@@ -192,7 +192,9 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         canonical_client="Honua server public protocol integration harness",
         client_lane="server-protocol-harness",
         client_version=f"source@{harness_sha}",
+        deployment_target="source-test-host",
         producer_source_sha=harness_sha,
+        image_digest=None,
         test_ids=test_ids,
     )
     requirements = _requirements(cell)
@@ -213,6 +215,29 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
     )
     assert wrong_test_report["overall_status"] == "fail"
     assert any("semantically bound" in finding["why"] for finding in wrong_test_report["findings"])
+
+    falsely_bound = _cell(
+        capability_key="serve.ogc-api-edr",
+        surface="ogc-api-edr",
+        operation="GET /edr/collections/{collectionId}/cube",
+        canonical_client="Honua server public protocol integration harness",
+        client_lane="server-protocol-harness",
+        client_version=f"source@{harness_sha}",
+        deployment_target="source-test-host",
+        producer_source_sha=harness_sha,
+        image_digest=DIGEST,
+        test_ids=test_ids,
+    )
+    false_report = _evaluate(
+        _ledger(falsely_bound), "nightly", requirements=requirements, now=NOW,
+    )
+    assert false_report["overall_status"] == "fail"
+    assert any("must not claim candidate image" in finding["why"] for finding in false_report["findings"])
+
+    deployed_without_digest = _cell(image_digest=None)
+    deployed_report = _evaluate(_ledger(deployed_without_digest), "nightly", now=NOW)
+    assert deployed_report["overall_status"] == "fail"
+    assert any("does not match ledger candidate" in finding["why"] for finding in deployed_report["findings"])
 
     wrong_source = copy.deepcopy(cell)
     wrong_source["producer_source_sha"] = "f" * 40
@@ -631,6 +656,23 @@ def test_schema_conditionally_requires_nonnull_licensed_entitlement():
     }
     assert not list(validator.iter_errors(_ledger(licensed)))
     assert not list(validator.iter_errors(_ledger(_cell())))
+
+
+def test_schema_binds_execution_image_digest_to_deployment_target():
+    schema = json.loads(
+        (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(schema)
+
+    source_host = _cell(deployment_target="source-test-host", image_digest=None)
+    assert not list(validator.iter_errors(_ledger(source_host)))
+    assert list(validator.iter_errors(_ledger(_cell(deployment_target="source-test-host"))))
+    assert list(validator.iter_errors(_ledger(_cell(image_digest=None))))
+
+    missing_candidate = _ledger(source_host)
+    missing_candidate["candidate"]["image_digest"] = None
+    assert list(validator.iter_errors(missing_candidate))
 
 
 def test_licensed_receipt_requires_bound_live_entitlement_assertion():
