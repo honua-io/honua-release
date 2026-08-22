@@ -102,7 +102,7 @@
                     "entitlement_policy_revision": { "type": ["string", "null"] },
                     "source_sha": { "type": "string" },
                     "producer_source_sha": { "type": "string" },
-                    "image_digest": { "type": "string" },
+                    "image_digest": { "type": ["string", "null"] },
                     "fixture_revision": { "type": "string" },
                     "contract_revision": { "type": "string" },
                     "auth_policy_revision": { "type": "string" },
@@ -183,6 +183,49 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "deployment_target": { "const": "source-test-host" },
+              "result": { "enum": ["pass", "fail"] }
+            },
+            "required": ["deployment_target", "result"]
+          },
+          "then": {
+            "properties": {
+              "image_digest": { "type": "null" },
+              "evidence_receipt": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "properties": { "image_digest": { "type": "null" } }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": { "result": { "enum": ["pass", "fail"] } },
+              "required": ["result"]
+            },
+            "then": {
+              "properties": {
+                "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "evidence_receipt": {
+                  "type": "object",
+                  "properties": {
+                    "identity": {
+                      "properties": {
+                        "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": { "required": ["test_ids"] },
           "then": {
