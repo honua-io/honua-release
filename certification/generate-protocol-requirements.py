@@ -121,26 +121,60 @@ def main() -> None:
                     facets=["positive", "media-schema"], fixture=fixture,
                 )
 
+    sdk_operation_policies = {
+        ("sdk-js", "streaming.feature-subscriptions", "realtime", "subscribe"): {
+            "auth_policy_revision": "api-key-protected-v1",
+            "deployment_target": "licensed-release",
+            "required_tier": "release",
+            "licensed": True,
+            "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
+        },
+        ("sdk-js", "streaming.feature-subscriptions", "realtime", "resume"): {
+            "auth_policy_revision": "api-key-protected-v1",
+            "deployment_target": "licensed-release",
+            "required_tier": "release",
+            "licensed": True,
+            "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
+        },
+    }
+    applied_sdk_operation_policies = set()
     for source_name in ("sdk-python", "sdk-js"):
         contract = load(SOURCES / source_name / "protocol-certification.v1.json")
         for operation in contract["operations"]:
+            policy_key = (
+                source_name, operation["capability_key"],
+                operation["surface"], operation["operation"],
+            )
+            policy = sdk_operation_policies.get(policy_key, {})
+            if policy:
+                applied_sdk_operation_policies.add(policy_key)
             add(
                 capability=operation["capability_key"], surface=operation["surface"],
                 operation=operation["operation"], client=contract["canonicalClient"],
                 lane=f"{source_name}-certification", version=contract["clientVersion"],
                 contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
-                auth_policy=operation.get("authPolicyRevision", "anonymous-public-v1"),
-                target=operation.get("deploymentTarget", "local-docker"),
+                auth_policy=policy.get(
+                    "auth_policy_revision",
+                    operation.get("authPolicyRevision", "anonymous-public-v1"),
+                ),
+                target=policy.get(
+                    "deployment_target",
+                    operation.get("deploymentTarget", "local-docker"),
+                ),
                 fixture=(
                     fixture_pins["sdk-js"]
                     if source_name == "sdk-js"
                     else contract["fixtureRevision"]
                 ),
                 facets=operation["scenario_facets"],
-                licensed=operation.get("licensed", False),
-                entitlement_policy=operation.get("entitlementPolicyRevision"),
+                licensed=policy.get("licensed", operation.get("licensed", False)),
+                entitlement_policy=policy.get(
+                    "entitlement_policy_revision",
+                    operation.get("entitlementPolicyRevision"),
+                ),
                 required_tier=(
-                    operation.get("requiredTier")
+                    policy.get("required_tier")
+                    or operation.get("requiredTier")
                     or (
                         "pr"
                         if (operation["surface"], operation["operation"])
@@ -149,6 +183,11 @@ def main() -> None:
                     )
                 ),
             )
+    if applied_sdk_operation_policies != set(sdk_operation_policies):
+        raise ValueError(
+            "SDK operation policies do not exactly match the pinned protocol contracts: "
+            f"missing={sorted(set(sdk_operation_policies) - applied_sdk_operation_policies)}"
+        )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
     dotnet_addressable_operations = sum(
