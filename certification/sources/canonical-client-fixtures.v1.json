@@ -2,6 +2,6 @@
     "schema_version":  1,
     "description":  "Release-owned immutable fixture pins for canonical-client certification.",
     "fixtures":  {
-                     "sdk-js":  "0.1.0-alpha.3"
+                     "sdk-js":  "0.2.0-alpha.1"
                  }
 }

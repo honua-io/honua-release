@@ -338,7 +338,7 @@ def main() -> None:
         for source_name in ("sdk-js", "sdk-python", "sdk-dotnet")
     }
     sdk_fixtures = {
-        "sdk-js": "0.1.0-alpha.3",
+        "sdk-js": "0.2.0-alpha.1",
         "sdk-python": "geospatial-grpc@0.2.0-alpha.1",
         "sdk-dotnet": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
     }
