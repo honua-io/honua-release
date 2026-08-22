@@ -50807,10 +50807,10 @@
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "deployment_target": "licensed-release",
+      "required_tier": "release",
+      "licensed": true,
+      "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -50818,7 +50818,7 @@
         "media-schema"
       ],
       "contract_revision": "sdk-js-certification@e9020c47d2db66ca2bbb31a7f2f09c16e5a033d9",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "api-key-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
     },
@@ -50830,10 +50830,10 @@
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
       "client_version": "0.1.7-beta.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "deployment_target": "licensed-release",
+      "required_tier": "release",
+      "licensed": true,
+      "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -50841,7 +50841,7 @@
         "media-schema"
       ],
       "contract_revision": "sdk-js-certification@e9020c47d2db66ca2bbb31a7f2f09c16e5a033d9",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "api-key-protected-v1",
       "fixture_revision": "0.1.0-alpha.3",
       "budget_expectations": null
     },

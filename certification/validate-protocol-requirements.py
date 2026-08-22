@@ -72,6 +72,29 @@ def main() -> None:
                 )
         elif policy is not None:
             raise ValueError("Unlicensed requirement cannot claim an entitlement policy.")
+    expected_licensed_js_policies = {
+        ("streaming.feature-subscriptions", "realtime", "subscribe"): (
+            "licensed-release", "release", "api-key-protected-v1",
+            "honua-pro-feature-subscriptions-v1",
+        ),
+        ("streaming.feature-subscriptions", "realtime", "resume"): (
+            "licensed-release", "release", "api-key-protected-v1",
+            "honua-pro-feature-subscriptions-v1",
+        ),
+    }
+    licensed_js_policies = {
+        (row["capability_key"], row["surface"], row["operation"]): (
+            row["deployment_target"], row["required_tier"], row["auth_policy_revision"],
+            row["entitlement_policy_revision"],
+        )
+        for row in catalog["requirements"]
+        if row["client_lane"] == "sdk-js-certification" and row["licensed"]
+    }
+    if licensed_js_policies != expected_licensed_js_policies:
+        raise ValueError(
+            "Licensed JavaScript protocol policies differ from the closed release-owned map "
+            f"(expected={expected_licensed_js_policies!r}, actual={licensed_js_policies!r})."
+        )
     required_surfaces = {"sdk-python", "sdk-js", "feature-server", "ogc", "cog", "hdf5-netcdf", "zarr"}
     surface_names = {row["surface"] for row in catalog["requirements"]}
     missing = {
