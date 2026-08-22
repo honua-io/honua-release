@@ -18,7 +18,7 @@
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "c962c3c881a80c33f07d44430e92988f986b4f5a"
+      "commit": "aeeb5300392e858d1bb223092625cb81154a7206"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
@@ -222,7 +222,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -245,7 +245,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1188,7 +1188,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1211,7 +1211,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1234,7 +1234,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1257,7 +1257,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1280,7 +1280,7 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1418,7 +1418,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1441,7 +1441,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -1464,7 +1464,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -27917,7 +27917,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -27940,7 +27940,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -28055,7 +28055,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -28078,7 +28078,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -36422,7 +36422,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -36774,7 +36774,7 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -36968,7 +36968,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -36991,7 +36991,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37172,7 +37172,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37195,7 +37195,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37218,7 +37218,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37241,7 +37241,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37501,7 +37501,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -37524,7 +37524,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -43874,7 +43874,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -43897,7 +43897,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -43920,7 +43920,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -43943,7 +43943,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -43989,7 +43989,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44012,7 +44012,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44342,7 +44342,7 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44365,7 +44365,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44388,7 +44388,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44411,7 +44411,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44434,7 +44434,7 @@
         "positive",
         "boundary"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44572,7 +44572,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44595,7 +44595,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44618,7 +44618,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44802,7 +44802,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44825,7 +44825,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -44848,7 +44848,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45079,7 +45079,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45102,7 +45102,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45125,7 +45125,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45407,7 +45407,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45430,7 +45430,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45453,7 +45453,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45476,7 +45476,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45499,7 +45499,7 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45522,7 +45522,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45545,7 +45545,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45643,7 +45643,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45666,7 +45666,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45902,7 +45902,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -45925,7 +45925,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -46561,7 +46561,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-ogc",
-      "client_version": "source-preview@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "client_version": "source-preview@aeeb5300392e858d1bb223092625cb81154a7206",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47313,7 +47313,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -47336,7 +47336,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -47569,7 +47569,7 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -47592,7 +47592,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-certification@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48030,7 +48030,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48053,7 +48053,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48076,7 +48076,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48099,7 +48099,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48365,7 +48365,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48388,7 +48388,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48653,7 +48653,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48676,7 +48676,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48699,7 +48699,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -48722,7 +48722,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49035,7 +49035,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49058,7 +49058,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49279,7 +49279,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49302,7 +49302,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49876,7 +49876,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -49899,7 +49899,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -50264,7 +50264,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -50287,7 +50287,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -50575,7 +50575,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -50598,7 +50598,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -51125,7 +51125,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -51148,7 +51148,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -51171,7 +51171,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null
@@ -51194,7 +51194,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@c962c3c881a80c33f07d44430e92988f986b4f5a",
+      "contract_revision": "sdk-python-coverage@aeeb5300392e858d1bb223092625cb81154a7206",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@0.2.0-alpha.1",
       "budget_expectations": null

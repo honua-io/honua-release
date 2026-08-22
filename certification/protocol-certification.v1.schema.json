@@ -106,6 +106,7 @@
                     "fixture_revision": { "type": "string" },
                     "contract_revision": { "type": "string" },
                     "auth_policy_revision": { "type": "string" },
+                    "candidate_cut_at": { "type": "string", "format": "date-time" },
                     "test_ids": {
                       "type": "array",
                       "minItems": 1,

@@ -192,7 +192,7 @@ def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
     )
 
 
-def _valid_receipt(cell: dict) -> bool:
+def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
     receipt = cell.get("evidence_receipt")
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
@@ -209,12 +209,26 @@ def _valid_receipt(cell: dict) -> bool:
     ):
         return False
     identity = receipt.get("identity")
+    requires_candidate_cut = str(cell.get("contract_revision", "")).startswith(
+        "sdk-python-certification@"
+    )
+    binds_candidate_cut = (
+        isinstance(identity, dict) and "candidate_cut_at" in identity
+    )
+    if requires_candidate_cut or binds_candidate_cut:
+        if _timestamp(candidate_cut_at) is None:
+            return False
+        identity_fields.add("candidate_cut_at")
     facets = receipt.get("facets")
     if (
         receipt.get("schema") != "honua.certification-evidence-receipt/v1"
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or (
+            (requires_candidate_cut or binds_candidate_cut)
+            and identity.get("candidate_cut_at") != candidate_cut_at
+        )
         or (
             isinstance(cell.get("test_ids"), list)
             and identity.get("test_ids") != cell["test_ids"]
@@ -448,7 +462,7 @@ def evaluate(
                 fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
             elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
                 fail(prefix, "passing cell requires every scenario facet to pass")
-            if not _valid_receipt(raw):
+            if not _valid_receipt(raw, candidate.get("cut_at")):
                 fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
             elif _receipt_digest(evidence_receipt) != evidence_digest:
                 fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")

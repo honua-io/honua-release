@@ -354,6 +354,41 @@ def test_pass_rejects_digest_valid_but_semantically_empty_receipt():
     assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
 
+def test_python_receipt_must_bind_the_ledger_candidate_cut():
+    cell = _cell(
+        canonical_client="Honua SDK Python",
+        client_lane="sdk-python-certification",
+        contract_revision="sdk-python-certification@" + "c" * 40,
+        producer_source_sha="c" * 40,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["sdk-python"] = {"commit": "c" * 40}
+    unbound = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert unbound["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in unbound["findings"])
+
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    bound = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert bound["overall_status"] == "pass"
+
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = "2026-08-20T09:00:01Z"
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    wrong_cut = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert wrong_cut["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in wrong_cut["findings"])
+
+
 def test_cli_receipt_root_requires_exact_materialized_bytes(tmp_path):
     cell = _cell()
     ledger = _ledger(cell)
