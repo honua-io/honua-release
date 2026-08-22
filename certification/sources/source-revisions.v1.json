@@ -7,7 +7,7 @@
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "7ffc1d134ab1d5685749c1919c62963599a61fb3"
+      "commit": "2200d712ad1caa4ddb04a8422f2bf5d99d16c7b1"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
@@ -19,7 +19,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "d00426cc05845ba0b71501bf20c3466d12689fae"
+      "commit": "e9020c47d2db66ca2bbb31a7f2f09c16e5a033d9"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
