@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "source_parity_reviewed": "2026-07-15",
+  "services": [
+    {
+      "service": "feature-server",
+      "display_name": "FeatureServer",
+      "prefix": "FS",
+      "parity": "partial",
+      "manifest": "feature-server.matrix.json",
+      "counts": {
+        "implemented": 60,
+        "partial": 3,
+        "not_implemented": 6,
+        "rejected": 6,
+        "ignored": 4,
+        "not_applicable": 0,
+        "unknown": 0,
+        "stub": 10,
+        "total_supported": 63,
+        "total": 89
+      }
+    },
+    {
+      "service": "map-server",
+      "display_name": "MapServer",
+      "prefix": "MS",
+      "parity": "partial",
+      "manifest": "map-server.matrix.json",
+      "counts": {
+        "implemented": 25,
+        "partial": 4,
+        "not_implemented": 9,
+        "rejected": 0,
+        "ignored": 3,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 29,
+        "total": 41
+      }
+    },
+    {
+      "service": "image-server",
+      "display_name": "ImageServer",
+      "prefix": "IS",
+      "parity": "partial",
+      "manifest": "image-server.matrix.json",
+      "counts": {
+        "implemented": 29,
+        "partial": 42,
+        "not_implemented": 10,
+        "rejected": 0,
+        "ignored": 3,
+        "not_applicable": 0,
+        "unknown": 0,
+        "stub": 1,
+        "total_supported": 71,
+        "total": 85
+      }
+    },
+    {
+      "service": "vector-tile-server",
+      "display_name": "VectorTileServer (Esri adapter)",
+      "prefix": "VTS",
+      "parity": "partial",
+      "manifest": "vector-tile-server.matrix.json",
+      "counts": {
+        "implemented": 0,
+        "partial": 0,
+        "not_implemented": 3,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 0,
+        "total": 3
+      }
+    },
+    {
+      "service": "geometry-service",
+      "display_name": "Geometry Service",
+      "prefix": "GEO",
+      "parity": "complete",
+      "manifest": "geometry-service.matrix.json",
+      "counts": {
+        "implemented": 30,
+        "partial": 1,
+        "not_implemented": 0,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 31,
+        "total": 31
+      }
+    },
+    {
+      "service": "gp-server",
+      "display_name": "GPServer",
+      "prefix": "GP",
+      "parity": "partial",
+      "manifest": "gp-server.matrix.json",
+      "counts": {
+        "implemented": 14,
+        "partial": 0,
+        "not_implemented": 3,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 14,
+        "total": 17
+      }
+    },
+    {
+      "service": "geocode-server",
+      "display_name": "GeocodeServer",
+      "prefix": "GC",
+      "parity": "partial",
+      "manifest": "geocode-server.matrix.json",
+      "counts": {
+        "implemented": 19,
+        "partial": 1,
+        "not_implemented": 7,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 20,
+        "total": 27
+      }
+    },
+    {
+      "service": "na-server",
+      "display_name": "NAServer",
+      "prefix": "NA",
+      "parity": "partial",
+      "manifest": "na-server.matrix.json",
+      "counts": {
+        "implemented": 4,
+        "partial": 3,
+        "not_implemented": 4,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 7,
+        "total": 11
+      }
+    },
+    {
+      "service": "version-management-server",
+      "display_name": "VersionManagementServer (branch versioning)",
+      "prefix": "V(",
+      "parity": "partial",
+      "manifest": "version-management-server.matrix.json",
+      "counts": {
+        "implemented": 4,
+        "partial": 3,
+        "not_implemented": 4,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 7,
+        "total": 11
+      }
+    },
+    {
+      "service": "geoservices-catalog",
+      "display_name": "Catalog / REST Info",
+      "prefix": "C/",
+      "parity": "partial",
+      "manifest": "geoservices-catalog.matrix.json",
+      "counts": {
+        "implemented": 1,
+        "partial": 0,
+        "not_implemented": 3,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "stub": 1,
+        "total_supported": 1,
+        "total": 5
+      }
+    },
+    {
+      "service": "portal-sharing",
+      "display_name": "Portal Sharing",
+      "prefix": "PS",
+      "parity": "partial",
+      "manifest": "portal-sharing.matrix.json",
+      "counts": {
+        "implemented": 6,
+        "partial": 6,
+        "not_implemented": 4,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 12,
+        "total": 16
+      }
+    },
+    {
+      "service": "ogc",
+      "display_name": "OGC Protocols (API Features/Tiles/Records + WFS/WMS/WMTS/WCS)",
+      "prefix": "OGC",
+      "parity": "partial",
+      "manifest": "ogc.matrix.json",
+      "counts": {
+        "implemented": 13,
+        "partial": 2,
+        "not_implemented": 0,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 15,
+        "total": 15
+      }
+    },
+    {
+      "service": "scene-server",
+      "display_name": "SceneServer (I3S, Enterprise-gated)",
+      "prefix": "SCN",
+      "parity": "gated",
+      "manifest": "scene-server.matrix.json",
+      "counts": {
+        "implemented": 0,
+        "partial": 0,
+        "not_implemented": 2,
+        "rejected": 0,
+        "ignored": 0,
+        "not_applicable": 0,
+        "unknown": 0,
+        "total_supported": 0,
+        "total": 2
+      }
+    }
+  ]
+}

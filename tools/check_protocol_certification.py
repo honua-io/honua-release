@@ -1,0 +1,731 @@
+#!/usr/bin/env python3
+"""Fail-closed evaluator for honua.protocol-certification/v1 ledgers.
+
+The producer owns collection. This tool owns release semantics: normalized cell uniqueness,
+maturity/addressability honesty, tier scope, candidate binding, freshness, and required outcomes.
+It intentionally uses only the Python standard library so inability to install a schema package
+cannot turn a release gate into a false pass.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import math
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse
+
+SCHEMA_ID = "honua.protocol-certification/v1"
+MATURITIES = {"supported", "preview", "experimental", "roadmap", "deprecated", "internal"}
+RESULTS = {"pass", "fail", "skip", "not-addressable"}
+TIERS = {"pr", "nightly", "release"}
+TIER_RANK = {"pr": 0, "nightly": 1, "release": 2}
+FACETS = {
+    "positive", "negative", "boundary", "auth", "pagination", "limit", "crs-axis",
+    "media-schema", "cancellation-idempotency", "recovery", "metadata", "range-efficiency",
+    "mutation",
+}
+CELL_FIELDS = {
+    "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
+    "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision",
+    "addressable_by_client", "addressability_reason", "result", "skip_reason",
+    "scenario_facets", "contract_revision", "auth_policy_revision", "source_sha",
+    "producer_source_sha",
+    "image_digest", "fixture_revision", "evidence_uri", "evidence_digest", "evidence_receipt", "facet_results",
+    "started_at", "completed_at",
+    "budget_expectations", "budget_observations",
+}
+OPTIONAL_CELL_FIELDS = {"test_ids"}
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
+REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
+REQUIREMENT_FIELDS = {
+    "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
+    "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
+    "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
+    "fixture_revision", "test_ids",
+    "budget_expectations",
+}
+
+
+def _owned_source_name(cell: dict) -> str:
+    lane = str(cell.get("client_lane", ""))
+    if lane == "server-protocol-harness":
+        return "server-certification"
+    if lane.startswith("sdk-js"):
+        return "sdk-js"
+    if lane.startswith("sdk-python"):
+        return "sdk-python"
+    if lane.startswith("sdk-dotnet"):
+        return "sdk-dotnet"
+    if lane.startswith("grpc-"):
+        return "geospatial-grpc"
+    if lane.startswith("mcp-"):
+        return "geospatial-mcp"
+    if lane.startswith((
+        "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
+        "desktop-arcgis", "arcgis-stub", "ci-desktop",
+    )):
+        return "esri-compat"
+    return "server"
+REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
+UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
+UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
+UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
+
+
+def _timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"ledger unavailable or invalid JSON: {exc}"
+    if not isinstance(value, dict):
+        return None, "ledger root must be an object"
+    return value, None
+
+
+def _requirement_signature(value: dict) -> tuple[object, ...]:
+    return tuple(
+        tuple(value[field]) if field in {"scenario_facets", "test_ids"} and isinstance(value.get(field), list)
+        else json.dumps(value[field], sort_keys=True) if field == "budget_expectations" and isinstance(value.get(field), dict)
+        else value.get(field)
+        for field in sorted(REQUIREMENT_ID_FIELDS)
+    )
+
+
+def _in_scope(cell: dict, tier: str) -> bool:
+    maturity = cell.get("maturity")
+    if maturity in {"roadmap", "experimental", "internal"}:
+        return False
+    if tier == "release":
+        return maturity in {"supported", "deprecated"}
+    if maturity not in {"supported", "preview", "deprecated"}:
+        return False
+    required_tier = cell.get("required_tier")
+    return required_tier in TIER_RANK and TIER_RANK[required_tier] <= TIER_RANK[tier]
+
+
+def _typed_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(
+            _typed_equal(actual[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _typed_equal(actual_value, expected_value)
+            for actual_value, expected_value in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
+def _valid_evidence_uri(value: object, evidence_digest: object) -> bool:
+    if not isinstance(value, str) or not isinstance(evidence_digest, str):
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.params or parsed.query or parsed.fragment:
+        return False
+    match = re.fullmatch(r"/data/sha256/([0-9a-f]{64})", parsed.path)
+    return (
+        parsed.hostname == "evidence.honua.io"
+        and match is not None
+        and evidence_digest == f"sha256:{match.group(1)}"
+    )
+
+
+def _receipt_digest(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+RECEIPT_ID_FIELDS = (
+    "capability_key", "surface", "operation", "canonical_client", "client_version",
+    "deployment_target", "source_sha", "producer_source_sha", "image_digest",
+    "fixture_revision", "contract_revision", "auth_policy_revision", "started_at", "completed_at",
+)
+
+
+def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
+    if not cell.get("licensed"):
+        return entitlement is None and cell.get("entitlement_policy_revision") is None
+    if not isinstance(entitlement, dict) or set(entitlement) != {
+        "policy_revision", "capability_key", "deployment_target", "verification",
+        "status", "checked_at", "license_fingerprint",
+    }:
+        return False
+    checked_at = _timestamp(entitlement.get("checked_at"))
+    started_at = _timestamp(cell.get("started_at"))
+    completed_at = _timestamp(cell.get("completed_at"))
+    return (
+        isinstance(cell.get("entitlement_policy_revision"), str)
+        and entitlement.get("policy_revision") == cell["entitlement_policy_revision"]
+        and entitlement.get("capability_key") == cell.get("capability_key")
+        and entitlement.get("deployment_target") == cell.get("deployment_target")
+        and entitlement.get("verification") == "live-server-capability-probe-v1"
+        and entitlement.get("status") == "active"
+        and isinstance(entitlement.get("license_fingerprint"), str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", entitlement["license_fingerprint"]) is not None
+        and checked_at is not None
+        and started_at is not None
+        and completed_at is not None
+        and started_at <= checked_at <= completed_at
+    )
+
+
+def _valid_receipt(cell: dict) -> bool:
+    receipt = cell.get("evidence_receipt")
+    facet_results = cell.get("facet_results")
+    receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
+    identity_fields = set(RECEIPT_ID_FIELDS)
+    if isinstance(cell.get("test_ids"), list):
+        identity_fields.add("test_ids")
+    if cell.get("licensed"):
+        receipt_fields.add("entitlement")
+        identity_fields.add("entitlement_policy_revision")
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != receipt_fields
+        or not isinstance(facet_results, dict)
+    ):
+        return False
+    identity = receipt.get("identity")
+    facets = receipt.get("facets")
+    if (
+        receipt.get("schema") != "honua.certification-evidence-receipt/v1"
+        or not isinstance(identity, dict)
+        or set(identity) != identity_fields
+        or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or (
+            isinstance(cell.get("test_ids"), list)
+            and identity.get("test_ids") != cell["test_ids"]
+        )
+        or (
+            cell.get("licensed")
+            and identity.get("entitlement_policy_revision") != cell.get("entitlement_policy_revision")
+        )
+        or receipt.get("result") != cell.get("result")
+        or not isinstance(facets, dict)
+        or set(facets) != set(cell.get("scenario_facets", []))
+        or any(
+            not isinstance(facet_results.get(facet), dict)
+            or facets[facet] != facet_results[facet].get("result")
+            for facet in facets
+        )
+        or not _valid_entitlement_assertion(cell, receipt.get("entitlement"))
+        or not isinstance(receipt.get("payload_base64"), str)
+    ):
+        return False
+    try:
+        base64.b64decode(receipt["payload_base64"], validate=True)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def evaluate(
+    ledger: dict | None,
+    tier: str,
+    *,
+    expected_source_sha: str | None = None,
+    expected_image_digest: str | None = None,
+    expected_cut_at: str | datetime | None = None,
+    now: datetime | None = None,
+    requirements: dict | None = None,
+    receipt_root: Path | None = None,
+) -> dict:
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    findings: list[dict[str, str]] = []
+
+    def fail(check: str, why: str) -> None:
+        findings.append({"check": check, "status": "fail", "why": why})
+
+    if tier not in TIERS:
+        fail("tier", f"unknown tier {tier!r}; expected one of {sorted(TIERS)}")
+    if ledger is None:
+        fail("ledger", "certification ledger is unavailable")
+        return _report(tier, [], findings)
+    if ledger.get("schema") != SCHEMA_ID:
+        fail("schema", f"schema must be {SCHEMA_ID!r}")
+    if requirements is None:
+        requirements, requirements_error = load_ledger(REQUIREMENTS_PATH)
+        if requirements_error:
+            fail("requirements", f"owned requirements unavailable: {requirements_error}")
+            requirements = {}
+    if requirements.get("schema") != REQUIREMENTS_SCHEMA_ID:
+        fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
+    source_revisions = requirements.get("source_revisions", {})
+    catalog_server_sha = source_revisions.get("server", {}).get("commit")
+    if expected_source_sha and catalog_server_sha != expected_source_sha:
+        fail(
+            "requirements.source_revisions.server.commit",
+            f"owned requirements server source {catalog_server_sha!r} "
+            f"does not match expected candidate {expected_source_sha!r}",
+        )
+    owned_revision = requirements.get("revision")
+    owned_complete = requirements.get("complete")
+    owned_rows = requirements.get("requirements")
+    if not isinstance(owned_revision, str) or not owned_revision.strip():
+        fail("requirements", "owned requirements must identify a non-empty revision")
+    if ledger.get("requirements_revision") != owned_revision:
+        fail("requirements_revision", "ledger requirements revision does not match repository-owned requirements")
+    ledger_requirements_source = ledger.get("requirements_source_revision")
+    if not isinstance(ledger_requirements_source, str) or not SHA_RE.fullmatch(ledger_requirements_source):
+        fail("requirements_source_revision", "ledger must identify the full honua-release requirements commit SHA")
+    if not isinstance(owned_complete, bool):
+        fail("requirements", "owned requirements complete flag must be boolean")
+    if ledger.get("requirements_complete") != owned_complete:
+        fail("requirements_complete", "ledger completeness claim does not match repository-owned requirements")
+    if owned_complete is not True:
+        fail("requirements_complete", f"{tier} certification requires a complete repository-owned denominator")
+    if not isinstance(owned_rows, list) or not owned_rows:
+        fail("requirements", "owned requirements must contain a non-empty requirements array")
+        owned_rows = []
+
+    generated_at = _timestamp(ledger.get("generated_at"))
+    if generated_at is None:
+        fail("generated_at", "generated_at must be a timezone-aware ISO-8601 timestamp")
+    elif generated_at > now:
+        fail("generated_at", "generated_at cannot be in the future")
+
+    candidate = ledger.get("candidate")
+    if not isinstance(candidate, dict):
+        fail("candidate", "candidate must be an object")
+        candidate = {}
+    candidate_sha = candidate.get("source_sha")
+    candidate_digest = candidate.get("image_digest")
+    cut_at = _timestamp(candidate.get("cut_at"))
+    if isinstance(expected_cut_at, datetime):
+        external_cut_at = (
+            expected_cut_at.astimezone(timezone.utc)
+            if expected_cut_at.tzinfo is not None
+            else None
+        )
+    else:
+        external_cut_at = _timestamp(expected_cut_at)
+    if not isinstance(candidate_sha, str) or not SHA_RE.fullmatch(candidate_sha):
+        fail("candidate.source_sha", "candidate source_sha must be a full 40-character lowercase hex SHA")
+    if not isinstance(candidate_digest, str) or not DIGEST_RE.fullmatch(candidate_digest):
+        fail("candidate.image_digest", "candidate image_digest must be a sha256 digest")
+    if cut_at is None:
+        fail("candidate.cut_at", "candidate cut_at must be a timezone-aware ISO-8601 timestamp")
+    elif cut_at > now:
+        fail("candidate.cut_at", "candidate cut_at cannot be in the future")
+    if tier == "release":
+        if external_cut_at is None:
+            fail("expected_cut_at", "release certification requires an independently frozen candidate cut")
+        elif external_cut_at > now:
+            fail("expected_cut_at", "independently frozen candidate cut cannot be in the future")
+        elif cut_at != external_cut_at:
+            fail("candidate.cut_at", "ledger candidate cut does not match the independently frozen candidate cut")
+    if expected_source_sha and candidate_sha != expected_source_sha:
+        fail("candidate.source_sha", f"ledger candidate {candidate_sha!r} does not match expected {expected_source_sha!r}")
+    if catalog_server_sha != candidate_sha:
+        fail(
+            "requirements.source_revisions.server.commit",
+            f"owned requirements server source {catalog_server_sha!r} "
+            f"does not match ledger candidate {candidate_sha!r}",
+        )
+    if expected_image_digest and candidate_digest != expected_image_digest:
+        fail("candidate.image_digest", f"ledger candidate {candidate_digest!r} does not match expected {expected_image_digest!r}")
+
+    cells = ledger.get("cells")
+    if not isinstance(cells, list) or not cells:
+        fail("cells", "cells must be a non-empty array")
+        return _report(tier, [], findings)
+
+    owned_by_signature = {
+        _requirement_signature(row): row for row in owned_rows if isinstance(row, dict)
+    }
+    owned_signatures = set(owned_by_signature)
+    ledger_signatures = {_requirement_signature(row) for row in cells if isinstance(row, dict)}
+    if len(owned_signatures) != len(owned_rows):
+        fail("requirements", "owned requirements contain invalid or duplicate normalized cells")
+    if len(ledger_signatures) != len(cells):
+        fail("requirements_denominator", "ledger contains invalid or duplicate requirement definitions")
+    missing_requirements = owned_signatures - ledger_signatures
+    unexpected_requirements = ledger_signatures - owned_signatures
+    if missing_requirements or unexpected_requirements:
+        fail(
+            "requirements_denominator",
+            f"ledger cell definitions differ from owned requirements "
+            f"(missing={len(missing_requirements)}, unexpected={len(unexpected_requirements)})",
+        )
+
+    seen: set[tuple[object, ...]] = set()
+    supported_groups: dict[tuple[object, ...], list[dict]] = {}
+    scoped: list[dict] = []
+    for index, raw in enumerate(cells):
+        prefix = f"cells[{index}]"
+        if not isinstance(raw, dict):
+            fail(prefix, "cell must be an object")
+            continue
+        missing = sorted(CELL_FIELDS - raw.keys())
+        extra = sorted(raw.keys() - CELL_FIELDS - OPTIONAL_CELL_FIELDS)
+        if missing:
+            fail(prefix, f"missing required fields: {', '.join(missing)}")
+        if extra:
+            fail(prefix, f"unknown fields: {', '.join(extra)}")
+        if missing:
+            continue
+
+        key = (
+            raw["surface"], raw["operation"], raw["canonical_client"],
+            raw["client_version"], raw["deployment_target"],
+        )
+        if key in seen:
+            fail(prefix, f"duplicate normalized cell key: {key}")
+        seen.add(key)
+
+        if raw["maturity"] not in MATURITIES:
+            fail(prefix, f"unknown maturity {raw['maturity']!r}")
+        if raw["required_tier"] not in TIERS:
+            fail(prefix, f"unknown required_tier {raw['required_tier']!r}")
+        if raw["result"] not in RESULTS:
+            fail(prefix, f"unknown result {raw['result']!r}")
+        if raw["source_sha"] is not None and (
+            not isinstance(raw["source_sha"], str) or not SHA_RE.fullmatch(raw["source_sha"])
+        ):
+            fail(prefix, "cell source_sha must be a full 40-character lowercase hex SHA")
+        if not isinstance(raw["licensed"], bool) or not isinstance(raw["addressable_by_client"], bool):
+            fail(prefix, "licensed and addressable_by_client must be booleans")
+        facets = raw["scenario_facets"]
+        if not isinstance(facets, list) or not facets or len(facets) != len(set(facets)):
+            fail(prefix, "scenario_facets must be a non-empty unique array")
+        elif unknown := sorted(set(facets) - FACETS):
+            fail(prefix, f"unknown scenario facets: {', '.join(unknown)}")
+        test_ids = raw.get("test_ids")
+        if test_ids is not None and (
+            not isinstance(test_ids, list)
+            or not test_ids
+            or len(test_ids) != len(set(test_ids))
+            or any(not isinstance(test_id, str) or not test_id for test_id in test_ids)
+        ):
+            fail(prefix, "test_ids must be a non-empty unique string array when governed")
+
+        evidence_digest = raw["evidence_digest"]
+        evidence_receipt = raw["evidence_receipt"]
+        facet_results = raw["facet_results"]
+        if evidence_digest is not None and (
+            not isinstance(evidence_digest, str) or not DIGEST_RE.fullmatch(evidence_digest)
+        ):
+            fail(prefix, "evidence_digest must be a sha256 digest or null")
+        if facet_results is not None:
+            if not isinstance(facet_results, dict) or set(facet_results) != set(facets):
+                fail(prefix, "facet_results must contain exactly every governed scenario facet")
+            else:
+                for facet, facet_result in facet_results.items():
+                    if not isinstance(facet_result, dict) or set(facet_result) != {"result", "evidence_digest"}:
+                        fail(prefix, f"facet result {facet!r} must contain result and evidence_digest")
+                        continue
+                    if facet_result["result"] not in {"pass", "fail", "skip"}:
+                        fail(prefix, f"facet result {facet!r} has an invalid result")
+                    if facet_result["evidence_digest"] != evidence_digest:
+                        fail(prefix, f"facet result {facet!r} is not bound to the cell evidence digest")
+        if raw["result"] == "pass":
+            if not isinstance(evidence_digest, str) or not DIGEST_RE.fullmatch(evidence_digest):
+                fail(prefix, "passing cell requires a sha256 evidence_digest")
+            if not isinstance(facet_results, dict) or set(facet_results) != set(facets):
+                fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
+            elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
+                fail(prefix, "passing cell requires every scenario facet to pass")
+            if not _valid_receipt(raw):
+                fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
+            elif _receipt_digest(evidence_receipt) != evidence_digest:
+                fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
+            elif receipt_root is not None:
+                receipt_path = receipt_root / evidence_digest[7:]
+                if not receipt_path.is_file():
+                    fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
+                elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
+                    fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
+
+        if raw["addressable_by_client"]:
+            if raw["result"] == "not-addressable":
+                fail(prefix, "addressable cell cannot have result=not-addressable")
+        else:
+            if raw["result"] != "not-addressable":
+                fail(prefix, "non-addressable cell must have result=not-addressable")
+            if not isinstance(raw["addressability_reason"], str) or not raw["addressability_reason"].strip():
+                fail(prefix, "non-addressable cell requires addressability_reason")
+        if raw["result"] == "skip" and (not isinstance(raw["skip_reason"], str) or not raw["skip_reason"].strip()):
+            fail(prefix, "skipped cell requires skip_reason")
+
+        if raw["maturity"] in {"supported", "deprecated"}:
+            group = (raw["capability_key"], raw["surface"], raw["operation"], raw["deployment_target"])
+            supported_groups.setdefault(group, []).append(raw)
+
+        if not _in_scope(raw, tier):
+            continue
+        scoped.append(raw)
+        if raw["canonical_client"] == UNASSIGNED_CANONICAL_CLIENT:
+            fail(
+                prefix,
+                "canonical client applicability is unassigned; resolve the governed tracking issue",
+            )
+        if (
+            str(raw["operation"]).startswith(UNASSIGNED_SDK_OPERATION_PREFIX)
+            or str(raw["operation"]).startswith(UNASSIGNED_PROTOCOL_HARNESS_PREFIX)
+        ):
+            fail(
+                prefix,
+                "client/protocol harness contract is unassigned; map executable operations before certification",
+            )
+        if raw["source_sha"] != candidate_sha:
+            fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
+        if raw["deployment_target"] == "source-test-host":
+            if raw["image_digest"] is not None:
+                fail(prefix, "source-test-host evidence must not claim candidate image execution")
+        elif raw["image_digest"] != candidate_digest:
+            fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
+        if not raw["addressable_by_client"]:
+            continue
+        if raw["result"] != "pass":
+            fail(prefix, f"required addressable {tier} cell result is {raw['result']!r}, expected 'pass'")
+
+        expected_requirement = owned_by_signature.get(_requirement_signature(raw))
+        expected_fixture_template = (
+            expected_requirement.get("fixture_revision")
+            if isinstance(expected_requirement, dict)
+            else None
+        )
+        if not isinstance(expected_fixture_template, str) or not expected_fixture_template.strip():
+            fail(prefix, "owned requirement must define a non-empty fixture_revision")
+        elif isinstance(raw["source_sha"], str):
+            expected_fixture = expected_fixture_template.replace("{source_sha}", raw["source_sha"])
+            if raw["fixture_revision"] != expected_fixture:
+                fail(
+                    prefix,
+                    f"fixture_revision {raw['fixture_revision']!r} does not match owned expectation "
+                    f"{expected_fixture!r}",
+                )
+
+        expected_budget = (
+            expected_requirement.get("budget_expectations")
+            if isinstance(expected_requirement, dict)
+            else None
+        )
+        if raw["budget_expectations"] != expected_budget:
+            fail(prefix, "budget_expectations do not match the owned requirement")
+        if raw["capability_key"].startswith("format."):
+            observations = raw["budget_observations"]
+            if not isinstance(expected_budget, dict):
+                fail(prefix, "cloud-native format requirement lacks governed fixture budgets")
+            elif not isinstance(observations, dict):
+                fail(prefix, "cloud-native format pass lacks machine-checked budget observations")
+            else:
+                count_upper_bounds = {
+                    "requests": "max_requests",
+                    "transferred_bytes": "max_transferred_bytes",
+                    "full_object_downloads": "max_full_object_downloads",
+                }
+                error_upper_bounds = {
+                    "coordinate_error": "max_coordinate_error",
+                    "geometry_error": "max_geometry_error",
+                }
+                count_lower_bounds = {
+                    "range_requests": "min_range_requests",
+                    "cache_hits": "min_cache_hits",
+                }
+                for observed, expected in count_upper_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        fail(prefix, f"budget observation {observed} must be a nonnegative integer")
+                    elif not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or value > limit:
+                        fail(prefix, f"budget observation {observed} exceeds {expected}")
+                for observed, expected in error_upper_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if (
+                        not isinstance(value, (int, float))
+                        or isinstance(value, bool)
+                        or not math.isfinite(value)
+                        or value < 0
+                    ):
+                        fail(prefix, f"budget observation {observed} must be finite and nonnegative")
+                    elif (
+                        not isinstance(limit, (int, float))
+                        or isinstance(limit, bool)
+                        or not math.isfinite(limit)
+                        or limit < 0
+                        or value > limit
+                    ):
+                        fail(prefix, f"budget observation {observed} exceeds {expected}")
+                for observed, expected in count_lower_bounds.items():
+                    value = observations.get(observed)
+                    limit = expected_budget.get(expected)
+                    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                        fail(prefix, f"budget observation {observed} must be a nonnegative integer")
+                    elif not isinstance(limit, int) or isinstance(limit, bool) or limit < 0 or value < limit:
+                        fail(prefix, f"budget observation {observed} is below {expected}")
+                required_metadata = expected_budget.get("required_metadata")
+                expected_metadata = expected_budget.get("expected_metadata")
+                metadata_assertions = observations.get("metadata_assertions")
+                metadata_values = observations.get("metadata_values")
+                if not (
+                    isinstance(required_metadata, list)
+                    and all(isinstance(value, str) and value for value in required_metadata)
+                    and isinstance(expected_metadata, dict)
+                    and expected_metadata
+                    and set(required_metadata) == set(expected_metadata)
+                    and isinstance(metadata_assertions, list)
+                    and all(isinstance(value, str) and value for value in metadata_assertions)
+                    and set(required_metadata) <= set(metadata_assertions)
+                ):
+                    fail(prefix, "budget observations do not prove all required metadata assertions")
+                if not isinstance(metadata_values, dict):
+                    fail(prefix, "budget observations must include typed metadata_values")
+                elif isinstance(expected_metadata, dict):
+                    for metadata_key, expected_value in expected_metadata.items():
+                        if metadata_key not in metadata_values or not _typed_equal(
+                            metadata_values[metadata_key], expected_value
+                        ):
+                            fail(prefix, f"budget metadata value {metadata_key!r} does not match the owned fixture")
+        elif raw["budget_observations"] is not None:
+            fail(prefix, "non-format cell cannot supply cloud-native budget observations")
+
+        completed = _timestamp(raw["completed_at"])
+        started = _timestamp(raw["started_at"])
+        if completed is None or started is None or completed < started:
+            fail(prefix, "required cell needs valid started_at <= completed_at timestamps")
+        required_provenance = ("source_sha", "producer_source_sha", "fixture_revision", "evidence_uri")
+        for field in required_provenance:
+            if not isinstance(raw[field], str) or not raw[field].strip():
+                fail(prefix, f"required cell needs non-empty {field}")
+        if not _valid_evidence_uri(raw["evidence_uri"], raw["evidence_digest"]):
+            fail(prefix, "required cell evidence_uri must be content-addressed by evidence_digest")
+        if not isinstance(raw["producer_source_sha"], str) or not PRODUCER_SHA_RE.fullmatch(raw["producer_source_sha"]):
+            fail(prefix, "required cell producer_source_sha must be a full 40-character lowercase hex SHA")
+        owned_source_name = _owned_source_name(raw)
+        owned_producer_sha = source_revisions.get(owned_source_name, {}).get("commit")
+        if not isinstance(owned_producer_sha, str) or not SHA_RE.fullmatch(owned_producer_sha):
+            fail(prefix, f"owned source revision {owned_source_name!r} is unavailable or invalid")
+        elif raw["producer_source_sha"] != owned_producer_sha:
+            fail(
+                prefix,
+                f"producer_source_sha {raw['producer_source_sha']!r} does not match "
+                f"owned {owned_source_name} revision {owned_producer_sha!r}",
+            )
+        if started is not None and started > now:
+            fail(prefix, "started_at cannot be in the future")
+        if completed is not None and completed > now:
+            fail(prefix, "completed_at cannot be in the future")
+
+        if completed is not None and tier == "nightly" and (now - completed).total_seconds() > 168 * 3600:
+            fail(prefix, "nightly evidence is older than 7 days")
+        if raw["licensed"]:
+            entitlement_policy = raw.get("entitlement_policy_revision")
+            if entitlement_policy == "honua-pro-feature-subscriptions-v1":
+                if raw.get("deployment_target") != "licensed-release":
+                    fail(prefix, "Honua Pro evidence must execute on the governed licensed-release target")
+                if raw.get("auth_policy_revision") != "api-key-protected-v1":
+                    fail(prefix, "Honua Pro evidence must execute the governed protected-auth policy")
+            elif entitlement_policy == "esri-arcgis-pro-arcpy-v1":
+                if raw.get("deployment_target") != "windows-licensed":
+                    fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
+                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
+                    fail(prefix, "ArcPy evidence must execute the governed anonymous-and-protected auth policy")
+            else:
+                fail(prefix, "licensed evidence must bind a governed entitlement policy")
+        elif raw.get("entitlement_policy_revision") is not None:
+            fail(prefix, "unlicensed evidence cannot claim an entitlement policy")
+        if completed is not None and raw["licensed"] and (now - completed).total_seconds() > 72 * 3600:
+            fail(prefix, "licensed evidence is older than 72 hours")
+        if tier == "release":
+            if started is not None and external_cut_at is not None and started < external_cut_at:
+                fail(prefix, "release evidence started before independently frozen candidate cut")
+
+    for group, rows in supported_groups.items():
+        if tier in {"nightly", "release"} and not any(row.get("addressable_by_client") for row in rows):
+            fail("addressability", f"supported operation has no addressable canonical client: {group}")
+
+    if not scoped:
+        fail("denominator", f"no certification cells are in scope for tier {tier!r}")
+    return _report(tier, scoped, findings)
+
+
+def _report(tier: str, scoped: list[dict], findings: list[dict]) -> dict:
+    counts = {result: 0 for result in RESULTS}
+    for cell in scoped:
+        result = cell.get("result")
+        if result in counts:
+            counts[result] += 1
+    return {
+        "schema": "honua.protocol-certification-report/v1",
+        "tier": tier,
+        "overall_status": "fail" if findings else "pass",
+        "required_cells": len(scoped),
+        "counts": counts,
+        "findings": findings,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--matrix", required=True)
+    parser.add_argument("--tier", required=True, choices=sorted(TIERS))
+    parser.add_argument("--expected-source-sha")
+    parser.add_argument("--expected-requirements-source-revision", required=True)
+    parser.add_argument("--expected-image-digest")
+    parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
+    parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
+    parser.add_argument("--report", help="write the machine-readable decision report here")
+    args = parser.parse_args(argv)
+
+    ledger, load_error = load_ledger(args.matrix)
+    now = _timestamp(args.now) if args.now else datetime.now(timezone.utc)
+    if args.now and now is None:
+        raise SystemExit("--now must be a timezone-aware ISO-8601 timestamp")
+    report = evaluate(
+        ledger,
+        args.tier,
+        expected_source_sha=args.expected_source_sha,
+        expected_image_digest=args.expected_image_digest,
+        expected_cut_at=args.expected_cut_at,
+        now=now,
+        receipt_root=Path(args.matrix).resolve().parent / "sha256",
+    )
+    if (
+        args.expected_requirements_source_revision
+        and (ledger or {}).get("requirements_source_revision") != args.expected_requirements_source_revision
+    ):
+        report["findings"].insert(0, {
+            "check": "requirements_source_revision",
+            "status": "fail",
+            "why": "ledger denominator source does not match the checked-out honua-release revision",
+        })
+        report["overall_status"] = "fail"
+    if load_error:
+        report["findings"].insert(0, {"check": "ledger", "status": "fail", "why": load_error})
+        report["overall_status"] = "fail"
+    rendered = json.dumps(report, indent=2, sort_keys=True)
+    print(rendered)
+    if args.report:
+        output = Path(args.report)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    return 0 if report["overall_status"] == "pass" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

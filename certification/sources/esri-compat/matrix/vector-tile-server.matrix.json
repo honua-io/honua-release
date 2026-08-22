@@ -1,0 +1,54 @@
+{
+  "service": "vector-tile-server",
+  "display_name": "VectorTileServer (Esri adapter)",
+  "prefix": "VTS",
+  "source_doc": "src/Honua.Hosting (per-service VectorTileServer protocol)",
+  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 0,
+    "partial": 0,
+    "not_implemented": 3,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 0,
+    "total": 3
+  },
+  "cases": [
+    {
+      "id": "VTS-OP-VECTORTILESERVER-SERVICE-INFO",
+      "kind": "operation",
+      "group": "vector-tile-server",
+      "name": "VectorTileServer service info",
+      "esri_path": "/rest/services/{serviceId}/VectorTileServer",
+      "methods": "GET",
+      "status": "not_implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VectorTileServer",
+      "notes": "Route registered, but the VectorTileServer protocol is gated per service in the catalog: returns 404 'VectorTileServer is not enabled for this service.' on the default browser_compat/test services (live-checked 2026-06-19). Supported-but-not-enabled, not absent. Vector tiles are served today via OGC API Tiles (/ogc/tiles)."
+    },
+    {
+      "id": "VTS-OP-VECTORTILESERVER-STYLE-JSON",
+      "kind": "operation",
+      "group": "vector-tile-server",
+      "name": "VectorTileServer style.json",
+      "esri_path": "/rest/services/{serviceId}/VectorTileServer/resources/styles/root.json",
+      "methods": "GET",
+      "status": "not_implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VectorTileServer/resources/styles/root.json",
+      "notes": "Same per-service gating as service info; not enabled on the certified surface."
+    },
+    {
+      "id": "VTS-OP-VECTORTILESERVER-TILE",
+      "kind": "operation",
+      "group": "vector-tile-server",
+      "name": "VectorTileServer tile (pbf)",
+      "esri_path": "/rest/services/{serviceId}/VectorTileServer/tile/{z}/{y}/{x}.pbf",
+      "methods": "GET",
+      "status": "not_implemented",
+      "endpoint": "GET /rest/services/{serviceId}/VectorTileServer/tile/{z}/{y}/{x}.pbf",
+      "notes": "Not enabled on the certified surface; MVT is reachable via OGC API Tiles instead."
+    }
+  ]
+}
