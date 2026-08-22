@@ -6,12 +6,11 @@
 #              honua-iac example roots, runs the canonical (slim) HTTP parity set — now including the
 #              live capability-manifest check (honua-release#61) — plus the canary probe set
 #              (e2e/canary_probes.py, GENERIC/no-seed-id mode: reachability-only probes run for real,
-#              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
-#              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
-#              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
-#              harness image (honua-release#129) to drive the real drivers against the cloud endpoint —
-#              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
-#              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
+#              probes needing seeded service/tile ids honestly BLOCK on a bare cell), asserts parity,
+#              and tears down. The AWS ECS cells additionally run the complete MCP / Studio / GP / Console
+#              journey from honua-release#129; serverless and EKS retain the slim target-parity contract.
+#              require_real makes missing ECS journey evidence a real failure, not an assumption. A genuine
+#              canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
 #   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
 #              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
 #              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
@@ -303,7 +302,7 @@ jobs:
         continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
 
       - name: Checkout honua-devops (AWS ECS AI arc producer)
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-devops
@@ -312,7 +311,7 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Checkout honua-sdk-js (deterministic AI arc driver)
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-js
@@ -321,7 +320,7 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Checkout honua-studio (real-model producer)
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-studio
@@ -330,7 +329,7 @@ jobs:
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Checkout honua-console (approval/audit/recovery producer)
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-console
@@ -352,7 +351,7 @@ jobs:
         with:
           python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         with:
           node-version: "22"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -364,7 +363,7 @@ jobs:
         run: python -m pip install -r e2e/requirements.txt pytest
 
       - name: Install exact AI delivery-arc producers
-        if: matrix.target == 'aws-ecs'
+        if: matrix.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != ''
         run: |
           npm ci --prefix _honua-sdk-js/mcp
           npm ci --prefix _honua-studio
@@ -638,7 +637,7 @@ jobs:
             echo "| cell | status | why |"; echo "|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#129)";
+            echo "### AWS ECS delivery arc (MCP/Studio/GP/Console — honua-release#129)";
             jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
             echo "";
             echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";

@@ -391,6 +391,57 @@ def test_aws_ai_arc_refuses_the_current_plain_http_ecs_endpoint():
         )
 
 
+def test_console_candidate_probe_binds_the_deployed_origin_to_the_manifest_sha():
+    sha = "a" * 40
+    body = json.dumps({
+        "name": "honua-console",
+        "version": "0.1.0",
+        "commit": sha,
+        "shortCommit": sha[:12],
+        "areas": ["studio", "catalog", "operate", "share"],
+    })
+    seen = []
+
+    evidence = run_cloud._verify_console_candidate(
+        "https://console.example.test/",
+        sha,
+        lambda url: seen.append(url) or cc.HttpResponse(200, body),
+    )
+
+    assert seen == ["https://console.example.test/version.json"]
+    assert evidence == {
+        "schemaVersion": "honua.release.console-candidate-evidence/v1",
+        "origin": "https://console.example.test",
+        "versionUrl": "https://console.example.test/version.json",
+        "sourceSha": sha,
+        "version": "0.1.0",
+        "metadataSha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+    }
+
+
+def test_console_candidate_probe_rejects_an_unpinned_or_non_public_origin():
+    sha = "a" * 40
+    body = json.dumps({
+        "name": "honua-console",
+        "version": "0.1.0",
+        "commit": "b" * 40,
+        "shortCommit": "b" * 12,
+        "areas": ["studio", "catalog", "operate", "share"],
+    })
+    with __import__("pytest").raises(ProvisionError, match="manifest-pinned commit"):
+        run_cloud._verify_console_candidate(
+            "https://console.example.test",
+            sha,
+            lambda _url: cc.HttpResponse(200, body),
+        )
+    with __import__("pytest").raises(ProvisionError, match="public HTTPS origin"):
+        run_cloud._verify_console_candidate(
+            "http://127.0.0.1:5174",
+            sha,
+            lambda _url: cc.HttpResponse(200, body),
+        )
+
+
 def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(monkeypatch):
     calls = []
     admin_value = os.urandom(24).hex()
@@ -435,7 +486,11 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
         "npm", "run", "release:real-model-ai-arc", "--", "resume", "--execute", "--yes"
     ]
     console_env = calls[1][1]
-    assert calls[0][1]["HONUA_AI_ARC_PREPARE_CREDENTIAL"] == admin_value
+    assert calls[0][1]["HONUA_ADMIN_KEY"] == admin_value
+    assert calls[2][1]["HONUA_ADMIN_KEY"] == admin_value
+    assert "HONUA_API_KEY" not in calls[0][1]
+    assert "HONUA_API_KEY" not in calls[2][1]
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[0][1]
     assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in console_env
     assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[2][1]
     assert console_env["HONUA_AI_ARC_CONSOLE_TOKEN"] == console_value
@@ -443,6 +498,44 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
     assert "HONUA_API_KEY" not in console_env
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[0][1]
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[2][1]
+
+
+def test_non_ecs_require_real_does_not_require_the_ecs_delivery_arc(monkeypatch):
+    stub = _ServingStub()
+    registry = run_cloud.REGISTRY
+    attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
+    extended_calls = []
+    try:
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-serverless": lambda **kwargs: stub})
+        monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+        monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+        monkeypatch.setattr(
+            run_cloud,
+            "make_fetch",
+            lambda **kwargs: (lambda _url: cc.HttpResponse(200, "ready")),
+        )
+        monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+        monkeypatch.setattr(
+            run_cloud,
+            "run_extended",
+            lambda endpoint: extended_calls.append(endpoint) or [
+                cc.CheckResult("studio-authoring", "blocked", "ECS-only journey")
+            ],
+        )
+
+        report = run_cloud.run(
+            "aws-serverless", require_real=True, reference_endpoint=None, redis_enabled=False
+        )
+    finally:
+        run_cloud.REGISTRY = registry
+        run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS = attempts, delay
+        os.environ.pop("AWS_ACCESS_KEY_ID", None)
+
+    assert report["status"] == "pass"
+    assert report["scenarioCoverage"] == []
+    assert extended_calls == []
 
 
 def test_devops_environment_retains_aws_identity_but_scrubs_unrelated_credentials():
@@ -1125,14 +1218,14 @@ def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
     assert "passed" not in report["why"] and "geoprocessing" in report["why"]
 
 
-def test_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch):
+def test_ecs_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch):
     stub = _ServingStub()
     registry = run_cloud.REGISTRY
     attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
     observed_teardown_counts = []
     try:
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
-        monkeypatch.setattr(run_cloud, "REGISTRY", {"stub": lambda **kwargs: stub})
+        monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-ecs": lambda **kwargs: stub})
         monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
         monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
         monkeypatch.setattr(
@@ -1149,7 +1242,7 @@ def test_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch):
 
         monkeypatch.setattr(run_cloud, "run_extended", extended)
         report = run_cloud.run(
-            "stub", require_real=False, reference_endpoint=None, redis_enabled=False
+            "aws-ecs", require_real=False, reference_endpoint=None, redis_enabled=False
         )
     finally:
         run_cloud.REGISTRY = registry

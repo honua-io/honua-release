@@ -19,8 +19,9 @@ BLOCKED rather than a fake pass/fail; the reachability-only probes (health, secu
 metrics-gated, STAC/EDR/OData/OGC-Features reachability) run for real. A genuine FAIL from any canary
 probe (a real break, not just "nothing seeded") reddens the run unconditionally — BLOCKED canary
 probes are reported but do not gate, since the ephemeral cloud cells have no seed-data story yet
-(distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
-pending the driver harness image, honua-release#129).
+(distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below. Those scenarios certify on
+AWS ECS through the candidate-bound driver added for honua-release#129; serverless and EKS retain the
+slim target-parity contract and do not pretend to run the ECS delivery arc).
 
 An UNREACHABLE endpoint is not in that tolerated set (honua-release#128). "Nothing was seeded" is a
 missing input; "the deployment never answered" is a missing subject, and a cell that provisioned an
@@ -34,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -41,6 +43,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -200,6 +203,62 @@ def _resolve_aws_secret(reference: str, label: str = "scoped admin secret") -> s
     return value
 
 
+def _public_https_origin(value: str, label: str) -> str:
+    parsed = urlparse(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise ProvisionError(f"{label} must be a credential-free public HTTPS origin")
+    host = parsed.hostname.lower().rstrip(".")
+    if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal")):
+        raise ProvisionError(f"{label} must not use a local or internal hostname")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        raise ProvisionError(f"{label} must not use a non-public IP address")
+    return value.rstrip("/")
+
+
+def _verify_console_candidate(origin: str, expected_sha: str, fetch=None) -> dict:
+    """Prove the configured Console origin serves the manifest-pinned artifact."""
+    base_url = _public_https_origin(origin, "AWS ECS Console origin")
+    version_url = f"{base_url}/version.json"
+    response = (fetch or make_fetch(timeout=10.0))(version_url)
+    if response.status != 200:
+        raise ProvisionError(
+            f"AWS ECS Console candidate {version_url} returned HTTP {response.status}"
+        )
+    try:
+        metadata = json.loads(response.body)
+    except json.JSONDecodeError as error:
+        raise ProvisionError("AWS ECS Console candidate returned invalid version.json") from error
+    if not isinstance(metadata, dict) or metadata.get("name") != "honua-console":
+        raise ProvisionError("AWS ECS Console candidate returned the wrong artifact identity")
+    if metadata.get("commit") != expected_sha or metadata.get("shortCommit") != expected_sha[:12]:
+        raise ProvisionError("AWS ECS Console candidate is not at the manifest-pinned commit")
+    if metadata.get("areas") != ["studio", "catalog", "operate", "share"]:
+        raise ProvisionError("AWS ECS Console candidate does not expose the complete area contract")
+    version = metadata.get("version")
+    if not isinstance(version, str) or not version or version == "unknown":
+        raise ProvisionError("AWS ECS Console candidate has no releaseable version identity")
+    return {
+        "schemaVersion": "honua.release.console-candidate-evidence/v1",
+        "origin": base_url,
+        "versionUrl": version_url,
+        "sourceSha": expected_sha,
+        "version": version,
+        "metadataSha256": hashlib.sha256(response.body.encode("utf-8")).hexdigest(),
+    }
+
+
 def _studio_command(phase: str) -> list[str]:
     if phase not in {"prepare", "resume"}:
         raise ValueError(f"unsupported Studio AI arc phase: {phase}")
@@ -215,13 +274,16 @@ def _run_ai_arc_approval_boundary(
     boundary_env = dict(producer_env)
     for name in _AI_ARC_CHILD_CREDENTIAL_ENV:
         boundary_env.pop(name, None)
-    prepare_credential = _resolve_aws_secret(
+    studio_credential = _resolve_aws_secret(
         prepare_credential_ref, "scoped AI arc prepare credential"
     )
     try:
         studio_prepare_env = {
             **boundary_env,
-            "HONUA_AI_ARC_PREPARE_CREDENTIAL": prepare_credential,
+            # The manifest-pinned Studio producer deliberately accepts only the
+            # ordinary scoped HTTPS/MCP credential contract. Keep it out of the
+            # inherited and Console environments, but pass the name it consumes.
+            "HONUA_ADMIN_KEY": studio_credential,
         }
         _run_secretless(
             _studio_command("prepare"),
@@ -230,8 +292,7 @@ def _run_ai_arc_approval_boundary(
             cwd=studio_root,
             expected_codes=(2,),
         )
-        studio_prepare_env.pop("HONUA_AI_ARC_PREPARE_CREDENTIAL", None)
-        prepare_credential = ""
+        studio_prepare_env.pop("HONUA_ADMIN_KEY", None)
 
         console_token = _resolve_aws_secret(console_token_ref, "scoped Console approval token")
         try:
@@ -246,12 +307,14 @@ def _run_ai_arc_approval_boundary(
 
         _run_secretless(
             _studio_command("resume"),
-            env=boundary_env,
+            # Studio validates the same scoped credential contract before
+            # branching into resume. Console never inherits this value.
+            env={**boundary_env, "HONUA_ADMIN_KEY": studio_credential},
             label="full Admin/GP/Studio real-model resume",
             cwd=studio_root,
         )
     finally:
-        prepare_credential = ""
+        studio_credential = ""
 
 
 def _ai_arc_paths() -> dict[str, Path]:
@@ -266,6 +329,7 @@ def _ai_arc_paths() -> dict[str, Path]:
         "consoleReceipt": out / "console-receipt.json",
         "sdkConsoleReceipt": out / "sdk-console-receipt.json",
         "consoleEvidence": out / "console-evidence.json",
+        "consoleCandidate": out / "console-candidate-evidence.json",
         "modelHandoff": out / "real-model-handoff.json",
         "modelReceipt": out / "real-model-receipt.json",
         "modelEvidence": out / "real-model-evidence.json",
@@ -329,6 +393,10 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         pinned = (components.get(name) or {}).get("sha")
         if _git_head(root) != pinned:
             raise ProvisionError(f"AWS ECS AI delivery arc {name} checkout is not manifest-pinned")
+    console_candidate = _verify_console_candidate(
+        os.environ["HONUA_AI_ARC_CONSOLE_ORIGIN"],
+        components["honua-console"]["sha"],
+    )
     producer = devops_root / "scripts" / "aws_ecs_ai_delivery_arc.py"
     if not producer.is_file():
         raise ProvisionError("manifest-pinned honua-devops has no AWS ECS AI delivery arc producer")
@@ -370,6 +438,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         for name in ("honua-server", "honua-devops", "honua-iac")
     }
     paths = _ai_arc_paths()
+    _write_json(paths["consoleCandidate"], console_candidate)
     handoff = {
         "schemaVersion": "honua.mcp-proxy.handoff/v1",
         "env": {"HONUA_BASE_URL": endpoint, "HONUA_MCP_REMOTE_URL": f"{endpoint.rstrip('/')}/mcp"},
@@ -379,6 +448,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
     provision_evidence = {
         "schemaVersion": "honua.release.aws-ecs-provision-evidence/v1",
         "candidateId": candidate_id,
+        "consoleCandidate": console_candidate,
         "releaseId": manifest.get("platformRelease"),
         "endpoint": endpoint,
         "serverImage": expected_image,
@@ -591,11 +661,13 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
-        # The extended journey must run while the ephemeral endpoint still
-        # exists. Keeping it inside the provision/teardown try/finally avoids a
-        # future real driver being invoked against an environment already torn
-        # down (the old hardcoded BLOCKED implementation hid that ordering bug).
-        extended = run_extended(endpoint)
+        # The complete delivery arc is the AWS ECS certification target from
+        # honua-release#129. Serverless and EKS run the slim target-parity set;
+        # treating their intentionally absent ECS journey as a required-real
+        # failure would make the full release matrix impossible to certify.
+        # Keep the ECS journey inside the provision/teardown try/finally so the
+        # driver never runs against an environment that has already been torn down.
+        extended = run_extended(endpoint) if target_name == "aws-ecs" else []
         report["scenarioCoverage"] = _check_dicts(extended)
         if target_name == "aws-ecs" and require_real:
             ai_arc_context = _prepare_aws_ecs_ai_arc(target, endpoint, report["readiness"])
@@ -614,6 +686,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                 "status": "passed-before-teardown",
                 "checkpoint": str(ai_arc_context["paths"]["checkpoint"]),
                 "preTeardownEvidence": str(ai_arc_context["paths"]["preTeardown"]),
+                "consoleCandidateEvidence": str(ai_arc_context["paths"]["consoleCandidate"]),
             }
     except ProvisionError as e:
         report["status"] = "fail"
@@ -641,6 +714,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     "modelEvidence": str(ai_arc_context["paths"]["modelEvidence"]),
                     "modelHandoff": str(ai_arc_context["paths"]["modelHandoff"]),
                     "consoleEvidence": str(ai_arc_context["paths"]["consoleEvidence"]),
+                    "consoleCandidateEvidence": str(ai_arc_context["paths"]["consoleCandidate"]),
                     "finalEvidence": str(ai_arc_context["paths"]["finalEvidence"]),
                 }
             except ProvisionError as e:

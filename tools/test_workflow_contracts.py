@@ -350,3 +350,24 @@ def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test
 
     assert "-r e2e/requirements.txt" in steps[install_index]["run"]
     assert install_index < self_test_index
+
+
+def test_cloud_parity_does_not_fetch_ecs_arc_producers_without_aws_authority():
+    workflow = _workflow("e2e-cloud-aws.yml")
+    steps = workflow["jobs"]["parity"]["steps"]
+    producer_steps = [
+        step for step in steps
+        if step.get("name") in {
+            "Checkout honua-devops (AWS ECS AI arc producer)",
+            "Checkout honua-sdk-js (deterministic AI arc driver)",
+            "Checkout honua-studio (real-model producer)",
+            "Checkout honua-console (approval/audit/recovery producer)",
+            "Install exact AI delivery-arc producers",
+        }
+    ]
+
+    assert len(producer_steps) == 5
+    for step in producer_steps:
+        condition = str(step.get("if", ""))
+        assert "matrix.target == 'aws-ecs'" in condition
+        assert "vars.HONUA_AWS_ROLE_ARN != ''" in condition
