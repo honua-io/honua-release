@@ -442,6 +442,27 @@ def test_console_candidate_probe_rejects_an_unpinned_or_non_public_origin():
         )
 
 
+def test_cloud_public_origin_rejects_credentials_and_internal_hosts():
+    assert (
+        run_cloud._public_https_origin(
+            "https://candidate.example.com/", "test candidate"
+        )
+        == "https://candidate.example.com"
+    )
+    for value in (
+        "https://user:password@candidate.example.com/",
+        "https://@candidate.example.com/",
+        "https://localhost./",
+        "https://candidate.internal/",
+        "https://candidate.localdomain/",
+        "https://single-label/",
+        "https://127.0.0.1/",
+        "https://[::1]/",
+    ):
+        with __import__("pytest").raises(ProvisionError):
+            run_cloud._public_https_origin(value, "test candidate")
+
+
 def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(monkeypatch):
     calls = []
     admin_value = os.urandom(24).hex()

@@ -262,23 +262,33 @@ def _validate_ai_arc_secret_references(references: dict[str, object]) -> dict[st
 
 
 def _public_https_origin(value: str, label: str) -> str:
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+        _ = parsed.port
+    except ValueError as error:
+        raise ProvisionError(
+            f"{label} must be a credential-free public HTTPS origin"
+        ) from error
+    host = (parsed.hostname or "").lower().rstrip(".")
     if (
         parsed.scheme != "https"
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
         or parsed.query
         or parsed.fragment
         or parsed.path not in ("", "/")
     ):
         raise ProvisionError(f"{label} must be a credential-free public HTTPS origin")
-    host = parsed.hostname.lower().rstrip(".")
-    if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal")):
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(
+        (".localhost", ".local", ".internal", ".localdomain")
+    ):
         raise ProvisionError(f"{label} must not use a local or internal hostname")
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
+        if "." not in host:
+            raise ProvisionError(f"{label} must use a publicly routable hostname")
         address = None
     if address is not None and not address.is_global:
         raise ProvisionError(f"{label} must not use a non-public IP address")
