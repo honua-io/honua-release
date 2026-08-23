@@ -46,6 +46,8 @@ jobs:
       sdk_js_sha: ${{ steps.candidate.outputs.sdk_js_sha }}
       sdk_python_sha: ${{ steps.candidate.outputs.sdk_python_sha }}
       sdk_dotnet_sha: ${{ steps.candidate.outputs.sdk_dotnet_sha }}
+      geospatial_grpc_sha: ${{ steps.candidate.outputs.geospatial_grpc_sha }}
+      geospatial_mcp_sha: ${{ steps.candidate.outputs.geospatial_mcp_sha }}
       certification_repository: ${{ steps.candidate.outputs.certification_repository }}
       certification_commit: ${{ steps.candidate.outputs.certification_commit }}
       certification_requirements_source_revision: ${{ steps.candidate.outputs.certification_requirements_source_revision }}
@@ -93,6 +95,8 @@ jobs:
           print(f"sdk_js_sha={manifest['components']['honua-sdk-js']['sha']}")
           print(f"sdk_python_sha={manifest['components']['honua-sdk-python']['sha']}")
           print(f"sdk_dotnet_sha={manifest['components']['honua-sdk-dotnet']['sha']}")
+          print(f"geospatial_grpc_sha={manifest['components']['geospatial-grpc']['sha']}")
+          print(f"geospatial_mcp_sha={manifest['components']['geospatial-mcp']['sha']}")
           print(f"certification_repository={ledger['repository']}")
           print(f"certification_commit={ledger['commit']}")
           print(f"certification_requirements_source_revision={ledger['requirementsSourceRevision']}")
@@ -234,6 +238,8 @@ jobs:
       expected_sdk_js_sha: ${{ needs.freeze.outputs.sdk_js_sha }}
       expected_sdk_python_sha: ${{ needs.freeze.outputs.sdk_python_sha }}
       expected_sdk_dotnet_sha: ${{ needs.freeze.outputs.sdk_dotnet_sha }}
+      expected_geospatial_grpc_sha: ${{ needs.freeze.outputs.geospatial_grpc_sha }}
+      expected_geospatial_mcp_sha: ${{ needs.freeze.outputs.geospatial_mcp_sha }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────

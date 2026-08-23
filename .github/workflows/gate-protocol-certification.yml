@@ -58,6 +58,16 @@ on:
         required: false
         type: string
         default: ""
+      expected_geospatial_grpc_sha:
+        description: Frozen geospatial-grpc component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_geospatial_mcp_sha:
+        description: Frozen geospatial-mcp component SHA for release certification
+        required: false
+        type: string
+        default: ""
       enforcement:
         description: bootstrap | strict
         required: false
@@ -118,6 +128,14 @@ on:
         description: Frozen honua-sdk-dotnet component SHA for release certification
         required: false
         type: string
+      expected_geospatial_grpc_sha:
+        description: Frozen geospatial-grpc component SHA for release certification
+        required: false
+        type: string
+      expected_geospatial_mcp_sha:
+        description: Frozen geospatial-mcp component SHA for release certification
+        required: false
+        type: string
       enforcement:
         description: Gate enforcement
         required: true
@@ -135,9 +153,20 @@ jobs:
     outputs:
       status: ${{ steps.evaluate.outputs.status }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the proposed gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install proposed-evaluator test dependencies
+        run: python3 -m pip install pytest jsonschema
+
+      - name: Test the proposed evaluator separately
+        run: python3 -m pytest tools/test_check_protocol_certification.py -q
 
       - name: Fetch immutable certification ledger
         id: fetch
@@ -203,11 +232,20 @@ jobs:
               if [[ "${requirements_commit,,}" != "${EXPECTED_REQUIREMENTS_REVISION,,}" ]]; then
                 echo "::error::Requirements owner checkout did not resolve the pinned commit."
                 code=1
-              elif ! git -C out/requirements-owner show \
-                "FETCH_HEAD:certification/protocol-certification-requirements.v1.json" \
-                > out/protocol-certification-requirements.v1.json; then
+              else
+                git -C out/requirements-owner checkout --quiet --detach FETCH_HEAD || code=$?
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              if [[ ! -f out/requirements-owner/certification/protocol-certification-requirements.v1.json ]]; then
                 echo "::error::Pinned requirements owner has no certification denominator."
                 code=1
+              elif [[ ! -f out/requirements-owner/tools/check_protocol_certification.py ]]; then
+                echo "::error::Pinned requirements owner has no trusted certification evaluator."
+                code=1
+              else
+                cp out/requirements-owner/certification/protocol-certification-requirements.v1.json \
+                  out/protocol-certification-requirements.v1.json
               fi
             fi
           fi
@@ -226,21 +264,28 @@ jobs:
           EXPECTED_SDK_JS_SHA: ${{ inputs.expected_sdk_js_sha }}
           EXPECTED_SDK_PYTHON_SHA: ${{ inputs.expected_sdk_python_sha }}
           EXPECTED_SDK_DOTNET_SHA: ${{ inputs.expected_sdk_dotnet_sha }}
+          EXPECTED_GEOSPATIAL_GRPC_SHA: ${{ inputs.expected_geospatial_grpc_sha }}
+          EXPECTED_GEOSPATIAL_MCP_SHA: ${{ inputs.expected_geospatial_mcp_sha }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
           FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
         run: |
           set +e
-          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION" --expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA" --expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA" --expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")
+          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION" --expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA" --expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA" --expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA" --expected-geospatial-grpc-sha "$EXPECTED_GEOSPATIAL_GRPC_SHA" --expected-geospatial-mcp-sha "$EXPECTED_GEOSPATIAL_MCP_SHA")
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
           [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
           if [[ "$FETCH_EXIT_CODE" != 0 ]]; then
             echo "::error::Certification ledger fetch or digest verification failed."
-            code=1
+            code=2
+            if [[ "$ENFORCEMENT" == "bootstrap" ]]; then status=blocked; else status=fail; fi
           else
-            python3 tools/check_protocol_certification.py "${args[@]}"
+            # Enforcement runs only from the externally pinned requirements-owner
+            # revision. The proposed evaluator was tested above but cannot certify
+            # its own pull request.
+            python3 out/requirements-owner/tools/check_protocol_certification.py "${args[@]}"
             code=$?
+            if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
           fi
-          if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
@@ -266,8 +311,8 @@ jobs:
           enforcement: ${{ inputs.enforcement }}
           prefix: protocol-
 
-      - name: Fail closed
-        if: steps.fetch.outputs.exit_code != '0' || steps.evaluate.outputs.exit_code != '0'
+      - name: Enforce certification decision
+        if: steps.evaluate.outputs.status == 'fail'
         run: |
           echo "::error::Protocol certification ledger is missing, invalid, stale, mismatched, skipped, or failing."
           exit 1

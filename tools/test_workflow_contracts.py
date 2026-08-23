@@ -104,7 +104,7 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     )
     assert "EXPECTED_REQUIREMENTS_REVISION" in gate
     assert "out/requirements-owner" in gate
-    assert "FETCH_HEAD:certification/protocol-certification-requirements.v1.json" in gate
+    assert "out/requirements-owner/certification/protocol-certification-requirements.v1.json" in gate
     assert "--requirements out/protocol-certification-requirements.v1.json" in gate
 
     for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
@@ -118,7 +118,7 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     assert "expected_requirements_source_revision:" in release_train
 
 
-def test_release_protocol_gate_binds_all_official_sdk_producers_to_the_manifest():
+def test_release_protocol_gate_binds_all_shipped_producers_to_the_manifest():
     gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
         encoding="utf-8"
     )
@@ -130,6 +130,23 @@ def test_release_protocol_gate_binds_all_official_sdk_producers_to_the_manifest(
         assert f"--expected-sdk-{source}-sha" in gate
         assert f"sdk_{source}_sha" in train
         assert f"expected_sdk_{source}_sha:" in train
+    for source in ("grpc", "mcp"):
+        assert f"expected_geospatial_{source}_sha" in gate
+        assert f"--expected-geospatial-{source}-sha" in gate
+        assert f"geospatial_{source}_sha" in train
+        assert f"expected_geospatial_{source}_sha:" in train
+
+
+def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_unavailability():
+    gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Test the proposed evaluator separately" in gate
+    assert "out/requirements-owner/tools/check_protocol_certification.py" in gate
+    assert "python3 tools/check_protocol_certification.py \"${args[@]}\"" not in gate
+    assert 'if [[ "$ENFORCEMENT" == "bootstrap" ]]; then status=blocked' in gate
+    assert "if: steps.evaluate.outputs.status == 'fail'" in gate
 
 
 def _step_text(step: dict) -> str:

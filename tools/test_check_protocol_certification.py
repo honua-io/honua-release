@@ -151,6 +151,8 @@ def _requirements(*cells, complete=True):
             "sdk-js": {"commit": SHA},
             "sdk-python": {"commit": SHA},
             "sdk-dotnet": {"commit": SHA},
+            "geospatial-grpc": {"commit": SHA},
+            "geospatial-mcp": {"commit": SHA},
         },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
@@ -164,8 +166,8 @@ def _evaluate(ledger, tier, **kwargs):
         kwargs.setdefault("expected_cut_at", CUT)
         kwargs.setdefault("expected_image_digest", DIGEST)
         kwargs.setdefault(
-            "expected_sdk_source_shas",
-            {source: SHA for source in cert.OFFICIAL_SDK_SOURCES},
+            "expected_component_source_shas",
+            {source: SHA for source in cert.FROZEN_RELEASE_SOURCES},
         )
     requirements = kwargs.pop("requirements", _requirements(*ledger["cells"]))
     return cert.evaluate(
@@ -669,7 +671,7 @@ def test_release_requires_exact_digest_and_post_cut_execution():
     assert len(report["findings"]) >= 2
 
 
-def test_release_requires_external_image_and_frozen_sdk_component_pins():
+def test_release_requires_external_image_and_frozen_component_pins():
     ledger = _ledger()
     requirements = _requirements()
 
@@ -682,9 +684,9 @@ def test_release_requires_external_image_and_frozen_sdk_component_pins():
     )
     assert any(finding["check"] == "expected_image_digest" for finding in missing["findings"])
     assert sum(
-        finding["check"].startswith("expected_sdk_source_shas.")
+        finding["check"].startswith("expected_component_source_shas.")
         for finding in missing["findings"]
-    ) == 3
+    ) == 5
 
     mismatched = cert.evaluate(
         ledger,
@@ -692,10 +694,12 @@ def test_release_requires_external_image_and_frozen_sdk_component_pins():
         requirements=requirements,
         expected_cut_at=CUT,
         expected_image_digest=DIGEST,
-        expected_sdk_source_shas={
+        expected_component_source_shas={
             "sdk-js": "c" * 40,
             "sdk-python": SHA,
             "sdk-dotnet": SHA,
+            "geospatial-grpc": SHA,
+            "geospatial-mcp": SHA,
         },
         now=NOW,
     )
@@ -816,6 +820,25 @@ def test_out_of_scope_rows_still_require_truthful_image_provenance():
 
     assert report["overall_status"] == "fail"
     assert any("image_digest" in finding["why"] for finding in report["findings"])
+
+
+def test_roadmap_rows_cannot_report_passing_certification():
+    roadmap = _cell(
+        capability_key="serve.copc",
+        canonical_client="PDAL",
+        client_lane="pdal",
+        maturity="roadmap",
+        result="pass",
+    )
+    supported = _cell(canonical_client="GDAL", client_lane="gdal", client_version="3.11.4")
+
+    report = _evaluate(_ledger(roadmap, supported), "pr", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        "roadmap capability cannot report a passing" in finding["why"]
+        for finding in report["findings"]
+    )
 
 
 def test_release_requires_external_cut_and_rejects_backdated_ledger_cut():

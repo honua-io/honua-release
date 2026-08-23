@@ -44,7 +44,13 @@ PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
-OFFICIAL_SDK_SOURCES = ("sdk-js", "sdk-python", "sdk-dotnet")
+FROZEN_RELEASE_SOURCES = (
+    "sdk-js",
+    "sdk-python",
+    "sdk-dotnet",
+    "geospatial-grpc",
+    "geospatial-mcp",
+)
 FORMAT_BUDGET_OBSERVATION_FIELDS = {
     "requests", "transferred_bytes", "full_object_downloads", "range_requests",
     "cache_hits", "coordinate_error", "geometry_error", "metadata_assertions",
@@ -323,7 +329,7 @@ def evaluate(
     expected_source_sha: str | None = None,
     expected_image_digest: str | None = None,
     expected_cut_at: str | datetime | None = None,
-    expected_sdk_source_shas: dict[str, str] | None = None,
+    expected_component_source_shas: dict[str, str] | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
     receipt_root: Path | None = None,
@@ -357,20 +363,22 @@ def evaluate(
             f"does not match expected candidate {expected_source_sha!r}",
         )
     if tier == "release":
-        frozen_sdk_shas = expected_sdk_source_shas or {}
-        for source_name in OFFICIAL_SDK_SOURCES:
-            expected_sdk_sha = frozen_sdk_shas.get(source_name)
-            owned_sdk_sha = (source_revisions.get(source_name) or {}).get("commit")
-            if not isinstance(expected_sdk_sha, str) or not SHA_RE.fullmatch(expected_sdk_sha):
+        frozen_component_shas = expected_component_source_shas or {}
+        for source_name in FROZEN_RELEASE_SOURCES:
+            expected_component_sha = frozen_component_shas.get(source_name)
+            owned_component_sha = (source_revisions.get(source_name) or {}).get("commit")
+            if not isinstance(expected_component_sha, str) or not SHA_RE.fullmatch(
+                expected_component_sha
+            ):
                 fail(
-                    f"expected_sdk_source_shas.{source_name}",
+                    f"expected_component_source_shas.{source_name}",
                     f"release certification requires the frozen {source_name} component SHA",
                 )
-            elif owned_sdk_sha != expected_sdk_sha:
+            elif owned_component_sha != expected_component_sha:
                 fail(
                     f"requirements.source_revisions.{source_name}.commit",
-                    f"owned {source_name} producer {owned_sdk_sha!r} does not match "
-                    f"frozen release component {expected_sdk_sha!r}",
+                    f"owned {source_name} producer {owned_component_sha!r} does not match "
+                    f"frozen release component {expected_component_sha!r}",
                 )
     owned_revision = requirements.get("revision")
     owned_complete = requirements.get("complete")
@@ -582,6 +590,9 @@ def evaluate(
         elif raw["image_digest"] != candidate_digest:
             fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
 
+        if raw["maturity"] == "roadmap" and raw["result"] == "pass":
+            fail(prefix, "roadmap capability cannot report a passing certification result")
+
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
@@ -785,6 +796,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-sdk-js-sha")
     parser.add_argument("--expected-sdk-python-sha")
     parser.add_argument("--expected-sdk-dotnet-sha")
+    parser.add_argument("--expected-geospatial-grpc-sha")
+    parser.add_argument("--expected-geospatial-mcp-sha")
     parser.add_argument("--requirements", help="exact pinned requirements catalog to evaluate")
     parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
     parser.add_argument("--report", help="write the machine-readable decision report here")
@@ -804,10 +817,12 @@ def main(argv: list[str] | None = None) -> int:
         expected_source_sha=args.expected_source_sha,
         expected_image_digest=args.expected_image_digest,
         expected_cut_at=args.expected_cut_at,
-        expected_sdk_source_shas={
+        expected_component_source_shas={
             "sdk-js": args.expected_sdk_js_sha,
             "sdk-python": args.expected_sdk_python_sha,
             "sdk-dotnet": args.expected_sdk_dotnet_sha,
+            "geospatial-grpc": args.expected_geospatial_grpc_sha,
+            "geospatial-mcp": args.expected_geospatial_mcp_sha,
         },
         now=now,
         requirements=requirements,
