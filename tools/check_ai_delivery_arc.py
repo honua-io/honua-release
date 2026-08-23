@@ -324,14 +324,25 @@ def _contains_template(value: Any, template: str) -> bool:
 def _is_public_https_url(value: Any) -> bool:
     try:
         parsed = urlparse(str(value))
-        host = parsed.hostname or ""
-        if parsed.scheme != "https" or not host or host == "localhost" or host.endswith(".local"):
+        # Accessing port also rejects malformed authorities such as :not-a-port.
+        _ = parsed.port
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if (
+            parsed.scheme != "https"
+            or not host
+            or parsed.username is not None
+            or parsed.password is not None
+            or host in {"localhost", "localhost.localdomain"}
+            or host.endswith((".localhost", ".local", ".internal", ".localdomain"))
+        ):
             return False
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
-            return True
-        return not (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved)
+            # A single-label DNS name is an intranet name, not a customer-facing
+            # publication identity. Fully qualified test fixtures use a dotted name.
+            return "." in host
+        return address.is_global
     except ValueError:
         return False
 
@@ -668,7 +679,7 @@ def _validate_generic_aws_evidence_bundle(
     evidence_path: Path,
     evidence_document: dict,
     run_url: Any,
-) -> None:
+) -> tuple[Path, dict] | None:
     """Validate the final document plus every producer document it cites by digest."""
     components = manifest.get("components") or {}
     expected_arc_components = {
@@ -688,7 +699,7 @@ def _validate_generic_aws_evidence_bundle(
     artifacts = evidence_document.get("artifacts")
     if not isinstance(artifacts, dict):
         findings.errors.append("generic AWS final evidence artifacts must be an object")
-        return
+        return None
     for artifact_name in AWS_FINAL_ARTIFACTS:
         if not SHA256.fullmatch(str(artifacts.get(artifact_name, ""))):
             findings.errors.append(
@@ -838,6 +849,7 @@ def _validate_generic_aws_evidence_bundle(
                 findings.errors.append(
                     "AWS teardown proof does not bind the exact candidate destroy/cleanup"
                 )
+    return binding_record
 
 
 def validate_external_receipts(
@@ -854,6 +866,14 @@ def validate_external_receipts(
     components = manifest.get("components") or {}
     evidence_documents = evidence_documents or {}
     target_journey_receipts = target_journey_receipts or {}
+    # The AWS model runs before teardown, while the outer release receipt is
+    # sealed after teardown. Its provisionReceiptSha256 therefore names the
+    # exact provision-binding bytes the model consumed. The outer receipt's
+    # content-addressed final evidence cites that same digest. Preserve that
+    # chain plus the governed run so a model receipt cannot substitute an
+    # unrelated 64-hex value from another run or endpoint.
+    aws_provision_binding: tuple[Path, dict] | None = None
+    aws_provision_run_url: str | None = None
     for expected in contract.get("externalReceipts") or []:
         receipt_id = expected.get("id")
         supplied = receipts.get(receipt_id)
@@ -909,6 +929,8 @@ def validate_external_receipts(
                 evidence_path,
                 evidence_document,
                 target_journey_receipt,
+                aws_provision_binding=aws_provision_binding,
+                aws_provision_run_url=aws_provision_run_url,
             )
             records.append(
                 {
@@ -994,14 +1016,19 @@ def validate_external_receipts(
                 findings.errors.append(
                     f"external receipt {receipt_id} evidence disagrees on {key}"
                 )
-        _validate_generic_aws_evidence_bundle(
+        binding_record = _validate_generic_aws_evidence_bundle(
             findings,
             manifest,
             identity,
             evidence_path,
             evidence_document,
             evidence.get("url"),
-            )
+        )
+        if receipt_id == "aws-ecs-provision":
+            aws_provision_binding = binding_record
+            run_url = evidence.get("url")
+            if isinstance(run_url, str):
+                aws_provision_run_url = run_url
         expected_claims = expected.get("claims") or {}
         claims = receipt.get("claims") or {}
         for key in ("target", "journeyId", "releaseContract"):
@@ -1044,6 +1071,9 @@ def _validate_real_model_receipt(
     evidence_path: Path,
     evidence_document: dict,
     journey_receipt: dict | None,
+    *,
+    aws_provision_binding: tuple[Path, dict] | None = None,
+    aws_provision_run_url: str | None = None,
 ) -> None:
     target = model_contract["target"]
     receipt_fields = {
@@ -1100,6 +1130,28 @@ def _validate_real_model_receipt(
         )
     ):
         findings.errors.append(f"{target} real-model receipt has no exact deterministic checkpoint join")
+    if target == "aws-ecs":
+        if aws_provision_binding is None or aws_provision_run_url is None:
+            findings.errors.append(
+                "aws-ecs real-model receipt has no validated provision receipt context"
+            )
+        else:
+            provision_path, provision = aws_provision_binding
+            if deterministic.get("provisionReceiptSha256") != _sha256(provision_path):
+                findings.errors.append(
+                    "aws-ecs real-model provisionReceiptSha256 does not bind the exact "
+                    "provision-binding bytes"
+                )
+            endpoint = provision.get("endpoint")
+            expected_endpoint_sha256 = (
+                hashlib.sha256(endpoint.rstrip("/").encode("utf-8")).hexdigest()
+                if isinstance(endpoint, str) and endpoint
+                else None
+            )
+            if receipt.get("endpointSha256") != expected_endpoint_sha256:
+                findings.errors.append(
+                    "aws-ecs real-model endpointSha256 does not bind the provisioned endpoint"
+                )
     checks = receipt.get("checks") or {}
     for check in (expected.get("claims") or {}).get("requiredChecks") or []:
         if checks.get(check) != "passed":
@@ -1268,6 +1320,13 @@ def _validate_real_model_receipt(
         findings.errors.append(f"{target} real-model receipt has no public content-addressed evidence")
     elif _sha256(evidence_path) != evidence.get("sha256"):
         findings.errors.append(f"{target} real-model evidence bytes do not match its receipt SHA-256")
+    if target == "aws-ecs" and (
+        evidence.get("url") != aws_provision_run_url
+        or not _is_actions_run_url(evidence.get("url"))
+    ):
+        findings.errors.append(
+            "aws-ecs real-model evidence URL differs from the exact provision Actions run"
+        )
     evidence_bindings = {
         "schemaVersion": model_contract["evidenceVersion"],
         "candidateId": receipt.get("candidateId"), "releaseId": receipt.get("releaseId"),

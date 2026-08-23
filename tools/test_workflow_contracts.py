@@ -371,3 +371,67 @@ def test_cloud_parity_does_not_fetch_ecs_arc_producers_without_aws_authority():
         condition = str(step.get("if", ""))
         assert "matrix.target == 'aws-ecs'" in condition
         assert "vars.HONUA_AWS_ROLE_ARN != ''" in condition
+
+
+def test_release_train_orders_ai_arc_producers_before_strict_aggregation():
+    workflow = _workflow("release-train.yml")
+    jobs = workflow["jobs"]
+    local = jobs["gate_ai_delivery_arc_local_producer"]
+    cloud = jobs["gate_cloud_parity"]
+    aggregate = jobs["gate_ai_delivery_arc"]
+
+    assert local["uses"] == "./.github/workflows/e2e-ai-delivery-arc-local.yml"
+    assert "gate_ai_delivery_arc_local_producer" not in str(cloud["needs"])
+    assert set(aggregate["needs"]) == {
+        "gate_ai_delivery_arc_local_producer",
+        "gate_cloud_parity",
+    }
+    assert aggregate["if"] == "always()"
+
+    commands = "\n".join(_step_text(step) for step in aggregate["steps"])
+    assert "ai-delivery-arc-local-producer" in commands
+    assert "aws-ecs-ai-delivery-arc-redis-off" in commands
+    assert "--sdk-receipt producer-inputs/local/ai-delivery-arc-local/sdk-journey.json" in commands
+    assert "--target-sdk-receipt aws-ecs=producer-inputs/aws/sdk-journey.json" in commands
+    for receipt_id in (
+        "aws-ecs-provision",
+        "aws-ecs-ai-delivery-arc",
+        "aws-ecs-real-model-ai-arc",
+        "local-docker-real-model-ai-arc",
+    ):
+        assert f"--external-receipt {receipt_id}=" in commands
+    assert "--require-real" in commands
+
+    # Downloads are current-run exact names. Supplying a run-id would allow an
+    # older execution to be joined to this candidate.
+    downloads = [
+        step for step in aggregate["steps"]
+        if "actions/download-artifact" in str(step.get("uses", ""))
+    ]
+    assert len(downloads) == 2
+    assert all("run-id" not in (step.get("with") or {}) for step in downloads)
+
+
+def test_release_report_cannot_omit_the_ai_arc_aggregate_verdict():
+    report = _workflow("release-train.yml")["jobs"]["report"]
+    assert "gate_ai_delivery_arc" in report["needs"]
+    assemble = next(
+        step for step in report["steps"]
+        if step.get("name") == "Assemble platform gate-report.json"
+    )
+    assert "needs.gate_ai_delivery_arc.outputs.overall_status" in assemble["env"]["S_AI_ARC"]
+    assert "ai-delivery-arc|$S_AI_ARC" in assemble["run"]
+
+
+def test_local_ai_arc_workflow_is_a_producer_not_a_cloud_consumer():
+    workflow = _workflow("e2e-ai-delivery-arc-local.yml")
+    producer = workflow["jobs"]["producer"]
+    commands = "\n".join(_step_text(step) for step in producer["steps"])
+
+    assert "github.event.inputs" not in producer["env"]["PRODUCE_LIVE"]
+    assert "python e2e/local_ai_delivery_arc.py" in commands
+    assert "python e2e/ai_delivery_arc.py" in commands
+    assert "ai-delivery-arc-local-producer" in commands
+    assert "aws-ecs-ai-delivery-arc" not in commands
+    assert "download-artifact" not in commands
+    assert "--require-real" not in commands

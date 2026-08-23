@@ -97,6 +97,16 @@ jobs:
       require_real: ${{ !inputs.dry_run }}
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
+  # Produce the local half of D9.3 independently from AWS. This job never asks
+  # for cloud receipts, and it is deliberately not the final verdict: the strict
+  # aggregate below joins its current-run artifact to the current-run AWS artifact.
+  gate_ai_delivery_arc_local_producer:
+    needs: [gate_manifest, gate_artifact_consume]
+    uses: ./.github/workflows/e2e-ai-delivery-arc-local.yml
+    with:
+      require_real: ${{ !inputs.dry_run }}
+    secrets: inherit
+
   gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
     needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
@@ -106,6 +116,116 @@ jobs:
       # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
       require_real: ${{ !inputs.dry_run }}
     secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
+
+  # D9.3 final verdict. Reusable-workflow artifacts belong to this caller run,
+  # so the exact named downloads below cannot consume a prior/nightly execution.
+  # `always()` makes missing/failed producer output a parsed red instead of
+  # skipping the aggregate after a prerequisite failure.
+  gate_ai_delivery_arc:
+    needs: [gate_ai_delivery_arc_local_producer, gate_cloud_parity]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.status.outputs.overall_status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install aggregate checker dependencies
+        run: python -m pip install pyyaml
+
+      - name: Resolve the reviewed sdk-js checker pin
+        run: |
+          set -euo pipefail
+          TRUSTED_SHA="5950d762010cee8f1d0dfe4340c3abe85b16db1a"
+          SHA="$(python - <<'PY'
+          import yaml
+          print(yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))["components"]["honua-sdk-js"]["sha"])
+          PY
+          )"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::platform-manifest sdk-js sha $SHA does not match reviewed aggregate pin $TRUSTED_SHA"
+            exit 1
+          fi
+
+      - name: Check out the manifest-pinned SDK contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-js
+          ref: 5950d762010cee8f1d0dfe4340c3abe85b16db1a
+          path: _sdk-js
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Download this run's local producer artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ai-delivery-arc-local-producer
+          path: producer-inputs/local
+        continue-on-error: true
+
+      - name: Download this run's certifying AWS ECS producer artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          # Redis-off is the canonical D9.3 receipt. cloud-parity separately
+          # requires both ECS cache modes plus the other four target cells.
+          name: aws-ecs-ai-delivery-arc-redis-off
+          path: producer-inputs/aws
+        continue-on-error: true
+
+      - name: Validate the contract on a dry run
+        if: inputs.dry_run
+        run: |
+          python tools/check_ai_delivery_arc.py \
+            --manifest platform-manifest.yaml \
+            --contract certification/ai-delivery-arc.yaml \
+            --sdk-root _sdk-js \
+            --mode contract \
+            --sdk-receipt producer-inputs/local/sdk-zero-to-map-receipt.json \
+            --json-out e2e/out/ai-delivery-arc-gate-report.json
+
+      - name: Join local + AWS receipts and enforce the live arc
+        if: ${{ !inputs.dry_run }}
+        run: |
+          python tools/check_ai_delivery_arc.py \
+            --manifest platform-manifest.yaml \
+            --contract certification/ai-delivery-arc.yaml \
+            --sdk-root _sdk-js \
+            --mode live \
+            --sdk-receipt producer-inputs/local/ai-delivery-arc-local/sdk-journey.json \
+            --target-sdk-receipt aws-ecs=producer-inputs/aws/sdk-journey.json \
+            --external-receipt aws-ecs-provision=producer-inputs/aws/aws-ecs-provision-receipt.json \
+            --external-evidence aws-ecs-provision=producer-inputs/aws/final-evidence.json \
+            --external-receipt aws-ecs-ai-delivery-arc=producer-inputs/aws/aws-ecs-ai-delivery-arc-receipt.json \
+            --external-evidence aws-ecs-ai-delivery-arc=producer-inputs/aws/final-evidence.json \
+            --external-receipt aws-ecs-real-model-ai-arc=producer-inputs/aws/real-model-receipt.json \
+            --external-evidence aws-ecs-real-model-ai-arc=producer-inputs/aws/real-model-evidence.json \
+            --external-receipt local-docker-real-model-ai-arc=producer-inputs/local/ai-delivery-arc-local/real-model-receipt.json \
+            --external-evidence local-docker-real-model-ai-arc=producer-inputs/local/ai-delivery-arc-local/real-model-evidence.json \
+            --json-out e2e/out/ai-delivery-arc-gate-report.json \
+            --require-real
+
+      - name: Record the aggregate status
+        id: status
+        if: always()
+        run: |
+          set -euo pipefail
+          STATUS=fail
+          if [ -f e2e/out/ai-delivery-arc-gate-report.json ]; then
+            STATUS="$(jq -r '.status // "fail"' e2e/out/ai-delivery-arc-gate-report.json)"
+          fi
+          case "$STATUS" in pass|fail|blocked) ;; *) STATUS=fail ;; esac
+          echo "overall_status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the aggregate delivery-arc report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ai-delivery-arc-gate-report
+          path: e2e/out/ai-delivery-arc-gate-report.json
+          if-no-files-found: warn
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)
     needs: [gate_build_test, gate_contract]
@@ -182,6 +302,7 @@ jobs:
       - gate_artifact_consume
       - gate_e2e
       - gate_cloud_parity
+      - gate_ai_delivery_arc
       - gate_build_test
       - gate_contract
       - gate_conformance
@@ -235,6 +356,7 @@ jobs:
           S_ARTIFACT: ${{ needs.gate_artifact_consume.outputs.overall_status || needs.gate_artifact_consume.result }}
           S_E2E: ${{ needs.gate_e2e.result }}
           S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
+          S_AI_ARC: ${{ needs.gate_ai_delivery_arc.outputs.overall_status || needs.gate_ai_delivery_arc.result }}
           S_BUILD: ${{ needs.gate_build_test.result }}
           S_CONTRACT: ${{ needs.gate_contract.result }}
           S_CONFORMANCE: ${{ needs.gate_conformance.result }}
@@ -255,6 +377,7 @@ jobs:
           artifact-consume|$S_ARTIFACT
           e2e|$S_E2E
           cloud-parity|$S_CLOUD
+          ai-delivery-arc|$S_AI_ARC
           build-test|$S_BUILD
           contract|$S_CONTRACT
           conformance|$S_CONFORMANCE

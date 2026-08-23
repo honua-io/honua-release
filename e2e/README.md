@@ -67,6 +67,16 @@ family then records a publication intent, saves a distinct intent-bearing
 version, joins the Console request/publication/audit identities, and probes its
 own final HTTPS URL. The app URL remains the entry-point share URL.
 
+The release train treats evidence production and the release verdict as three
+separate jobs. `e2e-ai-delivery-arc-local.yml` produces the local-Docker SDK,
+Studio, and Console receipts without consuming cloud artifacts. The AWS ECS
+cell independently produces its receipts. Only after both reusable jobs finish
+does `release-train.yml` download their exact named artifacts from the current
+caller run and invoke the strict checker. A failed, blocked, or missing producer
+therefore reaches the final aggregate as a non-green result instead of being
+hidden by job ordering. The release-owned local installer uses the manifest
+server image by digest; the pinned SDK continues to own every journey action.
+
 `certification/ai-delivery-arc.yaml` names two certifying targets. Local Docker
 must carry the candidate-pinned SDK journey. AWS ECS must supply both the
 candidate-bound Terraform provision/handoff receipt and a second receipt proving
@@ -87,7 +97,10 @@ plain-HTTP receipts cannot certify publication.
 
 ```bash
 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
-E2E_REQUIRE_REAL=1 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
+# The live local producer also requires exact Studio/Console checkouts, a public
+# HTTPS origin routed to its local port, the Console origin, distinct scoped
+# prepare/Console credentials, and a configured real-model provider.
+python e2e/local_ai_delivery_arc.py
 ```
 
 A strict live invocation also requires `E2E_AI_LOCAL_MODEL_RECEIPT` plus its

@@ -1,0 +1,216 @@
+# Local-Docker producer for the 2026.1 AI delivery arc. This workflow produces
+# candidate-bound local receipts; it never consumes cloud receipts and is not the
+# final release verdict. release-train.yml aggregates this artifact only after the
+# independent AWS producer has finished.
+
+name: e2e-ai-delivery-arc-local
+
+on:
+  pull_request:
+    paths:
+      - "e2e/ai_delivery_arc.py"
+      - "e2e/local_ai_delivery_arc.py"
+      - "e2e/test_ai_delivery_arc.py"
+      - "certification/ai-delivery-arc.yaml"
+      - "certification/release-evidence-receipt.schema.json"
+      - "certification/*-real-model-ai-arc*.schema.json"
+      - "tools/check_ai_delivery_arc.py"
+      - "tools/test_check_ai_delivery_arc.py"
+      - "e2e/README.md"
+      - "release-notes/2026.1-ai-delivery-arc.md"
+      - "platform-manifest.yaml"
+      - ".github/workflows/e2e-ai-delivery-arc-local.yml"
+      - ".github/workflows/release-train.yml"
+  workflow_dispatch:
+    inputs:
+      require_real:
+        description: "Run the state-changing local producer instead of contract validation"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      require_real:
+        type: boolean
+        default: false
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+      HONUA_AI_PROVIDER_API_KEY:
+        required: false
+      HONUA_AI_ARC_LOCAL_PREPARE_CREDENTIAL:
+        required: false
+      HONUA_AI_ARC_LOCAL_CONSOLE_TOKEN:
+        required: false
+    outputs:
+      producer_status:
+        description: "pass | fail | blocked — producer status, not the aggregate release verdict"
+        value: ${{ jobs.producer.outputs.producer_status }}
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+concurrency:
+  group: e2e-ai-delivery-arc-local-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  producer:
+    runs-on: ubuntu-latest
+    outputs:
+      producer_status: ${{ steps.status.outputs.producer_status }}
+    env:
+      PRODUCE_LIVE: ${{ inputs.require_real && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.19.0"
+
+      - name: Install release checker dependencies
+        run: python -m pip install pyyaml pytest
+
+      - name: Prove the delivery-arc checker and local producer boundaries
+        run: python -m pytest tools/test_check_ai_delivery_arc.py e2e/test_ai_delivery_arc.py -q
+
+      # Executable component refs are static and review-visible. The resolver fails
+      # before checkout when the manifest advances without a matching workflow review.
+      - name: Resolve reviewed producer pins
+        env:
+          SDK_SHA: 5950d762010cee8f1d0dfe4340c3abe85b16db1a
+          STUDIO_SHA: c0c67666cf5345f0ae86e2644161ba15437ab571
+          CONSOLE_SHA: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import yaml
+
+          components = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))["components"]
+          expected = {
+              "honua-sdk-js": os.environ["SDK_SHA"],
+              "honua-studio": os.environ["STUDIO_SHA"],
+              "honua-console": os.environ["CONSOLE_SHA"],
+          }
+          for name, sha in expected.items():
+              if components[name]["sha"] != sha:
+                  raise SystemExit(f"{name} manifest pin drift: {components[name]['sha']} != reviewed {sha}")
+          PY
+
+      - name: Check out the manifest-pinned sdk-js journey
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-js
+          ref: 5950d762010cee8f1d0dfe4340c3abe85b16db1a
+          path: _sdk-js
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Check out the manifest-pinned Studio producer
+        if: env.PRODUCE_LIVE == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-studio
+          ref: c0c67666cf5345f0ae86e2644161ba15437ab571
+          path: _studio
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Check out the manifest-pinned Console producer
+        if: env.PRODUCE_LIVE == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-console
+          ref: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
+          path: _console
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Build the exact SDK journey
+        run: |
+          set -euo pipefail
+          npm ci --prefix _sdk-js
+          npm run build --prefix _sdk-js
+          chmod +x _sdk-js/dist/src/cli/bin.js
+          npm ci --prefix _sdk-js/mcp
+
+      - name: Install exact Studio and Console producers
+        if: env.PRODUCE_LIVE == 'true'
+        run: |
+          set -euo pipefail
+          npm ci --prefix _studio
+          npm ci --prefix _console/e2e/playwright
+          npm --prefix _console/e2e/playwright exec -- playwright install --with-deps chromium
+
+      - name: Log in to ghcr for the manifest image
+        if: env.PRODUCE_LIVE == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials when the real-model provider is Bedrock
+        if: env.PRODUCE_LIVE == 'true' && vars.HONUA_AI_PROVIDER == 'bedrock' && vars.HONUA_AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.HONUA_AI_REGION || 'us-west-2' }}
+
+      - name: Validate the contract without producing live evidence
+        if: env.PRODUCE_LIVE != 'true'
+        env:
+          E2E_SDK_JS_DIR: ${{ github.workspace }}/_sdk-js
+        run: python e2e/ai_delivery_arc.py
+
+      - name: Produce the local candidate receipts
+        if: env.PRODUCE_LIVE == 'true'
+        env:
+          E2E_SDK_JS_DIR: ${{ github.workspace }}/_sdk-js
+          E2E_STUDIO_DIR: ${{ github.workspace }}/_studio
+          E2E_CONSOLE_DIR: ${{ github.workspace }}/_console
+          E2E_AI_LOCAL_OUT: ${{ github.workspace }}/e2e/out/ai-delivery-arc-local
+          HONUA_PLATFORM_MANIFEST: ${{ github.workspace }}/platform-manifest.yaml
+          HONUA_AI_ARC_LOCAL_ORIGIN: ${{ vars.HONUA_AI_ARC_LOCAL_ORIGIN }}
+          HONUA_AI_ARC_CONSOLE_ORIGIN: ${{ vars.HONUA_AI_ARC_CONSOLE_ORIGIN }}
+          HONUA_AI_ARC_FIXTURE_BASE_URL: ${{ vars.HONUA_AI_ARC_FIXTURE_BASE_URL }}
+          HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
+          HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
+          HONUA_AI_REGION: ${{ vars.HONUA_AI_REGION }}
+          HONUA_AI_UPSTREAM_ENDPOINT: ${{ vars.HONUA_AI_UPSTREAM_ENDPOINT }}
+          HONUA_AI_PROVIDER_API_KEY: ${{ secrets.HONUA_AI_PROVIDER_API_KEY }}
+          HONUA_AI_ARC_LOCAL_PREPARE_CREDENTIAL: ${{ secrets.HONUA_AI_ARC_LOCAL_PREPARE_CREDENTIAL }}
+          HONUA_AI_ARC_LOCAL_CONSOLE_TOKEN: ${{ secrets.HONUA_AI_ARC_LOCAL_CONSOLE_TOKEN }}
+          HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python e2e/local_ai_delivery_arc.py
+
+      - name: Read the producer status
+        id: status
+        if: always()
+        run: |
+          set -euo pipefail
+          STATUS=fail
+          for REPORT in \
+            e2e/out/ai-delivery-arc-local/producer-report.json \
+            e2e/out/ai-delivery-arc-receipt.json; do
+            if [ -f "$REPORT" ]; then
+              STATUS="$(jq -r '.status // "fail"' "$REPORT")"
+              break
+            fi
+          done
+          case "$STATUS" in pass|fail|blocked) ;; *) STATUS=fail ;; esac
+          echo "producer_status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Upload local producer outputs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ai-delivery-arc-local-producer
+          path: |
+            e2e/out/ai-delivery-arc-local/*.json
+            e2e/out/ai-delivery-arc-receipt.json
+            e2e/out/sdk-zero-to-map-receipt.json
+          if-no-files-found: warn
