@@ -157,6 +157,10 @@ def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
 def _finite_nonnegative_number(value: object) -> bool:
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
         return False
@@ -294,8 +298,12 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
         if len(payload_bytes) > MAX_FORMAT_RECEIPT_PAYLOAD_BYTES:
             return False
         try:
-            payload = json.loads(payload_bytes, object_pairs_hook=_unique_json_object)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, _DuplicateJsonKey):
+            payload = json.loads(
+                payload_bytes,
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        except (ValueError, UnicodeDecodeError, RecursionError):
             return False
         if (
             not isinstance(payload, dict)

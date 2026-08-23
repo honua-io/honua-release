@@ -402,6 +402,21 @@ def test_format_budget_receipt_rejects_ambiguous_or_pathological_json():
         ).decode("ascii")
         assert not cert._valid_receipt(candidate)
 
+    for nonstandard in (float("inf"), float("-inf")):
+        candidate = copy.deepcopy(cell)
+        candidate["budget_observations"]["metadata_values"]["untrusted"] = nonstandard
+        payload_bytes = json.dumps(
+            {
+                "schema": "honua.format-budget-observations/v1",
+                "budget_observations": candidate["budget_observations"],
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        candidate["evidence_receipt"]["payload_base64"] = base64.b64encode(
+            payload_bytes
+        ).decode("ascii")
+        assert not cert._valid_receipt(candidate)
+
 
 def test_fresh_nightly_required_cell_passes():
     report = _evaluate(_ledger(), "nightly", expected_source_sha=SHA, now=NOW)
