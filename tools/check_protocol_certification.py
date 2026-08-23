@@ -252,9 +252,21 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
     ):
         return False
     try:
-        base64.b64decode(receipt["payload_base64"], validate=True)
+        payload_bytes = base64.b64decode(receipt["payload_base64"], validate=True)
     except (ValueError, TypeError):
         return False
+    if str(cell.get("capability_key", "")).startswith("format."):
+        try:
+            payload = json.loads(payload_bytes)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != "honua.format-budget-observations/v1"
+            or "budget_observations" not in payload
+            or not _typed_equal(payload["budget_observations"], cell.get("budget_observations"))
+        ):
+            return False
     return True
 
 

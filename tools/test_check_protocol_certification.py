@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import sys
@@ -75,6 +76,23 @@ def _cell(**overrides):
             for facet in value["scenario_facets"]
         }
     return value
+
+
+def _bind_format_budget_payload(cell):
+    payload = {
+        "schema": "honua.format-budget-observations/v1",
+        "budget_observations": cell["budget_observations"],
+    }
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    return cell
 
 
 def _licensed_cell(
@@ -282,13 +300,19 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
         "metadata_assertions": ["crs", "nodata"],
         "metadata_values": {"crs": "EPSG:4326", "nodata": -9999.0},
     }
-    passing = _cell(
+    passing = _bind_format_budget_payload(_cell(
         capability_key="format.cog",
         budget_expectations=expectations,
         budget_observations=observations,
-    )
+    ))
     passing_report = _evaluate(_ledger(passing), "nightly", now=NOW)
     assert passing_report["overall_status"] == "pass", passing_report["findings"]
+
+    unbound = copy.deepcopy(passing)
+    unbound["budget_observations"]["requests"] = 2
+    unbound_report = _evaluate(_ledger(unbound), "nightly", now=NOW)
+    assert unbound_report["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in unbound_report["findings"])
 
     exceeding = copy.deepcopy(passing)
     exceeding["budget_observations"]["requests"] = 5
