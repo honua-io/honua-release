@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import sys
 from pathlib import Path
 
@@ -568,6 +567,43 @@ def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple
     return receipt, evidence
 
 
+def generic_aws_evidence(
+    manifest_value: dict,
+    candidate_id: str,
+    source: dict,
+    run_url: str,
+) -> dict:
+    return {
+        "schemaVersion": "honua.aws-ecs.ai-delivery-arc-evidence/v1",
+        "status": "passed",
+        "target": "aws-ecs",
+        "candidateId": candidate_id,
+        "releaseId": manifest_value["platformRelease"],
+        "source": source,
+        "components": {
+            name: component["sha"]
+            for name, component in manifest_value["components"].items()
+        },
+        "checks": {},
+        "artifacts": {
+            "provisionBinding": "6" * 64,
+            "teardownEvidence": "7" * 64,
+        },
+        "teardown": {
+            "schemaVersion": "honua.aws-ecs.teardown-evidence/v1",
+            "status": "passed",
+            "target": "aws-ecs",
+            "candidateId": candidate_id,
+            "releaseId": manifest_value["platformRelease"],
+            "checks": {
+                "terraform-destroy": "passed",
+                "cleanup-verified": "passed",
+            },
+            "evidence": {"url": run_url, "sha256": "8" * 64},
+        },
+    }
+
+
 def validate_aws_model_documents(
     tmp_path: Path, receipt: dict, evidence: dict
 ) -> gate.Findings:
@@ -637,6 +673,15 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             supplied[receipt_id] = (path, value)
             supplied_evidence[receipt_id] = (evidence_path, evidence_value)
             continue
+        run_url = "https://github.com/honua-io/honua-release/actions/runs/12345"
+        evidence_value = generic_aws_evidence(
+            manifest_value,
+            identity["candidateId"],
+            {"repository": repository, "sha": manifest_value["components"][component]["sha"]},
+            run_url,
+        )
+        evidence_path = tmp_path / f"{receipt_id}-evidence.json"
+        evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
         value = {
             "schemaVersion": "honua.release.evidence-receipt/v1",
             "id": receipt_id,
@@ -648,7 +693,7 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
                 name: manifest_value["components"][name]["sha"]
                 for name in expected["boundComponents"]
             },
-            "evidence": {"url": f"https://example.test/{receipt_id}", "sha256": "5" * 64},
+            "evidence": {"url": run_url, "sha256": gate._sha256(evidence_path)},
             "claims": {
                 "target": expected_claims["target"],
                 **(
@@ -668,6 +713,7 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         }
         path.write_text(json.dumps(value), encoding="utf-8")
         supplied[receipt_id] = (path, value)
+        supplied_evidence[receipt_id] = (evidence_path, evidence_value)
 
     findings, records = gate.validate_external_receipts(
         manifest_value,
@@ -691,6 +737,66 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
     identity_components = gate.candidate_identity(manifest_value, manifest_path)["components"]
     assert identity_components["honua-devops"]["sha"] == "f" * 40
     assert identity_components["honua-iac"]["sha"] == "e" * 40
+
+
+def test_generic_aws_receipt_rejects_tampered_evidence_or_wrong_run_url(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    expected = next(
+        item for item in CONTRACT["externalReceipts"] if item["id"] == "aws-ecs-provision"
+    )
+    source = {
+        "repository": expected["sourceRepository"],
+        "sha": manifest_value["components"][expected["sourceComponent"]]["sha"],
+    }
+    run_url = "https://github.com/honua-io/honua-release/actions/runs/67890"
+    evidence = generic_aws_evidence(manifest_value, identity["candidateId"], source, run_url)
+    evidence_path = tmp_path / "aws-evidence.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt = {
+        "schemaVersion": "honua.release.evidence-receipt/v1",
+        "id": expected["id"],
+        "status": "passed",
+        "candidateId": identity["candidateId"],
+        "releaseId": manifest_value["platformRelease"],
+        "source": source,
+        "components": {
+            name: manifest_value["components"][name]["sha"]
+            for name in expected["boundComponents"]
+        },
+        "evidence": {"url": run_url, "sha256": "0" * 64},
+        "claims": {
+            "target": "aws-ecs",
+            "checks": {check: "passed" for check in expected["claims"]["requiredChecks"]},
+        },
+    }
+    receipt_path = tmp_path / "aws-receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        {"externalReceipts": [expected]},
+        {expected["id"]: (receipt_path, receipt)},
+        {expected["id"]: (evidence_path, evidence)},
+    )
+    assert any("evidence bytes do not match" in error for error in findings.errors)
+
+    receipt["evidence"] = {
+        "url": "https://example.test/not-an-actions-run",
+        "sha256": gate._sha256(evidence_path),
+    }
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        {"externalReceipts": [expected]},
+        {expected["id"]: (receipt_path, receipt)},
+        {expected["id"]: (evidence_path, evidence)},
+    )
+    assert any("immutable Actions run" in error for error in findings.errors)
+    assert any("does not identify its teardown run" in error for error in findings.errors)
 
 
 def test_missing_full_aws_arc_receipt_blocks_even_when_provisioning_exists(tmp_path: Path):

@@ -13,7 +13,6 @@ import ipaddress
 import json
 import re
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -226,6 +225,23 @@ def _is_public_https_url(value: Any) -> bool:
         return not (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved)
     except ValueError:
         return False
+
+
+def _is_actions_run_url(value: Any) -> bool:
+    """Accept an immutable GitHub Actions run URL, not a generic project page."""
+    if not _is_public_https_url(value):
+        return False
+    try:
+        parsed = urlparse(str(value))
+    except ValueError:
+        return False
+    return (
+        not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+        and re.search(r"/actions/runs/[1-9][0-9]*/?$", parsed.path) is not None
+    )
 
 
 def _git_head(path: Path) -> str | None:
@@ -565,6 +581,13 @@ def validate_external_receipts(
                 }
             )
             continue
+        generic_evidence = evidence_documents.get(receipt_id)
+        if generic_evidence is None:
+            findings.blockers.append(
+                f"live journey is missing external evidence for {receipt_id}"
+            )
+            continue
+        evidence_path, evidence_document = generic_evidence
         if receipt.get("schemaVersion") != "honua.release.evidence-receipt/v1":
             findings.errors.append(f"external receipt {receipt_id} has an unsupported schemaVersion")
         if receipt.get("id") != receipt_id or receipt.get("status") != "passed":
@@ -586,10 +609,59 @@ def validate_external_receipts(
                     f"external receipt {receipt_id} does not bind manifest component {bound_name}"
                 )
         evidence = receipt.get("evidence") or {}
-        if not str(evidence.get("url", "")).startswith(("https://", "http://")):
-            findings.errors.append(f"external receipt {receipt_id} has no evidence URL")
+        if not _is_actions_run_url(evidence.get("url")):
+            findings.errors.append(
+                f"external receipt {receipt_id} evidence URL is not an immutable Actions run"
+            )
         if not SHA256.fullmatch(str(evidence.get("sha256", ""))):
             findings.errors.append(f"external receipt {receipt_id} has no evidence SHA-256")
+        elif _sha256(evidence_path) != evidence.get("sha256"):
+            findings.errors.append(
+                f"external receipt {receipt_id} evidence bytes do not match its SHA-256"
+            )
+        expected_evidence_identity = {
+            "schemaVersion": "honua.aws-ecs.ai-delivery-arc-evidence/v1",
+            "status": "passed",
+            "target": "aws-ecs",
+            "candidateId": identity["candidateId"],
+            "releaseId": manifest.get("platformRelease"),
+            "source": source,
+        }
+        for key, expected_value in expected_evidence_identity.items():
+            if evidence_document.get(key) != expected_value:
+                findings.errors.append(
+                    f"external receipt {receipt_id} evidence disagrees on {key}"
+                )
+        document_components = evidence_document.get("components") or {}
+        for bound_name, bound_sha in receipt_components.items():
+            if document_components.get(bound_name) != bound_sha:
+                findings.errors.append(
+                    f"external receipt {receipt_id} evidence does not bind {bound_name}"
+                )
+        artifacts = evidence_document.get("artifacts") or {}
+        for artifact_name in ("provisionBinding", "teardownEvidence"):
+            if not SHA256.fullmatch(str(artifacts.get(artifact_name, ""))):
+                findings.errors.append(
+                    f"external receipt {receipt_id} evidence omits {artifact_name} digest"
+                )
+        teardown = evidence_document.get("teardown") or {}
+        teardown_checks = teardown.get("checks") or {}
+        if (
+            teardown.get("schemaVersion") != "honua.aws-ecs.teardown-evidence/v1"
+            or teardown.get("status") != "passed"
+            or teardown.get("candidateId") != identity["candidateId"]
+            or teardown.get("releaseId") != manifest.get("platformRelease")
+            or teardown_checks.get("terraform-destroy") != "passed"
+            or teardown_checks.get("cleanup-verified") != "passed"
+        ):
+            findings.errors.append(
+                f"external receipt {receipt_id} evidence has no exact passing teardown binding"
+            )
+        teardown_run_url = (teardown.get("evidence") or {}).get("url")
+        if teardown_run_url != evidence.get("url"):
+            findings.errors.append(
+                f"external receipt {receipt_id} evidence URL does not identify its teardown run"
+            )
         expected_claims = expected.get("claims") or {}
         claims = receipt.get("claims") or {}
         for key in ("target", "journeyId", "releaseContract"):
@@ -609,6 +681,8 @@ def validate_external_receipts(
                 "id": receipt_id,
                 "path": str(path),
                 "receiptSha256": _sha256(path),
+                "evidencePath": str(evidence_path),
+                "evidenceSha256": _sha256(evidence_path),
                 "source": source,
                 "components": receipt_components,
                 "evidence": evidence,

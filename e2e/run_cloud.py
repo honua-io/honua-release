@@ -107,6 +107,21 @@ _AI_ARC_CHILD_CREDENTIAL_ENV = (
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
+    "AWS_SECURITY_TOKEN",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_ARN",
+    "AWS_ROLE_SESSION_NAME",
+    "HONUA_AWS_ROLE_ARN",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "AWS_CONFIG_FILE",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+    "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+    "ACTIONS_ID_TOKEN_REQUEST_URL",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
 )
 
 
@@ -197,10 +212,53 @@ def _resolve_aws_secret(reference: str, label: str = "scoped admin secret") -> s
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise ProvisionError(f"AWS ECS AI delivery arc could not resolve its {label}") from error
-    value = result.stdout.strip()
-    if not value:
+    value = result.stdout.rstrip("\r\n")
+    if not value or value == "None":
         raise ProvisionError(f"AWS ECS AI delivery arc resolved an empty {label}")
+    # Register the value before any manifest-pinned producer receives it. GitHub's
+    # workflow-command escaping keeps multiline or percent-bearing secrets from
+    # becoming a second command while still masking the exact value in child logs.
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::add-mask::{escaped}")
     return value
+
+
+def _ai_arc_boundary_environment(source: dict[str, str]) -> dict[str, str]:
+    """Build a child environment with every ambient AWS credential path disabled."""
+    environment = dict(source)
+    for name in _AI_ARC_CHILD_CREDENTIAL_ENV:
+        environment.pop(name, None)
+    # Removing explicit variables is insufficient: AWS SDKs otherwise fall back
+    # to ~/.aws files or the instance metadata service on self-hosted runners.
+    environment.update(
+        {
+            "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+            "AWS_CONFIG_FILE": os.devnull,
+            "AWS_EC2_METADATA_DISABLED": "true",
+        }
+    )
+    return environment
+
+
+def _validate_ai_arc_secret_references(references: dict[str, object]) -> dict[str, str]:
+    """Require four role-specific, non-overlapping Secrets Manager references."""
+    invalid = [
+        name
+        for name, reference in references.items()
+        if not isinstance(reference, str) or not _AWS_SECRET_ARN.fullmatch(reference)
+    ]
+    if invalid:
+        raise ProvisionError(
+            "AWS ECS AI delivery arc handoff secret references are not AWS ARNs: "
+            + ", ".join(sorted(invalid))
+        )
+    typed = {name: str(reference) for name, reference in references.items()}
+    if len(set(typed.values())) != len(typed):
+        raise ProvisionError(
+            "AWS ECS AI delivery arc admin, database, prepare, and Console secrets must be distinct"
+        )
+    return typed
 
 
 def _public_https_origin(value: str, label: str) -> str:
@@ -271,9 +329,7 @@ def _run_ai_arc_approval_boundary(
 ) -> None:
     # Model/admin credentials and the focused Console approval credential have deliberately
     # disjoint process environments. In particular, the Console producer refuses broad keys.
-    boundary_env = dict(producer_env)
-    for name in _AI_ARC_CHILD_CREDENTIAL_ENV:
-        boundary_env.pop(name, None)
+    boundary_env = _ai_arc_boundary_environment(producer_env)
     studio_credential = _resolve_aws_secret(
         prepare_credential_ref, "scoped AI arc prepare credential"
     )
@@ -414,19 +470,25 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         admin_ref = secret_refs["admin_password"]
         db_ref = secret_refs["db_connection"]
         prepare_credential_ref = os.environ["HONUA_AI_ARC_PREPARE_CREDENTIAL_SECRET_REF"]
+        console_token_ref = os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"]
     except (KeyError, TypeError, ProvisionError) as error:
         raise ProvisionError(
             "AWS ECS AI delivery arc Terraform outputs omit DB/admin secret-reference handoff"
         ) from error
     if not isinstance(db_host, str) or not db_host:
         raise ProvisionError("AWS ECS AI delivery arc Terraform handoff values are empty")
-    if not all(isinstance(reference, str) and _AWS_SECRET_ARN.fullmatch(reference)
-               for reference in (admin_ref, db_ref, prepare_credential_ref)):
-        raise ProvisionError("AWS ECS AI delivery arc handoff secret references are not AWS ARNs")
-    if prepare_credential_ref == admin_ref:
-        raise ProvisionError(
-            "AWS ECS AI delivery arc prepare credential must not reuse the bootstrap admin secret"
-        )
+    secret_references = _validate_ai_arc_secret_references(
+        {
+            "admin": admin_ref,
+            "database": db_ref,
+            "prepare": prepare_credential_ref,
+            "console": console_token_ref,
+        }
+    )
+    admin_ref = secret_references["admin"]
+    db_ref = secret_references["database"]
+    prepare_credential_ref = secret_references["prepare"]
+    console_token_ref = secret_references["console"]
 
     server = components.get("honua-server") or {}
     expected_image = f"{server.get('image')}@{server.get('digest')}"
@@ -518,7 +580,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         console_root=console_root,
         producer_env=producer_env,
         prepare_credential_ref=prepare_credential_ref,
-        console_token_ref=os.environ["HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF"],
+        console_token_ref=console_token_ref,
     )
     _run_secretless(
         _devops_resume_command(producer, common, paths),

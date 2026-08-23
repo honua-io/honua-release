@@ -466,6 +466,12 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
             "HONUA_API_KEY": inherited_value,
             "HONUA_AI_ARC_CONSOLE_TOKEN": inherited_value,
             "HONUA_AI_ARC_CHECKPOINT": "checkpoint.json",
+            "AWS_ACCESS_KEY_ID": "ambient-access-key",
+            "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/ambient-oidc-token",
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/ambient",
+            "AWS_PROFILE": "ambient-profile",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://169.254.170.2/credentials",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "ambient-actions-oidc-token",
         },
         prepare_credential_ref="prepare-ref",
         console_token_ref="console-ref",
@@ -498,6 +504,46 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
     assert "HONUA_API_KEY" not in console_env
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[0][1]
     assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in calls[2][1]
+    for child_env in (calls[0][1], calls[1][1], calls[2][1]):
+        assert "AWS_ACCESS_KEY_ID" not in child_env
+        assert "AWS_WEB_IDENTITY_TOKEN_FILE" not in child_env
+        assert "AWS_ROLE_ARN" not in child_env
+        assert "AWS_PROFILE" not in child_env
+        assert "AWS_CONTAINER_CREDENTIALS_FULL_URI" not in child_env
+        assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in child_env
+        assert child_env["AWS_SHARED_CREDENTIALS_FILE"] == os.devnull
+        assert child_env["AWS_CONFIG_FILE"] == os.devnull
+        assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+
+
+def test_resolved_aws_secret_is_masked_before_a_child_can_log_it(monkeypatch, capsys):
+    secret = "value%with\r\na-newline"
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(
+        run_cloud.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, secret + "\n", ""),
+    )
+
+    assert run_cloud._resolve_aws_secret("secret-ref", "test secret") == secret
+    assert capsys.readouterr().out == "::add-mask::value%25with%0D%0Aa-newline\n"
+
+
+def test_ai_arc_requires_distinct_arn_references_for_each_credential_role():
+    refs = {
+        role: f"arn:aws:secretsmanager:us-east-1:123456789012:secret:{role}-value"
+        for role in ("admin", "database", "prepare", "console")
+    }
+
+    assert run_cloud._validate_ai_arc_secret_references(refs) == refs
+
+    invalid = {**refs, "console": "shared-secret-name"}
+    with __import__("pytest").raises(ProvisionError, match="console"):
+        run_cloud._validate_ai_arc_secret_references(invalid)
+
+    reused = {**refs, "console": refs["admin"]}
+    with __import__("pytest").raises(ProvisionError, match="must be distinct"):
+        run_cloud._validate_ai_arc_secret_references(reused)
 
 
 def test_non_ecs_require_real_does_not_require_the_ecs_delivery_arc(monkeypatch):

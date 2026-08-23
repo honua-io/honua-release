@@ -29,6 +29,8 @@ EXTERNAL_RECEIPT_ENV = (
     ("aws-ecs-real-model-ai-arc", "E2E_AI_AWS_MODEL_RECEIPT"),
 )
 EXTERNAL_EVIDENCE_ENV = (
+    ("aws-ecs-provision", "E2E_AI_AWS_EVIDENCE"),
+    ("aws-ecs-ai-delivery-arc", "E2E_AI_AWS_EVIDENCE"),
     ("local-docker-real-model-ai-arc", "E2E_AI_LOCAL_MODEL_EVIDENCE"),
     ("aws-ecs-real-model-ai-arc", "E2E_AI_AWS_MODEL_EVIDENCE"),
 )

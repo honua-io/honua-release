@@ -94,8 +94,10 @@ A strict live invocation also requires `E2E_AI_LOCAL_MODEL_RECEIPT` plus its
 content-addressed `E2E_AI_LOCAL_MODEL_EVIDENCE`, `E2E_AI_AWS_RECEIPT` for the ECS
 Terraform/readiness/handoff run and `E2E_AI_AWS_ARC_RECEIPT` for the separate
 full journey executed against that still-live ECS endpoint, and the dedicated
-`E2E_AI_AWS_MODEL_RECEIPT`/`E2E_AI_AWS_MODEL_EVIDENCE` pair. None is inferred
-from a successful apply. `E2E_AI_AWS_SDK_RECEIPT` must point to the live
+`E2E_AI_AWS_MODEL_RECEIPT`/`E2E_AI_AWS_MODEL_EVIDENCE` pair. Both generic AWS
+receipts also require `E2E_AI_AWS_EVIDENCE`, the exact final-evidence bytes
+whose SHA-256 and Actions-run URL they declare. None is inferred from a
+successful apply. `E2E_AI_AWS_SDK_RECEIPT` must point to the live
 `sdk-journey.json` produced during that same ECS lifetime; every AWS model call
 is hash-bound to its exact SDK action receipt, just as the local model receipt
 is bound to the local SDK receipt.
