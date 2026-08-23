@@ -44,6 +44,7 @@ PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
+OFFICIAL_SDK_SOURCES = ("sdk-js", "sdk-python", "sdk-dotnet")
 REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
@@ -277,6 +278,7 @@ def evaluate(
     expected_source_sha: str | None = None,
     expected_image_digest: str | None = None,
     expected_cut_at: str | datetime | None = None,
+    expected_sdk_source_shas: dict[str, str] | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
     receipt_root: Path | None = None,
@@ -309,6 +311,22 @@ def evaluate(
             f"owned requirements server source {catalog_server_sha!r} "
             f"does not match expected candidate {expected_source_sha!r}",
         )
+    if tier == "release":
+        frozen_sdk_shas = expected_sdk_source_shas or {}
+        for source_name in OFFICIAL_SDK_SOURCES:
+            expected_sdk_sha = frozen_sdk_shas.get(source_name)
+            owned_sdk_sha = (source_revisions.get(source_name) or {}).get("commit")
+            if not isinstance(expected_sdk_sha, str) or not SHA_RE.fullmatch(expected_sdk_sha):
+                fail(
+                    f"expected_sdk_source_shas.{source_name}",
+                    f"release certification requires the frozen {source_name} component SHA",
+                )
+            elif owned_sdk_sha != expected_sdk_sha:
+                fail(
+                    f"requirements.source_revisions.{source_name}.commit",
+                    f"owned {source_name} producer {owned_sdk_sha!r} does not match "
+                    f"frozen release component {expected_sdk_sha!r}",
+                )
     owned_revision = requirements.get("revision")
     owned_complete = requirements.get("complete")
     owned_rows = requirements.get("requirements")
@@ -358,13 +376,16 @@ def evaluate(
         fail("candidate.cut_at", "candidate cut_at must be a timezone-aware ISO-8601 timestamp")
     elif cut_at > now:
         fail("candidate.cut_at", "candidate cut_at cannot be in the future")
-    if tier == "release":
+    external_cut_supplied = expected_cut_at not in (None, "")
+    if external_cut_supplied:
         if external_cut_at is None:
-            fail("expected_cut_at", "release certification requires an independently frozen candidate cut")
+            fail("expected_cut_at", "independently frozen candidate cut must be timezone-aware ISO-8601")
         elif external_cut_at > now:
             fail("expected_cut_at", "independently frozen candidate cut cannot be in the future")
         elif cut_at != external_cut_at:
             fail("candidate.cut_at", "ledger candidate cut does not match the independently frozen candidate cut")
+    elif tier == "release":
+        fail("expected_cut_at", "release certification requires an independently frozen candidate cut")
     if expected_source_sha and candidate_sha != expected_source_sha:
         fail("candidate.source_sha", f"ledger candidate {candidate_sha!r} does not match expected {expected_source_sha!r}")
     if catalog_server_sha != candidate_sha:
@@ -373,8 +394,13 @@ def evaluate(
             f"owned requirements server source {catalog_server_sha!r} "
             f"does not match ledger candidate {candidate_sha!r}",
         )
-    if expected_image_digest and candidate_digest != expected_image_digest:
-        fail("candidate.image_digest", f"ledger candidate {candidate_digest!r} does not match expected {expected_image_digest!r}")
+    if expected_image_digest:
+        if not DIGEST_RE.fullmatch(expected_image_digest):
+            fail("expected_image_digest", "expected image digest must be an exact sha256 digest")
+        elif candidate_digest != expected_image_digest:
+            fail("candidate.image_digest", f"ledger candidate {candidate_digest!r} does not match expected {expected_image_digest!r}")
+    elif tier == "release":
+        fail("expected_image_digest", "release certification requires an independently frozen image digest")
 
     cells = ledger.get("cells")
     if not isinstance(cells, list) or not cells:
@@ -502,6 +528,15 @@ def evaluate(
             group = (raw["capability_key"], raw["surface"], raw["operation"], raw["deployment_target"])
             supported_groups.setdefault(group, []).append(raw)
 
+        # Image provenance is structural candidate identity, not a tier result.
+        # Validate every denominator row before excluding out-of-scope tiers so
+        # roadmap/nightly/skipped cells cannot retain false deployment claims.
+        if raw["deployment_target"] == "source-test-host":
+            if raw["image_digest"] is not None:
+                fail(prefix, "source-test-host evidence must not claim candidate image execution")
+        elif raw["image_digest"] != candidate_digest:
+            fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
+
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
@@ -520,11 +555,6 @@ def evaluate(
             )
         if raw["source_sha"] != candidate_sha:
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
-        if raw["deployment_target"] == "source-test-host":
-            if raw["image_digest"] is not None:
-                fail(prefix, "source-test-host evidence must not claim candidate image execution")
-        elif raw["image_digest"] != candidate_digest:
-            fail(prefix, f"cell image_digest {raw['image_digest']!r} does not match ledger candidate")
         if not raw["addressable_by_client"]:
             continue
         if raw["result"] != "pass":
@@ -679,9 +709,8 @@ def evaluate(
             fail(prefix, "unlicensed evidence cannot claim an entitlement policy")
         if completed is not None and raw["licensed"] and (now - completed).total_seconds() > 72 * 3600:
             fail(prefix, "licensed evidence is older than 72 hours")
-        if tier == "release":
-            if started is not None and external_cut_at is not None and started < external_cut_at:
-                fail(prefix, "release evidence started before independently frozen candidate cut")
+        if started is not None and external_cut_at is not None and started < external_cut_at:
+            fail(prefix, f"{tier} evidence started before independently frozen candidate cut")
 
     for group, rows in supported_groups.items():
         if tier in {"nightly", "release"} and not any(row.get("addressable_by_client") for row in rows):
@@ -716,11 +745,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-requirements-source-revision", required=True)
     parser.add_argument("--expected-image-digest")
     parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
+    parser.add_argument("--expected-sdk-js-sha")
+    parser.add_argument("--expected-sdk-python-sha")
+    parser.add_argument("--expected-sdk-dotnet-sha")
+    parser.add_argument("--requirements", help="exact pinned requirements catalog to evaluate")
     parser.add_argument("--now", help="ISO-8601 evaluation time; defaults to current UTC")
     parser.add_argument("--report", help="write the machine-readable decision report here")
     args = parser.parse_args(argv)
 
     ledger, load_error = load_ledger(args.matrix)
+    requirements = None
+    requirements_error = None
+    if args.requirements:
+        requirements, requirements_error = load_ledger(args.requirements)
     now = _timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if args.now and now is None:
         raise SystemExit("--now must be a timezone-aware ISO-8601 timestamp")
@@ -730,7 +767,13 @@ def main(argv: list[str] | None = None) -> int:
         expected_source_sha=args.expected_source_sha,
         expected_image_digest=args.expected_image_digest,
         expected_cut_at=args.expected_cut_at,
+        expected_sdk_source_shas={
+            "sdk-js": args.expected_sdk_js_sha,
+            "sdk-python": args.expected_sdk_python_sha,
+            "sdk-dotnet": args.expected_sdk_dotnet_sha,
+        },
         now=now,
+        requirements=requirements,
         receipt_root=Path(args.matrix).resolve().parent / "sha256",
     )
     if (
@@ -745,6 +788,13 @@ def main(argv: list[str] | None = None) -> int:
         report["overall_status"] = "fail"
     if load_error:
         report["findings"].insert(0, {"check": "ledger", "status": "fail", "why": load_error})
+        report["overall_status"] = "fail"
+    if requirements_error:
+        report["findings"].insert(0, {
+            "check": "requirements",
+            "status": "fail",
+            "why": f"pinned requirements unavailable: {requirements_error}",
+        })
         report["overall_status"] = "fail"
     rendered = json.dumps(report, indent=2, sort_keys=True)
     print(rendered)

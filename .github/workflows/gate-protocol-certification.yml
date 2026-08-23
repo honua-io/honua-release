@@ -43,6 +43,21 @@ on:
         required: false
         type: string
         default: ""
+      expected_sdk_js_sha:
+        description: Frozen honua-sdk-js component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_python_sha:
+        description: Frozen honua-sdk-python component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_dotnet_sha:
+        description: Frozen honua-sdk-dotnet component SHA for release certification
+        required: false
+        type: string
+        default: ""
       enforcement:
         description: bootstrap | strict
         required: false
@@ -89,6 +104,18 @@ on:
         type: string
       expected_cut_at:
         description: Independently frozen ISO-8601 candidate cut
+        required: false
+        type: string
+      expected_sdk_js_sha:
+        description: Frozen honua-sdk-js component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_python_sha:
+        description: Frozen honua-sdk-python component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_dotnet_sha:
+        description: Frozen honua-sdk-dotnet component SHA for release certification
         required: false
         type: string
       enforcement:
@@ -164,6 +191,25 @@ jobs:
                 code=1
               fi
             fi
+            if [[ "$code" -eq 0 ]]; then
+              git init -q out/requirements-owner
+              git -C out/requirements-owner remote add origin \
+                "https://github.com/${GITHUB_REPOSITORY}.git"
+              git -C out/requirements-owner fetch --quiet --depth=1 origin \
+                "$EXPECTED_REQUIREMENTS_REVISION" || code=$?
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              requirements_commit="$(git -C out/requirements-owner rev-parse FETCH_HEAD)"
+              if [[ "${requirements_commit,,}" != "${EXPECTED_REQUIREMENTS_REVISION,,}" ]]; then
+                echo "::error::Requirements owner checkout did not resolve the pinned commit."
+                code=1
+              elif ! git -C out/requirements-owner show \
+                "FETCH_HEAD:certification/protocol-certification-requirements.v1.json" \
+                > out/protocol-certification-requirements.v1.json; then
+                echo "::error::Pinned requirements owner has no certification denominator."
+                code=1
+              fi
+            fi
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
 
@@ -177,10 +223,13 @@ jobs:
           EXPECTED_REQUIREMENTS_REVISION: ${{ inputs.expected_requirements_source_revision }}
           EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
           EXPECTED_CUT_AT: ${{ inputs.expected_cut_at }}
+          EXPECTED_SDK_JS_SHA: ${{ inputs.expected_sdk_js_sha }}
+          EXPECTED_SDK_PYTHON_SHA: ${{ inputs.expected_sdk_python_sha }}
+          EXPECTED_SDK_DOTNET_SHA: ${{ inputs.expected_sdk_dotnet_sha }}
           FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
         run: |
           set +e
-          args=(--matrix out/protocol-certification.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION")
+          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION" --expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA" --expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA" --expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
           [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")

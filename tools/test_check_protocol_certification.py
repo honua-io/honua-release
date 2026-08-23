@@ -146,7 +146,12 @@ def _requirements(*cells, complete=True):
         "schema": cert.REQUIREMENTS_SCHEMA_ID,
         "revision": "requirements-test-v1",
         "complete": complete,
-        "source_revisions": {"server": {"commit": SHA}},
+        "source_revisions": {
+            "server": {"commit": SHA},
+            "sdk-js": {"commit": SHA},
+            "sdk-python": {"commit": SHA},
+            "sdk-dotnet": {"commit": SHA},
+        },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
             for cell in (cells or [_cell()])
@@ -157,6 +162,11 @@ def _requirements(*cells, complete=True):
 def _evaluate(ledger, tier, **kwargs):
     if tier == "release":
         kwargs.setdefault("expected_cut_at", CUT)
+        kwargs.setdefault("expected_image_digest", DIGEST)
+        kwargs.setdefault(
+            "expected_sdk_source_shas",
+            {source: SHA for source in cert.OFFICIAL_SDK_SOURCES},
+        )
     requirements = kwargs.pop("requirements", _requirements(*ledger["cells"]))
     return cert.evaluate(
         ledger,
@@ -597,6 +607,42 @@ def test_release_requires_exact_digest_and_post_cut_execution():
     assert len(report["findings"]) >= 2
 
 
+def test_release_requires_external_image_and_frozen_sdk_component_pins():
+    ledger = _ledger()
+    requirements = _requirements()
+
+    missing = cert.evaluate(
+        ledger,
+        "release",
+        requirements=requirements,
+        expected_cut_at=CUT,
+        now=NOW,
+    )
+    assert any(finding["check"] == "expected_image_digest" for finding in missing["findings"])
+    assert sum(
+        finding["check"].startswith("expected_sdk_source_shas.")
+        for finding in missing["findings"]
+    ) == 3
+
+    mismatched = cert.evaluate(
+        ledger,
+        "release",
+        requirements=requirements,
+        expected_cut_at=CUT,
+        expected_image_digest=DIGEST,
+        expected_sdk_source_shas={
+            "sdk-js": "c" * 40,
+            "sdk-python": SHA,
+            "sdk-dotnet": SHA,
+        },
+        now=NOW,
+    )
+    assert any(
+        finding["check"] == "requirements.source_revisions.sdk-js.commit"
+        for finding in mismatched["findings"]
+    )
+
+
 def test_preview_failure_does_not_block_release_claim():
     preview = _cell(maturity="preview", result="fail")
     supported = _cell(canonical_client="GDAL", client_lane="gdal", client_version="3.11.4")
@@ -670,6 +716,44 @@ def test_release_execution_must_start_after_cut():
 
     assert report["overall_status"] == "fail"
     assert any("started before independently frozen candidate cut" in finding["why"] for finding in report["findings"])
+
+
+def test_nightly_honors_external_cut_and_rejects_pre_cut_execution():
+    ledger = _ledger(_cell(started_at="2026-08-20T08:59:00Z"))
+    report = _evaluate(ledger, "nightly", expected_cut_at=CUT, now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        "nightly evidence started before independently frozen candidate cut" in finding["why"]
+        for finding in report["findings"]
+    )
+
+    ledger["candidate"]["cut_at"] = "2026-08-20T08:00:00Z"
+    mismatch = _evaluate(ledger, "nightly", expected_cut_at=CUT, now=NOW)
+    assert any("does not match" in finding["why"] for finding in mismatch["findings"])
+
+
+def test_out_of_scope_rows_still_require_truthful_image_provenance():
+    roadmap = _cell(
+        maturity="roadmap",
+        required_tier="release",
+        result="skip",
+        skip_reason="not implemented",
+        source_sha=None,
+        producer_source_sha=None,
+        fixture_revision=None,
+        evidence_uri=None,
+        evidence_digest=None,
+        evidence_receipt=None,
+        facet_results=None,
+        started_at=None,
+        completed_at=None,
+        image_digest=None,
+    )
+    report = _evaluate(_ledger(roadmap), "pr", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any("image_digest" in finding["why"] for finding in report["findings"])
 
 
 def test_release_requires_external_cut_and_rejects_backdated_ledger_cut():

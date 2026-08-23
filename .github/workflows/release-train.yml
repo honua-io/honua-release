@@ -43,6 +43,9 @@ jobs:
     outputs:
       server_sha: ${{ steps.candidate.outputs.server_sha }}
       server_digest: ${{ steps.candidate.outputs.server_digest }}
+      sdk_js_sha: ${{ steps.candidate.outputs.sdk_js_sha }}
+      sdk_python_sha: ${{ steps.candidate.outputs.sdk_python_sha }}
+      sdk_dotnet_sha: ${{ steps.candidate.outputs.sdk_dotnet_sha }}
       certification_repository: ${{ steps.candidate.outputs.certification_repository }}
       certification_commit: ${{ steps.candidate.outputs.certification_commit }}
       certification_requirements_source_revision: ${{ steps.candidate.outputs.certification_requirements_source_revision }}
@@ -87,6 +90,9 @@ jobs:
           ledger = certification["ledger"]
           print(f"server_sha={server['sha']}")
           print(f"server_digest={server['digest']}")
+          print(f"sdk_js_sha={manifest['components']['honua-sdk-js']['sha']}")
+          print(f"sdk_python_sha={manifest['components']['honua-sdk-python']['sha']}")
+          print(f"sdk_dotnet_sha={manifest['components']['honua-sdk-dotnet']['sha']}")
           print(f"certification_repository={ledger['repository']}")
           print(f"certification_commit={ledger['commit']}")
           print(f"certification_requirements_source_revision={ledger['requirementsSourceRevision']}")
@@ -225,6 +231,9 @@ jobs:
       expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
       expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
       expected_cut_at: ${{ needs.freeze.outputs.candidate_cut_at }}
+      expected_sdk_js_sha: ${{ needs.freeze.outputs.sdk_js_sha }}
+      expected_sdk_python_sha: ${{ needs.freeze.outputs.sdk_python_sha }}
+      expected_sdk_dotnet_sha: ${{ needs.freeze.outputs.sdk_dotnet_sha }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
