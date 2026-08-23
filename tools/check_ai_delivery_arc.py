@@ -336,7 +336,16 @@ def _is_public_https_url(value: Any) -> bool:
         parsed = urlparse(str(value))
         # Accessing port also rejects malformed authorities such as :not-a-port.
         _ = parsed.port
-        host = (parsed.hostname or "").lower().rstrip(".")
+        try:
+            host = (
+                (parsed.hostname or "")
+                .encode("idna")
+                .decode("ascii")
+                .lower()
+                .rstrip(".")
+            )
+        except UnicodeError:
+            return False
         if (
             parsed.scheme != "https"
             or not host

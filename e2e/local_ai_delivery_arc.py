@@ -150,7 +150,10 @@ def public_https_origin(value: str, label: str) -> str:
         _ = parsed.port
     except ValueError as error:
         raise ProducerBlocked(f"{label} is not a valid URL") from error
-    host = (parsed.hostname or "").lower().rstrip(".")
+    try:
+        host = (parsed.hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except UnicodeError as error:
+        raise ProducerBlocked(f"{label} must use a canonical public hostname") from error
     if (
         parsed.scheme != "https"
         or not host

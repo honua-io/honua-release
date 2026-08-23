@@ -269,7 +269,12 @@ def _public_https_origin(value: str, label: str) -> str:
         raise ProvisionError(
             f"{label} must be a credential-free public HTTPS origin"
         ) from error
-    host = (parsed.hostname or "").lower().rstrip(".")
+    try:
+        host = (parsed.hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except UnicodeError as error:
+        raise ProvisionError(
+            f"{label} must use a canonical public hostname"
+        ) from error
     if (
         parsed.scheme != "https"
         or not host
