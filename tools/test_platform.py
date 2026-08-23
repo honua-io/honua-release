@@ -72,11 +72,18 @@ def test_structure_rejects_untrusted_or_unpinned_certification_ledger():
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
     ledger = manifest["protocolCertification"]["ledger"]
-    ledger.update(status="bound", repository="attacker/example", commit="main", sha256="unknown")
+    ledger.update(
+        status="bound",
+        repository="attacker/example",
+        commit="main",
+        requirementsSourceRevision="main",
+        sha256="unknown",
+    )
     f = vp.validate(manifest, matrix, None)
     assert not f.ok
     assert any("owned by honua-io/honua-evidence" in e for e in f.errors)
     assert any("commit must be a full SHA" in e for e in f.errors)
+    assert any("requirementsSourceRevision must be a full SHA" in e for e in f.errors)
     assert any("sha256 must be an exact digest" in e for e in f.errors)
 
 

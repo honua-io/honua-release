@@ -45,6 +45,7 @@ jobs:
       server_digest: ${{ steps.candidate.outputs.server_digest }}
       certification_repository: ${{ steps.candidate.outputs.certification_repository }}
       certification_commit: ${{ steps.candidate.outputs.certification_commit }}
+      certification_requirements_source_revision: ${{ steps.candidate.outputs.certification_requirements_source_revision }}
       certification_path: ${{ steps.candidate.outputs.certification_path }}
       certification_sha256: ${{ steps.candidate.outputs.certification_sha256 }}
       candidate_cut_at: ${{ steps.candidate.outputs.candidate_cut_at }}
@@ -88,6 +89,7 @@ jobs:
           print(f"server_digest={server['digest']}")
           print(f"certification_repository={ledger['repository']}")
           print(f"certification_commit={ledger['commit']}")
+          print(f"certification_requirements_source_revision={ledger['requirementsSourceRevision']}")
           print(f"certification_path={ledger['path']}")
           print(f"certification_sha256={ledger['sha256']}")
           print(f"candidate_cut_at={certification['candidateCutAt']}")
@@ -218,6 +220,7 @@ jobs:
       matrix_commit: ${{ needs.freeze.outputs.certification_commit }}
       matrix_path: ${{ needs.freeze.outputs.certification_path }}
       matrix_sha256: ${{ needs.freeze.outputs.certification_sha256 }}
+      expected_requirements_source_revision: ${{ needs.freeze.outputs.certification_requirements_source_revision }}
       tier: release
       expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
       expected_image_digest: ${{ needs.freeze.outputs.server_digest }}

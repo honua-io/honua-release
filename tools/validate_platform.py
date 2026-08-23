@@ -145,11 +145,25 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
     if ledger_status == "bound":
         if not re.fullmatch(r"[0-9a-f]{40}", str(ledger.get("commit", "")), re.I):
             f.error("manifest: bound protocol certification ledger commit must be a full SHA")
+        if not re.fullmatch(
+            r"[0-9a-f]{40}", str(ledger.get("requirementsSourceRevision", "")), re.I
+        ):
+            f.error(
+                "manifest: bound protocol certification ledger requirementsSourceRevision "
+                "must be a full SHA"
+            )
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(ledger.get("sha256", "")), re.I):
             f.error("manifest: bound protocol certification ledger sha256 must be an exact digest")
     elif ledger_status == "pending":
-        if ledger.get("commit") != "pending" or ledger.get("sha256") != "pending":
-            f.error("manifest: pending protocol certification ledger must use explicit pending commit and digest sentinels")
+        if (
+            ledger.get("commit") != "pending"
+            or ledger.get("requirementsSourceRevision") != "pending"
+            or ledger.get("sha256") != "pending"
+        ):
+            f.error(
+                "manifest: pending protocol certification ledger must use explicit pending commit, "
+                "requirements source, and digest sentinels"
+            )
         if manifest.get("status") == "released":
             f.error("manifest: a released platform cannot have a pending protocol certification ledger")
 

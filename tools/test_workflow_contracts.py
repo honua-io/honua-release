@@ -78,6 +78,28 @@ def test_manifest_validate_binds_python_snapshots_to_the_pinned_source():
     assert "cmp certification/sources/sdk-python/protocol-certification.v1.json" in text
 
 
+def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha():
+    gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "inputs.expected_requirements_source_revision" in gate
+    assert (
+        "EXPECTED_REQUIREMENTS_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}"
+        not in gate
+    )
+    assert "EXPECTED_REQUIREMENTS_REVISION" in gate
+
+    for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
+        text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
+        assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
+
+    release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "ledger['requirementsSourceRevision']" in release_train
+    assert "expected_requirements_source_revision:" in release_train
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 

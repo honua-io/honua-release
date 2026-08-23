@@ -38,6 +38,7 @@ protocolCertification:
     status: pending
     repository: "honua-io/honua-evidence"
     commit: pending
+    requirementsSourceRevision: pending
     path: "protocol-certification.json"
     sha256: pending
 
