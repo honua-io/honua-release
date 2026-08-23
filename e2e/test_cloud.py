@@ -558,7 +558,7 @@ def test_aws_ai_arc_requires_the_credential_free_sealed_handoff(tmp_path: Path):
         encoding="utf-8",
     )
     (studio / "scripts" / "lib" / "real-model-ai-arc.mjs").write_text(
-        'const contract = {receiptId: "aws-ecs-real-model-ai-arc"};\n',
+        'const contract = {receiptId: "aws-ecs-real-model-ai-arc", schema: "honua.studio.real-model-ai-arc-transcript/v1"};\n',
         encoding="utf-8",
     )
     (console / "e2e" / "playwright" / "live" / "console-receipt-cli.mjs").write_text(
@@ -573,6 +573,7 @@ def test_aws_ai_arc_requires_the_credential_free_sealed_handoff(tmp_path: Path):
         "\n".join(
             (
                 'const handoff = "HONUA_AI_ARC_REAL_MODEL_HANDOFF";',
+                'const transcript = "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT";',
                 'const policy = "resume is credential-free";',
             )
         ),

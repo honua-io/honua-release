@@ -73,6 +73,8 @@ permissions:
   contents: read
   actions: write                  # dispatch the honua-iac cloud harness (iac-live wrapper)
   id-token: write                 # OIDC -> AWS (no static creds)
+  attestations: write             # non-forgeable transcript producer provenance
+  artifact-metadata: write
 
 concurrency:
   group: e2e-cloud-aws            # one ephemeral env at a time
@@ -424,6 +426,27 @@ jobs:
           else
             python e2e/run_cloud.py --target "${{ matrix.target }}" --redis "${{ matrix.redis }}"
           fi
+
+      - name: Locate an AWS ECS real-model transcript
+        id: transcript-output
+        if: matrix.target == 'aws-ecs'
+        run: |
+          if [ -f "${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}/real-model-transcript.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attest the AWS ECS real-model transcript producer run
+        id: attest-transcript
+        if: steps.transcript-output.outputs.exists == 'true'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}/real-model-transcript.json
+
+      - name: Preserve the transcript attestation bundle
+        if: steps.attest-transcript.outcome == 'success'
+        env:
+          BUNDLE_PATH: ${{ steps.attest-transcript.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" "${{ runner.temp }}/honua-ai-arc-${{ matrix.redis }}/real-model-transcript.attestation.json"
 
       - name: Teardown reaper (backstop)
         if: always()

@@ -5,7 +5,7 @@
   "type": "object",
   "required": [
     "schemaVersion", "candidateId", "releaseId", "endpointSha256", "source",
-    "model", "promptVersion", "evalVersion", "transcriptSha256", "target",
+    "model", "promptVersion", "evalVersion", "transcriptSha256", "transcriptArtifactSha256", "target",
     "checkpointDigest", "consoleAggregateSha256", "consoleEvidenceSha256", "lanes", "joins"
   ],
   "properties": {
@@ -32,6 +32,7 @@
     "promptVersion": { "const": "honua.local-docker.ai-arc.prompt/v1" },
     "evalVersion": { "const": "honua.local-docker.ai-arc.eval/v1" },
     "transcriptSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
+    "transcriptArtifactSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
     "target": { "const": "local-docker" },
     "checkpointDigest": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },
     "consoleAggregateSha256": { "$ref": "local-docker-real-model-ai-arc.v1.json#/$defs/sha256" },

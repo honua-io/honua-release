@@ -466,13 +466,14 @@ def test_local_producer_accepts_only_the_credential_free_sealed_handoff(
         "\n".join(
             (
                 'const handoff = "HONUA_AI_ARC_REAL_MODEL_HANDOFF";',
+                'const transcript = "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT";',
                 'const policy = "resume is credential-free";',
             )
         ),
         encoding="utf-8",
     )
     (studio / "scripts" / "lib" / "real-model-ai-arc.mjs").write_text(
-        'const receipt = {id: "local-docker-real-model-ai-arc"};\n',
+        'const receipt = {id: "local-docker-real-model-ai-arc", schema: "honua.studio.real-model-ai-arc-transcript/v1"};\n',
         encoding="utf-8",
     )
     (console / "e2e" / "playwright" / "live" / "console-receipt-cli.mjs").write_text(

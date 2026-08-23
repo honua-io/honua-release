@@ -17,6 +17,7 @@
     "promptVersion",
     "evalVersion",
     "transcriptSha256",
+    "transcriptArtifactSha256",
     "deterministic",
     "lanes",
     "joins",
@@ -72,6 +73,7 @@
     "promptVersion": { "const": "honua.aws-ecs.ai-arc.prompt/v1" },
     "evalVersion": { "const": "honua.aws-ecs.ai-arc.eval/v1" },
     "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "transcriptArtifactSha256": { "$ref": "#/$defs/sha256" },
     "deterministic": {
       "type": "object",
       "required": [

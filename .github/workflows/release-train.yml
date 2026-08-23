@@ -36,6 +36,8 @@ permissions:
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
   checks: read                  # gate-build-test reads each pinned component's check-runs (subset guard)
   actions: write                # e2e-cloud-aws dispatches the honua-iac cloud harness (iac-live wrapper)
+  attestations: write           # reusable producer jobs sign transcript provenance
+  artifact-metadata: write
 
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
@@ -188,6 +190,8 @@ jobs:
 
       - name: Join local + AWS receipts and enforce the live arc
         if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           python tools/check_ai_delivery_arc.py \
             --manifest platform-manifest.yaml \

@@ -56,8 +56,16 @@ honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run
   receipt. The SDK contract requires distinct map/app/dashboard immutable
   save/read/reopen actions through the server Studio MCP lifecycle, followed by
   separately governed map/app/dashboard publication and exact public-URL probes.
-  Local Docker and AWS ECS use dedicated strict real-model schemas; a generic
-  `release-evidence-receipt.schema.json`. (#121–#123.)
+  Local Docker and AWS ECS use dedicated strict real-model schemas rather than
+  `release-evidence-receipt.schema.json`; both receipts bind an immutable
+  `real-model-ai-arc-transcript.schema.json` whose prompt, provider-event, and
+  selected-response bytes are independently recomputed by the release gate.
+  Certifying runs additionally require GitHub/Sigstore provenance from the
+  exact reviewed local or AWS producer workflow and release source commit,
+  preventing post-producer artifact substitution or cross-run reuse. That
+  workflow attestation does not authenticate the intermediate Studio-to-proxy
+  transcript by itself; proxy-issued provenance remains a release blocker in
+  honua-server#3424. (#121–#123.)
 - **Contract / breaking-change** — proto/REST/SDK diff; `version-contract-drift`. (#2 — the proto gate is real in geospatial-grpc; train fan-out is Phase 2.)
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
   A strict cut requires the manifest-pinned artifact from its customer-facing registry and rejects

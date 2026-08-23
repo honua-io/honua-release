@@ -223,12 +223,12 @@ components:
 
   honua-studio:
     version: "pre-release"             # no releases/tags; private package.json declares 0.0.0
-    # Studio is a retained D9.3 release surface, not an unpinned transitive dependency. This is the
-    # exact main commit whose 14 check-runs were all green on 2026-08-20. Studio's own README says
-    # there is no released build, container or static bundle yet, so image/digest are deliberately
-    # absent. The AI-delivery-arc gate remains blocked until a candidate artifact is published from
-    # this commit (or the manifest advances source+artifact together); never infer an image name.
-    sha: "c0c67666cf5345f0ae86e2644161ba15437ab571"   # branch: feat/real-model-ai-arc, PR #45
+    # PR #45 is the exact real-model producer, including an immutable transcript artifact whose
+    # prompt, provider events, selected tool arguments, and response bytes are independently hashed
+    # by the release gate. All Studio checks were green at this head on 2026-08-22. Studio still has
+    # no released container/static bundle, so image/digest remain deliberately absent and shipping
+    # stays blocked until a candidate artifact is published from this exact source.
+    sha: "0d3920d19a3246439a76b8705947c076df0f7732"   # branch: feat/real-model-ai-arc, PR #45
     status: "source-only-awaiting-candidate-image"
 
   honua-sdk-dotnet:
@@ -243,6 +243,11 @@ components:
     #   -> 29 success, 1 skipped, 0 failure
     sha: "a5fb6f54a34524ea19e9e635e4c6aa258aec11c5"   # branch: trunk, newest green
     artifact: "nuget:Honua.Sdk"
+    artifactProvenance:
+      # Fail closed if this version later appears without an intentional manifest update that pins
+      # the exact nupkg digest and its embedded repository commit.
+      status: "unpublished"
+      repository: "honua-io/honua-sdk-dotnet"
     # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
     # resolves it from the staging feed and otherwise `dotnet pack`s this exact sha, so the version
     # here is the reachable release tag rather than a registry-published one.
@@ -279,6 +284,18 @@ components:
     # already excused" is only honest if the excuse is stated at the pin.
     sha: "953f2b3ba2cbb2d947b13c8ac5848cebe1860a76"   # branch: trunk, newest green (see note)
     artifact: "pypi:honua-sdk"
+    artifactProvenance:
+      # The public 0.1.10 wheel is real and Sigstore-attested, but it was built from e28c67c rather
+      # than this component pin. The consumption gate verifies these bytes/certificate and then
+      # deliberately fails the source-SHA join until a wheel is published from 953f2b3.
+      status: "published"
+      filename: "honua_sdk-0.1.10-py3-none-any.whl"
+      sha256: "88bb538005c3262e65584d89109d2174b6a8f78184ce3513a2fb0754f1da0c08"
+      repository: "honua-io/honua-sdk-python"
+      workflow: "publish-python-sdk.yml"
+      sourceSha: "e28c67c8e3ef99bcc86c891ecc01a6940d7d7e59"
+      url: "https://files.pythonhosted.org/packages/e2/84/9a482a387db1b30c30f02a6711392396d58d27d3e23dc91dc3a17d803f98/honua_sdk-0.1.10-py3-none-any.whl"
+      provenanceUrl: "https://pypi.org/integrity/honua-sdk/0.1.10/honua_sdk-0.1.10-py3-none-any.whl/provenance"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:

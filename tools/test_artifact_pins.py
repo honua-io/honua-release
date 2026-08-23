@@ -36,14 +36,16 @@ def test_artifact_consume_pins_registry_versions_from_manifest():
     assert 'sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}' in workflow
     assert "@honua-io/sdk-js" not in workflow
     assert 'Honua.Sdk --version "$SDK_DOTNET_VERSION"' in workflow
-    assert "honua-sdk==${SDK_PYTHON_VERSION}" in workflow
+    assert "SDK_PYTHON_PROVENANCE_FILENAME" in workflow
+    assert 'verify_registry_artifact.py" pypi' in workflow
     assert 'buf.build/honua-io/geospatial-grpc:v${GRPC_VERSION}' in workflow
 
 
 def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert '--source "$STAGING_NUGET_SOURCE"' in workflow
+    assert "SDK_DOTNET_PROVENANCE_URL" in workflow
+    assert '--source "$WORK/verifiedfeed"' in workflow
     assert '--source "$WORK/localfeed"' in workflow
     assert 'NF==2 && $2=="Chart.yaml" && !root' in workflow
     assert 'END {print root}' in workflow
@@ -63,6 +65,15 @@ def test_strict_consumption_requires_customer_facing_registry_artifacts():
     assert 'if enf=="strict" and .source!="staging" then "fail"' in workflow
     assert 'https://nuget.pkg.github.com/honua-io/index.json' not in workflow.split("jobs:", 1)[0]
     assert 'https://test.pypi.org/simple/' not in workflow
+    assert "verify_registry_artifact.py\" nuget" in workflow
+    assert "verify_registry_artifact.py\" pypi" in workflow
+    assert 'Install NuGet provenance verifier dependencies' in workflow
+    assert '"pyyaml>=6.0"' in workflow
+    assert '"pypi-attestations==0.0.30"' in workflow
+    assert workflow.count("ALLOW_LOCAL_FALLBACK=false") == 2
+    assert workflow.count(
+        'if [ "$STATUS" = "blocked" ] && [ "$ALLOW_LOCAL_FALLBACK" = true ]; then'
+    ) == 2
 
 
 def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():

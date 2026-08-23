@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/real-model-ai-arc-transcript.v1.json",
+  "title": "Honua content-addressed real-model AI delivery arc transcript",
+  "type": "object",
+  "required": [
+    "schemaVersion", "target", "candidateId", "releaseId", "endpointSha256",
+    "source", "components", "model", "promptVersion", "evalVersion", "lanes"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "honua.studio.real-model-ai-arc-transcript/v1" },
+    "target": { "enum": ["local-docker", "aws-ecs"] },
+    "candidateId": { "type": "string", "pattern": "^manifest-sha256:[0-9a-f]{64}$" },
+    "releaseId": { "type": "string", "minLength": 1 },
+    "endpointSha256": { "$ref": "#/$defs/sha256" },
+    "source": {
+      "type": "object",
+      "required": ["repository", "sha"],
+      "properties": {
+        "repository": { "const": "honua-io/honua-studio" },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "honua-server", "honua-sdk-js", "honua-console", "honua-studio",
+        "honua-devops", "honua-iac"
+      ],
+      "additionalProperties": {
+        "type": "string", "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["provider", "modelId"],
+      "properties": {
+        "provider": { "enum": ["anthropic", "bedrock", "openai"] },
+        "modelId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "promptVersion": { "type": "string", "minLength": 1 },
+    "evalVersion": { "type": "string", "minLength": 1 },
+    "lanes": {
+      "type": "object",
+      "required": ["admin", "esriGp", "nativeAnalysis", "studioPublication"],
+      "properties": {
+        "admin": { "$ref": "#/$defs/lane" },
+        "esriGp": { "$ref": "#/$defs/lane" },
+        "nativeAnalysis": { "$ref": "#/$defs/lane" },
+        "studioPublication": { "$ref": "#/$defs/lane" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lane": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["actionId", "prompt", "transcript", "response"],
+        "properties": {
+          "actionId": { "type": "string", "minLength": 1 },
+          "prompt": { "type": "string", "minLength": 1 },
+          "transcript": { "type": "string", "minLength": 1 },
+          "response": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

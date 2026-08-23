@@ -410,6 +410,11 @@ def test_release_train_orders_ai_arc_producers_before_strict_aggregation():
     ):
         assert f"--external-receipt {receipt_id}=" in commands
     assert "--require-real" in commands
+    live_join = next(
+        step for step in aggregate["steps"]
+        if step.get("name") == "Join local + AWS receipts and enforce the live arc"
+    )
+    assert "github.token" in live_join["env"]["GH_TOKEN"]
 
     # Downloads are current-run exact names. Supplying a run-id would allow an
     # older execution to be joined to this candidate.
@@ -450,3 +455,44 @@ def test_local_ai_arc_workflow_is_a_producer_not_a_cloud_consumer():
         if step.get("name") == "Produce the local candidate receipts"
     )
     assert "HONUA_AI_ARC_LOCAL_ORIGIN" not in live["env"]
+
+
+def test_ai_arc_producers_attest_transcripts_before_artifact_handoff():
+    pin = "actions/attest@a1948c3f048ba23858d222213b7c278aabede763"
+    local = _workflow("e2e-ai-delivery-arc-local.yml")
+    cloud = _workflow("e2e-cloud-aws.yml")
+    train = _workflow("release-train.yml")
+
+    for workflow in (local, cloud, train):
+        assert workflow["permissions"]["id-token"] == "write"
+        assert workflow["permissions"]["attestations"] == "write"
+
+    local_steps = local["jobs"]["producer"]["steps"]
+    local_attest = next(step for step in local_steps if step.get("id") == "attest-transcript")
+    local_preserve = next(
+        step for step in local_steps
+        if step.get("name") == "Preserve the transcript attestation bundle"
+    )
+    local_upload = next(
+        index for index, step in enumerate(local_steps)
+        if step.get("name") == "Upload local producer outputs"
+    )
+    assert local_attest["uses"].startswith(pin)
+    assert local_attest["with"]["subject-path"].endswith("real-model-transcript.json")
+    assert "steps.attest-transcript.outputs.bundle-path" in local_preserve["env"]["BUNDLE_PATH"]
+    assert local_steps.index(local_preserve) < local_upload
+
+    cloud_steps = cloud["jobs"]["parity"]["steps"]
+    cloud_attest = next(step for step in cloud_steps if step.get("id") == "attest-transcript")
+    cloud_preserve = next(
+        step for step in cloud_steps
+        if step.get("name") == "Preserve the transcript attestation bundle"
+    )
+    cloud_upload = next(
+        index for index, step in enumerate(cloud_steps)
+        if step.get("name") == "Upload AWS ECS AI delivery-arc evidence"
+    )
+    assert cloud_attest["uses"].startswith(pin)
+    assert "runner.temp" in cloud_attest["with"]["subject-path"]
+    assert "steps.attest-transcript.outputs.bundle-path" in cloud_preserve["env"]["BUNDLE_PATH"]
+    assert cloud_steps.index(cloud_preserve) < cloud_upload

@@ -91,6 +91,7 @@ class Paths:
     sdk_console_receipt: Path
     console_evidence: Path
     model_handoff: Path
+    model_transcript: Path
     model_evidence: Path
     model_receipt: Path
     report: Path
@@ -114,6 +115,7 @@ def output_paths(out: Path) -> Paths:
         sdk_console_receipt=out / "sdk-console-receipt.json",
         console_evidence=out / "console-evidence.json",
         model_handoff=out / "real-model-handoff.json",
+        model_transcript=out / "real-model-transcript.json",
         model_evidence=out / "real-model-evidence.json",
         model_receipt=out / "real-model-receipt.json",
         report=out / "producer-report.json",
@@ -254,7 +256,9 @@ def _producer_contract_ready(studio: Path, console: Path) -> None:
         ) from error
     if (
         "HONUA_AI_ARC_REAL_MODEL_HANDOFF" not in studio_text
+        or "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT" not in studio_text
         or "resume is credential-free" not in studio_text
+        or "honua.studio.real-model-ai-arc-transcript/v1" not in studio_library_text
         or 'id: "local-docker-real-model-ai-arc"' not in studio_library_text
         or "HONUA_AI_ARC_CONSOLE_EVIDENCE" not in console_text
     ):
@@ -495,6 +499,7 @@ def _producer_environment(
                 / "console-receipt.schema.json"
             ),
             "HONUA_AI_ARC_REAL_MODEL_HANDOFF": str(paths.model_handoff),
+            "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT": str(paths.model_transcript),
             "HONUA_AI_ARC_REAL_MODEL_EVIDENCE": str(paths.model_evidence),
             "HONUA_AI_ARC_REAL_MODEL_RECEIPT": str(paths.model_receipt),
             "HONUA_AI_ARC_EVIDENCE_URL": evidence_url,

@@ -109,8 +109,15 @@ jobs:
       sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}
       sdk_dotnet_version: ${{ steps.pins.outputs.sdk_dotnet_version }}
       sdk_dotnet_sha: ${{ steps.pins.outputs.sdk_dotnet_sha }}
+      sdk_dotnet_provenance_status: ${{ steps.pins.outputs.sdk_dotnet_provenance_status }}
+      sdk_dotnet_provenance_filename: ${{ steps.pins.outputs.sdk_dotnet_provenance_filename }}
+      sdk_dotnet_provenance_url: ${{ steps.pins.outputs.sdk_dotnet_provenance_url }}
       sdk_python_version: ${{ steps.pins.outputs.sdk_python_version }}
       sdk_python_sha: ${{ steps.pins.outputs.sdk_python_sha }}
+      sdk_python_provenance_status: ${{ steps.pins.outputs.sdk_python_provenance_status }}
+      sdk_python_provenance_filename: ${{ steps.pins.outputs.sdk_python_provenance_filename }}
+      sdk_python_provenance_url: ${{ steps.pins.outputs.sdk_python_provenance_url }}
+      sdk_python_provenance_record_url: ${{ steps.pins.outputs.sdk_python_provenance_record_url }}
       iac_version: ${{ steps.pins.outputs.iac_version }}
       iac_sha: ${{ steps.pins.outputs.iac_sha }}
       helm_version: ${{ steps.pins.outputs.helm_version }}
@@ -158,6 +165,22 @@ jobs:
                   raise SystemExit(f"{component_name} does not have a version pin")
               values[f"{prefix}_sha"] = sha
               values[f"{prefix}_version"] = version
+
+          for prefix, component_name in {
+              "sdk_dotnet": "honua-sdk-dotnet",
+              "sdk_python": "honua-sdk-python",
+          }.items():
+              provenance = components[component_name].get("artifactProvenance") or {}
+              status = str(provenance.get("status", ""))
+              if status not in {"published", "unpublished"}:
+                  raise SystemExit(f"{component_name} has no fail-closed artifact provenance status")
+              values[f"{prefix}_provenance_status"] = status
+              values[f"{prefix}_provenance_filename"] = str(provenance.get("filename", ""))
+              values[f"{prefix}_provenance_url"] = str(provenance.get("url", ""))
+              if prefix == "sdk_python":
+                  values["sdk_python_provenance_record_url"] = str(
+                      provenance.get("provenanceUrl", "")
+                  )
 
           server = components.get("honua-server") or {}
           server_sha = str(server.get("sha", ""))
@@ -279,6 +302,11 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "8.0.x"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install NuGet provenance verifier dependencies
+        run: python -m pip install "pyyaml>=6.0"
 
       - name: Consume Honua.Sdk (NuGet)
         id: consume
@@ -286,9 +314,12 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           SDK_DOTNET_VERSION: ${{ needs.resolve_pins.outputs.sdk_dotnet_version }}
           SDK_DOTNET_SHA: ${{ needs.resolve_pins.outputs.sdk_dotnet_sha }}
+          SDK_DOTNET_PROVENANCE_STATUS: ${{ needs.resolve_pins.outputs.sdk_dotnet_provenance_status }}
+          SDK_DOTNET_PROVENANCE_FILENAME: ${{ needs.resolve_pins.outputs.sdk_dotnet_provenance_filename }}
+          SDK_DOTNET_PROVENANCE_URL: ${{ needs.resolve_pins.outputs.sdk_dotnet_provenance_url }}
         run: |
           set -uo pipefail
-          GATE=nuget; SOURCE=blocked; STATUS=blocked; WHY=""
+          GATE=nuget; SOURCE=blocked; STATUS=blocked; WHY=""; ALLOW_LOCAL_FALLBACK=false
           ENF="${{ inputs.enforcement }}"; TOLERANT=false; [ "$ENF" != "strict" ] && TOLERANT=true
           WORK="$RUNNER_TEMP/nuget-consume"; mkdir -p "$WORK"; cd "$WORK"
           dotnet new console -n Consumer -o Consumer >/tmp/nuget-new.log 2>&1
@@ -298,15 +329,35 @@ jobs:
           System.Console.WriteLine($"loaded {asm.GetName().FullName}");
           EOF
 
-          echo "::group::Try STAGING (nuget source: $STAGING_NUGET_SOURCE)"
-          if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE" >/tmp/nuget-staging.log 2>&1; then
-            SOURCE=staging; STATUS=consuming
+          echo "::group::Try manifest-proven public NuGet artifact"
+          if [ "$SDK_DOTNET_PROVENANCE_STATUS" = published ]; then
+            PACKAGE="$WORK/$SDK_DOTNET_PROVENANCE_FILENAME"
+            if [ -n "$SDK_DOTNET_PROVENANCE_URL" ] && curl -fsSL "$SDK_DOTNET_PROVENANCE_URL" -o "$PACKAGE"; then
+              mkdir -p "$WORK/verifiedfeed" && cp "$PACKAGE" "$WORK/verifiedfeed/"
+              if python "$GITHUB_WORKSPACE/tools/verify_registry_artifact.py" nuget \
+                --manifest "$GITHUB_WORKSPACE/platform-manifest.yaml" --artifact "$PACKAGE" \
+                >/tmp/nuget-provenance.log 2>&1 && \
+                dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" \
+                  --source "$WORK/verifiedfeed" >/tmp/nuget-staging.log 2>&1; then
+                SOURCE=staging; STATUS=consuming
+              else
+                STATUS=blocked; WHY="public Honua.Sdk failed manifest byte/source provenance verification"
+                tail -n 20 /tmp/nuget-provenance.log /tmp/nuget-staging.log 2>/dev/null || true
+              fi
+            else
+              WHY="manifest-proven Honua.Sdk package is unavailable from the public registry"
+              ALLOW_LOCAL_FALLBACK=true
+            fi
           else
-            echo "staging add miss (expected until publish lands):"; tail -n 5 /tmp/nuget-staging.log || true
+            WHY="manifest marks Honua.Sdk unpublished; refusing any same-version registry package without pinned bytes/source"
+            ALLOW_LOCAL_FALLBACK=true
           fi
           echo "::endgroup::"
 
-          if [ "$STATUS" != "consuming" ]; then
+          # Missing/unpublished bytes may use the bootstrap fallback. A package that was downloaded
+          # but failed immutable provenance stays blocked; rebuilding source must not hide tampering
+          # or a stale registry publication.
+          if [ "$STATUS" = "blocked" ] && [ "$ALLOW_LOCAL_FALLBACK" = true ]; then
             # STUB (pending real published artifact): build the .nupkg from source (`dotnet pack`),
             # serve it from a local folder feed, and add the package from there — the exact artifact
             # `dotnet nuget push` would publish.
@@ -382,21 +433,49 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           SDK_PYTHON_VERSION: ${{ needs.resolve_pins.outputs.sdk_python_version }}
           SDK_PYTHON_SHA: ${{ needs.resolve_pins.outputs.sdk_python_sha }}
+          SDK_PYTHON_PROVENANCE_STATUS: ${{ needs.resolve_pins.outputs.sdk_python_provenance_status }}
+          SDK_PYTHON_PROVENANCE_FILENAME: ${{ needs.resolve_pins.outputs.sdk_python_provenance_filename }}
+          SDK_PYTHON_PROVENANCE_URL: ${{ needs.resolve_pins.outputs.sdk_python_provenance_url }}
+          SDK_PYTHON_PROVENANCE_RECORD_URL: ${{ needs.resolve_pins.outputs.sdk_python_provenance_record_url }}
         run: |
           set -uo pipefail
-          GATE=pip; SOURCE=blocked; STATUS=blocked; WHY=""
+          GATE=pip; SOURCE=blocked; STATUS=blocked; WHY=""; ALLOW_LOCAL_FALLBACK=false
           WORK="$RUNNER_TEMP/pip-consume"; mkdir -p "$WORK"; cd "$WORK"
-          python -m venv .venv && . .venv/bin/activate && python -m pip install -U pip wheel build >/dev/null 2>&1
+          python -m venv .venv && . .venv/bin/activate && \
+            python -m pip install -U pip wheel build "pyyaml>=6.0" \
+              "pypi-attestations==0.0.30" >/dev/null 2>&1
 
-          echo "::group::Try STAGING (pip index: $STAGING_PYPI_INDEX)"
-          if python -m pip install --index-url "$STAGING_PYPI_INDEX" "honua-sdk==${SDK_PYTHON_VERSION}" >/tmp/pip-staging.log 2>&1; then
-            SOURCE=staging; STATUS=consuming
+          echo "::group::Try manifest-proven public PyPI artifact"
+          if [ "$SDK_PYTHON_PROVENANCE_STATUS" = published ]; then
+            WHEEL="$WORK/$SDK_PYTHON_PROVENANCE_FILENAME"
+            PROVENANCE="$WORK/pypi-provenance.json"
+            if [ -n "$SDK_PYTHON_PROVENANCE_URL" ] && \
+              [ -n "$SDK_PYTHON_PROVENANCE_RECORD_URL" ] && \
+              curl -fsSL "$SDK_PYTHON_PROVENANCE_URL" -o "$WHEEL" && \
+              curl -fsSL "$SDK_PYTHON_PROVENANCE_RECORD_URL" -o "$PROVENANCE"; then
+              if python "$GITHUB_WORKSPACE/tools/verify_registry_artifact.py" pypi \
+                --manifest "$GITHUB_WORKSPACE/platform-manifest.yaml" \
+                --artifact "$WHEEL" --provenance "$PROVENANCE" \
+                >/tmp/pip-provenance.log 2>&1 && \
+                python -m pip install "$WHEEL" >/tmp/pip-staging.log 2>&1; then
+                SOURCE=staging; STATUS=consuming
+              else
+                STATUS=blocked; WHY="public honua-sdk failed manifest byte/source/Sigstore provenance verification"
+                tail -n 30 /tmp/pip-provenance.log /tmp/pip-staging.log 2>/dev/null || true
+              fi
+            else
+              WHY="manifest-proven honua-sdk wheel/provenance is unavailable from PyPI"
+              ALLOW_LOCAL_FALLBACK=true
+            fi
           else
-            echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/pip-staging.log || true
+            WHY="manifest marks honua-sdk unpublished; refusing any same-version registry package without pinned bytes/source"
+            ALLOW_LOCAL_FALLBACK=true
           fi
           echo "::endgroup::"
 
-          if [ "$STATUS" != "consuming" ]; then
+          # Do not let a local rebuild green-wash a downloaded wheel whose bytes, source commit, or
+          # Sigstore publisher failed verification.
+          if [ "$STATUS" = "blocked" ] && [ "$ALLOW_LOCAL_FALLBACK" = true ]; then
             # STUB (pending real published artifact): build the wheel from source (`python -m build`)
             # and pip-install THAT wheel — the same artifact `twine upload` would publish.
             echo "::group::LOCAL fallback — build honua-sdk-python wheel and pip install it"

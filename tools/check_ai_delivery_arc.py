@@ -85,6 +85,9 @@ AWS_FINAL_ARTIFACT_FILES = {
     "teardownEvidence": "teardown-evidence.json",
 }
 AWS_MODEL_LANES = ("admin", "esriGp", "nativeAnalysis", "studioPublication")
+MODEL_TRANSCRIPT_SCHEMA = "honua.studio.real-model-ai-arc-transcript/v1"
+MODEL_TRANSCRIPT_FILENAME = "real-model-transcript.json"
+MODEL_TRANSCRIPT_ATTESTATION_FILENAME = "real-model-transcript.attestation.json"
 # Exact ordered 58-action model roster shared with the Studio producer and
 # DevOps cloud verifier. Tuple fields: actionId, lane, role, family, kind, name.
 MODEL_ACTION_SPECS = (
@@ -702,16 +705,18 @@ def _load_integrity_bound_checkpoint(
     findings: Findings,
     evidence_path: Path,
     digest: Any,
+    *,
+    label: str = "AWS SDK checkpoint",
 ) -> tuple[Path, dict] | None:
     """Load the checkpoint whose declared artifact is its canonical integrity hash."""
     path = evidence_path.with_name("checkpoint.json")
     if not path.is_file():
-        findings.errors.append(f"AWS SDK checkpoint supporting evidence is missing: {path}")
+        findings.errors.append(f"{label} supporting evidence is missing: {path}")
         return None
     try:
         checkpoint = _load_json(path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        findings.errors.append(f"AWS SDK checkpoint supporting evidence is invalid JSON: {exc}")
+        findings.errors.append(f"{label} supporting evidence is invalid JSON: {exc}")
         return None
     integrity = checkpoint.get("integrity")
     declared = integrity.get("digest") if isinstance(integrity, dict) else None
@@ -725,10 +730,357 @@ def _load_integrity_bound_checkpoint(
         or _canonical_sha256(unsigned) != digest
     ):
         findings.errors.append(
-            "AWS SDK checkpoint canonical bytes do not match its declared integrity digest"
+            f"{label} canonical bytes do not match its declared integrity digest"
         )
         return None
     return path, checkpoint
+
+
+def _model_tool_for_kind(kind: str, receipt_name: str) -> str:
+    if kind == "mcp-resource":
+        return "honua_read_governed_resource"
+    if kind == "gpserver":
+        return "honua_execute_gpserver_task"
+    return receipt_name
+
+
+def _parse_embedded_json(
+    findings: Findings,
+    value: Any,
+    *,
+    label: str,
+    expected_type: type,
+) -> Any | None:
+    if not isinstance(value, str) or not value:
+        findings.errors.append(f"{label} has no serialized bytes")
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        findings.errors.append(f"{label} is invalid JSON: {exc}")
+        return None
+    if not isinstance(parsed, expected_type):
+        findings.errors.append(f"{label} has the wrong JSON shape")
+        return None
+    return parsed
+
+
+def _validate_real_model_transcript_artifact(
+    findings: Findings,
+    receipt: dict,
+    evidence_path: Path,
+    *,
+    target: str,
+    require_attestation: bool,
+) -> None:
+    """Recompute every prompt/transcript/response digest from the sealed bytes."""
+    record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        MODEL_TRANSCRIPT_FILENAME,
+        receipt.get("transcriptArtifactSha256"),
+        label=f"{target} real-model transcript artifact",
+    )
+    if record is None:
+        return
+    _, artifact = record
+    exact_fields = {
+        "schemaVersion", "target", "candidateId", "releaseId", "endpointSha256",
+        "source", "components", "model", "promptVersion", "evalVersion", "lanes",
+    }
+    if set(artifact) != exact_fields:
+        findings.errors.append(
+            f"{target} real-model transcript artifact has unexpected or missing fields"
+        )
+    expected_bindings = {
+        "schemaVersion": MODEL_TRANSCRIPT_SCHEMA,
+        "target": target,
+        "candidateId": receipt.get("candidateId"),
+        "releaseId": receipt.get("releaseId"),
+        "endpointSha256": receipt.get("endpointSha256"),
+        "source": receipt.get("source"),
+        "components": receipt.get("components"),
+        "model": receipt.get("model"),
+        "promptVersion": receipt.get("promptVersion"),
+        "evalVersion": receipt.get("evalVersion"),
+    }
+    for name, expected_value in expected_bindings.items():
+        if artifact.get(name) != expected_value:
+            findings.errors.append(
+                f"{target} real-model transcript artifact disagrees on {name}"
+            )
+
+    artifact_lanes = artifact.get("lanes")
+    receipt_lanes = receipt.get("lanes") or {}
+    if not isinstance(artifact_lanes, dict) or set(artifact_lanes) != set(AWS_MODEL_LANES):
+        findings.errors.append(
+            f"{target} real-model transcript artifact has the wrong lane inventory"
+        )
+        return
+    expected_by_lane = {
+        lane: [spec for spec in MODEL_ACTION_SPECS if spec[1] == lane]
+        for lane in AWS_MODEL_LANES
+    }
+    lane_transcript_digests: list[str] = []
+    for lane_name in AWS_MODEL_LANES:
+        transcript_calls = artifact_lanes.get(lane_name)
+        raw_receipt_lane = (
+            receipt_lanes.get(lane_name) if isinstance(receipt_lanes, dict) else None
+        )
+        receipt_lane = raw_receipt_lane if isinstance(raw_receipt_lane, dict) else {}
+        receipt_calls = receipt_lane.get("calls") or []
+        expected_calls = expected_by_lane[lane_name]
+        if (
+            not isinstance(transcript_calls, list)
+            or len(transcript_calls) != len(expected_calls)
+            or len(receipt_calls) != len(expected_calls)
+        ):
+            findings.errors.append(
+                f"{target} real-model transcript lane {lane_name} has the wrong call multiplicity"
+            )
+            continue
+        prompt_digests: list[str] = []
+        transcript_digests: list[str] = []
+        for index, transcript_call in enumerate(transcript_calls):
+            action_id, _, _, _, kind, receipt_name_template = expected_calls[index]
+            receipt_call = receipt_calls[index]
+            joins = receipt.get("joins")
+            joins = joins if isinstance(joins, dict) else {}
+            receipt_name = receipt_name_template.format(
+                esriMcpJobId=joins.get("esriMcpJobId", ""),
+                directAnalysisJobId=joins.get("directAnalysisJobId", ""),
+            )
+            if not isinstance(transcript_call, dict) or set(transcript_call) != {
+                "actionId", "prompt", "transcript", "response"
+            }:
+                findings.errors.append(
+                    f"{target} real-model transcript call {action_id} has unexpected or missing fields"
+                )
+                continue
+            if transcript_call.get("actionId") != action_id:
+                findings.errors.append(
+                    f"{target} real-model transcript call {index} is not canonical action {action_id}"
+                )
+            prompt = transcript_call.get("prompt")
+            transcript_text = transcript_call.get("transcript")
+            response_text = transcript_call.get("response")
+            if not isinstance(prompt, str) or not prompt:
+                findings.errors.append(
+                    f"{target} real-model transcript call {action_id} has no prompt bytes"
+                )
+                continue
+            events = _parse_embedded_json(
+                findings,
+                transcript_text,
+                label=f"{target} real-model transcript call {action_id} provider transcript",
+                expected_type=list,
+            )
+            response = _parse_embedded_json(
+                findings,
+                response_text,
+                label=f"{target} real-model transcript call {action_id} selected response",
+                expected_type=dict,
+            )
+            if events is not None and response is not None:
+                starts = [
+                    event for event in events
+                    if isinstance(event, dict) and event.get("eventName") == "tool_call_start"
+                ]
+                stops = [
+                    event for event in events
+                    if isinstance(event, dict) and event.get("eventName") == "tool_call_stop"
+                ]
+                message_start = next(
+                    (
+                        event for event in events
+                        if isinstance(event, dict) and event.get("eventName") == "message_start"
+                    ),
+                    {},
+                )
+                expected_tool = _model_tool_for_kind(kind, receipt_name)
+                if (
+                    set(response) != {"modelId", "toolName", "arguments"}
+                    or len(starts) != 1
+                    or len(stops) != 1
+                    or not starts[0].get("toolCallId")
+                    or starts[0].get("toolCallId") != stops[0].get("toolCallId")
+                    or response.get("modelId") != (receipt.get("model") or {}).get("modelId")
+                    or response.get("modelId") != message_start.get("model")
+                    or response.get("toolName") != expected_tool
+                    or response.get("toolName") != starts[0].get("toolName")
+                    or response.get("arguments") != stops[0].get("toolArguments")
+                ):
+                    findings.errors.append(
+                        f"{target} real-model transcript call {action_id} does not prove the selected tool response"
+                    )
+            if isinstance(response_text, str) and isinstance(receipt_call, dict):
+                expected_response_digest = hashlib.sha256(
+                    response_text.encode("utf-8")
+                ).hexdigest()
+                if receipt_call.get("responseSha256") != expected_response_digest:
+                    findings.errors.append(
+                        f"{target} real-model transcript call {action_id} response digest does not match its bytes"
+                    )
+            elif not isinstance(receipt_call, dict):
+                findings.errors.append(
+                    f"{target} real-model receipt call {action_id} is not an object"
+                )
+            if isinstance(transcript_text, str):
+                transcript_digests.append(
+                    hashlib.sha256(transcript_text.encode("utf-8")).hexdigest()
+                )
+            prompt_digests.append(hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+
+        prompt_digest = _canonical_sha256(prompt_digests)
+        transcript_digest = _canonical_sha256(transcript_digests)
+        if receipt_lane.get("promptSha256") != prompt_digest:
+            findings.errors.append(
+                f"{target} real-model transcript lane {lane_name} prompt digest does not match its bytes"
+            )
+        if receipt_lane.get("transcriptSha256") != transcript_digest:
+            findings.errors.append(
+                f"{target} real-model transcript lane {lane_name} transcript digest does not match its bytes"
+            )
+        lane_transcript_digests.append(transcript_digest)
+    if receipt.get("transcriptSha256") != _canonical_sha256(lane_transcript_digests):
+        findings.errors.append(
+            f"{target} real-model transcript digest does not match its content-addressed calls"
+        )
+    if require_attestation:
+        _verify_model_transcript_attestation(findings, record[0], target=target)
+
+
+def _verify_model_transcript_attestation(
+    findings: Findings,
+    transcript_path: Path,
+    *,
+    target: str,
+) -> None:
+    """Require GitHub/Sigstore provenance from the reviewed producer workflow."""
+    bundle_path = transcript_path.with_name(MODEL_TRANSCRIPT_ATTESTATION_FILENAME)
+    if not bundle_path.is_file():
+        findings.errors.append(
+            f"{target} real-model transcript has no producer attestation bundle"
+        )
+        return
+    workflow = (
+        ".github/workflows/e2e-cloud-aws.yml"
+        if target == "aws-ecs"
+        else ".github/workflows/e2e-ai-delivery-arc-local.yml"
+    )
+    try:
+        release_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if not SHA40.fullmatch(release_sha):
+            raise ValueError("release checkout has no exact Git SHA")
+        subprocess.run(
+            [
+                "gh", "attestation", "verify", str(transcript_path),
+                "--repo", "honua-io/honua-release",
+                "--bundle", str(bundle_path),
+                "--signer-workflow", f"honua-io/honua-release/{workflow}",
+                "--source-digest", release_sha,
+                "--deny-self-hosted-runners",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        detail = (
+            exc.stderr.strip()
+            if isinstance(exc, subprocess.CalledProcessError)
+            and isinstance(exc.stderr, str)
+            else str(exc)
+        )
+        findings.errors.append(
+            f"{target} real-model transcript producer attestation is invalid: {detail}"
+        )
+
+
+def _validate_real_model_console_artifacts(
+    findings: Findings,
+    manifest: dict,
+    identity: dict,
+    receipt: dict,
+    evidence_path: Path,
+    journey_receipt: dict | None,
+    *,
+    target: str,
+) -> None:
+    """Bind both model targets to the same checkpoint and Console byte artifacts."""
+    deterministic = receipt.get("deterministic") or {}
+    checkpoint_record = _load_integrity_bound_checkpoint(
+        findings,
+        evidence_path,
+        deterministic.get("checkpointDigest"),
+        label=f"{target} SDK checkpoint",
+    )
+    console_record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        "console-receipt.json",
+        deterministic.get("consoleAggregateSha256"),
+        label=f"{target} Console aggregate",
+    )
+    console_evidence_record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        "console-evidence.json",
+        deterministic.get("consoleEvidenceSha256"),
+        label=f"{target} Console browser evidence",
+    )
+    console_action = _receipt_action_map(journey_receipt or {}).get("console-approval") or {}
+    console_action_evidence = console_action.get("evidence") or {}
+    sdk_console_record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        "sdk-console-receipt.json",
+        console_action_evidence.get("sha256"),
+        label=f"{target} SDK Console projection",
+    )
+    if console_action_evidence.get("source") != "external-receipt":
+        findings.errors.append(
+            f"{target} SDK Console action is not an external content-addressed receipt"
+        )
+    if checkpoint_record is not None:
+        checkpoint = checkpoint_record[1]
+        components = manifest.get("components") or {}
+        if (
+            checkpoint.get("schemaVersion") != "honua.zero-to-map.checkpoint/v1"
+            or checkpoint.get("candidateId") != identity.get("candidateId")
+            or checkpoint.get("releaseId") != manifest.get("platformRelease")
+            or checkpoint.get("target") != target
+            or checkpoint.get("state") != "paused"
+            or checkpoint.get("sourceRevision")
+            != (components.get("honua-sdk-js") or {}).get("sha")
+        ):
+            findings.errors.append(
+                f"{target} SDK checkpoint does not bind the exact candidate/release/target/source"
+            )
+    if console_record is not None and sdk_console_record is not None:
+        if (
+            console_record[1] != sdk_console_record[1]
+            or _sha256(console_record[0]) != _sha256(sdk_console_record[0])
+        ):
+            findings.errors.append(
+                f"{target} aggregate and SDK Console receipts are not the same content-addressed approval"
+            )
+    if console_evidence_record is not None:
+        console_candidate = console_evidence_record[1].get("candidate") or {}
+        if (
+            console_candidate.get("candidateId") != identity.get("candidateId")
+            or console_candidate.get("releaseId") != manifest.get("platformRelease")
+        ):
+            findings.errors.append(
+                f"{target} Console browser evidence does not bind the exact candidate/release"
+            )
 
 
 def _target_journey_entry(
@@ -998,6 +1350,8 @@ def validate_external_receipts(
     target_journey_receipts: dict[
         str, dict | tuple[Path, dict]
     ] | None = None,
+    *,
+    require_model_attestations: bool = False,
 ) -> tuple[Findings, list[dict]]:
     findings = Findings()
     records: list[dict] = []
@@ -1072,6 +1426,7 @@ def validate_external_receipts(
                 aws_provision_binding=aws_provision_binding,
                 aws_provision_run_url=aws_provision_run_url,
                 aws_final_artifacts=aws_final_artifacts,
+                require_model_attestation=require_model_attestations,
             )
             records.append(
                 {
@@ -1218,12 +1573,14 @@ def _validate_real_model_receipt(
     aws_provision_binding: tuple[Path, dict] | None = None,
     aws_provision_run_url: str | None = None,
     aws_final_artifacts: dict[str, tuple[Path, dict]] | None = None,
+    require_model_attestation: bool = False,
 ) -> None:
     target = model_contract["target"]
     receipt_fields = {
         "schemaVersion", "id", "status", "target", "candidateId", "releaseId",
         "endpointSha256", "source", "components", "model", "promptVersion",
-        "evalVersion", "transcriptSha256", "deterministic", "lanes", "joins",
+        "evalVersion", "transcriptSha256", "transcriptArtifactSha256",
+        "deterministic", "lanes", "joins",
         "checks", "evidence",
     }
     if set(receipt) != receipt_fields:
@@ -1256,6 +1613,10 @@ def _validate_real_model_receipt(
         findings.errors.append(f"{target} real-model receipt has the wrong prompt/eval version")
     if not SHA256.fullmatch(str(receipt.get("transcriptSha256", ""))):
         findings.errors.append(f"{target} real-model receipt has no transcript SHA-256")
+    if not SHA256.fullmatch(str(receipt.get("transcriptArtifactSha256", ""))):
+        findings.errors.append(
+            f"{target} real-model receipt has no transcript artifact SHA-256"
+        )
     deterministic = receipt.get("deterministic") or {}
     expected_deterministic_fields = {
         "target", "checkpointDigest", "consoleAggregateSha256", "consoleEvidenceSha256"
@@ -1386,6 +1747,20 @@ def _validate_real_model_receipt(
                     findings.errors.append(
                         "AWS Console browser evidence does not bind the exact candidate/release"
                     )
+    console_context_path = evidence_path
+    if target == "aws-ecs" and aws_final_artifacts is not None:
+        console_context = aws_final_artifacts.get("consoleReceipt")
+        if console_context is not None:
+            console_context_path = console_context[0]
+    _validate_real_model_console_artifacts(
+        findings,
+        manifest,
+        identity,
+        receipt,
+        console_context_path,
+        journey_receipt,
+        target=target,
+    )
     checks = receipt.get("checks") or {}
     for check in (expected.get("claims") or {}).get("requiredChecks") or []:
         if checks.get(check) != "passed":
@@ -1567,6 +1942,7 @@ def _validate_real_model_receipt(
         "endpointSha256": receipt.get("endpointSha256"), "source": source, "model": model,
         "promptVersion": receipt.get("promptVersion"), "evalVersion": receipt.get("evalVersion"),
         "transcriptSha256": receipt.get("transcriptSha256"), "target": target,
+        "transcriptArtifactSha256": receipt.get("transcriptArtifactSha256"),
         "checkpointDigest": deterministic.get("checkpointDigest"),
         "consoleAggregateSha256": deterministic.get("consoleAggregateSha256"),
         "consoleEvidenceSha256": deterministic.get("consoleEvidenceSha256"),
@@ -1576,6 +1952,13 @@ def _validate_real_model_receipt(
         evidence_bindings["provisionReceiptSha256"] = deterministic.get("provisionReceiptSha256")
     if evidence_document != evidence_bindings:
         findings.errors.append(f"{target} real-model evidence document is not an exact receipt binding")
+    _validate_real_model_transcript_artifact(
+        findings,
+        receipt,
+        evidence_path,
+        target=target,
+        require_attestation=require_model_attestation,
+    )
     if _contains_forbidden_evidence(
         {"receipt": receipt, "evidence": evidence_document},
         (
@@ -2020,6 +2403,7 @@ def main(argv: list[str] | None = None) -> int:
                     supplied,
                     supplied_evidence,
                     target_journey_receipts,
+                    require_model_attestations=True,
                 )
         report = build_report(
             manifest,

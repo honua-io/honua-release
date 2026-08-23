@@ -648,6 +648,174 @@ def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple
     return receipt, evidence
 
 
+def write_model_transcript_artifact(
+    directory: Path,
+    receipt: dict,
+    evidence: dict,
+) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    receipt_lanes = receipt.get("lanes") or {}
+    transcript_lanes: dict[str, list[dict]] = {
+        lane: [] for lane in gate.AWS_MODEL_LANES if lane in receipt_lanes
+    }
+    lane_transcript_digests: list[str] = []
+    for lane_name in gate.AWS_MODEL_LANES:
+        if lane_name not in receipt_lanes:
+            continue
+        prompt_digests: list[str] = []
+        transcript_digests: list[str] = []
+        for call in receipt_lanes[lane_name]["calls"]:
+            action_id = call["actionId"]
+            tool_name = gate._model_tool_for_kind(call["kind"], call["name"])
+            arguments = {"actionId": action_id}
+            response = json.dumps(
+                {
+                    "arguments": arguments,
+                    "modelId": receipt["model"]["modelId"],
+                    "toolName": tool_name,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            transcript = json.dumps(
+                [
+                    {
+                        "eventName": "message_start",
+                        "model": receipt["model"]["modelId"],
+                    },
+                    {
+                        "eventName": "tool_call_start",
+                        "toolCallId": f"call-{action_id}",
+                        "toolName": tool_name,
+                    },
+                    {
+                        "eventName": "tool_call_stop",
+                        "toolArguments": arguments,
+                        "toolCallId": f"call-{action_id}",
+                    },
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            prompt = f"Governed natural-language reconciliation for {action_id}."
+            call["responseSha256"] = hashlib.sha256(response.encode()).hexdigest()
+            prompt_digests.append(hashlib.sha256(prompt.encode()).hexdigest())
+            transcript_digests.append(hashlib.sha256(transcript.encode()).hexdigest())
+            transcript_lanes[lane_name].append(
+                {
+                    "actionId": action_id,
+                    "prompt": prompt,
+                    "transcript": transcript,
+                    "response": response,
+                }
+            )
+        receipt_lanes[lane_name]["promptSha256"] = gate._canonical_sha256(
+            prompt_digests
+        )
+        lane_digest = gate._canonical_sha256(transcript_digests)
+        receipt_lanes[lane_name]["transcriptSha256"] = lane_digest
+        lane_transcript_digests.append(lane_digest)
+    receipt["transcriptSha256"] = gate._canonical_sha256(lane_transcript_digests)
+    evidence["lanes"] = receipt["lanes"]
+    evidence["transcriptSha256"] = receipt["transcriptSha256"]
+    artifact = {
+        "schemaVersion": gate.MODEL_TRANSCRIPT_SCHEMA,
+        "target": receipt["target"],
+        "candidateId": receipt["candidateId"],
+        "releaseId": receipt["releaseId"],
+        "endpointSha256": receipt["endpointSha256"],
+        "source": receipt["source"],
+        "components": receipt["components"],
+        "model": receipt["model"],
+        "promptVersion": receipt["promptVersion"],
+        "evalVersion": receipt["evalVersion"],
+        "lanes": transcript_lanes,
+    }
+    artifact_path = directory / gate.MODEL_TRANSCRIPT_FILENAME
+    artifact_path.write_text(
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    artifact_digest = gate._sha256(artifact_path)
+    receipt["transcriptArtifactSha256"] = artifact_digest
+    evidence["transcriptArtifactSha256"] = artifact_digest
+    return artifact_path
+
+
+def write_local_model_supporting_artifacts(
+    directory: Path,
+    manifest_value: dict,
+    receipt: dict,
+    evidence: dict,
+) -> dict:
+    directory.mkdir(parents=True, exist_ok=True)
+    checkpoint = {
+        "schemaVersion": "honua.zero-to-map.checkpoint/v1",
+        "candidateId": receipt["candidateId"],
+        "releaseId": receipt["releaseId"],
+        "target": "local-docker",
+        "state": "paused",
+        "sourceRevision": manifest_value["components"]["honua-sdk-js"]["sha"],
+    }
+    checkpoint["integrity"] = {
+        "algorithm": "sha256",
+        "digest": gate._canonical_sha256(checkpoint),
+    }
+    checkpoint_path = directory / "checkpoint.json"
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+    console = {
+        "schemaVersion": "honua.zero-to-map.console-receipt/v1",
+        "status": "passed",
+        "candidate": {
+            "candidateId": receipt["candidateId"],
+            "releaseId": receipt["releaseId"],
+        },
+    }
+    console_path = directory / "console-receipt.json"
+    console_path.write_text(json.dumps(console), encoding="utf-8")
+    sdk_console_path = directory / "sdk-console-receipt.json"
+    sdk_console_path.write_text(json.dumps(console), encoding="utf-8")
+    console_evidence_path = directory / "console-evidence.json"
+    console_evidence_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "honua.console.ai-arc-evidence/v1",
+                "status": "passed",
+                "candidate": console["candidate"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    journey = model_journey_receipt()
+    journey["stages"][0]["actions"].append(
+        {
+            "id": "console-approval",
+            "evidence": {
+                "source": "external-receipt",
+                "sha256": gate._sha256(sdk_console_path),
+            },
+        }
+    )
+    journey_path = directory / "sdk-journey.json"
+    journey_path.write_text(json.dumps(journey), encoding="utf-8")
+    deterministic = receipt["deterministic"]
+    deterministic.update(
+        {
+            "checkpointDigest": checkpoint["integrity"]["digest"],
+            "consoleAggregateSha256": gate._sha256(console_path),
+            "consoleEvidenceSha256": gate._sha256(console_evidence_path),
+        }
+    )
+    evidence.update(
+        {
+            "checkpointDigest": deterministic["checkpointDigest"],
+            "consoleAggregateSha256": deterministic["consoleAggregateSha256"],
+            "consoleEvidenceSha256": deterministic["consoleEvidenceSha256"],
+        }
+    )
+    return journey
+
+
 def write_generic_aws_evidence_bundle(
     directory: Path,
     manifest_value: dict,
@@ -880,6 +1048,7 @@ def validate_aws_model_documents(
     substituted_final_artifact: str | None = None,
 ) -> gate.Findings:
     manifest_value = manifest()
+    tmp_path.mkdir(parents=True, exist_ok=True)
     manifest_path = tmp_path / "platform-manifest.yaml"
     manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
     identity = gate.candidate_identity(manifest_value, manifest_path)
@@ -909,6 +1078,7 @@ def validate_aws_model_documents(
         evidence["endpointSha256"] = endpoint_sha256
 
     evidence_path = tmp_path / "model-evidence.json"
+    write_model_transcript_artifact(tmp_path, receipt, evidence)
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
     receipt["evidence"] = {
         "url": model_run_url or run_url,
@@ -998,6 +1168,50 @@ def validate_aws_model_documents(
     return findings
 
 
+def validate_local_model_documents(
+    tmp_path: Path,
+    receipt: dict,
+    evidence: dict,
+    *,
+    mutate_artifacts=None,
+) -> gate.Findings:
+    manifest_value = manifest()
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    journey = write_local_model_supporting_artifacts(
+        tmp_path,
+        manifest_value,
+        receipt,
+        evidence,
+    )
+    transcript_path = write_model_transcript_artifact(tmp_path, receipt, evidence)
+    if mutate_artifacts is not None:
+        mutate_artifacts(tmp_path, transcript_path, receipt, evidence, journey)
+    evidence_path = tmp_path / "real-model-evidence.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt["evidence"] = {
+        "url": "https://example.test/local-real-model-evidence.json",
+        "sha256": gate._sha256(evidence_path),
+    }
+    receipt_path = tmp_path / "real-model-receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    expected = next(
+        item
+        for item in CONTRACT["externalReceipts"]
+        if item["id"] == "local-docker-real-model-ai-arc"
+    )
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        {"externalReceipts": [expected]},
+        {expected["id"]: (receipt_path, receipt)},
+        {expected["id"]: (evidence_path, evidence)},
+        {"local-docker": journey},
+    )
+    return findings
+
+
 def test_live_external_receipts_join_component_pins(tmp_path: Path):
     manifest_value = manifest()
     manifest_path = tmp_path / "platform-manifest.yaml"
@@ -1010,6 +1224,7 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
     }
     provision_binding_path: Path | None = None
     provision_run_url: str | None = None
+    local_journey: dict | None = None
     for receipt_id, expected in expected_receipts.items():
         component = expected["sourceComponent"]
         repository = expected["sourceRepository"]
@@ -1032,7 +1247,17 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
                 join_aws_model_documents_to_bundle(
                     value, evidence_value, provision_final_path
                 )
-            evidence_path = tmp_path / f"{receipt_id}-evidence.json"
+            model_directory = tmp_path / receipt_id
+            model_directory.mkdir()
+            if receipt_id == "local-docker-real-model-ai-arc":
+                local_journey = write_local_model_supporting_artifacts(
+                    model_directory,
+                    manifest_value,
+                    value,
+                    evidence_value,
+                )
+            write_model_transcript_artifact(model_directory, value, evidence_value)
+            evidence_path = model_directory / "real-model-evidence.json"
             evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
             value["evidence"] = {
                 "url": (
@@ -1129,7 +1354,7 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
                 aws_journey_path,
                 json.loads(aws_journey_path.read_text(encoding="utf-8")),
             ),
-            "local-docker": model_journey_receipt(),
+            "local-docker": local_journey,
         },
     )
 
@@ -1145,6 +1370,177 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
     ]
     assert identity_components["honua-devops"]["sha"] == "f" * 40
     assert identity_components["honua-iac"]["sha"] == "e" * 40
+
+
+def test_local_real_model_requires_content_addressed_transcript_bytes(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "identity.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    candidate_id = gate.candidate_identity(manifest_value, manifest_path)["candidateId"]
+
+    def remove_transcript(_directory, transcript_path, *_args):
+        transcript_path.unlink()
+
+    receipt, evidence = local_real_model_documents(manifest_value, candidate_id)
+    missing = validate_local_model_documents(
+        tmp_path / "missing",
+        receipt,
+        evidence,
+        mutate_artifacts=remove_transcript,
+    )
+    assert any(
+        "transcript artifact supporting evidence is missing" in error
+        for error in missing.errors
+    )
+
+    def forge_selected_tool(_directory, transcript_path, receipt, evidence, _journey):
+        artifact = json.loads(transcript_path.read_text(encoding="utf-8"))
+        call = artifact["lanes"]["admin"][0]
+        response = json.loads(call["response"])
+        events = json.loads(call["transcript"])
+        response["toolName"] = "honua_unrelated_tool"
+        next(event for event in events if event["eventName"] == "tool_call_start")[
+            "toolName"
+        ] = "honua_unrelated_tool"
+        call["response"] = json.dumps(
+            response, sort_keys=True, separators=(",", ":")
+        )
+        call["transcript"] = json.dumps(
+            events, sort_keys=True, separators=(",", ":")
+        )
+        lane_digests = []
+        for lane_name in gate.AWS_MODEL_LANES:
+            artifact_calls = artifact["lanes"][lane_name]
+            receipt_lane = receipt["lanes"][lane_name]
+            receipt_lane["promptSha256"] = gate._canonical_sha256(
+                [hashlib.sha256(item["prompt"].encode()).hexdigest() for item in artifact_calls]
+            )
+            receipt_lane["transcriptSha256"] = gate._canonical_sha256(
+                [
+                    hashlib.sha256(item["transcript"].encode()).hexdigest()
+                    for item in artifact_calls
+                ]
+            )
+            for receipt_call, artifact_call in zip(
+                receipt_lane["calls"], artifact_calls, strict=True
+            ):
+                receipt_call["responseSha256"] = hashlib.sha256(
+                    artifact_call["response"].encode()
+                ).hexdigest()
+            lane_digests.append(receipt_lane["transcriptSha256"])
+        receipt["transcriptSha256"] = gate._canonical_sha256(lane_digests)
+        evidence["lanes"] = receipt["lanes"]
+        evidence["transcriptSha256"] = receipt["transcriptSha256"]
+        transcript_path.write_text(
+            json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        digest = gate._sha256(transcript_path)
+        receipt["transcriptArtifactSha256"] = digest
+        evidence["transcriptArtifactSha256"] = digest
+
+    forged_dir = tmp_path / "forged-tool"
+    forged_manifest_path = forged_dir / "identity.yaml"
+    forged_dir.mkdir()
+    forged_manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    forged_candidate = gate.candidate_identity(manifest_value, forged_manifest_path)[
+        "candidateId"
+    ]
+    receipt, evidence = local_real_model_documents(manifest_value, forged_candidate)
+    forged = validate_local_model_documents(
+        forged_dir,
+        receipt,
+        evidence,
+        mutate_artifacts=forge_selected_tool,
+    )
+    assert any(
+        "does not prove the selected tool response" in error
+        for error in forged.errors
+    )
+
+    attestation_findings = gate.Findings()
+    transcript_path = forged_dir / gate.MODEL_TRANSCRIPT_FILENAME
+    gate._verify_model_transcript_attestation(
+        attestation_findings,
+        transcript_path,
+        target="local-docker",
+    )
+    assert any(
+        "no producer attestation bundle" in error
+        for error in attestation_findings.errors
+    )
+
+
+def test_model_transcript_attestation_binds_exact_workflow_and_release_source(
+    tmp_path: Path,
+    monkeypatch,
+):
+    transcript_path = tmp_path / gate.MODEL_TRANSCRIPT_FILENAME
+    transcript_path.write_text("{}\n", encoding="utf-8")
+    transcript_path.with_name(gate.MODEL_TRANSCRIPT_ATTESTATION_FILENAME).write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    release_sha = "a" * 40
+    commands: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        stdout = f"{release_sha}\n" if command[:2] == ["git", "rev-parse"] else ""
+        return gate.subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    for target, workflow in (
+        ("local-docker", ".github/workflows/e2e-ai-delivery-arc-local.yml"),
+        ("aws-ecs", ".github/workflows/e2e-cloud-aws.yml"),
+    ):
+        findings = gate.Findings()
+        gate._verify_model_transcript_attestation(
+            findings,
+            transcript_path,
+            target=target,
+        )
+
+        assert findings.errors == []
+        verify = commands[-1]
+        assert verify[:3] == ["gh", "attestation", "verify"]
+        assert verify[verify.index("--repo") + 1] == "honua-io/honua-release"
+        assert verify[verify.index("--signer-workflow") + 1] == (
+            f"honua-io/honua-release/{workflow}"
+        )
+        assert verify[verify.index("--source-digest") + 1] == release_sha
+        assert "--deny-self-hosted-runners" in verify
+
+
+def test_local_real_model_requires_every_console_join_artifact(tmp_path: Path):
+    manifest_value = manifest()
+    cases = (
+        "checkpoint.json",
+        "console-receipt.json",
+        "sdk-console-receipt.json",
+        "console-evidence.json",
+    )
+    for filename in cases:
+        case_path = tmp_path / filename.removesuffix(".json")
+        case_path.mkdir()
+        manifest_path = case_path / "identity.yaml"
+        manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+        candidate_id = gate.candidate_identity(manifest_value, manifest_path)[
+            "candidateId"
+        ]
+        receipt, evidence = local_real_model_documents(manifest_value, candidate_id)
+
+        def remove_artifact(directory, _transcript, *_args, name=filename):
+            (directory / name).unlink()
+
+        findings = validate_local_model_documents(
+            case_path,
+            receipt,
+            evidence,
+            mutate_artifacts=remove_artifact,
+        )
+        assert findings.status == "fail"
+        assert any(filename in error for error in findings.errors), findings.errors
 
 
 def test_generic_aws_receipt_rejects_tampered_evidence_or_wrong_run_url(tmp_path: Path):

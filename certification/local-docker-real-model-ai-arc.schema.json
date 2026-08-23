@@ -6,7 +6,7 @@
   "required": [
     "schemaVersion", "id", "status", "target", "candidateId", "releaseId",
     "endpointSha256", "source", "components", "model", "promptVersion",
-    "evalVersion", "transcriptSha256", "deterministic", "lanes", "joins",
+    "evalVersion", "transcriptSha256", "transcriptArtifactSha256", "deterministic", "lanes", "joins",
     "checks", "evidence"
   ],
   "properties": {
@@ -54,6 +54,7 @@
     "promptVersion": { "const": "honua.local-docker.ai-arc.prompt/v1" },
     "evalVersion": { "const": "honua.local-docker.ai-arc.eval/v1" },
     "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "transcriptArtifactSha256": { "$ref": "#/$defs/sha256" },
     "deterministic": {
       "type": "object",
       "required": [

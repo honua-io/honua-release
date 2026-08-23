@@ -50,6 +50,8 @@ permissions:
   contents: read
   packages: read
   id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: e2e-ai-delivery-arc-local-${{ github.ref }}
@@ -84,7 +86,7 @@ jobs:
       - name: Resolve reviewed producer pins
         env:
           SDK_SHA: 5950d762010cee8f1d0dfe4340c3abe85b16db1a
-          STUDIO_SHA: c0c67666cf5345f0ae86e2644161ba15437ab571
+          STUDIO_SHA: 0d3920d19a3246439a76b8705947c076df0f7732
           CONSOLE_SHA: 6c04acf6bd41f05447221ed7ef98c39bcac56f5f
         run: |
           set -euo pipefail
@@ -116,7 +118,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-studio
-          ref: c0c67666cf5345f0ae86e2644161ba15437ab571
+          ref: 0d3920d19a3246439a76b8705947c076df0f7732
           path: _studio
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -184,6 +186,19 @@ jobs:
           HONUA_AI_ARC_LOCAL_CONSOLE_TOKEN: ${{ secrets.HONUA_AI_ARC_LOCAL_CONSOLE_TOKEN }}
           HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python e2e/local_ai_delivery_arc.py
+
+      - name: Attest the real-model transcript producer run
+        id: attest-transcript
+        if: env.PRODUCE_LIVE == 'true' && hashFiles('e2e/out/ai-delivery-arc-local/real-model-transcript.json') != ''
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: e2e/out/ai-delivery-arc-local/real-model-transcript.json
+
+      - name: Preserve the transcript attestation bundle
+        if: steps.attest-transcript.outcome == 'success'
+        env:
+          BUNDLE_PATH: ${{ steps.attest-transcript.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" e2e/out/ai-delivery-arc-local/real-model-transcript.attestation.json
 
       - name: Read the producer status
         id: status

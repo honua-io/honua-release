@@ -356,7 +356,9 @@ def _require_sealed_ai_arc_producer_contract(
         ) from error
     if (
         "HONUA_AI_ARC_REAL_MODEL_HANDOFF" not in studio_entry_text
+        or "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT" not in studio_entry_text
         or "resume is credential-free" not in studio_entry_text
+        or "honua.studio.real-model-ai-arc-transcript/v1" not in studio_library_text
         or 'receiptId: "aws-ecs-real-model-ai-arc"' not in studio_library_text
         or "HONUA_AI_ARC_CONSOLE_EVIDENCE" not in console_entry_text
     ):
@@ -434,6 +436,7 @@ def _ai_arc_paths() -> dict[str, Path]:
         "consoleEvidence": out / "console-evidence.json",
         "consoleCandidate": out / "console-candidate-evidence.json",
         "modelHandoff": out / "real-model-handoff.json",
+        "modelTranscript": out / "real-model-transcript.json",
         "modelReceipt": out / "real-model-receipt.json",
         "modelEvidence": out / "real-model-evidence.json",
         "preTeardown": out / "pre-teardown-evidence.json",
@@ -613,6 +616,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         ),
         "HONUA_AI_ARC_CONSOLE_ORIGIN": os.environ["HONUA_AI_ARC_CONSOLE_ORIGIN"].rstrip("/"),
         "HONUA_AI_ARC_REAL_MODEL_HANDOFF": str(paths["modelHandoff"]),
+        "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT": str(paths["modelTranscript"]),
         "HONUA_AI_ARC_REAL_MODEL_RECEIPT": str(paths["modelReceipt"]),
         "HONUA_AI_ARC_REAL_MODEL_EVIDENCE": str(paths["modelEvidence"]),
         "HONUA_AI_ARC_PROVISION_BINDING": str(paths["provisionBinding"]),
