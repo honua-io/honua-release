@@ -209,9 +209,10 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
     ):
         return False
     identity = receipt.get("identity")
-    requires_candidate_cut = str(cell.get("contract_revision", "")).startswith(
-        "sdk-python-certification@"
-    )
+    requires_candidate_cut = cell.get("client_lane") in {
+        "sdk-python",
+        "sdk-python-certification",
+    }
     binds_candidate_cut = (
         isinstance(identity, dict) and "candidate_cut_at" in identity
     )

@@ -66,6 +66,18 @@ def test_conformance_gate_consumes_manifest_pinned_evidence_producers():
     assert "/trunk/docs/cite-status.md" not in cite
 
 
+def test_manifest_validate_binds_python_snapshots_to_the_pinned_source():
+    workflow = _workflow("manifest-validate.yml")
+    text = "\n".join(
+        _step_text(step) for step in workflow["jobs"]["validate"]["steps"]
+    )
+    assert '.sources["sdk-python"].commit' in text
+    assert "honua-sdk-python/contents/compatibility/sdk-coverage.v1.json?ref=$sdk_python_sha" in text
+    assert "honua-sdk-python/contents/conformance/protocol-certification.v1.json?ref=$sdk_python_sha" in text
+    assert "cmp certification/sources/sdk-python/sdk-coverage.v1.json" in text
+    assert "cmp certification/sources/sdk-python/protocol-certification.v1.json" in text
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 

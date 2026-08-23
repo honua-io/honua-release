@@ -91,6 +91,24 @@ jobs:
             -o "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
           cmp certification/sources/sdk-js/sdk-coverage.v1.json \
             "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
+          sdk_python_sha="$(jq -r '.sources["sdk-python"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_python_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/compatibility/sdk-coverage.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-python/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/conformance/protocol-certification.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
+          cmp certification/sources/sdk-python/protocol-certification.v1.json \
+            "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
           python certification/generate-protocol-requirements.py
           git diff --exit-code -- certification/protocol-certification-requirements.v1.json
           python certification/validate-protocol-requirements.py

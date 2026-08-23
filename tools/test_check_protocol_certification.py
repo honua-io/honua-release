@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -387,6 +386,22 @@ def test_python_receipt_must_bind_the_ledger_candidate_cut():
     wrong_cut = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
     assert wrong_cut["overall_status"] == "fail"
     assert any("semantically bound" in finding["why"] for finding in wrong_cut["findings"])
+
+
+def test_python_coverage_receipt_must_also_bind_the_ledger_candidate_cut():
+    cell = _cell(
+        canonical_client="Honua SDK Python",
+        client_lane="sdk-python",
+        contract_revision="sdk-python-coverage@" + "c" * 40,
+        producer_source_sha="c" * 40,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["sdk-python"] = {"commit": "c" * 40}
+
+    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
 
 def test_cli_receipt_root_requires_exact_materialized_bytes(tmp_path):
