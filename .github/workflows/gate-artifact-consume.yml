@@ -332,20 +332,30 @@ jobs:
           echo "::group::Try manifest-proven public NuGet artifact"
           if [ "$SDK_DOTNET_PROVENANCE_STATUS" = published ]; then
             PACKAGE="$WORK/$SDK_DOTNET_PROVENANCE_FILENAME"
-            if [ -n "$SDK_DOTNET_PROVENANCE_URL" ] && curl -fsSL "$SDK_DOTNET_PROVENANCE_URL" -o "$PACKAGE"; then
-              mkdir -p "$WORK/verifiedfeed" && cp "$PACKAGE" "$WORK/verifiedfeed/"
-              if python "$GITHUB_WORKSPACE/tools/verify_registry_artifact.py" nuget \
-                --manifest "$GITHUB_WORKSPACE/platform-manifest.yaml" --artifact "$PACKAGE" \
-                >/tmp/nuget-provenance.log 2>&1 && \
-                dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" \
-                  --source "$WORK/verifiedfeed" >/tmp/nuget-staging.log 2>&1; then
+            export NUGET_PACKAGES="$WORK/registry-packages"
+            # Resolve the exact version through NuGet's customer-facing service index first.
+            # The global-packages folder retains the registry-returned .nupkg, whose bytes and
+            # source commit are then checked against the frozen manifest before consumption.
+            if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" \
+                --no-restore >/tmp/nuget-staging.log 2>&1 && \
+              dotnet restore Consumer --source "$STAGING_NUGET_SOURCE" \
+                --packages "$NUGET_PACKAGES" --no-cache >>/tmp/nuget-staging.log 2>&1; then
+              VERSION_KEY="${SDK_DOTNET_VERSION,,}"
+              RESOLVED_PACKAGE="$NUGET_PACKAGES/honua.sdk/$VERSION_KEY/honua.sdk.$VERSION_KEY.nupkg"
+              if [ -f "$RESOLVED_PACKAGE" ]; then
+                cp "$RESOLVED_PACKAGE" "$PACKAGE"
+              fi
+              if [ -f "$PACKAGE" ] && \
+                python "$GITHUB_WORKSPACE/tools/verify_registry_artifact.py" nuget \
+                  --manifest "$GITHUB_WORKSPACE/platform-manifest.yaml" --artifact "$PACKAGE" \
+                  >/tmp/nuget-provenance.log 2>&1; then
                 SOURCE=staging; STATUS=consuming
               else
                 STATUS=blocked; WHY="public Honua.Sdk failed manifest byte/source provenance verification"
                 tail -n 20 /tmp/nuget-provenance.log /tmp/nuget-staging.log 2>/dev/null || true
               fi
             else
-              WHY="manifest-proven Honua.Sdk package is unavailable from the public registry"
+              WHY="manifest-proven Honua.Sdk package is not resolvable through the public NuGet index"
               ALLOW_LOCAL_FALLBACK=true
             fi
           else
@@ -392,7 +402,7 @@ jobs:
 
           if [ "$STATUS" = "consuming" ]; then
             echo "::group::Build + run consumer against Honua.Sdk"
-            if dotnet run --project Consumer -c Release >/tmp/nuget-run.log 2>&1; then
+            if dotnet run --project Consumer -c Release --no-restore >/tmp/nuget-run.log 2>&1; then
               STATUS=pass; WHY="added from ${SOURCE}, built and loaded Honua.Sdk at runtime"
             else
               STATUS=fail; WHY="added from ${SOURCE} but build/run against Honua.Sdk failed"; tail -n 30 /tmp/nuget-run.log || true
@@ -447,24 +457,31 @@ jobs:
 
           echo "::group::Try manifest-proven public PyPI artifact"
           if [ "$SDK_PYTHON_PROVENANCE_STATUS" = published ]; then
-            WHEEL="$WORK/$SDK_PYTHON_PROVENANCE_FILENAME"
+            REGISTRY_WHEELS="$WORK/registry-wheels"
+            mkdir -p "$REGISTRY_WHEELS"
+            WHEEL="$REGISTRY_WHEELS/$SDK_PYTHON_PROVENANCE_FILENAME"
             PROVENANCE="$WORK/pypi-provenance.json"
-            if [ -n "$SDK_PYTHON_PROVENANCE_URL" ] && \
+            # pip download proves the pinned version and filename remain discoverable from the
+            # public Simple API. A surviving files.pythonhosted.org object is not sufficient.
+            if python -m pip download --no-cache-dir --no-deps --only-binary=:all: \
+                --index-url "$STAGING_PYPI_INDEX" --dest "$REGISTRY_WHEELS" \
+                "honua-sdk==$SDK_PYTHON_VERSION" >/tmp/pip-staging.log 2>&1 && \
+              [ -f "$WHEEL" ] && \
               [ -n "$SDK_PYTHON_PROVENANCE_RECORD_URL" ] && \
-              curl -fsSL "$SDK_PYTHON_PROVENANCE_URL" -o "$WHEEL" && \
               curl -fsSL "$SDK_PYTHON_PROVENANCE_RECORD_URL" -o "$PROVENANCE"; then
               if python "$GITHUB_WORKSPACE/tools/verify_registry_artifact.py" pypi \
                 --manifest "$GITHUB_WORKSPACE/platform-manifest.yaml" \
                 --artifact "$WHEEL" --provenance "$PROVENANCE" \
                 >/tmp/pip-provenance.log 2>&1 && \
-                python -m pip install "$WHEEL" >/tmp/pip-staging.log 2>&1; then
+                python -m pip install --index-url "$STAGING_PYPI_INDEX" "$WHEEL" \
+                  >>/tmp/pip-staging.log 2>&1; then
                 SOURCE=staging; STATUS=consuming
               else
                 STATUS=blocked; WHY="public honua-sdk failed manifest byte/source/Sigstore provenance verification"
                 tail -n 30 /tmp/pip-provenance.log /tmp/pip-staging.log 2>/dev/null || true
               fi
             else
-              WHY="manifest-proven honua-sdk wheel/provenance is unavailable from PyPI"
+              WHY="manifest-proven honua-sdk wheel/provenance is not resolvable through the public PyPI index"
               ALLOW_LOCAL_FALLBACK=true
             fi
           else

@@ -12,6 +12,7 @@ import hashlib
 import ipaddress
 import json
 import re
+import socket
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +89,11 @@ AWS_MODEL_LANES = ("admin", "esriGp", "nativeAnalysis", "studioPublication")
 MODEL_TRANSCRIPT_SCHEMA = "honua.studio.real-model-ai-arc-transcript/v1"
 MODEL_TRANSCRIPT_FILENAME = "real-model-transcript.json"
 MODEL_TRANSCRIPT_ATTESTATION_FILENAME = "real-model-transcript.attestation.json"
+MODEL_SECRET_TEMPLATE = re.compile(
+    r"(?:password|authorization|api[-_]?key|access[-_]?key|"
+    r"secret(?:string|[-_]?key)|bearer|token)",
+    re.IGNORECASE,
+)
 # Exact ordered 58-action model roster shared with the Studio producer and
 # DevOps cloud verifier. Tuple fields: actionId, lane, role, family, kind, name.
 MODEL_ACTION_SPECS = (
@@ -253,6 +259,119 @@ def _receipt_action_map(receipt: dict) -> dict[str, dict]:
     return actions
 
 
+def _is_model_scalar(value: Any) -> bool:
+    return isinstance(value, (str, int, float, bool)) and value is not None
+
+
+def _resolve_model_template(value: Any, variables: dict[str, Any], path: str = "arguments") -> Any:
+    """Resolve an SDK action exactly as the pinned Studio producer does."""
+    if isinstance(value, list):
+        return [
+            _resolve_model_template(item, variables, f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, dict):
+        return {
+            key: _resolve_model_template(item, variables, f"{path}.{key}")
+            for key, item in value.items()
+        }
+    if not isinstance(value, str):
+        return value
+    exact = re.fullmatch(r"\$\{([^}]+)\}", value)
+    if exact:
+        name = exact.group(1)
+        if name in variables:
+            return variables[name]
+        if MODEL_SECRET_TEMPLATE.search(name) or MODEL_SECRET_TEMPLATE.search(path):
+            return f"<credential-ref:{name}>"
+        raise ValueError(f"SDK plan requires unavailable checkpoint variable {name}")
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name in variables and _is_model_scalar(variables[name]):
+            return str(variables[name])
+        if MODEL_SECRET_TEMPLATE.search(name) or MODEL_SECRET_TEMPLATE.search(path):
+            return f"<credential-ref:{name}>"
+        raise ValueError(f"SDK plan requires unavailable scalar checkpoint variable {name}")
+
+    return re.sub(r"\$\{([^}]+)\}", replace, value)
+
+
+def _expected_model_arguments(
+    plan_action: dict,
+    plan: dict,
+    checkpoint: dict,
+) -> dict:
+    resume = checkpoint.get("resume") or {}
+    captured = resume.get("capturedVariables") if isinstance(resume, dict) else None
+    if not isinstance(captured, dict):
+        raise ValueError("SDK checkpoint has no capturedVariables for model reconciliation")
+    variables = {
+        **(plan.get("variables") or {}),
+        **captured,
+        "candidateId": checkpoint.get("candidateId"),
+        "releaseId": checkpoint.get("releaseId"),
+    }
+    kind = plan_action.get("kind")
+    if kind == "mcp":
+        template = plan_action.get("arguments") or {}
+    elif kind == "mcp-resource":
+        template = {"uri": plan_action.get("uri")}
+    elif kind == "gpserver":
+        template = {
+            "serviceId": plan_action.get("serviceId"),
+            "taskName": plan_action.get("taskName"),
+            "processId": plan_action.get("processId"),
+            "parameters": plan_action.get("parameters"),
+            "resultNames": plan_action.get("resultNames"),
+        }
+    else:
+        raise ValueError(f"SDK plan action has unsupported model kind {kind!r}")
+    resolved = _resolve_model_template(template, variables)
+    if not isinstance(resolved, dict):
+        raise ValueError("SDK model action did not resolve to an argument object")
+    return resolved
+
+
+def _expected_model_result_identities(
+    action_id: str,
+    action_receipt: dict,
+    expected_arguments: dict,
+    joins: dict,
+) -> dict[str, Any]:
+    """Reproduce Studio's receipt-capture/argument identity reconciliation."""
+    expected: dict[str, Any] = {}
+    captures = action_receipt.get("captures") or {}
+    if isinstance(captures, dict):
+        for name, value in captures.items():
+            if _is_model_scalar(value) and joins.get(name) == value:
+                expected[name] = value
+    haystack = json.dumps(
+        expected_arguments,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    for name, value in joins.items():
+        if not _is_model_scalar(value):
+            continue
+        encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+        if encoded in haystack:
+            expected[name] = value
+    # Studio prepares proposal calls before Console approval exists, then its
+    # reviewed finalizer joins the approved proposal identity to that exact
+    # call. Reproduce that one post-checkpoint transformation explicitly;
+    # every other result identity must come from the action receipt or inputs.
+    match = re.fullmatch(r"propose-(map|app|dashboard)-publication", action_id)
+    if match:
+        proposal_name = f"{match.group(1)}ProposalId"
+        if _is_model_scalar(joins.get(proposal_name)):
+            expected[proposal_name] = joins[proposal_name]
+    if not expected and "candidateId" in joins:
+        expected["candidateId"] = joins["candidateId"]
+    return expected
+
+
 def _ordered_stage_action_inventory(
     document: dict,
     *,
@@ -334,6 +453,24 @@ def _contains_template(value: Any, template: str) -> bool:
     return False
 
 
+def _resolve_host_addresses(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve a DNS host and retain every address the certifying runner can use."""
+    try:
+        answers = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return set()
+    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+    for answer in answers:
+        sockaddr = answer[4]
+        if not sockaddr:
+            continue
+        try:
+            addresses.add(ipaddress.ip_address(str(sockaddr[0]).split("%", 1)[0]))
+        except ValueError:
+            return set()
+    return addresses
+
+
 def _is_public_https_url(value: Any) -> bool:
     try:
         parsed = urlparse(str(value))
@@ -369,8 +506,14 @@ def _is_public_https_url(value: Any) -> bool:
             ):
                 return False
             # A single-label DNS name is an intranet name, not a customer-facing
-            # publication identity. Fully qualified test fixtures use a dotted name.
-            return "." in host
+            # publication identity. A dotted name is still not public evidence until
+            # the certifying runner resolves every usable answer to a global address;
+            # this rejects split-DNS names that syntactically resemble public hosts.
+            addresses = _resolve_host_addresses(host) if "." in host else set()
+            return bool(addresses) and all(
+                address.is_global and not address.is_multicast
+                for address in addresses
+            )
         return address.is_global and not address.is_multicast
     except ValueError:
         return False
@@ -772,6 +915,9 @@ def _validate_real_model_transcript_artifact(
     *,
     target: str,
     require_attestation: bool,
+    model_plan: dict | None,
+    checkpoint: dict | None,
+    journey_receipt: dict | None,
 ) -> None:
     """Recompute every prompt/transcript/response digest from the sealed bytes."""
     record = _load_digest_bound_json(
@@ -821,6 +967,13 @@ def _validate_real_model_transcript_artifact(
         lane: [spec for spec in MODEL_ACTION_SPECS if spec[1] == lane]
         for lane in AWS_MODEL_LANES
     }
+    plan_actions = _action_map(model_plan or {})
+    journey_actions = _receipt_action_map(journey_receipt or {})
+    joins = receipt.get("joins") if isinstance(receipt.get("joins"), dict) else {}
+    if model_plan is None or checkpoint is None or journey_receipt is None:
+        findings.errors.append(
+            f"{target} real-model transcript has no canonical SDK plan/checkpoint/action receipt context"
+        )
     lane_transcript_digests: list[str] = []
     for lane_name in AWS_MODEL_LANES:
         transcript_calls = artifact_lanes.get(lane_name)
@@ -913,6 +1066,45 @@ def _validate_real_model_transcript_artifact(
                     findings.errors.append(
                         f"{target} real-model transcript call {action_id} does not prove the selected tool response"
                     )
+                plan_action = plan_actions.get(action_id)
+                journey_action = journey_actions.get(action_id)
+                expected_arguments = None
+                if plan_action is None or checkpoint is None:
+                    findings.errors.append(
+                        f"{target} real-model transcript call {action_id} has no canonical SDK action"
+                    )
+                else:
+                    try:
+                        expected_arguments = _expected_model_arguments(
+                            plan_action,
+                            model_plan or {},
+                            checkpoint,
+                        )
+                    except ValueError as exc:
+                        findings.errors.append(
+                            f"{target} real-model transcript call {action_id} cannot resolve canonical SDK arguments: {exc}"
+                        )
+                    else:
+                        if response.get("arguments") != expected_arguments:
+                            findings.errors.append(
+                                f"{target} real-model transcript call {action_id} arguments do not match the canonical SDK action"
+                            )
+                if journey_action is None:
+                    findings.errors.append(
+                        f"{target} real-model transcript call {action_id} has no SDK action receipt"
+                    )
+                elif expected_arguments is not None and isinstance(receipt_call, dict):
+                    expected_identities = _expected_model_result_identities(
+                        action_id,
+                        journey_action,
+                        expected_arguments,
+                        joins,
+                    )
+                    result = receipt_call.get("result") or {}
+                    if not isinstance(result, dict) or result.get("identities") != expected_identities:
+                        findings.errors.append(
+                            f"{target} real-model transcript call {action_id} result does not match its SDK action identities"
+                        )
             if isinstance(response_text, str) and isinstance(receipt_call, dict):
                 expected_response_digest = hashlib.sha256(
                     response_text.encode("utf-8")
@@ -1013,7 +1205,7 @@ def _validate_real_model_console_artifacts(
     journey_receipt: dict | None,
     *,
     target: str,
-) -> None:
+) -> dict | None:
     """Bind both model targets to the same checkpoint and Console byte artifacts."""
     deterministic = receipt.get("deterministic") or {}
     checkpoint_record = _load_integrity_bound_checkpoint(
@@ -1081,6 +1273,7 @@ def _validate_real_model_console_artifacts(
             findings.errors.append(
                 f"{target} Console browser evidence does not bind the exact candidate/release"
             )
+    return checkpoint_record[1] if checkpoint_record is not None else None
 
 
 def _target_journey_entry(
@@ -1352,6 +1545,7 @@ def validate_external_receipts(
     ] | None = None,
     *,
     require_model_attestations: bool = False,
+    model_plan: dict | None = None,
 ) -> tuple[Findings, list[dict]]:
     findings = Findings()
     records: list[dict] = []
@@ -1427,6 +1621,7 @@ def validate_external_receipts(
                 aws_provision_run_url=aws_provision_run_url,
                 aws_final_artifacts=aws_final_artifacts,
                 require_model_attestation=require_model_attestations,
+                model_plan=model_plan,
             )
             records.append(
                 {
@@ -1574,6 +1769,7 @@ def _validate_real_model_receipt(
     aws_provision_run_url: str | None = None,
     aws_final_artifacts: dict[str, tuple[Path, dict]] | None = None,
     require_model_attestation: bool = False,
+    model_plan: dict | None = None,
 ) -> None:
     target = model_contract["target"]
     receipt_fields = {
@@ -1752,7 +1948,7 @@ def _validate_real_model_receipt(
         console_context = aws_final_artifacts.get("consoleReceipt")
         if console_context is not None:
             console_context_path = console_context[0]
-    _validate_real_model_console_artifacts(
+    model_checkpoint = _validate_real_model_console_artifacts(
         findings,
         manifest,
         identity,
@@ -1859,14 +2055,6 @@ def _validate_real_model_receipt(
                     )
             result = call.get("result") or {}
             identities = result.get("identities") or {}
-            if result.get("status") != "reconciled" or not isinstance(identities, dict) or not identities:
-                findings.errors.append(f"{target} real-model lane {lane_name} call {name} has no successful joined result")
-                continue
-            for key, value in identities.items():
-                if key not in joins or joins.get(key) != value:
-                    findings.errors.append(f"{target} real-model call {name} fabricates or disagrees on identity {key}")
-                else:
-                    observed_identity_keys.setdefault(lane_name, set()).add(key)
             required_call_identities = {
                 "buffer-esri-gpserver": {"gpServerJobId"},
             }.get(action_id, set())
@@ -1876,6 +2064,14 @@ def _validate_real_model_receipt(
                     f"{target} real-model action {action_id} omits result joins "
                     f"{sorted(missing_call_identities)}"
                 )
+            if result.get("status") != "reconciled" or not isinstance(identities, dict) or not identities:
+                findings.errors.append(f"{target} real-model lane {lane_name} call {name} has no successful joined result")
+                continue
+            for key, value in identities.items():
+                if key not in joins or joins.get(key) != value:
+                    findings.errors.append(f"{target} real-model call {name} fabricates or disagrees on identity {key}")
+                else:
+                    observed_identity_keys.setdefault(lane_name, set()).add(key)
     required_lane_joins = {
         "admin": {"connectionId", "parcelsLayerId", "zoningLayerId", "serviceName"},
         "esriGp": {"esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId"},
@@ -1958,6 +2154,9 @@ def _validate_real_model_receipt(
         evidence_path,
         target=target,
         require_attestation=require_model_attestation,
+        model_plan=model_plan,
+        checkpoint=model_checkpoint,
+        journey_receipt=journey_receipt,
     )
     if _contains_forbidden_evidence(
         {"receipt": receipt, "evidence": evidence_document},
@@ -2404,6 +2603,7 @@ def main(argv: list[str] | None = None) -> int:
                     supplied_evidence,
                     target_journey_receipts,
                     require_model_attestations=True,
+                    model_plan=plan,
                 )
         report = build_report(
             manifest,

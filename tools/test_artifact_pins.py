@@ -45,7 +45,8 @@ def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "SDK_DOTNET_PROVENANCE_URL" in workflow
-    assert '--source "$WORK/verifiedfeed"' in workflow
+    assert '--source "$STAGING_NUGET_SOURCE"' in workflow
+    assert 'RESOLVED_PACKAGE="$NUGET_PACKAGES/honua.sdk/$VERSION_KEY/' in workflow
     assert '--source "$WORK/localfeed"' in workflow
     assert 'NF==2 && $2=="Chart.yaml" && !root' in workflow
     assert 'END {print root}' in workflow
@@ -70,6 +71,12 @@ def test_strict_consumption_requires_customer_facing_registry_artifacts():
     assert 'Install NuGet provenance verifier dependencies' in workflow
     assert '"pyyaml>=6.0"' in workflow
     assert '"pypi-attestations==0.0.30"' in workflow
+    assert 'dotnet restore Consumer --source "$STAGING_NUGET_SOURCE"' in workflow
+    assert '--packages "$NUGET_PACKAGES" --no-cache' in workflow
+    assert 'python -m pip download --no-cache-dir --no-deps --only-binary=:all:' in workflow
+    assert '--index-url "$STAGING_PYPI_INDEX" --dest "$REGISTRY_WHEELS"' in workflow
+    assert 'curl -fsSL "$SDK_DOTNET_PROVENANCE_URL"' not in workflow
+    assert 'curl -fsSL "$SDK_PYTHON_PROVENANCE_URL"' not in workflow
     assert workflow.count("ALLOW_LOCAL_FALLBACK=false") == 2
     assert workflow.count(
         'if [ "$STATUS" = "blocked" ] && [ "$ALLOW_LOCAL_FALLBACK" = true ]; then'

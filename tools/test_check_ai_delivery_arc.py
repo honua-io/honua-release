@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -13,6 +15,14 @@ import check_ai_delivery_arc as gate  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = yaml.safe_load((ROOT / "certification" / "ai-delivery-arc.yaml").read_text(encoding="utf-8"))
+REAL_RESOLVE_HOST_ADDRESSES = gate._resolve_host_addresses
+
+
+@pytest.fixture(autouse=True)
+def resolve_example_hosts_as_public(monkeypatch):
+    """Keep receipt fixtures deterministic while production validation uses real DNS."""
+    public = {ipaddress.ip_address("93.184.216.34")}
+    monkeypatch.setattr(gate, "_resolve_host_addresses", lambda _host: public)
 
 
 def manifest() -> dict:
@@ -99,6 +109,7 @@ def plan() -> dict:
 
     by_id = {action["id"]: action for stage in stages for action in stage["actions"]}
     by_id["create-connection"]["captures"] = [{"variable": "connectionId", "pointers": ["/connectionId"]}]
+    by_id["publish-parcels"]["arguments"] = {"serviceName": "${serviceName}"}
     by_id["publish-parcels"]["captures"] = [{"variable": "parcelsLayerId", "pointers": ["/layerId"]}]
     by_id["publish-zoning"]["captures"] = [{"variable": "zoningLayerId", "pointers": ["/layerId"]}]
     by_id["buffer-esri-mcp"]["captures"] = [{"variable": "esriMcpJobId", "pointers": ["/jobId"]}]
@@ -454,7 +465,7 @@ def test_local_sdk_receipt_cannot_be_reused_for_aws_target(tmp_path: Path):
     assert any("not target-bound to aws-ecs" in error for error in findings.errors)
 
 
-def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
+def model_join_values(manifest_value: dict, candidate_id: str) -> dict:
     joins = {
         name: f"joined-{name}"
         for name in (
@@ -486,20 +497,80 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
             },
         }
     )
+    return joins
+
+
+def model_journey_context(joins: dict) -> tuple[dict, dict]:
+    """Build one stable SDK receipt/checkpoint pair for model-evidence tests."""
+    plan_value = plan()
+    actions = gate._action_map(plan_value)
+    captured: dict = {
+        "serviceName": joins["serviceName"],
+        "fixtureBaseUrl": "https://fixtures.example.test",
+    }
+    receipts: list[dict] = []
+    for action_id, *_ in gate.MODEL_ACTION_SPECS:
+        action = actions[action_id]
+        receipt_captures = {}
+        for capture in action.get("captures") or []:
+            name = capture["variable"]
+            if name in joins:
+                value = joins[name]
+            elif name.endswith("Generation"):
+                prior = captured.get(name)
+                value = prior + 1 if isinstance(prior, int) else 1
+            elif "equals" in capture:
+                value = gate._resolve_model_template(
+                    capture["equals"],
+                    {**(plan_value.get("variables") or {}), **captured},
+                    f"capture {name}.equals",
+                )
+            elif name.endswith("Number"):
+                value = 1
+            else:
+                value = f"captured-{name}"
+            receipt_captures[name] = value
+            captured[name] = value
+        receipts.append(
+            {
+                "id": action_id,
+                "kind": action["kind"],
+                "status": "passed",
+                **({"captures": receipt_captures} if receipt_captures else {}),
+            }
+        )
+    checkpoint = {
+        "candidateId": joins["candidateId"],
+        "releaseId": joins["releaseId"],
+        "resume": {"capturedVariables": captured},
+    }
+    return {"stages": [{"actions": receipts}]}, checkpoint
+
+
+def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
+    joins = model_join_values(manifest_value, candidate_id)
+    journey, checkpoint = model_journey_context(joins)
+    journey_actions = gate._receipt_action_map(journey)
+    plan_value = plan()
+    plan_actions = gate._action_map(plan_value)
 
     def call(
         action_id: str,
-        lane: str,
         role: str,
         name: str,
-        identities: tuple[str, ...],
         *,
         family: str | None = None,
         kind: str = "mcp",
     ) -> dict:
+        action_receipt = journey_actions[action_id]
+        expected_arguments = gate._expected_model_arguments(
+            plan_actions[action_id],
+            plan_value,
+            checkpoint,
+        )
         return {
             "actionId": action_id,
-            "actionReceiptSha256": gate._canonical_sha256({"id": action_id}),
+            "actionReceiptSha256": gate._canonical_sha256(action_receipt),
             "role": role,
             **({"family": family} if family else {}),
             "kind": kind,
@@ -508,32 +579,15 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
             "responseSha256": "7" * 64,
             "result": {
                 "status": "reconciled",
-                "identities": {key: joins[key] for key in identities},
+                "identities": gate._expected_model_result_identities(
+                    action_id,
+                    action_receipt,
+                    expected_arguments,
+                    joins,
+                ),
             },
         }
 
-    lane_identity_keys = {
-        "admin": (
-            "candidateId", "connectionId", "parcelsLayerId", "zoningLayerId", "serviceName",
-        ),
-        "esriGp": (
-            "candidateId", "esriMcpJobId", "esriMcpResultPackageId", "esriMcpArtifactId",
-        ),
-        "nativeAnalysis": (
-            "candidateId", "gpServerJobId", "directAnalysisJobId", "bufferArtifactId",
-        ),
-        "studioPublication": (
-            "candidateId",
-            *(
-                f"{family}{suffix}"
-                for family in ("map", "app", "dashboard")
-                for suffix in (
-                    "ItemId", "VersionId", "ReopenedDraftId", "PublicationVersionId",
-                    "ProposalId",
-                )
-            ),
-        ),
-    }
     lanes = {
         lane: {"promptSha256": "1" * 64, "transcriptSha256": "2" * 64, "calls": []}
         for lane in gate.AWS_MODEL_LANES
@@ -542,13 +596,11 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
         lanes[lane]["calls"].append(
             call(
                 action_id,
-                lane,
                 role,
                 name.format(
                     esriMcpJobId=joins["esriMcpJobId"],
                     directAnalysisJobId=joins["directAnalysisJobId"],
                 ),
-                lane_identity_keys[lane],
                 family=family,
                 kind=kind,
             )
@@ -606,17 +658,8 @@ def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[d
     return receipt, evidence
 
 
-def model_journey_receipt() -> dict:
-    return {
-        "stages": [
-            {
-                "actions": [
-                    {"id": action_id}
-                    for action_id, *_ in gate.MODEL_ACTION_SPECS
-                ]
-            }
-        ]
-    }
+def model_journey_receipt(joins: dict) -> dict:
+    return model_journey_context(joins)[0]
 
 
 def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
@@ -652,6 +695,7 @@ def write_model_transcript_artifact(
     directory: Path,
     receipt: dict,
     evidence: dict,
+    checkpoint: dict,
 ) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     receipt_lanes = receipt.get("lanes") or {}
@@ -659,6 +703,8 @@ def write_model_transcript_artifact(
         lane: [] for lane in gate.AWS_MODEL_LANES if lane in receipt_lanes
     }
     lane_transcript_digests: list[str] = []
+    plan_value = plan()
+    plan_actions = gate._action_map(plan_value)
     for lane_name in gate.AWS_MODEL_LANES:
         if lane_name not in receipt_lanes:
             continue
@@ -667,7 +713,11 @@ def write_model_transcript_artifact(
         for call in receipt_lanes[lane_name]["calls"]:
             action_id = call["actionId"]
             tool_name = gate._model_tool_for_kind(call["kind"], call["name"])
-            arguments = {"actionId": action_id}
+            arguments = gate._expected_model_arguments(
+                plan_actions[action_id],
+                plan_value,
+                checkpoint,
+            )
             response = json.dumps(
                 {
                     "arguments": arguments,
@@ -742,6 +792,45 @@ def write_model_transcript_artifact(
     return artifact_path
 
 
+def reseal_model_transcript_artifact(
+    transcript_path: Path,
+    artifact: dict,
+    receipt: dict,
+    evidence: dict,
+) -> None:
+    """Rebind every nested digest after an intentional negative-test mutation."""
+    lane_digests = []
+    for lane_name in gate.AWS_MODEL_LANES:
+        artifact_calls = artifact["lanes"][lane_name]
+        receipt_lane = receipt["lanes"][lane_name]
+        receipt_lane["promptSha256"] = gate._canonical_sha256(
+            [hashlib.sha256(item["prompt"].encode()).hexdigest() for item in artifact_calls]
+        )
+        receipt_lane["transcriptSha256"] = gate._canonical_sha256(
+            [
+                hashlib.sha256(item["transcript"].encode()).hexdigest()
+                for item in artifact_calls
+            ]
+        )
+        for receipt_call, artifact_call in zip(
+            receipt_lane["calls"], artifact_calls, strict=True
+        ):
+            receipt_call["responseSha256"] = hashlib.sha256(
+                artifact_call["response"].encode()
+            ).hexdigest()
+        lane_digests.append(receipt_lane["transcriptSha256"])
+    receipt["transcriptSha256"] = gate._canonical_sha256(lane_digests)
+    evidence["lanes"] = receipt["lanes"]
+    evidence["transcriptSha256"] = receipt["transcriptSha256"]
+    transcript_path.write_text(
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    digest = gate._sha256(transcript_path)
+    receipt["transcriptArtifactSha256"] = digest
+    evidence["transcriptArtifactSha256"] = digest
+
+
 def write_local_model_supporting_artifacts(
     directory: Path,
     manifest_value: dict,
@@ -749,6 +838,7 @@ def write_local_model_supporting_artifacts(
     evidence: dict,
 ) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
+    journey, model_checkpoint = model_journey_context(receipt["joins"])
     checkpoint = {
         "schemaVersion": "honua.zero-to-map.checkpoint/v1",
         "candidateId": receipt["candidateId"],
@@ -756,6 +846,7 @@ def write_local_model_supporting_artifacts(
         "target": "local-docker",
         "state": "paused",
         "sourceRevision": manifest_value["components"]["honua-sdk-js"]["sha"],
+        "resume": model_checkpoint["resume"],
     }
     checkpoint["integrity"] = {
         "algorithm": "sha256",
@@ -786,7 +877,6 @@ def write_local_model_supporting_artifacts(
         ),
         encoding="utf-8",
     )
-    journey = model_journey_receipt()
     journey["stages"][0]["actions"].append(
         {
             "id": "console-approval",
@@ -826,6 +916,8 @@ def write_generic_aws_evidence_bundle(
     final_name: str = "final-evidence.json",
 ) -> tuple[dict, Path]:
     directory.mkdir(parents=True, exist_ok=True)
+    model_joins = model_join_values(manifest_value, candidate_id)
+    journey, model_checkpoint = model_journey_context(model_joins)
     provision_components = {
         name: manifest_value["components"][name]["sha"]
         for name in ("honua-server", "honua-devops", "honua-iac")
@@ -907,6 +999,7 @@ def write_generic_aws_evidence_bundle(
         "state": "paused",
         "sourceRevision": manifest_value["components"]["honua-sdk-js"]["sha"],
         "provisionReceiptSha256": gate._sha256(binding_path),
+        "resume": model_checkpoint["resume"],
     }
     checkpoint["integrity"] = {
         "algorithm": "sha256",
@@ -934,7 +1027,6 @@ def write_generic_aws_evidence_bundle(
     }
     console_evidence_path = directory / "console-evidence.json"
     console_evidence_path.write_text(json.dumps(console_evidence), encoding="utf-8")
-    journey = model_journey_receipt()
     journey["stages"][0]["actions"].append(
         {
             "id": "console-approval",
@@ -1078,7 +1170,10 @@ def validate_aws_model_documents(
         evidence["endpointSha256"] = endpoint_sha256
 
     evidence_path = tmp_path / "model-evidence.json"
-    write_model_transcript_artifact(tmp_path, receipt, evidence)
+    model_checkpoint = json.loads(
+        provision_evidence_path.with_name("checkpoint.json").read_text(encoding="utf-8")
+    )
+    write_model_transcript_artifact(tmp_path, receipt, evidence, model_checkpoint)
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
     receipt["evidence"] = {
         "url": model_run_url or run_url,
@@ -1164,6 +1259,7 @@ def validate_aws_model_documents(
                 ),
             )
         },
+        model_plan=plan(),
     )
     return findings
 
@@ -1185,7 +1281,15 @@ def validate_local_model_documents(
         receipt,
         evidence,
     )
-    transcript_path = write_model_transcript_artifact(tmp_path, receipt, evidence)
+    model_checkpoint = json.loads(
+        (tmp_path / "checkpoint.json").read_text(encoding="utf-8")
+    )
+    transcript_path = write_model_transcript_artifact(
+        tmp_path,
+        receipt,
+        evidence,
+        model_checkpoint,
+    )
     if mutate_artifacts is not None:
         mutate_artifacts(tmp_path, transcript_path, receipt, evidence, journey)
     evidence_path = tmp_path / "real-model-evidence.json"
@@ -1208,6 +1312,7 @@ def validate_local_model_documents(
         {expected["id"]: (receipt_path, receipt)},
         {expected["id"]: (evidence_path, evidence)},
         {"local-docker": journey},
+        model_plan=plan(),
     )
     return findings
 
@@ -1256,7 +1361,17 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
                     value,
                     evidence_value,
                 )
-            write_model_transcript_artifact(model_directory, value, evidence_value)
+            checkpoint_path = (
+                model_directory / "checkpoint.json"
+                if receipt_id == "local-docker-real-model-ai-arc"
+                else provision_binding_path.with_name("checkpoint.json")
+            )
+            write_model_transcript_artifact(
+                model_directory,
+                value,
+                evidence_value,
+                json.loads(checkpoint_path.read_text(encoding="utf-8")),
+            )
             evidence_path = model_directory / "real-model-evidence.json"
             evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
             value["evidence"] = {
@@ -1356,6 +1471,7 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             ),
             "local-docker": local_journey,
         },
+        model_plan=plan(),
     )
 
     assert findings.status == "pass", (findings.errors, findings.blockers)
@@ -1408,36 +1524,12 @@ def test_local_real_model_requires_content_addressed_transcript_bytes(tmp_path: 
         call["transcript"] = json.dumps(
             events, sort_keys=True, separators=(",", ":")
         )
-        lane_digests = []
-        for lane_name in gate.AWS_MODEL_LANES:
-            artifact_calls = artifact["lanes"][lane_name]
-            receipt_lane = receipt["lanes"][lane_name]
-            receipt_lane["promptSha256"] = gate._canonical_sha256(
-                [hashlib.sha256(item["prompt"].encode()).hexdigest() for item in artifact_calls]
-            )
-            receipt_lane["transcriptSha256"] = gate._canonical_sha256(
-                [
-                    hashlib.sha256(item["transcript"].encode()).hexdigest()
-                    for item in artifact_calls
-                ]
-            )
-            for receipt_call, artifact_call in zip(
-                receipt_lane["calls"], artifact_calls, strict=True
-            ):
-                receipt_call["responseSha256"] = hashlib.sha256(
-                    artifact_call["response"].encode()
-                ).hexdigest()
-            lane_digests.append(receipt_lane["transcriptSha256"])
-        receipt["transcriptSha256"] = gate._canonical_sha256(lane_digests)
-        evidence["lanes"] = receipt["lanes"]
-        evidence["transcriptSha256"] = receipt["transcriptSha256"]
-        transcript_path.write_text(
-            json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
+        reseal_model_transcript_artifact(
+            transcript_path,
+            artifact,
+            receipt,
+            evidence,
         )
-        digest = gate._sha256(transcript_path)
-        receipt["transcriptArtifactSha256"] = digest
-        evidence["transcriptArtifactSha256"] = digest
 
     forged_dir = tmp_path / "forged-tool"
     forged_manifest_path = forged_dir / "identity.yaml"
@@ -1456,6 +1548,90 @@ def test_local_real_model_requires_content_addressed_transcript_bytes(tmp_path: 
     assert any(
         "does not prove the selected tool response" in error
         for error in forged.errors
+    )
+
+    def forge_selected_arguments(
+        _directory,
+        transcript_path,
+        receipt,
+        evidence,
+        _journey,
+    ):
+        artifact = json.loads(transcript_path.read_text(encoding="utf-8"))
+        call = artifact["lanes"]["admin"][0]
+        response = json.loads(call["response"])
+        events = json.loads(call["transcript"])
+        forged_arguments = {"candidateId": receipt["candidateId"]}
+        response["arguments"] = forged_arguments
+        next(event for event in events if event["eventName"] == "tool_call_stop")[
+            "toolArguments"
+        ] = forged_arguments
+        call["response"] = json.dumps(
+            response, sort_keys=True, separators=(",", ":")
+        )
+        call["transcript"] = json.dumps(
+            events, sort_keys=True, separators=(",", ":")
+        )
+        reseal_model_transcript_artifact(
+            transcript_path,
+            artifact,
+            receipt,
+            evidence,
+        )
+
+    arguments_dir = tmp_path / "forged-arguments"
+    arguments_dir.mkdir()
+    arguments_manifest_path = arguments_dir / "identity.yaml"
+    arguments_manifest_path.write_text(
+        yaml.safe_dump(manifest_value), encoding="utf-8"
+    )
+    arguments_candidate = gate.candidate_identity(
+        manifest_value, arguments_manifest_path
+    )["candidateId"]
+    receipt, evidence = local_real_model_documents(
+        manifest_value,
+        arguments_candidate,
+    )
+    forged_arguments = validate_local_model_documents(
+        arguments_dir,
+        receipt,
+        evidence,
+        mutate_artifacts=forge_selected_arguments,
+    )
+    assert any(
+        "admin-status arguments do not match the canonical SDK action" in error
+        for error in forged_arguments.errors
+    )
+
+    def substitute_result_identity(
+        _directory,
+        _transcript_path,
+        receipt,
+        evidence,
+        _journey,
+    ):
+        receipt["lanes"]["admin"]["calls"][0]["result"]["identities"] = {
+            "connectionId": receipt["joins"]["connectionId"]
+        }
+        evidence["lanes"] = receipt["lanes"]
+
+    result_dir = tmp_path / "substituted-result"
+    result_dir.mkdir()
+    result_manifest_path = result_dir / "identity.yaml"
+    result_manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    result_candidate = gate.candidate_identity(manifest_value, result_manifest_path)[
+        "candidateId"
+    ]
+    receipt, evidence = local_real_model_documents(manifest_value, result_candidate)
+    substituted_result = validate_local_model_documents(
+        result_dir,
+        receipt,
+        evidence,
+        mutate_artifacts=substitute_result_identity,
+    )
+    assert any(
+        "admin-status result does not match its SDK action identities" in error
+        for error in substituted_result.errors
     )
 
     attestation_findings = gate.Findings()
@@ -1623,7 +1799,7 @@ def test_actions_run_url_is_bound_to_the_governed_release_repository():
     )
 
 
-def test_public_https_url_rejects_credentials_and_non_public_hosts():
+def test_public_https_url_rejects_credentials_and_non_public_hosts(monkeypatch):
     assert gate._is_public_https_url("https://service.example.com/share")
     for value in (
         "https://user:password@service.example.com/share",
@@ -1647,6 +1823,48 @@ def test_public_https_url_rejects_credentials_and_non_public_hosts():
         "https://[::1]/share",
     ):
         assert not gate._is_public_https_url(value), value
+
+    monkeypatch.setattr(
+        gate,
+        "_resolve_host_addresses",
+        lambda _host: {ipaddress.ip_address("10.0.0.8")},
+    )
+    assert not gate._is_public_https_url("https://console.example.com/share")
+
+    monkeypatch.setattr(gate, "_resolve_host_addresses", lambda _host: set())
+    assert not gate._is_public_https_url("https://missing.example.com/share")
+
+    monkeypatch.setattr(
+        gate,
+        "_resolve_host_addresses",
+        lambda _host: {
+            ipaddress.ip_address("93.184.216.34"),
+            ipaddress.ip_address("192.168.1.5"),
+        },
+    )
+    assert not gate._is_public_https_url("https://split.example.com/share")
+
+
+def test_public_hostname_resolution_retains_every_address(monkeypatch):
+    monkeypatch.setattr(
+        gate.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (gate.socket.AF_INET, gate.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (
+                gate.socket.AF_INET6,
+                gate.socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 443, 0, 0),
+            ),
+        ],
+    )
+
+    assert REAL_RESOLVE_HOST_ADDRESSES("service.example.com") == {
+        ipaddress.ip_address("93.184.216.34"),
+        ipaddress.ip_address("2606:2800:220:1:248:1893:25c8:1946"),
+    }
 
 
 def test_generic_aws_evidence_loads_every_digest_listed_artifact(tmp_path: Path):
