@@ -50,6 +50,7 @@ FORMAT_BUDGET_OBSERVATION_FIELDS = {
     "cache_hits", "coordinate_error", "geometry_error", "metadata_assertions",
     "metadata_values",
 }
+MAX_FORMAT_RECEIPT_PAYLOAD_BYTES = 64 * 1024
 REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
@@ -141,6 +142,19 @@ def _typed_equal(actual: object, expected: object) -> bool:
             for actual_value, expected_value in zip(actual, expected, strict=True)
         )
     return actual == expected
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise _DuplicateJsonKey(key)
+        value[key] = item
+    return value
 
 
 def _finite_nonnegative_number(value: object) -> bool:
@@ -266,17 +280,26 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
         or not isinstance(receipt.get("payload_base64"), str)
     ):
         return False
+    is_format = str(cell.get("capability_key", "")).startswith("format.")
     try:
+        if (
+            is_format
+            and len(receipt["payload_base64"]) > ((MAX_FORMAT_RECEIPT_PAYLOAD_BYTES + 2) // 3) * 4
+        ):
+            return False
         payload_bytes = base64.b64decode(receipt["payload_base64"], validate=True)
     except (ValueError, TypeError):
         return False
-    if str(cell.get("capability_key", "")).startswith("format."):
+    if is_format:
+        if len(payload_bytes) > MAX_FORMAT_RECEIPT_PAYLOAD_BYTES:
+            return False
         try:
-            payload = json.loads(payload_bytes)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = json.loads(payload_bytes, object_pairs_hook=_unique_json_object)
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, _DuplicateJsonKey):
             return False
         if (
             not isinstance(payload, dict)
+            or set(payload) != {"schema", "budget_observations"}
             or payload.get("schema") != "honua.format-budget-observations/v1"
             or "budget_observations" not in payload
             or not _typed_equal(payload["budget_observations"], cell.get("budget_observations"))

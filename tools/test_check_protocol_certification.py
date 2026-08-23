@@ -369,6 +369,40 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
     assert any("closed governed fields" in finding["why"] for finding in extra_observation_report["findings"])
 
 
+def test_format_budget_receipt_rejects_ambiguous_or_pathological_json():
+    cell = _cell(capability_key="format.cog")
+    cell["budget_observations"] = {
+        "requests": 3,
+        "transferred_bytes": 500_000,
+        "full_object_downloads": 0,
+        "range_requests": 2,
+        "cache_hits": 1,
+        "coordinate_error": 0.0,
+        "geometry_error": 0.0,
+        "metadata_assertions": ["crs"],
+        "metadata_values": {"crs": "EPSG:4326"},
+    }
+    duplicate = (
+        b'{"schema":"honua.format-budget-observations/v1",'
+        b'"budget_observations":{"metadata_values":{"crs":"EPSG:3857","crs":"EPSG:4326"}}}'
+    )
+    deeply_nested = (
+        b'{"schema":"honua.format-budget-observations/v1","budget_observations":'
+        + b"[" * 2000
+        + b"0"
+        + b"]" * 2000
+        + b"}"
+    )
+    oversized = b"x" * (cert.MAX_FORMAT_RECEIPT_PAYLOAD_BYTES + 1)
+
+    for payload_bytes in (duplicate, deeply_nested, oversized):
+        candidate = copy.deepcopy(cell)
+        candidate["evidence_receipt"]["payload_base64"] = base64.b64encode(
+            payload_bytes
+        ).decode("ascii")
+        assert not cert._valid_receipt(candidate)
+
+
 def test_fresh_nightly_required_cell_passes():
     report = _evaluate(_ledger(), "nightly", expected_source_sha=SHA, now=NOW)
     assert report["overall_status"] == "pass"
