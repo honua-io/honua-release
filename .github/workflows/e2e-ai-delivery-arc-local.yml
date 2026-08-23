@@ -174,7 +174,6 @@ jobs:
           E2E_CONSOLE_DIR: ${{ github.workspace }}/_console
           E2E_AI_LOCAL_OUT: ${{ github.workspace }}/e2e/out/ai-delivery-arc-local
           HONUA_PLATFORM_MANIFEST: ${{ github.workspace }}/platform-manifest.yaml
-          HONUA_AI_ARC_LOCAL_ORIGIN: ${{ vars.HONUA_AI_ARC_LOCAL_ORIGIN }}
           HONUA_AI_ARC_CONSOLE_ORIGIN: ${{ vars.HONUA_AI_ARC_CONSOLE_ORIGIN }}
           HONUA_AI_ARC_FIXTURE_BASE_URL: ${{ vars.HONUA_AI_ARC_FIXTURE_BASE_URL }}
           HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}

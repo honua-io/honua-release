@@ -97,9 +97,10 @@ plain-HTTP receipts cannot certify publication.
 
 ```bash
 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
-# The live local producer also requires exact Studio/Console checkouts, a public
-# HTTPS origin routed to its local port, the Console origin, distinct scoped
-# prepare/Console credentials, and a configured real-model provider.
+# The live local producer also requires exact Studio/Console checkouts, the
+# Console origin, distinct scoped prepare/Console credentials, and a configured
+# real-model provider. It creates a pinned ephemeral HTTPS tunnel, verifies that
+# the generated origin routes to its exact local candidate port, and tears it down.
 python e2e/local_ai_delivery_arc.py
 ```
 

@@ -21,6 +21,7 @@ import re
 import secrets
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,12 @@ RUN_URL = re.compile(
     r"https://github\.com/honua-io/honua-release/actions/runs/[1-9][0-9]*"
 )
 PROVIDERS = {"anthropic", "bedrock", "openai"}
+CLOUDFLARED_IMAGE = (
+    # cloudflared 2026.8.2 multi-architecture manifest.
+    "cloudflare/cloudflared@"
+    "sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38"
+)
+QUICK_TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 CHILD_CREDENTIAL_ENV = (
     "HONUA_AI_ARC_PREPARE_CREDENTIAL",
     "HONUA_AI_ARC_CONSOLE_TOKEN",
@@ -87,6 +94,14 @@ class Paths:
     model_evidence: Path
     model_receipt: Path
     report: Path
+    tunnel_marker: Path
+
+
+@dataclass(frozen=True)
+class PublicTunnel:
+    container: str
+    origin: str
+    target: str
 
 
 def output_paths(out: Path) -> Paths:
@@ -102,6 +117,7 @@ def output_paths(out: Path) -> Paths:
         model_evidence=out / "real-model-evidence.json",
         model_receipt=out / "real-model-receipt.json",
         report=out / "producer-report.json",
+        tunnel_marker=out / "tunnel-container",
     )
 
 
@@ -169,6 +185,27 @@ def _required(env: dict[str, str], name: str) -> str:
     return value
 
 
+def _local_port(environment: dict[str, str]) -> str:
+    port = environment.get("E2E_AI_LOCAL_PORT", "8080")
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise ProducerBlocked("E2E_AI_LOCAL_PORT must be a valid TCP port")
+    return port
+
+
+def _credential_isolated_environment(source: dict[str, str]) -> dict[str, str]:
+    environment = dict(source)
+    for name in CHILD_CREDENTIAL_ENV:
+        environment.pop(name, None)
+    environment.update(
+        {
+            "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+            "AWS_CONFIG_FILE": os.devnull,
+            "AWS_EC2_METADATA_DISABLED": "true",
+        }
+    )
+    return environment
+
+
 def _load_manifest(path: Path) -> dict[str, Any]:
     try:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -208,6 +245,7 @@ def _producer_contract_ready(studio: Path, console: Path) -> None:
         ) from error
     if (
         "HONUA_AI_ARC_REAL_MODEL_HANDOFF" not in studio_text
+        or "resume is credential-free" not in studio_text
         or 'id: "local-docker-real-model-ai-arc"' not in studio_library_text
         or "HONUA_AI_ARC_CONSOLE_EVIDENCE" not in console_text
     ):
@@ -306,9 +344,7 @@ def _write_install_environment(
             "local producer requires the exact manifest server image@digest"
         )
     paths.install.mkdir(parents=True, exist_ok=True)
-    http_port = environment.get("E2E_AI_LOCAL_PORT", "8080")
-    if not http_port.isdigit() or not 1 <= int(http_port) <= 65535:
-        raise ProducerBlocked("E2E_AI_LOCAL_PORT must be a valid TCP port")
+    http_port = _local_port(environment)
     env_file = paths.install / ".env"
     env_file.write_text(
         "\n".join(
@@ -428,16 +464,7 @@ def _producer_environment(
     console_origin: str,
     evidence_url: str,
 ) -> dict[str, str]:
-    environment = dict(source)
-    for name in CHILD_CREDENTIAL_ENV:
-        environment.pop(name, None)
-    environment.update(
-        {
-            "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
-            "AWS_CONFIG_FILE": os.devnull,
-            "AWS_EC2_METADATA_DISABLED": "true",
-        }
-    )
+    environment = _credential_isolated_environment(source)
     environment.update(
         {
             "HONUA_PLATFORM_MANIFEST": str(manifest_path),
@@ -467,12 +494,31 @@ def _producer_environment(
     return environment
 
 
+def _studio_resume_environment(source: dict[str, str]) -> dict[str, str]:
+    environment = dict(source)
+    for name in (
+        "HONUA_ADMIN_KEY",
+        "HONUA_API_KEY",
+        "HONUA_AI_ARC_PREPARE_CREDENTIAL",
+        "HONUA_AI_ARC_CONSOLE_TOKEN",
+        "HONUA_AI_PROVIDER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ):
+        environment.pop(name, None)
+    # The sealed-handoff Studio contract validated by _producer_contract_ready()
+    # makes resume explicitly credential-free. The scoped prepare credential is
+    # never exposed after the immutable handoff has been created.
+    return environment
+
+
 def _write_report(
     paths: Paths,
     status: str,
     why: str,
     manifest: dict[str, Any] | None,
     manifest_path: Path,
+    tunnel: PublicTunnel | None = None,
 ) -> None:
     report = {
         "schemaVersion": "honua.ai-delivery-arc-local-producer/v1",
@@ -487,16 +533,84 @@ def _write_report(
             if manifest is not None
             else {}
         ),
+        **(
+            {
+                "publicRoute": {
+                    "origin": tunnel.origin,
+                    "target": tunnel.target,
+                    "tunnelImage": CLOUDFLARED_IMAGE,
+                }
+            }
+            if tunnel is not None
+            else {}
+        ),
     }
     paths.out.mkdir(parents=True, exist_ok=True)
     paths.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
-def _teardown(paths: Paths, env: dict[str, str]) -> None:
+def _start_public_tunnel(paths: Paths, env: dict[str, str]) -> PublicTunnel:
+    target = f"http://127.0.0.1:{_local_port(env)}"
+    container = f"honua-ai-arc-tunnel-{secrets.token_hex(8)}"
+    command = [
+        "docker",
+        "run",
+        "--detach",
+        "--network",
+        "host",
+        "--name",
+        container,
+        CLOUDFLARED_IMAGE,
+        "tunnel",
+        "--no-autoupdate",
+        "--protocol",
+        "http2",
+        "--url",
+        target,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            env=_credential_isolated_environment(env),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise ProducerFailed("public tunnel could not start") from error
+    if result.returncode != 0:
+        raise ProducerFailed("pinned public tunnel container failed to start")
+    paths.out.mkdir(parents=True, exist_ok=True)
+    paths.tunnel_marker.write_text(container + "\n", encoding="utf-8")
+
+    for _ in range(45):
+        logs = subprocess.run(
+            ["docker", "logs", container],
+            env=_credential_isolated_environment(env),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        match = QUICK_TUNNEL_URL.search(logs.stdout + "\n" + logs.stderr)
+        if match is not None:
+            origin = public_https_origin(match.group(0), "generated local tunnel")
+            return PublicTunnel(container=container, origin=origin, target=target)
+        running = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", container],
+            env=_credential_isolated_environment(env),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if running.returncode != 0 or running.stdout.strip() != "true":
+            raise ProducerFailed("public tunnel exited before publishing an origin")
+        time.sleep(1)
+    raise ProducerFailed("public tunnel did not publish an origin within 45 seconds")
+
+
+def _start_candidate(paths: Paths, env: dict[str, str]) -> None:
     compose = paths.install / "compose.yaml"
-    if not compose.is_file():
-        return
-    result = subprocess.run(
+    _run(
         [
             "docker",
             "compose",
@@ -504,14 +618,116 @@ def _teardown(paths: Paths, env: dict[str, str]) -> None:
             str(paths.install),
             "--file",
             str(compose),
-            "down",
-            "--volumes",
+            "up",
+            "-d",
+            "--wait",
         ],
         env=env,
-        check=False,
+        label="local candidate installation",
     )
-    if result.returncode != 0:
-        raise ProducerFailed("local candidate teardown failed")
+
+
+def _verify_public_route(
+    tunnel: PublicTunnel, env: dict[str, str], *, attempts: int = 30
+) -> None:
+    inspected = subprocess.run(
+        ["docker", "inspect", tunnel.container],
+        env=_credential_isolated_environment(env),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        records = json.loads(inspected.stdout)
+        if not isinstance(records, list) or not records or not isinstance(records[0], dict):
+            raise ValueError("docker inspect did not return an object")
+        record = records[0]
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ProducerFailed("public tunnel identity is unavailable") from error
+    command = (record.get("Config") or {}).get("Cmd") or []
+    if (
+        inspected.returncode != 0
+        or not (record.get("State") or {}).get("Running")
+        or (record.get("Config") or {}).get("Image") != CLOUDFLARED_IMAGE
+        or (record.get("HostConfig") or {}).get("NetworkMode") != "host"
+        or tunnel.target not in command
+    ):
+        raise ProducerFailed("public tunnel is not bound to the exact local candidate port")
+
+    local_url = f"{tunnel.target}/healthz/ready"
+    public_url = f"{tunnel.origin}/healthz/ready"
+    try:
+        with urlopen(local_url, timeout=10) as response:
+            local_ready = (
+                response.status == 200
+                and response.read().strip().lower() == b"ready"
+            )
+    except OSError as error:
+        raise ProducerFailed("local candidate readiness route is unavailable") from error
+    if not local_ready:
+        raise ProducerFailed("local candidate readiness route did not return ready")
+
+    for attempt in range(attempts):
+        try:
+            with urlopen(public_url, timeout=10) as response:
+                if (
+                    response.status == 200
+                    and response.read().strip().lower() == b"ready"
+                ):
+                    return
+        except OSError:
+            pass
+        if attempt + 1 < attempts:
+            time.sleep(1)
+    raise ProducerFailed(
+        "public tunnel does not route to the local candidate readiness endpoint"
+    )
+
+
+def _teardown(paths: Paths, env: dict[str, str]) -> None:
+    errors: list[str] = []
+    compose = paths.install / "compose.yaml"
+    if compose.is_file():
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--project-directory",
+                str(paths.install),
+                "--file",
+                str(compose),
+                "down",
+                "--volumes",
+            ],
+            env=env,
+            check=False,
+        )
+        if result.returncode != 0:
+            errors.append("local candidate teardown failed")
+    if paths.tunnel_marker.is_file():
+        try:
+            container = paths.tunnel_marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            container = ""
+        if not re.fullmatch(r"honua-ai-arc-tunnel-[0-9a-f]{16}", container):
+            errors.append("public tunnel cleanup marker is invalid")
+        else:
+            result = subprocess.run(
+                ["docker", "rm", "--force", container],
+                env=_credential_isolated_environment(env),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                errors.append("public tunnel teardown failed")
+            else:
+                try:
+                    paths.tunnel_marker.unlink()
+                except OSError:
+                    errors.append("public tunnel cleanup marker could not be removed")
+    if errors:
+        raise ProducerFailed("; ".join(errors))
 
 
 def produce(env: dict[str, str] | None = None) -> int:
@@ -525,6 +741,7 @@ def produce(env: dict[str, str] | None = None) -> int:
         )
     )
     manifest: dict[str, Any] | None = None
+    tunnel: PublicTunnel | None = None
     exit_code = 1
     try:
         manifest = _load_manifest(manifest_path)
@@ -537,10 +754,6 @@ def produce(env: dict[str, str] | None = None) -> int:
         )
         _producer_contract_ready(studio, console)
 
-        endpoint = public_https_origin(
-            _required(environment, "HONUA_AI_ARC_LOCAL_ORIGIN"),
-            "HONUA_AI_ARC_LOCAL_ORIGIN",
-        )
         console_origin = public_https_origin(
             _required(environment, "HONUA_AI_ARC_CONSOLE_ORIGIN"),
             "HONUA_AI_ARC_CONSOLE_ORIGIN",
@@ -578,6 +791,10 @@ def produce(env: dict[str, str] | None = None) -> int:
                 "local prepare and Console credentials must be distinct"
             )
 
+        tunnel = _start_public_tunnel(paths, environment)
+        endpoint = tunnel.origin
+        environment["HONUA_AI_ARC_LOCAL_ORIGIN"] = endpoint
+
         candidate_id = f"manifest-sha256:{_sha256(manifest_path)}"
         sdk_sha = manifest["components"]["honua-sdk-js"]["sha"]
         fixture_url = (
@@ -598,8 +815,10 @@ def produce(env: dict[str, str] | None = None) -> int:
             db_password=db_password,
             admin_key=prepare_credential,
         )
+        _start_candidate(paths, environment)
+        _verify_public_route(tunnel, environment)
         sdk_env = {
-            **environment,
+            **_credential_isolated_environment(environment),
             "E2E_AI_LOCAL_INSTALL": str(paths.install),
             "HONUA_SOURCE_REVISION": sdk_sha,
             "HONUA_ZERO_TO_MAP_DB_PASSWORD": db_password,
@@ -666,17 +885,7 @@ def produce(env: dict[str, str] | None = None) -> int:
             cwd=console,
         )
 
-        resume_env = dict(producer_env)
-        for name in (
-            "HONUA_ADMIN_KEY",
-            "HONUA_API_KEY",
-            "HONUA_AI_ARC_PREPARE_CREDENTIAL",
-            "HONUA_AI_ARC_CONSOLE_TOKEN",
-            "HONUA_AI_PROVIDER_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-        ):
-            resume_env.pop(name, None)
+        resume_env = _studio_resume_environment(producer_env)
         _run(
             [
                 "npm",
@@ -721,21 +930,22 @@ def produce(env: dict[str, str] | None = None) -> int:
             "local producer completed; aggregate verdict deferred",
             manifest,
             manifest_path,
+            tunnel,
         )
         exit_code = 0
     except ProducerBlocked as error:
-        _write_report(paths, "blocked", str(error), manifest, manifest_path)
+        _write_report(paths, "blocked", str(error), manifest, manifest_path, tunnel)
         print(f"AI delivery arc local producer: BLOCKED ({error})")
         exit_code = 0
     except (OSError, ValueError, json.JSONDecodeError, ProducerFailed) as error:
-        _write_report(paths, "fail", str(error), manifest, manifest_path)
+        _write_report(paths, "fail", str(error), manifest, manifest_path, tunnel)
         print(f"AI delivery arc local producer: FAIL ({error})", file=sys.stderr)
         exit_code = 1
     finally:
         try:
             _teardown(paths, environment)
         except ProducerFailed as error:
-            _write_report(paths, "fail", str(error), manifest, manifest_path)
+            _write_report(paths, "fail", str(error), manifest, manifest_path, tunnel)
             print(f"AI delivery arc local producer: FAIL ({error})", file=sys.stderr)
             exit_code = 1
     return exit_code
@@ -802,23 +1012,30 @@ def install_wrapper(argv: list[str], env: dict[str, str] | None = None) -> int:
     if directory != expected_directory:
         raise ProducerFailed("local install command targeted an unexpected directory")
     compose_path = directory / "compose.yaml"
+    if not compose_path.is_file():
+        raise ProducerFailed("local install command has no release-owned compose file")
     if argv[:3] == ["admin", "install", "local"]:
-        start = subprocess.run(
+        running = subprocess.run(
             [
                 "docker",
-                "compose",
-                "--project-directory",
-                str(directory),
-                "--file",
-                str(compose_path),
-                "up",
-                "-d",
-                "--wait",
+                "ps",
+                "--filter",
+                "label=com.docker.compose.project=honua-ai-arc-local",
+                "--format",
+                '{{.Label "com.docker.compose.service"}}',
             ],
             env=environment,
             check=False,
+            capture_output=True,
+            text=True,
         )
-        return start.returncode
+        services = set(running.stdout.split())
+        return (
+            0
+            if running.returncode == 0
+            and {"postgres", "redis", "honua"} <= services
+            else 1
+        )
     if argv[:3] == ["admin", "install", "status"]:
         port = environment.get("E2E_AI_LOCAL_PORT", "8080")
         try:

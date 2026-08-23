@@ -368,6 +368,7 @@ jobs:
           npm ci --prefix _honua-sdk-js/mcp
           npm ci --prefix _honua-studio
           npm ci --prefix _honua-console/e2e/playwright
+          npm --prefix _honua-console/e2e/playwright exec -- playwright install --with-deps chromium
 
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic

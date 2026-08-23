@@ -371,6 +371,15 @@ def test_cloud_parity_does_not_fetch_ecs_arc_producers_without_aws_authority():
         condition = str(step.get("if", ""))
         assert "matrix.target == 'aws-ecs'" in condition
         assert "vars.HONUA_AWS_ROLE_ARN != ''" in condition
+    install = next(
+        step
+        for step in producer_steps
+        if step.get("name") == "Install exact AI delivery-arc producers"
+    )
+    assert (
+        "npm --prefix _honua-console/e2e/playwright exec -- "
+        "playwright install --with-deps chromium"
+    ) in install["run"]
 
 
 def test_release_train_orders_ai_arc_producers_before_strict_aggregation():
@@ -435,3 +444,9 @@ def test_local_ai_arc_workflow_is_a_producer_not_a_cloud_consumer():
     assert "aws-ecs-ai-delivery-arc" not in commands
     assert "download-artifact" not in commands
     assert "--require-real" not in commands
+    live = next(
+        step
+        for step in producer["steps"]
+        if step.get("name") == "Produce the local candidate receipts"
+    )
+    assert "HONUA_AI_ARC_LOCAL_ORIGIN" not in live["env"]

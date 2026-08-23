@@ -1,6 +1,7 @@
 """Focused tests for the dual-target AI delivery-arc entrypoint."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -216,6 +217,190 @@ def test_local_producer_children_do_not_inherit_provider_or_cloud_credentials(
     assert environment["AWS_EC2_METADATA_DISABLED"] == "true"
 
 
+def test_local_studio_resume_is_credential_free_after_the_sealed_handoff():
+    environment = local._studio_resume_environment(
+        {
+            "PATH": "/reviewed/bin",
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": "stale-value",
+            "HONUA_AI_ARC_CONSOLE_TOKEN": "console-secret",
+            "HONUA_AI_PROVIDER_API_KEY": "provider-secret",
+            "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+        }
+    )
+
+    assert environment["AWS_SHARED_CREDENTIALS_FILE"] == os.devnull
+    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in environment
+    assert "HONUA_AI_ARC_CONSOLE_TOKEN" not in environment
+    assert "HONUA_AI_PROVIDER_API_KEY" not in environment
+
+
+def test_local_producer_starts_a_pinned_tunnel_to_its_exact_port(
+    monkeypatch, tmp_path: Path
+):
+    paths = local.output_paths(tmp_path / "out")
+    commands: list[list[str]] = []
+    child_environments: list[dict[str, str]] = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        child_environments.append(kwargs["env"])
+        if command[:2] == ["docker", "logs"]:
+            return type(
+                "Completed",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "",
+                    "stderr": "https://reviewed-route.trycloudflare.com",
+                },
+            )()
+        return type(
+            "Completed", (), {"returncode": 0, "stdout": "container-id", "stderr": ""}
+        )()
+
+    monkeypatch.setattr(local.subprocess, "run", run)
+    monkeypatch.setattr(local.secrets, "token_hex", lambda _size: "a" * 16)
+    tunnel = local._start_public_tunnel(
+        paths,
+        {
+            "PATH": "/reviewed/bin",
+            "E2E_AI_LOCAL_PORT": "18080",
+            "HONUA_AI_PROVIDER_API_KEY": "must-not-reach-tunnel",
+        },
+    )
+
+    assert tunnel.origin == "https://reviewed-route.trycloudflare.com"
+    assert tunnel.target == "http://127.0.0.1:18080"
+    assert commands[0] == [
+        "docker",
+        "run",
+        "--detach",
+        "--network",
+        "host",
+        "--name",
+        "honua-ai-arc-tunnel-" + "a" * 16,
+        local.CLOUDFLARED_IMAGE,
+        "tunnel",
+        "--no-autoupdate",
+        "--protocol",
+        "http2",
+        "--url",
+        "http://127.0.0.1:18080",
+    ]
+    assert paths.tunnel_marker.read_text(encoding="utf-8").strip() == tunnel.container
+    assert all(
+        "HONUA_AI_PROVIDER_API_KEY" not in environment
+        for environment in child_environments
+    )
+
+
+def test_local_producer_verifies_tunnel_identity_and_public_readiness(
+    monkeypatch, tmp_path: Path
+):
+    tunnel = local.PublicTunnel(
+        container="honua-ai-arc-tunnel-" + "b" * 16,
+        origin="https://reviewed-route.trycloudflare.com",
+        target="http://127.0.0.1:18080",
+    )
+    inspect_record = {
+        "Config": {
+            "Image": local.CLOUDFLARED_IMAGE,
+            "Cmd": ["tunnel", "--url", tunnel.target],
+        },
+        "HostConfig": {"NetworkMode": "host"},
+        "State": {"Running": True},
+    }
+    monkeypatch.setattr(
+        local.subprocess,
+        "run",
+        lambda *_args, **_kwargs: type(
+            "Completed",
+            (),
+            {"returncode": 0, "stdout": json.dumps([inspect_record]), "stderr": ""},
+        )(),
+    )
+    observed_urls: list[str] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read():
+            return b"ready"
+
+    def open_url(url, **_kwargs):
+        observed_urls.append(url)
+        return Response()
+
+    monkeypatch.setattr(local, "urlopen", open_url)
+    local._verify_public_route(tunnel, {"PATH": "/reviewed/bin"}, attempts=1)
+
+    assert observed_urls == [
+        "http://127.0.0.1:18080/healthz/ready",
+        "https://reviewed-route.trycloudflare.com/healthz/ready",
+    ]
+
+
+def test_local_producer_rejects_a_tunnel_bound_to_another_port(monkeypatch):
+    tunnel = local.PublicTunnel(
+        container="honua-ai-arc-tunnel-" + "c" * 16,
+        origin="https://reviewed-route.trycloudflare.com",
+        target="http://127.0.0.1:18080",
+    )
+    inspect_record = {
+        "Config": {
+            "Image": local.CLOUDFLARED_IMAGE,
+            "Cmd": ["tunnel", "--url", "http://127.0.0.1:9999"],
+        },
+        "HostConfig": {"NetworkMode": "host"},
+        "State": {"Running": True},
+    }
+    monkeypatch.setattr(
+        local.subprocess,
+        "run",
+        lambda *_args, **_kwargs: type(
+            "Completed",
+            (),
+            {"returncode": 0, "stdout": json.dumps([inspect_record]), "stderr": ""},
+        )(),
+    )
+
+    try:
+        local._verify_public_route(tunnel, {"PATH": "/reviewed/bin"}, attempts=1)
+    except local.ProducerFailed as error:
+        assert "exact local candidate port" in str(error)
+    else:
+        raise AssertionError("accepted a tunnel bound to a different local port")
+
+
+def test_local_teardown_removes_a_started_tunnel_without_a_compose_file(
+    monkeypatch, tmp_path: Path
+):
+    paths = local.output_paths(tmp_path / "out")
+    paths.out.mkdir(parents=True)
+    container = "honua-ai-arc-tunnel-" + "d" * 16
+    paths.tunnel_marker.write_text(container + "\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return type(
+            "Completed", (), {"returncode": 0, "stdout": container, "stderr": ""}
+        )()
+
+    monkeypatch.setattr(local.subprocess, "run", run)
+    local._teardown(paths, {"PATH": "/reviewed/bin"})
+
+    assert commands == [["docker", "rm", "--force", container]]
+    assert not paths.tunnel_marker.exists()
+
+
 def test_local_producer_blocks_old_component_handoff_before_execution(tmp_path: Path):
     studio = tmp_path / "studio"
     console = tmp_path / "console"
@@ -237,3 +422,31 @@ def test_local_producer_blocks_old_component_handoff_before_execution(tmp_path: 
         assert "predate the sealed local receipt handoff" in str(error)
     else:
         raise AssertionError("old producer contract was accepted")
+
+
+def test_local_producer_accepts_only_the_credential_free_sealed_handoff(
+    tmp_path: Path,
+):
+    studio = tmp_path / "studio"
+    console = tmp_path / "console"
+    (studio / "scripts" / "lib").mkdir(parents=True)
+    (console / "e2e" / "playwright" / "live").mkdir(parents=True)
+    (studio / "scripts" / "real-model-ai-arc.mjs").write_text(
+        "\n".join(
+            (
+                'const handoff = "HONUA_AI_ARC_REAL_MODEL_HANDOFF";',
+                'const policy = "resume is credential-free";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    (studio / "scripts" / "lib" / "real-model-ai-arc.mjs").write_text(
+        'const receipt = {id: "local-docker-real-model-ai-arc"};\n',
+        encoding="utf-8",
+    )
+    (console / "e2e" / "playwright" / "live" / "console-receipt-cli.mjs").write_text(
+        'const evidence = "HONUA_AI_ARC_CONSOLE_EVIDENCE";\n',
+        encoding="utf-8",
+    )
+
+    local._producer_contract_ready(studio, console)
