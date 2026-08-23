@@ -310,7 +310,8 @@ def test_contract_receipt_is_explicitly_blocked_not_fake_green(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
 
     findings, detail = gate.validate_receipt(
-        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="contract"
+        manifest(), manifest_path, CONTRACT, plan_value, receipt,
+        expected_mode="contract", expected_target=None,
     )
 
     assert findings.status == "blocked", findings.errors
@@ -337,7 +338,8 @@ def test_live_console_receipt_must_join_exact_manifest_identity(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
 
     findings, _ = gate.validate_receipt(
-        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+        manifest(), manifest_path, CONTRACT, plan_value, receipt,
+        expected_mode="live", expected_target="local-docker",
     )
 
     assert findings.status == "fail"
@@ -358,7 +360,8 @@ def test_live_failure_names_stage_action_and_tool(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
 
     findings, detail = gate.validate_receipt(
-        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+        manifest(), manifest_path, CONTRACT, plan_value, receipt,
+        expected_mode="live", expected_target="local-docker",
     )
 
     assert findings.status in {"blocked", "fail"}
@@ -371,6 +374,83 @@ def test_live_failure_names_stage_action_and_tool(tmp_path: Path):
         "code": "mcp-catalog-incomplete",
         "message": "tool absent",
     }
+
+
+def test_live_receipt_rejects_duplicate_action_ids_before_mapping(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    receipt["stages"][0]["actions"].append(
+        json.loads(json.dumps(receipt["stages"][0]["actions"][0]))
+    )
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
+
+    findings, _ = gate.validate_receipt(
+        manifest(),
+        manifest_path,
+        CONTRACT,
+        plan_value,
+        receipt,
+        expected_mode="live",
+        expected_target="local-docker",
+    )
+
+    assert any(
+        "duplicate action id install-local" in error for error in findings.errors
+    )
+
+
+def test_live_release_http_status_is_not_controlled_by_the_sdk_plan(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    action_id = "verify-share-url"
+    plan_action = next(
+        action
+        for stage in plan_value["stages"]
+        for action in stage["actions"]
+        if action["id"] == action_id
+    )
+    plan_action["expectedStatus"] = 418
+    receipt_action = next(
+        action
+        for stage in receipt["stages"]
+        for action in stage["actions"]
+        if action["id"] == action_id
+    )
+    receipt_action["evidence"]["status"] = 418
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
+
+    findings, _ = gate.validate_receipt(
+        manifest(),
+        manifest_path,
+        CONTRACT,
+        plan_value,
+        receipt,
+        expected_mode="live",
+        expected_target="local-docker",
+    )
+
+    assert any("mandatory HTTP 200" in error for error in findings.errors)
+
+
+def test_local_sdk_receipt_cannot_be_reused_for_aws_target(tmp_path: Path):
+    plan_value = plan()
+    receipt = receipt_for(plan_value, mode="live", status="passed")
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
+
+    findings, _ = gate.validate_receipt(
+        manifest(),
+        manifest_path,
+        CONTRACT,
+        plan_value,
+        receipt,
+        expected_mode="live",
+        expected_target="aws-ecs",
+    )
+
+    assert any("not target-bound to aws-ecs" in error for error in findings.errors)
 
 
 def aws_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple[dict, dict]:
@@ -567,41 +647,105 @@ def local_real_model_documents(manifest_value: dict, candidate_id: str) -> tuple
     return receipt, evidence
 
 
-def generic_aws_evidence(
+def write_generic_aws_evidence_bundle(
+    directory: Path,
     manifest_value: dict,
     candidate_id: str,
     source: dict,
     run_url: str,
-) -> dict:
-    return {
-        "schemaVersion": "honua.aws-ecs.ai-delivery-arc-evidence/v1",
+    *,
+    final_name: str = "final-evidence.json",
+) -> tuple[dict, Path]:
+    directory.mkdir(parents=True, exist_ok=True)
+    provision_components = {
+        name: manifest_value["components"][name]["sha"]
+        for name in ("honua-server", "honua-devops", "honua-iac")
+    }
+    server = manifest_value["components"]["honua-server"]
+    server_image = f"{server['image']}@{server['digest']}"
+    provision = {
+        "schemaVersion": "honua.release.aws-ecs-provision-evidence/v1",
+        "candidateId": candidate_id,
+        "consoleCandidate": {},
+        "releaseId": manifest_value["platformRelease"],
+        "endpoint": "https://candidate.example.test",
+        "serverImage": server_image,
+        "components": provision_components,
+        "terraformPlanSha256": "5" * 64,
+        "terraformApply": "passed",
+        "readiness": {
+            "url": "https://candidate.example.test/healthz/ready",
+            "status": 200,
+            "attempts": 1,
+        },
+        "handoffSha256": "4" * 64,
+    }
+    provision_path = directory / "provision-evidence.json"
+    provision_path.write_text(json.dumps(provision), encoding="utf-8")
+    binding = {
+        "schemaVersion": "honua.aws-ecs.provision-binding/v1",
+        "target": "aws-ecs",
+        "status": "ready",
+        "candidateId": candidate_id,
+        "releaseId": manifest_value["platformRelease"],
+        "endpoint": provision["endpoint"],
+        "adminKeySecretRef": "arn:aws:secretsmanager:us-west-2:123456789012:secret:admin",
+        "serverImage": server_image,
+        "components": provision_components,
+        "checks": {check: "passed" for check in gate.AWS_PROVISION_CHECKS},
+        "evidence": {"url": run_url, "sha256": gate._sha256(provision_path)},
+    }
+    binding_path = directory / "provision-binding.json"
+    binding_path.write_text(json.dumps(binding), encoding="utf-8")
+    teardown_proof = {
+        "schemaVersion": "honua.release.aws-ecs-teardown-proof/v1",
+        "candidateId": candidate_id,
+        "releaseId": manifest_value["platformRelease"],
+        "checks": {"terraformDestroy": "passed", "cleanupVerified": "passed"},
+    }
+    teardown_proof_path = directory / "teardown-proof.json"
+    teardown_proof_path.write_text(json.dumps(teardown_proof), encoding="utf-8")
+    teardown = {
+        "schemaVersion": "honua.aws-ecs.teardown-evidence/v1",
         "status": "passed",
         "target": "aws-ecs",
         "candidateId": candidate_id,
         "releaseId": manifest_value["platformRelease"],
+        "components": {
+            name: manifest_value["components"][name]["sha"]
+            for name in ("honua-devops", "honua-iac")
+        },
+        "checks": {check: "passed" for check in gate.AWS_TEARDOWN_CHECKS},
+        "evidence": {"url": run_url, "sha256": gate._sha256(teardown_proof_path)},
+    }
+    teardown_path = directory / "teardown-evidence.json"
+    teardown_path.write_text(json.dumps(teardown), encoding="utf-8")
+    artifacts = {name: "9" * 64 for name in gate.AWS_FINAL_ARTIFACTS}
+    artifacts.update(
+        {
+            "platformManifest": candidate_id.removeprefix("manifest-sha256:"),
+            "provisionBinding": gate._sha256(binding_path),
+            "teardownEvidence": gate._sha256(teardown_path),
+        }
+    )
+    evidence = {
+        "schemaVersion": "honua.aws-ecs.ai-delivery-arc-evidence/v1",
+            "status": "passed",
+            "target": "aws-ecs",
+            "candidateId": candidate_id,
+            "releaseId": manifest_value["platformRelease"],
         "source": source,
         "components": {
             name: component["sha"]
             for name, component in manifest_value["components"].items()
         },
-        "checks": {},
-        "artifacts": {
-            "provisionBinding": "6" * 64,
-            "teardownEvidence": "7" * 64,
-        },
-        "teardown": {
-            "schemaVersion": "honua.aws-ecs.teardown-evidence/v1",
-            "status": "passed",
-            "target": "aws-ecs",
-            "candidateId": candidate_id,
-            "releaseId": manifest_value["platformRelease"],
-            "checks": {
-                "terraform-destroy": "passed",
-                "cleanup-verified": "passed",
-            },
-            "evidence": {"url": run_url, "sha256": "8" * 64},
-        },
+        "checks": {check: "passed" for check in gate.AWS_ARC_CHECKS},
+        "artifacts": artifacts,
+        "teardown": teardown,
     }
+    evidence_path = directory / final_name
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    return evidence, evidence_path
 
 
 def validate_aws_model_documents(
@@ -674,21 +818,26 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             supplied_evidence[receipt_id] = (evidence_path, evidence_value)
             continue
         run_url = "https://github.com/honua-io/honua-release/actions/runs/12345"
-        evidence_value = generic_aws_evidence(
+        evidence_value, evidence_path = write_generic_aws_evidence_bundle(
+            tmp_path / f"{receipt_id}-bundle",
             manifest_value,
             identity["candidateId"],
-            {"repository": repository, "sha": manifest_value["components"][component]["sha"]},
+            {
+                "repository": repository,
+                "sha": manifest_value["components"][component]["sha"],
+            },
             run_url,
         )
-        evidence_path = tmp_path / f"{receipt_id}-evidence.json"
-        evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
         value = {
             "schemaVersion": "honua.release.evidence-receipt/v1",
             "id": receipt_id,
             "status": "passed",
             "candidateId": identity["candidateId"],
             "releaseId": manifest_value["platformRelease"],
-            "source": {"repository": repository, "sha": manifest_value["components"][component]["sha"]},
+            "source": {
+                "repository": repository,
+                "sha": manifest_value["components"][component]["sha"],
+            },
             "components": {
                 name: manifest_value["components"][name]["sha"]
                 for name in expected["boundComponents"]
@@ -734,7 +883,9 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         "aws-ecs-real-model-ai-arc",
         "local-docker-real-model-ai-arc",
     }
-    identity_components = gate.candidate_identity(manifest_value, manifest_path)["components"]
+    identity_components = gate.candidate_identity(manifest_value, manifest_path)[
+        "components"
+    ]
     assert identity_components["honua-devops"]["sha"] == "f" * 40
     assert identity_components["honua-iac"]["sha"] == "e" * 40
 
@@ -745,16 +896,22 @@ def test_generic_aws_receipt_rejects_tampered_evidence_or_wrong_run_url(tmp_path
     manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
     identity = gate.candidate_identity(manifest_value, manifest_path)
     expected = next(
-        item for item in CONTRACT["externalReceipts"] if item["id"] == "aws-ecs-provision"
+        item
+        for item in CONTRACT["externalReceipts"]
+        if item["id"] == "aws-ecs-provision"
     )
     source = {
         "repository": expected["sourceRepository"],
         "sha": manifest_value["components"][expected["sourceComponent"]]["sha"],
     }
     run_url = "https://github.com/honua-io/honua-release/actions/runs/67890"
-    evidence = generic_aws_evidence(manifest_value, identity["candidateId"], source, run_url)
-    evidence_path = tmp_path / "aws-evidence.json"
-    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    evidence, evidence_path = write_generic_aws_evidence_bundle(
+        tmp_path / "aws-bundle",
+        manifest_value,
+        identity["candidateId"],
+        source,
+        run_url,
+    )
     receipt = {
         "schemaVersion": "honua.release.evidence-receipt/v1",
         "id": expected["id"],
@@ -769,7 +926,9 @@ def test_generic_aws_receipt_rejects_tampered_evidence_or_wrong_run_url(tmp_path
         "evidence": {"url": run_url, "sha256": "0" * 64},
         "claims": {
             "target": "aws-ecs",
-            "checks": {check: "passed" for check in expected["claims"]["requiredChecks"]},
+            "checks": {
+                check: "passed" for check in expected["claims"]["requiredChecks"]
+            },
         },
     }
     receipt_path = tmp_path / "aws-receipt.json"
@@ -796,7 +955,96 @@ def test_generic_aws_receipt_rejects_tampered_evidence_or_wrong_run_url(tmp_path
         {expected["id"]: (evidence_path, evidence)},
     )
     assert any("immutable Actions run" in error for error in findings.errors)
-    assert any("does not identify its teardown run" in error for error in findings.errors)
+    assert any("governed Actions run" in error for error in findings.errors)
+
+
+def test_actions_run_url_is_bound_to_the_governed_release_repository():
+    assert gate._is_actions_run_url(
+        "https://github.com/honua-io/honua-release/actions/runs/12345"
+    )
+    assert not gate._is_actions_run_url(
+        "https://attacker.example/honua-io/honua-release/actions/runs/12345"
+    )
+    assert not gate._is_actions_run_url(
+        "https://github.com/attacker/honua-release/actions/runs/12345"
+    )
+
+
+def test_generic_aws_receipt_requires_checks_and_bound_provision_bytes(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    expected = next(
+        item
+        for item in CONTRACT["externalReceipts"]
+        if item["id"] == "aws-ecs-provision"
+    )
+    source = {
+        "repository": expected["sourceRepository"],
+        "sha": manifest_value["components"][expected["sourceComponent"]]["sha"],
+    }
+    run_url = "https://github.com/honua-io/honua-release/actions/runs/24680"
+    evidence, evidence_path = write_generic_aws_evidence_bundle(
+        tmp_path / "aws-bundle",
+        manifest_value,
+        identity["candidateId"],
+        source,
+        run_url,
+    )
+    receipt = {
+        "schemaVersion": "honua.release.evidence-receipt/v1",
+        "id": expected["id"],
+        "status": "passed",
+        "candidateId": identity["candidateId"],
+        "releaseId": manifest_value["platformRelease"],
+        "source": source,
+        "components": {
+            name: manifest_value["components"][name]["sha"]
+            for name in expected["boundComponents"]
+        },
+        "evidence": {"url": run_url, "sha256": ""},
+        "claims": {
+            "target": "aws-ecs",
+            "checks": {
+                check: "passed" for check in expected["claims"]["requiredChecks"]
+            },
+        },
+    }
+    receipt_path = tmp_path / "aws-receipt.json"
+
+    evidence["checks"] = {}
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt["evidence"]["sha256"] = gate._sha256(evidence_path)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        {"externalReceipts": [expected]},
+        {expected["id"]: (receipt_path, receipt)},
+        {expected["id"]: (evidence_path, evidence)},
+    )
+    assert any(
+        "final evidence check inventory drift" in error for error in findings.errors
+    )
+
+    evidence["checks"] = {check: "passed" for check in gate.AWS_ARC_CHECKS}
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt["evidence"]["sha256"] = gate._sha256(evidence_path)
+    (evidence_path.parent / "provision-evidence.json").write_text(
+        json.dumps({"tampered": True}), encoding="utf-8"
+    )
+    findings, _ = gate.validate_external_receipts(
+        manifest_value,
+        manifest_path,
+        {"externalReceipts": [expected]},
+        {expected["id"]: (receipt_path, receipt)},
+        {expected["id"]: (evidence_path, evidence)},
+    )
+    assert any(
+        "AWS provision evidence" in error and "bytes do not match" in error
+        for error in findings.errors
+    )
 
 
 def test_missing_full_aws_arc_receipt_blocks_even_when_provisioning_exists(tmp_path: Path):
@@ -978,7 +1226,8 @@ def test_live_pass_without_per_action_evidence_fails(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
 
     findings, _ = gate.validate_receipt(
-        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+        manifest(), manifest_path, CONTRACT, plan_value, receipt,
+        expected_mode="live", expected_target="local-docker",
     )
 
     assert findings.status == "fail"
@@ -1012,7 +1261,8 @@ def test_live_final_share_url_must_be_public_https(tmp_path: Path):
     manifest_path.write_text(yaml.safe_dump(manifest()), encoding="utf-8")
 
     findings, _ = gate.validate_receipt(
-        manifest(), manifest_path, CONTRACT, plan_value, receipt, expected_mode="live"
+        manifest(), manifest_path, CONTRACT, plan_value, receipt,
+        expected_mode="live", expected_target="local-docker",
     )
 
     assert findings.status == "fail"
@@ -1062,6 +1312,7 @@ def test_live_map_and_dashboard_probes_must_match_exact_console_urls(tmp_path: P
         plan_value,
         receipt,
         expected_mode="live",
+        expected_target="local-docker",
     )
 
     assert findings.status == "fail"

@@ -26,6 +26,54 @@ except ImportError as exc:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+RELEASE_ACTIONS_RUN = re.compile(
+    r"^/honua-io/honua-release/actions/runs/[1-9][0-9]*/?$"
+)
+RELEASE_PUBLIC_HTTP_ACTIONS = frozenset(
+    {
+        "verify-map-public-url",
+        "verify-share-url",
+        "verify-dashboard-public-url",
+    }
+)
+AWS_PROVISION_CHECKS = (
+    "terraform-plan",
+    "terraform-apply",
+    "readiness",
+    "admin-mcp-handoff",
+)
+AWS_TEARDOWN_CHECKS = ("terraform-destroy", "cleanup-verified")
+AWS_ARC_CHECKS = (
+    "candidate-image-install",
+    "admin-configure-and-publish",
+    "esri-gp-mcp",
+    "esri-gpserver",
+    "native-analysis-artifact",
+    "studio-map-app-dashboard-save-reopen",
+    "governed-publication-approval",
+    "console-audit-recovery",
+    "public-share-http-200",
+)
+AWS_ARC_COMPONENTS = (
+    "honua-server",
+    "honua-sdk-js",
+    "honua-console",
+    "honua-studio",
+    "honua-devops",
+    "honua-iac",
+)
+AWS_FINAL_ARTIFACTS = (
+    "platformManifest",
+    "provisionBinding",
+    "secretlessHandoff",
+    "sdkJourneyReceipt",
+    "sdkCheckpoint",
+    "consoleReceipt",
+    "sdkConsoleReceipt",
+    "awsEcsRealModelReceipt",
+    "awsEcsRealModelEvidence",
+    "teardownEvidence",
+)
 AWS_MODEL_LANES = ("admin", "esriGp", "nativeAnalysis", "studioPublication")
 # Exact ordered 58-action model roster shared with the Studio producer and
 # DevOps cloud verifier. Tuple fields: actionId, lane, role, family, kind, name.
@@ -192,6 +240,67 @@ def _receipt_action_map(receipt: dict) -> dict[str, dict]:
     return actions
 
 
+def _ordered_stage_action_inventory(
+    document: dict,
+    *,
+    label: str,
+    findings: Findings,
+) -> tuple[tuple[str, tuple[str, ...]], ...] | None:
+    """Return a lossless stage/action roster after rejecting malformed multiplicity."""
+    stages = document.get("stages")
+    if not isinstance(stages, list):
+        findings.errors.append(f"{label} stages must be an array")
+        return None
+
+    inventory: list[tuple[str, tuple[str, ...]]] = []
+    stage_ids: set[str] = set()
+    action_ids: set[str] = set()
+    valid = True
+    for stage_index, stage in enumerate(stages):
+        if not isinstance(stage, dict):
+            findings.errors.append(f"{label} stage {stage_index} must be an object")
+            valid = False
+            continue
+        stage_id = stage.get("id")
+        if not isinstance(stage_id, str) or not stage_id:
+            findings.errors.append(f"{label} stage {stage_index} has no non-empty id")
+            valid = False
+            continue
+        if stage_id in stage_ids:
+            findings.errors.append(f"{label} contains duplicate stage id {stage_id}")
+            valid = False
+        stage_ids.add(stage_id)
+        actions = stage.get("actions")
+        if not isinstance(actions, list):
+            findings.errors.append(f"{label} stage {stage_id} actions must be an array")
+            valid = False
+            continue
+        ordered_actions: list[str] = []
+        for action_index, action in enumerate(actions):
+            if not isinstance(action, dict):
+                findings.errors.append(
+                    f"{label} stage {stage_id} action {action_index} must be an object"
+                )
+                valid = False
+                continue
+            action_id = action.get("id")
+            if not isinstance(action_id, str) or not action_id:
+                findings.errors.append(
+                    f"{label} stage {stage_id} action {action_index} has no non-empty id"
+                )
+                valid = False
+                continue
+            if action_id in action_ids:
+                findings.errors.append(
+                    f"{label} contains duplicate action id {action_id}"
+                )
+                valid = False
+            action_ids.add(action_id)
+            ordered_actions.append(action_id)
+        inventory.append((stage_id, tuple(ordered_actions)))
+    return tuple(inventory) if valid else None
+
+
 def _capture_names(action: dict) -> set[str]:
     return {
         capture.get("variable")
@@ -228,19 +337,21 @@ def _is_public_https_url(value: Any) -> bool:
 
 
 def _is_actions_run_url(value: Any) -> bool:
-    """Accept an immutable GitHub Actions run URL, not a generic project page."""
-    if not _is_public_https_url(value):
-        return False
+    """Accept only an immutable Actions run in the governed release repository."""
     try:
         parsed = urlparse(str(value))
     except ValueError:
         return False
     return (
-        not parsed.username
+        parsed.scheme == "https"
+        and parsed.netloc == "github.com"
+        and parsed.hostname == "github.com"
+        and parsed.port is None
+        and not parsed.username
         and not parsed.password
         and not parsed.query
         and not parsed.fragment
-        and re.search(r"/actions/runs/[1-9][0-9]*/?$", parsed.path) is not None
+        and RELEASE_ACTIONS_RUN.fullmatch(parsed.path) is not None
     )
 
 
@@ -501,6 +612,234 @@ def validate_contract(
     return findings
 
 
+def _validate_exact_passed_checks(
+    findings: Findings,
+    checks: Any,
+    expected: tuple[str, ...] | list[str],
+    *,
+    label: str,
+) -> None:
+    expected_set = set(expected)
+    if not isinstance(checks, dict):
+        findings.errors.append(f"{label} checks must be an object")
+        return
+    if set(checks) != expected_set:
+        findings.errors.append(
+            f"{label} check inventory drift "
+            f"(missing={sorted(expected_set - set(checks))}, "
+            f"extra={sorted(set(checks) - expected_set)})"
+        )
+    for check in expected:
+        if checks.get(check) != "passed":
+            findings.errors.append(f"{label} does not prove {check}=passed")
+
+
+def _load_digest_bound_json(
+    findings: Findings,
+    evidence_path: Path,
+    filename: str,
+    digest: Any,
+    *,
+    label: str,
+) -> tuple[Path, dict] | None:
+    path = evidence_path.with_name(filename)
+    if not path.is_file():
+        findings.errors.append(f"{label} supporting evidence is missing: {path}")
+        return None
+    if not SHA256.fullmatch(str(digest or "")):
+        findings.errors.append(f"{label} has no SHA-256 binding")
+        return None
+    if _sha256(path) != digest:
+        findings.errors.append(
+            f"{label} supporting evidence bytes do not match its SHA-256"
+        )
+        return None
+    try:
+        return path, _load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        findings.errors.append(f"{label} supporting evidence is invalid JSON: {exc}")
+        return None
+
+
+def _validate_generic_aws_evidence_bundle(
+    findings: Findings,
+    manifest: dict,
+    identity: dict,
+    evidence_path: Path,
+    evidence_document: dict,
+    run_url: Any,
+) -> None:
+    """Validate the final document plus every producer document it cites by digest."""
+    components = manifest.get("components") or {}
+    expected_arc_components = {
+        name: (components.get(name) or {}).get("sha") for name in AWS_ARC_COMPONENTS
+    }
+    if evidence_document.get("components") != expected_arc_components:
+        findings.errors.append(
+            "generic AWS final evidence does not bind the exact delivery-arc components"
+        )
+    _validate_exact_passed_checks(
+        findings,
+        evidence_document.get("checks"),
+        AWS_ARC_CHECKS,
+        label="generic AWS final evidence",
+    )
+
+    artifacts = evidence_document.get("artifacts")
+    if not isinstance(artifacts, dict):
+        findings.errors.append("generic AWS final evidence artifacts must be an object")
+        return
+    for artifact_name in AWS_FINAL_ARTIFACTS:
+        if not SHA256.fullmatch(str(artifacts.get(artifact_name, ""))):
+            findings.errors.append(
+                f"generic AWS final evidence omits {artifact_name} digest"
+            )
+    if artifacts.get("platformManifest") != identity.get("manifestSha256"):
+        findings.errors.append(
+            "generic AWS final evidence platformManifest digest differs from the candidate"
+        )
+
+    binding_record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        "provision-binding.json",
+        artifacts.get("provisionBinding"),
+        label="AWS provision binding",
+    )
+    teardown_record = _load_digest_bound_json(
+        findings,
+        evidence_path,
+        "teardown-evidence.json",
+        artifacts.get("teardownEvidence"),
+        label="AWS teardown evidence",
+    )
+
+    expected_provision_components = {
+        name: (components.get(name) or {}).get("sha")
+        for name in ("honua-server", "honua-devops", "honua-iac")
+    }
+    server = components.get("honua-server") or {}
+    expected_server_image = f"{server.get('image')}@{server.get('digest')}"
+    if binding_record is not None:
+        _, binding = binding_record
+        if (
+            binding.get("schemaVersion") != "honua.aws-ecs.provision-binding/v1"
+            or binding.get("target") != "aws-ecs"
+            or binding.get("status") != "ready"
+            or binding.get("candidateId") != identity.get("candidateId")
+            or binding.get("releaseId") != manifest.get("platformRelease")
+        ):
+            findings.errors.append(
+                "AWS provision binding has the wrong schema/target/status/candidate/release"
+            )
+        if binding.get("components") != expected_provision_components:
+            findings.errors.append(
+                "AWS provision binding has the wrong component identities"
+            )
+        if binding.get("serverImage") != expected_server_image:
+            findings.errors.append(
+                "AWS provision binding does not install the manifest image@digest"
+            )
+        if not _is_public_https_url(binding.get("endpoint")):
+            findings.errors.append("AWS provision binding endpoint is not public HTTPS")
+        _validate_exact_passed_checks(
+            findings,
+            binding.get("checks"),
+            AWS_PROVISION_CHECKS,
+            label="AWS provision binding",
+        )
+        binding_evidence = binding.get("evidence") or {}
+        if binding_evidence.get("url") != run_url or not _is_actions_run_url(
+            binding_evidence.get("url")
+        ):
+            findings.errors.append(
+                "AWS provision binding evidence URL differs from its governed Actions run"
+            )
+        provision_record = _load_digest_bound_json(
+            findings,
+            evidence_path,
+            "provision-evidence.json",
+            binding_evidence.get("sha256"),
+            label="AWS provision evidence",
+        )
+        if provision_record is not None:
+            _, provision = provision_record
+            readiness = provision.get("readiness") or {}
+            if (
+                provision.get("schemaVersion")
+                != "honua.release.aws-ecs-provision-evidence/v1"
+                or provision.get("candidateId") != identity.get("candidateId")
+                or provision.get("releaseId") != manifest.get("platformRelease")
+                or provision.get("components") != expected_provision_components
+                or provision.get("endpoint") != binding.get("endpoint")
+                or provision.get("serverImage") != expected_server_image
+                or provision.get("terraformApply") != "passed"
+                or not SHA256.fullmatch(str(provision.get("terraformPlanSha256", "")))
+                or not isinstance(readiness, dict)
+                or readiness.get("status") != 200
+                or not _is_public_https_url(readiness.get("url"))
+                or not SHA256.fullmatch(str(provision.get("handoffSha256", "")))
+            ):
+                findings.errors.append(
+                    "AWS provision evidence does not prove the exact candidate plan/apply/readiness/handoff"
+                )
+
+    embedded_teardown = evidence_document.get("teardown")
+    if teardown_record is not None:
+        _, teardown = teardown_record
+        if teardown != embedded_teardown:
+            findings.errors.append(
+                "AWS teardown evidence bytes differ from the embedded final evidence"
+            )
+        expected_teardown_components = {
+            name: (components.get(name) or {}).get("sha")
+            for name in ("honua-devops", "honua-iac")
+        }
+        if (
+            teardown.get("schemaVersion") != "honua.aws-ecs.teardown-evidence/v1"
+            or teardown.get("target") != "aws-ecs"
+            or teardown.get("status") != "passed"
+            or teardown.get("candidateId") != identity.get("candidateId")
+            or teardown.get("releaseId") != manifest.get("platformRelease")
+            or teardown.get("components") != expected_teardown_components
+        ):
+            findings.errors.append(
+                "AWS teardown evidence has the wrong schema/target/status/candidate/release/components"
+            )
+        _validate_exact_passed_checks(
+            findings,
+            teardown.get("checks"),
+            AWS_TEARDOWN_CHECKS,
+            label="AWS teardown evidence",
+        )
+        teardown_evidence = teardown.get("evidence") or {}
+        if teardown_evidence.get("url") != run_url or not _is_actions_run_url(
+            teardown_evidence.get("url")
+        ):
+            findings.errors.append(
+                "AWS teardown evidence URL differs from its governed Actions run"
+            )
+        proof_record = _load_digest_bound_json(
+            findings,
+            evidence_path,
+            "teardown-proof.json",
+            teardown_evidence.get("sha256"),
+            label="AWS teardown proof",
+        )
+        if proof_record is not None:
+            _, proof = proof_record
+            if (
+                proof.get("schemaVersion") != "honua.release.aws-ecs-teardown-proof/v1"
+                or proof.get("candidateId") != identity.get("candidateId")
+                or proof.get("releaseId") != manifest.get("platformRelease")
+                or proof.get("checks")
+                != {"terraformDestroy": "passed", "cleanupVerified": "passed"}
+            ):
+                findings.errors.append(
+                    "AWS teardown proof does not bind the exact candidate destroy/cleanup"
+                )
+
+
 def validate_external_receipts(
     manifest: dict,
     manifest_path: Path,
@@ -519,7 +858,9 @@ def validate_external_receipts(
         receipt_id = expected.get("id")
         supplied = receipts.get(receipt_id)
         if supplied is None:
-            findings.blockers.append(f"live journey is missing external receipt {receipt_id} ({expected.get('issue')})")
+            findings.blockers.append(
+                f"live journey is missing external receipt {receipt_id} ({expected.get('issue')})"
+            )
             continue
         path, receipt = supplied
         model_contracts = {
@@ -549,7 +890,9 @@ def validate_external_receipts(
                 )
                 continue
             evidence_path, evidence_document = model_evidence
-            target_journey_receipt = target_journey_receipts.get(model_contract["target"])
+            target_journey_receipt = target_journey_receipts.get(
+                model_contract["target"]
+            )
             if target_journey_receipt is None:
                 findings.blockers.append(
                     f"live journey is missing the {model_contract['target']} SDK action receipt"
@@ -577,7 +920,10 @@ def validate_external_receipts(
                     "source": receipt.get("source") or {},
                     "components": receipt.get("components") or {},
                     "evidence": receipt.get("evidence") or {},
-                    "claims": {"target": receipt.get("target"), "checks": receipt.get("checks") or {}},
+                    "claims": {
+                        "target": receipt.get("target"),
+                        "checks": receipt.get("checks") or {},
+                    },
                 }
             )
             continue
@@ -589,24 +935,38 @@ def validate_external_receipts(
             continue
         evidence_path, evidence_document = generic_evidence
         if receipt.get("schemaVersion") != "honua.release.evidence-receipt/v1":
-            findings.errors.append(f"external receipt {receipt_id} has an unsupported schemaVersion")
+            findings.errors.append(
+                f"external receipt {receipt_id} has an unsupported schemaVersion"
+            )
         if receipt.get("id") != receipt_id or receipt.get("status") != "passed":
-            findings.errors.append(f"external receipt {receipt_id} must identify itself and have status=passed")
+            findings.errors.append(
+                f"external receipt {receipt_id} must identify itself and have status=passed"
+            )
         if receipt.get("candidateId") != identity["candidateId"]:
-            findings.errors.append(f"external receipt {receipt_id} is not bound to the exact manifest digest")
+            findings.errors.append(
+                f"external receipt {receipt_id} is not bound to the exact manifest digest"
+            )
         if receipt.get("releaseId") != manifest.get("platformRelease"):
-            findings.errors.append(f"external receipt {receipt_id} has the wrong platform release id")
+            findings.errors.append(
+                f"external receipt {receipt_id} has the wrong platform release id"
+            )
         source = receipt.get("source") or {}
         component_name = expected.get("sourceComponent")
         component = components.get(component_name) or {}
-        if source.get("repository") != expected.get("sourceRepository") or source.get("sha") != component.get("sha"):
-            findings.errors.append(f"external receipt {receipt_id} is not from the manifest-pinned {component_name}")
+        if source.get("repository") != expected.get("sourceRepository") or source.get(
+            "sha"
+        ) != component.get("sha"):
+            findings.errors.append(
+                f"external receipt {receipt_id} is not from the manifest-pinned {component_name}"
+            )
         receipt_components = receipt.get("components") or {}
-        for bound_name in expected.get("boundComponents") or []:
-            pinned_sha = (components.get(bound_name) or {}).get("sha")
-            if receipt_components.get(bound_name) != pinned_sha:
+        expected_receipt_components = {
+            bound_name: (components.get(bound_name) or {}).get("sha")
+            for bound_name in expected.get("boundComponents") or []
+        }
+        if receipt_components != expected_receipt_components:
                 findings.errors.append(
-                    f"external receipt {receipt_id} does not bind manifest component {bound_name}"
+                f"external receipt {receipt_id} does not bind its exact manifest components"
                 )
         evidence = receipt.get("evidence") or {}
         if not _is_actions_run_url(evidence.get("url")):
@@ -614,7 +974,9 @@ def validate_external_receipts(
                 f"external receipt {receipt_id} evidence URL is not an immutable Actions run"
             )
         if not SHA256.fullmatch(str(evidence.get("sha256", ""))):
-            findings.errors.append(f"external receipt {receipt_id} has no evidence SHA-256")
+            findings.errors.append(
+                f"external receipt {receipt_id} has no evidence SHA-256"
+            )
         elif _sha256(evidence_path) != evidence.get("sha256"):
             findings.errors.append(
                 f"external receipt {receipt_id} evidence bytes do not match its SHA-256"
@@ -632,35 +994,13 @@ def validate_external_receipts(
                 findings.errors.append(
                     f"external receipt {receipt_id} evidence disagrees on {key}"
                 )
-        document_components = evidence_document.get("components") or {}
-        for bound_name, bound_sha in receipt_components.items():
-            if document_components.get(bound_name) != bound_sha:
-                findings.errors.append(
-                    f"external receipt {receipt_id} evidence does not bind {bound_name}"
-                )
-        artifacts = evidence_document.get("artifacts") or {}
-        for artifact_name in ("provisionBinding", "teardownEvidence"):
-            if not SHA256.fullmatch(str(artifacts.get(artifact_name, ""))):
-                findings.errors.append(
-                    f"external receipt {receipt_id} evidence omits {artifact_name} digest"
-                )
-        teardown = evidence_document.get("teardown") or {}
-        teardown_checks = teardown.get("checks") or {}
-        if (
-            teardown.get("schemaVersion") != "honua.aws-ecs.teardown-evidence/v1"
-            or teardown.get("status") != "passed"
-            or teardown.get("candidateId") != identity["candidateId"]
-            or teardown.get("releaseId") != manifest.get("platformRelease")
-            or teardown_checks.get("terraform-destroy") != "passed"
-            or teardown_checks.get("cleanup-verified") != "passed"
-        ):
-            findings.errors.append(
-                f"external receipt {receipt_id} evidence has no exact passing teardown binding"
-            )
-        teardown_run_url = (teardown.get("evidence") or {}).get("url")
-        if teardown_run_url != evidence.get("url"):
-            findings.errors.append(
-                f"external receipt {receipt_id} evidence URL does not identify its teardown run"
+        _validate_generic_aws_evidence_bundle(
+            findings,
+            manifest,
+            identity,
+            evidence_path,
+            evidence_document,
+            evidence.get("url"),
             )
         expected_claims = expected.get("claims") or {}
         claims = receipt.get("claims") or {}
@@ -670,11 +1010,12 @@ def validate_external_receipts(
                     f"external receipt {receipt_id} claim {key}={claims.get(key)!r}; "
                     f"expected {expected_claims.get(key)!r}"
                 )
-        checks = claims.get("checks") or {}
-        for check in expected_claims.get("requiredChecks") or []:
-            if checks.get(check) != "passed":
-                findings.errors.append(
-                    f"external receipt {receipt_id} does not prove required check {check}=passed"
+        checks = claims.get("checks")
+        _validate_exact_passed_checks(
+            findings,
+            checks,
+            expected_claims.get("requiredChecks") or [],
+            label=f"external receipt {receipt_id}",
                 )
         records.append(
             {
@@ -960,6 +1301,7 @@ def validate_receipt(
     receipt: dict,
     *,
     expected_mode: str,
+    expected_target: str | None,
 ) -> tuple[Findings, dict]:
     findings = Findings()
     if receipt.get("schemaVersion") != "honua.zero-to-map.receipt/v1":
@@ -972,12 +1314,27 @@ def validate_receipt(
             f"SDK journey receipt mode={receipt.get('mode')!r}; expected {expected_mode!r}"
         )
 
+    plan_inventory = _ordered_stage_action_inventory(
+        plan, label="SDK journey plan", findings=findings
+    )
+    receipt_inventory = _ordered_stage_action_inventory(
+        receipt, label="SDK journey receipt", findings=findings
+    )
+    if plan_inventory is None or receipt_inventory is None:
+        return findings, {"failureAttribution": None}
+    if receipt_inventory != plan_inventory:
+        findings.errors.append(
+            "SDK journey receipt ordered stage/action inventory differs from its plan"
+        )
+
     plan_actions = _action_map(plan)
     receipt_actions = _receipt_action_map(receipt)
     if set(plan_actions) != set(receipt_actions):
         missing = sorted(set(plan_actions) - set(receipt_actions))
         extra = sorted(set(receipt_actions) - set(plan_actions))
-        findings.errors.append(f"SDK journey receipt action inventory drift (missing={missing}, extra={extra})")
+        findings.errors.append(
+            f"SDK journey receipt action inventory drift (missing={missing}, extra={extra})"
+        )
 
     first_non_pass: dict | None = None
     for stage in receipt.get("stages") or []:
@@ -995,14 +1352,22 @@ def validate_receipt(
 
     if expected_mode == "contract":
         if receipt.get("status") != "blocked":
-            findings.errors.append("contract-mode SDK receipt must be explicitly blocked")
+            findings.errors.append(
+                "contract-mode SDK receipt must be explicitly blocked"
+            )
         first = (receipt.get("stages") or [{}])[0].get("actions") or [{}]
         if first[0].get("code") != "live-execution-disabled":
-            findings.errors.append("contract-mode receipt did not attribute the block to disabled live execution")
+            findings.errors.append(
+                "contract-mode receipt did not attribute the block to disabled live execution"
+            )
         findings.blockers.append(
             "contract mode validated the deterministic plan but did not execute the live candidate"
         )
     else:
+        if expected_target not in {"local-docker", "aws-ecs"}:
+            findings.errors.append(
+                "live SDK journey validation requires an explicit execution target"
+            )
         if receipt.get("status") != "passed":
             detail = first_non_pass or {"actionId": "unknown"}
             tool = f" / {detail.get('tool')}" if detail.get("tool") else ""
@@ -1018,56 +1383,127 @@ def validate_receipt(
             if action.get("status") != "passed"
         ]
         if not_passed:
-            findings.blockers.append(f"live journey has non-passing actions: {not_passed}")
+            findings.blockers.append(
+                f"live journey has non-passing actions: {not_passed}"
+            )
 
         # A row of action IDs marked "passed" is not execution evidence. Require
         # the manifest-pinned SDK receipt to retain safe evidence for every live
         # call and every identity that the plan says it captures.
+        identity = candidate_identity(manifest, manifest_path)
+        manifest_components = manifest.get("components") or {}
         for action_id, plan_action in plan_actions.items():
             action = receipt_actions.get(action_id) or {}
             if action.get("status") != "passed":
                 continue
             evidence = action.get("evidence")
             if not isinstance(evidence, dict) or not evidence:
-                findings.errors.append(f"live action {action_id} is passed without execution evidence")
+                findings.errors.append(
+                    f"live action {action_id} is passed without execution evidence"
+                )
                 continue
             kind = plan_action.get("kind")
             if kind == "cli":
-                if evidence.get("target") == "aws-ecs":
-                    if action_id == "install-local" and (
-                        evidence.get("terraformPlan") != "passed"
-                        or evidence.get("terraformApply") != "passed"
-                        or not str(evidence.get("serverImage", "")).startswith("ghcr.io/honua-io/honua-server:")
+                if action_id in {"install-local", "install-status"}:
+                    if (
+                        expected_target == "aws-ecs"
+                        and evidence.get("target") != "aws-ecs"
                     ):
                         findings.errors.append(
-                            "live AWS ECS install action has no image and Terraform provision evidence"
+                            f"live AWS ECS receipt action {action_id} is not target-bound to aws-ecs"
                         )
-                    elif action_id == "install-status" and (
+                    elif expected_target == "local-docker" and "target" in evidence:
+                        findings.errors.append(
+                            f"live local Docker receipt action {action_id} contains foreign target evidence"
+                        )
+                if expected_target == "aws-ecs" and action_id == "install-local":
+                    server = manifest_components.get("honua-server") or {}
+                    expected_image = f"{server.get('image')}@{server.get('digest')}"
+                    expected_components = {
+                        name: (manifest_components.get(name) or {}).get("sha")
+                        for name in ("honua-server", "honua-devops", "honua-iac")
+                    }
+                    if (
+                        evidence.get("candidateId") != identity["candidateId"]
+                        or evidence.get("releaseId") != manifest.get("platformRelease")
+                        or evidence.get("components") != expected_components
+                        or evidence.get("terraformPlan") != "passed"
+                        or evidence.get("terraformApply") != "passed"
+                        or evidence.get("serverImage") != expected_image
+                        or not _is_actions_run_url(evidence.get("producerEvidenceUrl"))
+                        or not SHA256.fullmatch(
+                            str(evidence.get("producerEvidenceSha256", ""))
+                        )
+                    ):
+                        findings.errors.append(
+                            "live AWS ECS install action has no exact candidate/image/Terraform provision evidence"
+                        )
+                elif expected_target == "aws-ecs" and action_id == "install-status":
+                    if (
                         evidence.get("readiness") != "passed"
                         or evidence.get("adminMcpHandoff") != "passed"
+                        or evidence.get("credentialReferencePresent") is not True
+                        or not _is_public_https_url(evidence.get("endpoint"))
+                        or evidence.get("mcpUrl")
+                        != f"{str(evidence.get('endpoint', '')).rstrip('/')}/mcp"
                     ):
                         findings.errors.append(
                             "live AWS ECS status action has no readiness/admin MCP handoff evidence"
                         )
-                elif evidence.get("exitCode") != 0:
-                    findings.errors.append(f"live CLI action {action_id} has no successful exit-code evidence")
+                elif expected_target == "local-docker" and (
+                    evidence.get("command") != "honua" or evidence.get("exitCode") != 0
+                ):
+                    findings.errors.append(
+                        f"live local Docker CLI action {action_id} has no successful Honua CLI evidence"
+                    )
+                elif (
+                    expected_target not in {"local-docker", "aws-ecs"}
+                    and evidence.get("exitCode") != 0
+                ):
+                    findings.errors.append(
+                        f"live CLI action {action_id} has no successful exit-code evidence"
+                    )
             elif kind == "mcp" and (
-                evidence.get("tool") != plan_action.get("tool") or evidence.get("isError") is not False
+                evidence.get("tool") != plan_action.get("tool")
+                or evidence.get("isError") is not False
             ):
-                findings.errors.append(f"live MCP action {action_id} has mismatched tool/error evidence")
-            elif kind == "mcp-resource" and not str(evidence.get("uri", "")).startswith("honua://"):
-                findings.errors.append(f"live MCP resource action {action_id} has no Honua resource URI evidence")
+                findings.errors.append(
+                    f"live MCP action {action_id} has mismatched tool/error evidence"
+                )
+            elif kind == "mcp-resource" and not str(evidence.get("uri", "")).startswith(
+                "honua://"
+            ):
+                findings.errors.append(
+                    f"live MCP resource action {action_id} has no Honua resource URI evidence"
+                )
             elif kind == "gpserver":
                 if evidence.get("protocol") != "geoservices-gp":
-                    findings.errors.append(f"live GPServer action {action_id} has no GeoServices GP evidence")
-                if str(evidence.get("status", "")).lower() not in {"success", "successful", "succeeded"}:
-                    findings.errors.append(f"live GPServer action {action_id} has no successful terminal evidence")
+                    findings.errors.append(
+                        f"live GPServer action {action_id} has no GeoServices GP evidence"
+                    )
+                if str(evidence.get("status", "")).lower() not in {
+                    "success",
+                    "successful",
+                    "succeeded",
+                }:
+                    findings.errors.append(
+                        f"live GPServer action {action_id} has no successful terminal evidence"
+                    )
             elif kind == "receipt" and (
                 evidence.get("source") != "external-receipt"
                 or not SHA256.fullmatch(str(evidence.get("sha256", "")))
             ):
-                findings.errors.append(f"live receipt action {action_id} has no content-addressed evidence")
+                findings.errors.append(
+                    f"live receipt action {action_id} has no content-addressed evidence"
+                )
             elif kind == "http":
+                if (
+                    action_id in RELEASE_PUBLIC_HTTP_ACTIONS
+                    and evidence.get("status") != 200
+                ):
+                    findings.errors.append(
+                        f"live release HTTP action {action_id} did not return mandatory HTTP 200"
+                    )
                 if (
                     evidence.get("status") != plan_action.get("expectedStatus")
                     or not _is_public_https_url(evidence.get("url"))
@@ -1084,13 +1520,16 @@ def validate_receipt(
                         f"live action {action_id} omits planned capture {variable}"
                     )
 
-        identity = candidate_identity(manifest, manifest_path)
         console = receipt_actions.get("console-approval") or {}
         captures = console.get("captures") or {}
         if captures.get("candidateId") != identity["candidateId"]:
-            findings.errors.append("Console receipt candidateId is not the exact platform-manifest digest")
+            findings.errors.append(
+                "Console receipt candidateId is not the exact platform-manifest digest"
+            )
         if captures.get("releaseId") != manifest.get("platformRelease"):
-            findings.errors.append("Console receipt releaseId is not the manifest platformRelease")
+            findings.errors.append(
+                "Console receipt releaseId is not the manifest platformRelease"
+            )
         if not _is_public_https_url(captures.get("shareUrl")):
             findings.errors.append("Console receipt shareUrl is not a public HTTPS URL")
         final_urls = {
@@ -1100,13 +1539,23 @@ def validate_receipt(
         }
         for action_id, public_url in final_urls.items():
             if not _is_public_https_url(public_url):
-                findings.errors.append(f"Console receipt {action_id} URL is not public HTTPS")
-            action_evidence = (receipt_actions.get(action_id) or {}).get("evidence") or {}
+                findings.errors.append(
+                    f"Console receipt {action_id} URL is not public HTTPS"
+                )
+            action_evidence = (receipt_actions.get(action_id) or {}).get(
+                "evidence"
+            ) or {}
             if action_evidence.get("url") != public_url:
-                findings.errors.append(f"live HTTP action {action_id} did not probe its exact Console URL")
+                findings.errors.append(
+                    f"live HTTP action {action_id} did not probe its exact Console URL"
+                )
         evidence = console.get("evidence") or {}
-        if evidence.get("source") != "external-receipt" or not SHA256.fullmatch(str(evidence.get("sha256", ""))):
-            findings.errors.append("Console checkpoint has no content-addressed external receipt evidence")
+        if evidence.get("source") != "external-receipt" or not SHA256.fullmatch(
+            str(evidence.get("sha256", ""))
+        ):
+            findings.errors.append(
+                "Console checkpoint has no content-addressed external receipt evidence"
+            )
 
     return findings, {"failureAttribution": first_non_pass}
 
@@ -1223,6 +1672,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan,
                 receipt,
                 expected_mode=args.mode,
+                expected_target="local-docker" if args.mode == "live" else None,
             )
             if args.mode == "live":
                 target_journey_receipts: dict[str, dict] = {}
@@ -1242,6 +1692,7 @@ def main(argv: list[str] | None = None) -> int:
                         plan,
                         target_receipt,
                         expected_mode="live",
+                        expected_target=target,
                     )
                     receipt_findings.errors.extend(target_findings.errors)
                     receipt_findings.blockers.extend(target_findings.blockers)
