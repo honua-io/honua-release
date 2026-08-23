@@ -317,6 +317,33 @@ def _verify_console_candidate(origin: str, expected_sha: str, fetch=None) -> dic
     }
 
 
+def _require_sealed_ai_arc_producer_contract(
+    studio_root: Path, console_root: Path
+) -> None:
+    studio_entry = studio_root / "scripts" / "real-model-ai-arc.mjs"
+    studio_library = studio_root / "scripts" / "lib" / "real-model-ai-arc.mjs"
+    console_entry = (
+        console_root / "e2e" / "playwright" / "live" / "console-receipt-cli.mjs"
+    )
+    try:
+        studio_entry_text = studio_entry.read_text(encoding="utf-8")
+        studio_library_text = studio_library.read_text(encoding="utf-8")
+        console_entry_text = console_entry.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ProvisionError(
+            "manifest-pinned Studio/Console sealed receipt producers are absent"
+        ) from error
+    if (
+        "HONUA_AI_ARC_REAL_MODEL_HANDOFF" not in studio_entry_text
+        or "resume is credential-free" not in studio_entry_text
+        or 'receiptId: "aws-ecs-real-model-ai-arc"' not in studio_library_text
+        or "HONUA_AI_ARC_CONSOLE_EVIDENCE" not in console_entry_text
+    ):
+        raise ProvisionError(
+            "manifest-pinned Studio/Console revisions predate the sealed AWS receipt handoff"
+        )
+
+
 def _studio_command(phase: str) -> list[str]:
     if phase not in {"prepare", "resume"}:
         raise ValueError(f"unsupported Studio AI arc phase: {phase}")
@@ -336,10 +363,9 @@ def _run_ai_arc_approval_boundary(
     try:
         studio_prepare_env = {
             **boundary_env,
-            # The manifest-pinned Studio producer deliberately accepts only the
-            # ordinary scoped HTTPS/MCP credential contract. Keep it out of the
-            # inherited and Console environments, but pass the name it consumes.
-            "HONUA_ADMIN_KEY": studio_credential,
+            # The sealed handoff producer accepts this role-specific credential
+            # only during prepare. It is absent from Console and resume.
+            "HONUA_AI_ARC_PREPARE_CREDENTIAL": studio_credential,
         }
         _run_secretless(
             _studio_command("prepare"),
@@ -348,29 +374,29 @@ def _run_ai_arc_approval_boundary(
             cwd=studio_root,
             expected_codes=(2,),
         )
-        studio_prepare_env.pop("HONUA_ADMIN_KEY", None)
-
-        console_token = _resolve_aws_secret(console_token_ref, "scoped Console approval token")
-        try:
-            _run_secretless(
-                ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"],
-                env={**boundary_env, "HONUA_AI_ARC_CONSOLE_TOKEN": console_token},
-                label="focused Console approval/audit/recovery producer",
-                cwd=console_root,
-            )
-        finally:
-            console_token = ""
-
-        _run_secretless(
-            _studio_command("resume"),
-            # Studio validates the same scoped credential contract before
-            # branching into resume. Console never inherits this value.
-            env={**boundary_env, "HONUA_ADMIN_KEY": studio_credential},
-            label="full Admin/GP/Studio real-model resume",
-            cwd=studio_root,
-        )
+        studio_prepare_env.pop("HONUA_AI_ARC_PREPARE_CREDENTIAL", None)
     finally:
         studio_credential = ""
+
+    console_token = _resolve_aws_secret(
+        console_token_ref, "scoped Console approval token"
+    )
+    try:
+        _run_secretless(
+            ["npm", "--prefix", "e2e/playwright", "run", "receipt:console"],
+            env={**boundary_env, "HONUA_AI_ARC_CONSOLE_TOKEN": console_token},
+            label="focused Console approval/audit/recovery producer",
+            cwd=console_root,
+        )
+    finally:
+        console_token = ""
+
+    _run_secretless(
+        _studio_command("resume"),
+        env=boundary_env,
+        label="full Admin/GP/Studio real-model resume",
+        cwd=studio_root,
+    )
 
 
 def _ai_arc_paths() -> dict[str, Path]:
@@ -449,6 +475,7 @@ def _prepare_aws_ecs_ai_arc(target, endpoint: str, readiness: dict) -> dict:
         pinned = (components.get(name) or {}).get("sha")
         if _git_head(root) != pinned:
             raise ProvisionError(f"AWS ECS AI delivery arc {name} checkout is not manifest-pinned")
+    _require_sealed_ai_arc_producer_contract(studio_root, console_root)
     console_candidate = _verify_console_candidate(
         os.environ["HONUA_AI_ARC_CONSOLE_ORIGIN"],
         components["honua-console"]["sha"],

@@ -492,11 +492,11 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
         "npm", "run", "release:real-model-ai-arc", "--", "resume", "--execute", "--yes"
     ]
     console_env = calls[1][1]
-    assert calls[0][1]["HONUA_ADMIN_KEY"] == admin_value
-    assert calls[2][1]["HONUA_ADMIN_KEY"] == admin_value
+    assert calls[0][1]["HONUA_AI_ARC_PREPARE_CREDENTIAL"] == admin_value
     assert "HONUA_API_KEY" not in calls[0][1]
     assert "HONUA_API_KEY" not in calls[2][1]
-    assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[0][1]
+    assert "HONUA_ADMIN_KEY" not in calls[0][1]
+    assert "HONUA_ADMIN_KEY" not in calls[2][1]
     assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in console_env
     assert "HONUA_AI_ARC_PREPARE_CREDENTIAL" not in calls[2][1]
     assert console_env["HONUA_AI_ARC_CONSOLE_TOKEN"] == console_value
@@ -514,6 +514,40 @@ def test_ai_arc_approval_boundary_orders_phases_and_isolates_console_credential(
         assert child_env["AWS_SHARED_CREDENTIALS_FILE"] == os.devnull
         assert child_env["AWS_CONFIG_FILE"] == os.devnull
         assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+
+
+def test_aws_ai_arc_requires_the_credential_free_sealed_handoff(tmp_path: Path):
+    studio = tmp_path / "studio"
+    console = tmp_path / "console"
+    (studio / "scripts" / "lib").mkdir(parents=True)
+    (console / "e2e" / "playwright" / "live").mkdir(parents=True)
+    studio_entry = studio / "scripts" / "real-model-ai-arc.mjs"
+    studio_entry.write_text(
+        'const handoff = "HONUA_AI_ARC_REAL_MODEL_HANDOFF";\n',
+        encoding="utf-8",
+    )
+    (studio / "scripts" / "lib" / "real-model-ai-arc.mjs").write_text(
+        'const contract = {receiptId: "aws-ecs-real-model-ai-arc"};\n',
+        encoding="utf-8",
+    )
+    (console / "e2e" / "playwright" / "live" / "console-receipt-cli.mjs").write_text(
+        'const evidence = "HONUA_AI_ARC_CONSOLE_EVIDENCE";\n',
+        encoding="utf-8",
+    )
+
+    with __import__("pytest").raises(ProvisionError, match="predate the sealed"):
+        run_cloud._require_sealed_ai_arc_producer_contract(studio, console)
+
+    studio_entry.write_text(
+        "\n".join(
+            (
+                'const handoff = "HONUA_AI_ARC_REAL_MODEL_HANDOFF";',
+                'const policy = "resume is credential-free";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    run_cloud._require_sealed_ai_arc_producer_contract(studio, console)
 
 
 def test_resolved_aws_secret_is_masked_before_a_child_can_log_it(monkeypatch, capsys):
