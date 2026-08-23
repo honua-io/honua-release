@@ -350,10 +350,16 @@ def _is_public_https_url(value: Any) -> bool:
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
+            labels = host.split(".")
+            if all(
+                re.fullmatch(r"(?:0x[0-9a-f]+|[0-9]+)", item)
+                for item in labels
+            ):
+                return False
             # A single-label DNS name is an intranet name, not a customer-facing
             # publication identity. Fully qualified test fixtures use a dotted name.
             return "." in host
-        return address.is_global
+        return address.is_global and not address.is_multicast
     except ValueError:
         return False
 

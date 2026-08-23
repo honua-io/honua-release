@@ -93,6 +93,11 @@ def test_local_producer_never_accepts_internal_or_credentialed_origins():
         "https://user:password@candidate.example.com/",
         "https://@candidate.example.com/",
         "https://127.0.0.1/",
+        "https://0177.0.0.1/",
+        "https://127.1/",
+        "https://0x7f.0.0.1/",
+        "https://2130706433/",
+        "https://224.0.0.1/",
         "http://candidate.example.com/",
     ):
         try:

@@ -288,10 +288,15 @@ def _public_https_origin(value: str, label: str) -> str:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
+        labels = host.split(".")
+        if all(re.fullmatch(r"(?:0x[0-9a-f]+|[0-9]+)", item) for item in labels):
+            raise ProvisionError(
+                f"{label} must not use an ambiguous numeric IP address"
+            )
         if "." not in host:
             raise ProvisionError(f"{label} must use a publicly routable hostname")
         address = None
-    if address is not None and not address.is_global:
+    if address is not None and (not address.is_global or address.is_multicast):
         raise ProvisionError(f"{label} must not use a non-public IP address")
     return value.rstrip("/")
 

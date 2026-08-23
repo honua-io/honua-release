@@ -459,6 +459,11 @@ def test_cloud_public_origin_rejects_credentials_and_internal_hosts():
         "https://candidate.%6cocal/",
         "https://single-label/",
         "https://127.0.0.1/",
+        "https://0177.0.0.1/",
+        "https://127.1/",
+        "https://0x7f.0.0.1/",
+        "https://2130706433/",
+        "https://224.0.0.1/",
         "https://[::1]/",
     ):
         with __import__("pytest").raises(ProvisionError):

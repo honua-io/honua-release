@@ -1240,6 +1240,11 @@ def test_public_https_url_rejects_credentials_and_non_public_hosts():
         "https://single-label/share",
         "https://10.0.0.1/share",
         "https://127.0.0.1/share",
+        "https://0177.0.0.1/share",
+        "https://127.1/share",
+        "https://0x7f.0.0.1/share",
+        "https://2130706433/share",
+        "https://224.0.0.1/share",
         "https://[::1]/share",
     ):
         assert not gate._is_public_https_url(value), value
