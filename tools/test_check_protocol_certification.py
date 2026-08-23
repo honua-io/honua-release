@@ -335,6 +335,7 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
         ("transferred_bytes", 1.5),
         ("range_requests", -1),
         ("coordinate_error", float("nan")),
+        ("coordinate_error", 10**400),
         ("geometry_error", -0.1),
     ):
         invalid_cell = copy.deepcopy(passing)
@@ -354,6 +355,18 @@ def test_cloud_native_pass_requires_owned_budget_and_observations():
     wrong_metadata_type_report = _evaluate(_ledger(wrong_metadata_type), "nightly", now=NOW)
     assert wrong_metadata_type_report["overall_status"] == "fail"
     assert any("metadata value 'nodata'" in finding["why"] for finding in wrong_metadata_type_report["findings"])
+
+    duplicate_metadata = copy.deepcopy(passing)
+    duplicate_metadata["budget_observations"]["metadata_assertions"].append("crs")
+    duplicate_metadata_report = _evaluate(_ledger(duplicate_metadata), "nightly", now=NOW)
+    assert duplicate_metadata_report["overall_status"] == "fail"
+    assert any("metadata assertions" in finding["why"] for finding in duplicate_metadata_report["findings"])
+
+    extra_observation = copy.deepcopy(passing)
+    extra_observation["budget_observations"]["untrusted"] = 0
+    extra_observation_report = _evaluate(_ledger(extra_observation), "nightly", now=NOW)
+    assert extra_observation_report["overall_status"] == "fail"
+    assert any("closed governed fields" in finding["why"] for finding in extra_observation_report["findings"])
 
 
 def test_fresh_nightly_required_cell_passes():

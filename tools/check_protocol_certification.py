@@ -45,6 +45,11 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
 OFFICIAL_SDK_SOURCES = ("sdk-js", "sdk-python", "sdk-dotnet")
+FORMAT_BUDGET_OBSERVATION_FIELDS = {
+    "requests", "transferred_bytes", "full_object_downloads", "range_requests",
+    "cache_hits", "coordinate_error", "geometry_error", "metadata_assertions",
+    "metadata_values",
+}
 REQUIREMENT_FIELDS = {
     "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
@@ -136,6 +141,15 @@ def _typed_equal(actual: object, expected: object) -> bool:
             for actual_value, expected_value in zip(actual, expected, strict=True)
         )
     return actual == expected
+
+
+def _finite_nonnegative_number(value: object) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _valid_evidence_uri(value: object, evidence_digest: object) -> bool:
@@ -590,6 +604,8 @@ def evaluate(
                 fail(prefix, "cloud-native format requirement lacks governed fixture budgets")
             elif not isinstance(observations, dict):
                 fail(prefix, "cloud-native format pass lacks machine-checked budget observations")
+            elif set(observations) != FORMAT_BUDGET_OBSERVATION_FIELDS:
+                fail(prefix, "cloud-native budget observations must use the closed governed fields")
             else:
                 count_upper_bounds = {
                     "requests": "max_requests",
@@ -614,20 +630,9 @@ def evaluate(
                 for observed, expected in error_upper_bounds.items():
                     value = observations.get(observed)
                     limit = expected_budget.get(expected)
-                    if (
-                        not isinstance(value, (int, float))
-                        or isinstance(value, bool)
-                        or not math.isfinite(value)
-                        or value < 0
-                    ):
+                    if not _finite_nonnegative_number(value):
                         fail(prefix, f"budget observation {observed} must be finite and nonnegative")
-                    elif (
-                        not isinstance(limit, (int, float))
-                        or isinstance(limit, bool)
-                        or not math.isfinite(limit)
-                        or limit < 0
-                        or value > limit
-                    ):
+                    elif not _finite_nonnegative_number(limit) or value > limit:
                         fail(prefix, f"budget observation {observed} exceeds {expected}")
                 for observed, expected in count_lower_bounds.items():
                     value = observations.get(observed)
@@ -648,6 +653,7 @@ def evaluate(
                     and set(required_metadata) == set(expected_metadata)
                     and isinstance(metadata_assertions, list)
                     and all(isinstance(value, str) and value for value in metadata_assertions)
+                    and len(metadata_assertions) == len(set(metadata_assertions))
                     and set(required_metadata) <= set(metadata_assertions)
                 ):
                     fail(prefix, "budget observations do not prove all required metadata assertions")
