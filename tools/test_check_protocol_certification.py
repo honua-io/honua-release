@@ -720,6 +720,29 @@ def test_schema_binds_execution_image_digest_to_deployment_target():
     assert list(validator.iter_errors(_ledger(_cell(deployment_target="source-test-host"))))
     assert list(validator.iter_errors(_ledger(_cell(image_digest=None))))
 
+    deployed_skip = _cell(
+        result="skip",
+        skip_reason="no producer evidence",
+        source_sha=None,
+        producer_source_sha=None,
+        fixture_revision=None,
+        evidence_uri=None,
+        evidence_digest=None,
+        evidence_receipt=None,
+        facet_results=None,
+        started_at=None,
+        completed_at=None,
+    )
+    assert not list(validator.iter_errors(_ledger(deployed_skip)))
+    deployed_skip["image_digest"] = None
+    assert list(validator.iter_errors(_ledger(deployed_skip)))
+
+    source_skip = copy.deepcopy(deployed_skip)
+    source_skip["deployment_target"] = "source-test-host"
+    assert not list(validator.iter_errors(_ledger(source_skip)))
+    source_skip["image_digest"] = DIGEST
+    assert list(validator.iter_errors(_ledger(source_skip)))
+
     missing_candidate = _ledger(source_host)
     missing_candidate["candidate"]["image_digest"] = None
     assert list(validator.iter_errors(missing_candidate))

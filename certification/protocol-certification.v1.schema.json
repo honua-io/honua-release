@@ -186,43 +186,44 @@
       "allOf": [
         {
           "if": {
-            "properties": {
-              "deployment_target": { "const": "source-test-host" },
-              "result": { "enum": ["pass", "fail"] }
-            },
-            "required": ["deployment_target", "result"]
+            "properties": { "deployment_target": { "const": "source-test-host" } },
+            "required": ["deployment_target"]
           },
           "then": {
             "properties": {
               "image_digest": { "type": "null" },
               "evidence_receipt": {
-                "type": "object",
-                "properties": {
-                  "identity": {
-                    "properties": { "image_digest": { "type": "null" } }
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "identity": {
+                        "properties": { "image_digest": { "type": "null" } }
+                      }
+                    }
                   }
-                }
+                ]
               }
             }
           },
           "else": {
-            "if": {
-              "properties": { "result": { "enum": ["pass", "fail"] } },
-              "required": ["result"]
-            },
-            "then": {
-              "properties": {
-                "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "evidence_receipt": {
-                  "type": "object",
-                  "properties": {
-                    "identity": {
-                      "properties": {
-                        "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            "properties": {
+              "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "evidence_receipt": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "identity": {
+                        "properties": {
+                          "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+                        }
                       }
                     }
                   }
-                }
+                ]
               }
             }
           }
