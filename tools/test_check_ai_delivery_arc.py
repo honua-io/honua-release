@@ -721,14 +721,79 @@ def write_generic_aws_evidence_bundle(
     }
     teardown_path = directory / "teardown-evidence.json"
     teardown_path.write_text(json.dumps(teardown), encoding="utf-8")
-    artifacts = {name: "9" * 64 for name in gate.AWS_FINAL_ARTIFACTS}
-    artifacts.update(
+    handoff = {
+        "schemaVersion": "honua.mcp-proxy.handoff/v1",
+        "env": {
+            "HONUA_BASE_URL": binding["endpoint"],
+            "HONUA_MCP_REMOTE_URL": f"{binding['endpoint']}/mcp",
+        },
+        "secretRefs": {"HONUA_ADMIN_KEY": binding["adminKeySecretRef"]},
+    }
+    handoff_path = directory / "handoff.json"
+    handoff_path.write_text(json.dumps(handoff), encoding="utf-8")
+    checkpoint = {
+        "schemaVersion": "honua.zero-to-map.checkpoint/v1",
+        "candidateId": candidate_id,
+        "releaseId": manifest_value["platformRelease"],
+        "target": "aws-ecs",
+        "state": "paused",
+        "sourceRevision": manifest_value["components"]["honua-sdk-js"]["sha"],
+        "provisionReceiptSha256": gate._sha256(binding_path),
+    }
+    checkpoint["integrity"] = {
+        "algorithm": "sha256",
+        "digest": gate._canonical_sha256(checkpoint),
+    }
+    checkpoint_path = directory / "checkpoint.json"
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+    console = {
+        "schemaVersion": "honua.zero-to-map.console-receipt/v1",
+        "status": "passed",
+        "candidate": {
+            "candidateId": candidate_id,
+            "releaseId": manifest_value["platformRelease"],
+        },
+        "shareUrl": "https://candidate.example.test/public/app",
+    }
+    console_path = directory / "console-receipt.json"
+    console_path.write_text(json.dumps(console), encoding="utf-8")
+    sdk_console_path = directory / "sdk-console-receipt.json"
+    sdk_console_path.write_text(json.dumps(console), encoding="utf-8")
+    console_evidence = {
+        "schemaVersion": "honua.console.ai-arc-evidence/v1",
+        "status": "passed",
+        "candidate": console["candidate"],
+    }
+    console_evidence_path = directory / "console-evidence.json"
+    console_evidence_path.write_text(json.dumps(console_evidence), encoding="utf-8")
+    journey = model_journey_receipt()
+    journey["stages"][0]["actions"].append(
         {
-            "platformManifest": candidate_id.removeprefix("manifest-sha256:"),
-            "provisionBinding": gate._sha256(binding_path),
-            "teardownEvidence": gate._sha256(teardown_path),
+            "id": "console-approval",
+            "evidence": {
+                "source": "external-receipt",
+                "sha256": gate._sha256(sdk_console_path),
+            },
         }
     )
+    journey_path = directory / "sdk-journey.json"
+    journey_path.write_text(json.dumps(journey), encoding="utf-8")
+    model_receipt_path = directory / "real-model-receipt.json"
+    model_receipt_path.write_text(json.dumps({"placeholder": True}), encoding="utf-8")
+    model_evidence_path = directory / "real-model-evidence.json"
+    model_evidence_path.write_text(json.dumps({"placeholder": True}), encoding="utf-8")
+    artifacts = {
+        "platformManifest": candidate_id.removeprefix("manifest-sha256:"),
+        "provisionBinding": gate._sha256(binding_path),
+        "secretlessHandoff": gate._sha256(handoff_path),
+        "sdkJourneyReceipt": gate._sha256(journey_path),
+        "sdkCheckpoint": checkpoint["integrity"]["digest"],
+        "consoleReceipt": gate._sha256(console_path),
+        "sdkConsoleReceipt": gate._sha256(sdk_console_path),
+        "awsEcsRealModelReceipt": gate._sha256(model_receipt_path),
+        "awsEcsRealModelEvidence": gate._sha256(model_evidence_path),
+        "teardownEvidence": gate._sha256(teardown_path),
+    }
     evidence = {
         "schemaVersion": "honua.aws-ecs.ai-delivery-arc-evidence/v1",
             "status": "passed",
@@ -749,6 +814,61 @@ def write_generic_aws_evidence_bundle(
     return evidence, evidence_path
 
 
+def join_aws_model_documents_to_bundle(
+    receipt: dict,
+    evidence: dict,
+    final_evidence_path: Path,
+) -> None:
+    binding_path = final_evidence_path.with_name("provision-binding.json")
+    binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    checkpoint = json.loads(
+        final_evidence_path.with_name("checkpoint.json").read_text(encoding="utf-8")
+    )
+    console_path = final_evidence_path.with_name("console-receipt.json")
+    console_evidence_path = final_evidence_path.with_name("console-evidence.json")
+    provision_digest = gate._sha256(binding_path)
+    endpoint_digest = hashlib.sha256(
+        binding["endpoint"].rstrip("/").encode("utf-8")
+    ).hexdigest()
+    deterministic = {
+        "target": "aws-ecs",
+        "provisionReceiptSha256": provision_digest,
+        "checkpointDigest": checkpoint["integrity"]["digest"],
+        "consoleAggregateSha256": gate._sha256(console_path),
+        "consoleEvidenceSha256": gate._sha256(console_evidence_path),
+    }
+    receipt["endpointSha256"] = endpoint_digest
+    receipt["deterministic"] = deterministic
+    evidence.update(
+        {
+            "endpointSha256": endpoint_digest,
+            "provisionReceiptSha256": deterministic["provisionReceiptSha256"],
+            "checkpointDigest": deterministic["checkpointDigest"],
+            "consoleAggregateSha256": deterministic["consoleAggregateSha256"],
+            "consoleEvidenceSha256": deterministic["consoleEvidenceSha256"],
+        }
+    )
+
+
+def bind_aws_model_artifacts(
+    final_document: dict,
+    final_evidence_path: Path,
+    receipt: dict,
+    evidence: dict,
+) -> None:
+    model_receipt_path = final_evidence_path.with_name("real-model-receipt.json")
+    model_evidence_path = final_evidence_path.with_name("real-model-evidence.json")
+    model_receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    model_evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    final_document["artifacts"]["awsEcsRealModelReceipt"] = gate._sha256(
+        model_receipt_path
+    )
+    final_document["artifacts"]["awsEcsRealModelEvidence"] = gate._sha256(
+        model_evidence_path
+    )
+    final_evidence_path.write_text(json.dumps(final_document), encoding="utf-8")
+
+
 def validate_aws_model_documents(
     tmp_path: Path,
     receipt: dict,
@@ -757,6 +877,7 @@ def validate_aws_model_documents(
     provision_sha256: str | None = None,
     endpoint_sha256: str | None = None,
     model_run_url: str | None = None,
+    substituted_final_artifact: str | None = None,
 ) -> gate.Findings:
     manifest_value = manifest()
     manifest_path = tmp_path / "platform-manifest.yaml"
@@ -779,16 +900,13 @@ def validate_aws_model_documents(
         provision_source,
         run_url,
     )
-    binding_path = provision_evidence_path.with_name("provision-binding.json")
-    binding = json.loads(binding_path.read_text(encoding="utf-8"))
-    bound_provision_sha256 = provision_sha256 or gate._sha256(binding_path)
-    bound_endpoint_sha256 = endpoint_sha256 or hashlib.sha256(
-        binding["endpoint"].rstrip("/").encode("utf-8")
-    ).hexdigest()
-    receipt["deterministic"]["provisionReceiptSha256"] = bound_provision_sha256
-    receipt["endpointSha256"] = bound_endpoint_sha256
-    evidence["provisionReceiptSha256"] = bound_provision_sha256
-    evidence["endpointSha256"] = bound_endpoint_sha256
+    join_aws_model_documents_to_bundle(receipt, evidence, provision_evidence_path)
+    if provision_sha256 is not None:
+        receipt["deterministic"]["provisionReceiptSha256"] = provision_sha256
+        evidence["provisionReceiptSha256"] = provision_sha256
+    if endpoint_sha256 is not None:
+        receipt["endpointSha256"] = endpoint_sha256
+        evidence["endpointSha256"] = endpoint_sha256
 
     evidence_path = tmp_path / "model-evidence.json"
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
@@ -798,6 +916,26 @@ def validate_aws_model_documents(
     }
     receipt_path = tmp_path / "model-receipt.json"
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    bind_aws_model_artifacts(
+        provision_evidence,
+        provision_evidence_path,
+        receipt,
+        evidence,
+    )
+    if substituted_final_artifact is not None:
+        artifact_name, filename = {
+            "receipt": ("awsEcsRealModelReceipt", "real-model-receipt.json"),
+            "evidence": ("awsEcsRealModelEvidence", "real-model-evidence.json"),
+        }[substituted_final_artifact]
+        artifact_path = provision_evidence_path.with_name(filename)
+        artifact_path.write_text(
+            json.dumps({"substituted": substituted_final_artifact}),
+            encoding="utf-8",
+        )
+        provision_evidence["artifacts"][artifact_name] = gate._sha256(artifact_path)
+        provision_evidence_path.write_text(
+            json.dumps(provision_evidence), encoding="utf-8"
+        )
     provision_receipt = {
         "schemaVersion": "honua.release.evidence-receipt/v1",
         "id": provision_expected["id"],
@@ -846,7 +984,16 @@ def validate_aws_model_documents(
             "aws-ecs-provision": (provision_evidence_path, provision_evidence),
             "aws-ecs-real-model-ai-arc": (evidence_path, evidence),
         },
-        {"aws-ecs": model_journey_receipt()},
+        {
+            "aws-ecs": (
+                provision_evidence_path.with_name("sdk-journey.json"),
+                json.loads(
+                    provision_evidence_path.with_name("sdk-journey.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+            )
+        },
     )
     return findings
 
@@ -881,15 +1028,10 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             if receipt_id == "aws-ecs-real-model-ai-arc":
                 assert provision_binding_path is not None
                 assert provision_run_url is not None
-                binding = json.loads(provision_binding_path.read_text(encoding="utf-8"))
-                provision_digest = gate._sha256(provision_binding_path)
-                endpoint_digest = hashlib.sha256(
-                    binding["endpoint"].rstrip("/").encode("utf-8")
-                ).hexdigest()
-                value["deterministic"]["provisionReceiptSha256"] = provision_digest
-                value["endpointSha256"] = endpoint_digest
-                evidence_value["provisionReceiptSha256"] = provision_digest
-                evidence_value["endpointSha256"] = endpoint_digest
+                provision_final_path, _ = supplied_evidence["aws-ecs-provision"]
+                join_aws_model_documents_to_bundle(
+                    value, evidence_value, provision_final_path
+                )
             evidence_path = tmp_path / f"{receipt_id}-evidence.json"
             evidence_path.write_text(json.dumps(evidence_value), encoding="utf-8")
             value["evidence"] = {
@@ -903,6 +1045,25 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             path.write_text(json.dumps(value), encoding="utf-8")
             supplied[receipt_id] = (path, value)
             supplied_evidence[receipt_id] = (evidence_path, evidence_value)
+            if receipt_id == "aws-ecs-real-model-ai-arc":
+                for generic_id in (
+                    "aws-ecs-provision",
+                    "aws-ecs-ai-delivery-arc",
+                ):
+                    generic_path, generic_document = supplied_evidence[generic_id]
+                    bind_aws_model_artifacts(
+                        generic_document,
+                        generic_path,
+                        value,
+                        evidence_value,
+                    )
+                    generic_receipt_path, generic_receipt = supplied[generic_id]
+                    generic_receipt["evidence"]["sha256"] = gate._sha256(
+                        generic_path
+                    )
+                    generic_receipt_path.write_text(
+                        json.dumps(generic_receipt), encoding="utf-8"
+                    )
             continue
         run_url = "https://github.com/honua-io/honua-release/actions/runs/12345"
         evidence_value, evidence_path = write_generic_aws_evidence_bundle(
@@ -954,6 +1115,9 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
             provision_binding_path = evidence_path.with_name("provision-binding.json")
             provision_run_url = run_url
 
+    aws_journey_path = supplied_evidence["aws-ecs-provision"][0].with_name(
+        "sdk-journey.json"
+    )
     findings, records = gate.validate_external_receipts(
         manifest_value,
         manifest_path,
@@ -961,7 +1125,10 @@ def test_live_external_receipts_join_component_pins(tmp_path: Path):
         supplied,
         evidence_documents=supplied_evidence,
         target_journey_receipts={
-            "aws-ecs": model_journey_receipt(),
+            "aws-ecs": (
+                aws_journey_path,
+                json.loads(aws_journey_path.read_text(encoding="utf-8")),
+            ),
             "local-docker": model_journey_receipt(),
         },
     )
@@ -1068,12 +1235,94 @@ def test_public_https_url_rejects_credentials_and_non_public_hosts():
         "https://service.internal/share",
         "https://localhost./share",
         "https://service.localdomain/share",
+        "https://service.%69nternal/share",
+        "https://service.%6cocal/share",
         "https://single-label/share",
         "https://10.0.0.1/share",
         "https://127.0.0.1/share",
         "https://[::1]/share",
     ):
         assert not gate._is_public_https_url(value), value
+
+
+def test_generic_aws_evidence_loads_every_digest_listed_artifact(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    run_url = "https://github.com/honua-io/honua-release/actions/runs/13579"
+    source = {
+        "repository": "honua-io/honua-devops",
+        "sha": manifest_value["components"]["honua-devops"]["sha"],
+    }
+    artifact_files = {
+        **gate.AWS_FINAL_ARTIFACT_FILES,
+        "sdkCheckpoint": "checkpoint.json",
+    }
+
+    for artifact_name, filename in artifact_files.items():
+        evidence, evidence_path = write_generic_aws_evidence_bundle(
+            tmp_path / artifact_name,
+            manifest_value,
+            identity["candidateId"],
+            source,
+            run_url,
+        )
+        supporting_path = evidence_path.with_name(filename)
+        supporting_path.unlink()
+        findings = gate.Findings()
+        gate._validate_generic_aws_evidence_bundle(
+            findings,
+            manifest_value,
+            identity,
+            evidence_path,
+            evidence,
+            run_url,
+        )
+        assert any(
+            filename in error and "missing" in error for error in findings.errors
+        ), (artifact_name, findings.errors)
+
+
+def test_generic_aws_evidence_rejects_a_substituted_sdk_journey(tmp_path: Path):
+    manifest_value = manifest()
+    manifest_path = tmp_path / "platform-manifest.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+    identity = gate.candidate_identity(manifest_value, manifest_path)
+    run_url = "https://github.com/honua-io/honua-release/actions/runs/97531"
+    evidence, evidence_path = write_generic_aws_evidence_bundle(
+        tmp_path / "aws-bundle",
+        manifest_value,
+        identity["candidateId"],
+        {
+            "repository": "honua-io/honua-devops",
+            "sha": manifest_value["components"]["honua-devops"]["sha"],
+        },
+        run_url,
+    )
+    substituted_path = tmp_path / "substituted-sdk-journey.json"
+    substituted = {"stages": [{"actions": [{"id": "substituted"}]}]}
+    substituted_path.write_text(json.dumps(substituted), encoding="utf-8")
+    findings = gate.Findings()
+
+    gate._validate_generic_aws_evidence_bundle(
+        findings,
+        manifest_value,
+        identity,
+        evidence_path,
+        evidence,
+        run_url,
+        (substituted_path, substituted),
+    )
+
+    assert any(
+        "differs from the supplied AWS SDK receipt" in error
+        for error in findings.errors
+    )
+    assert any(
+        "does not bind the supplied AWS SDK receipt bytes" in error
+        for error in findings.errors
+    )
 
 
 def test_generic_aws_receipt_requires_checks_and_bound_provision_bytes(tmp_path: Path):
@@ -1164,6 +1413,34 @@ def test_missing_full_aws_arc_receipt_blocks_even_when_provisioning_exists(tmp_p
 
     assert findings.status == "blocked"
     assert any("aws-ecs-ai-delivery-arc" in blocker for blocker in findings.blockers)
+
+
+def test_aws_model_inputs_must_match_the_digest_listed_final_artifacts(
+    tmp_path: Path,
+):
+    for artifact in ("receipt", "evidence"):
+        case_path = tmp_path / artifact
+        case_path.mkdir()
+        manifest_value = manifest()
+        manifest_path = case_path / "identity-manifest.yaml"
+        manifest_path.write_text(yaml.safe_dump(manifest_value), encoding="utf-8")
+        identity = gate.candidate_identity(manifest_value, manifest_path)
+        receipt, evidence = aws_real_model_documents(
+            manifest_value, identity["candidateId"]
+        )
+
+        findings = validate_aws_model_documents(
+            case_path,
+            receipt,
+            evidence,
+            substituted_final_artifact=artifact,
+        )
+
+        assert any(
+            f"real-model {artifact} differs from the digest-listed final artifact"
+            in error
+            for error in findings.errors
+        ), findings.errors
 
 
 def test_aws_real_model_receipt_rejects_missing_family_and_fabricated_id(tmp_path: Path):

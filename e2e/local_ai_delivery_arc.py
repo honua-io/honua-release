@@ -154,6 +154,7 @@ def public_https_origin(value: str, label: str) -> str:
     if (
         parsed.scheme != "https"
         or not host
+        or "%" in parsed.netloc
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query
@@ -976,14 +977,17 @@ def _patch_local_compose(compose_path: Path, env: dict[str, str]) -> None:
         }
     )
     if provider in {"anthropic", "openai"}:
+        if env.get("HONUA_AI_UPSTREAM_ENDPOINT", "").strip():
+            raise ProducerBlocked(
+                "HONUA_AI_UPSTREAM_ENDPOINT is not accepted by certifying runs; "
+                "the declared provider must use its official API origin"
+            )
         default_endpoint = (
             "https://api.anthropic.com"
             if provider == "anthropic"
             else "https://api.openai.com/v1"
         )
-        server_env[f"StudioAiProxy__Providers__{provider}__Endpoint"] = (
-            env.get("HONUA_AI_UPSTREAM_ENDPOINT") or default_endpoint
-        )
+        server_env[f"StudioAiProxy__Providers__{provider}__Endpoint"] = default_endpoint
         server_env[f"HONUA_STUDIOAI_{provider.upper()}_API_KEY"] = (
             "${HONUA_AI_PROVIDER_API_KEY}"
         )

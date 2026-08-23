@@ -455,6 +455,8 @@ def test_cloud_public_origin_rejects_credentials_and_internal_hosts():
         "https://localhost./",
         "https://candidate.internal/",
         "https://candidate.localdomain/",
+        "https://candidate.%69nternal/",
+        "https://candidate.%6cocal/",
         "https://single-label/",
         "https://127.0.0.1/",
         "https://[::1]/",

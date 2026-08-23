@@ -88,6 +88,8 @@ def test_local_producer_never_accepts_internal_or_credentialed_origins():
         "https://localhost./",
         "https://honua.internal/",
         "https://honua.localdomain/",
+        "https://honua.%69nternal/",
+        "https://honua.%6cocal/",
         "https://user:password@candidate.example.com/",
         "https://@candidate.example.com/",
         "https://127.0.0.1/",
@@ -126,6 +128,27 @@ def test_local_install_override_keeps_the_model_key_out_of_compose(tmp_path: Pat
     assert "${HONUA_AI_PROVIDER_API_KEY}" in rendered
     assert "Public__BaseUrl: https://candidate.example.com" in rendered
     assert "StudioAiProxy__Providers__openai__Endpoint: https://api.openai.com/v1" in rendered
+
+
+def test_local_install_rejects_a_model_upstream_override(tmp_path: Path):
+    compose = tmp_path / "compose.yaml"
+    compose.write_text(
+        "services:\n  honua:\n    image: candidate@example\n    environment: {}\n",
+        encoding="utf-8",
+    )
+
+    with __import__("pytest").raises(
+        local.ProducerBlocked, match="official API origin"
+    ):
+        local._patch_local_compose(
+            compose,
+            {
+                "HONUA_AI_PROVIDER": "openai",
+                "HONUA_AI_MODEL": "gpt-release-model",
+                "HONUA_AI_ARC_LOCAL_ORIGIN": "https://candidate.example.com",
+                "HONUA_AI_UPSTREAM_ENDPOINT": "https://model-proxy.example.com/v1",
+            },
+        )
 
 
 def test_local_install_is_release_owned_and_uses_the_manifest_image(tmp_path: Path):

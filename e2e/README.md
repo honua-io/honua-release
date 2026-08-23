@@ -93,7 +93,9 @@ compose/save/reopen evidence and, on ECS, the complete downstream journey. The
 checker also rejects a live SDK action marked passed without kind-appropriate
 execution evidence or without its planned identity captures. The terminal share
 check must be HTTP 200 on a public HTTPS URL; loopback, private-address, and
-plain-HTTP receipts cannot certify publication.
+plain-HTTP receipts cannot certify publication. Percent-escaped authorities are
+also refused before any fetch so an encoded local/internal label cannot acquire a
+public identity after URL normalization.
 
 ```bash
 E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
@@ -101,6 +103,8 @@ E2E_SDK_JS_DIR=../honua-sdk-js python e2e/ai_delivery_arc.py
 # Console origin, distinct scoped prepare/Console credentials, and a configured
 # real-model provider. It creates a pinned ephemeral HTTPS tunnel, verifies that
 # the generated origin routes to its exact local candidate port, and tears it down.
+# OpenAI and Anthropic certification runs use their official API origins; an
+# upstream endpoint override is deliberately rejected rather than trusted as proof.
 python e2e/local_ai_delivery_arc.py
 ```
 
@@ -114,7 +118,11 @@ whose SHA-256 and Actions-run URL they declare. None is inferred from a
 successful apply. `E2E_AI_AWS_SDK_RECEIPT` must point to the live
 `sdk-journey.json` produced during that same ECS lifetime; every AWS model call
 is hash-bound to its exact SDK action receipt, just as the local model receipt
-is bound to the local SDK receipt.
+is bound to the local SDK receipt. The final checker opens every digest-listed
+AWS handoff, journey, canonical checkpoint, Console receipt, model document, and
+teardown document, then joins the separately supplied SDK/model inputs to those
+exact bytes. Digest-shaped placeholders or missing sidecars cannot certify the
+aggregate checks.
 
 In strict `aws-ecs` cloud cells, `run_cloud.py` owns one lifetime: it applies
 one saved Terraform plan, waits for readiness, invokes the manifest-pinned

@@ -74,6 +74,16 @@ AWS_FINAL_ARTIFACTS = (
     "awsEcsRealModelEvidence",
     "teardownEvidence",
 )
+AWS_FINAL_ARTIFACT_FILES = {
+    "provisionBinding": "provision-binding.json",
+    "secretlessHandoff": "handoff.json",
+    "sdkJourneyReceipt": "sdk-journey.json",
+    "consoleReceipt": "console-receipt.json",
+    "sdkConsoleReceipt": "sdk-console-receipt.json",
+    "awsEcsRealModelReceipt": "real-model-receipt.json",
+    "awsEcsRealModelEvidence": "real-model-evidence.json",
+    "teardownEvidence": "teardown-evidence.json",
+}
 AWS_MODEL_LANES = ("admin", "esriGp", "nativeAnalysis", "studioPublication")
 # Exact ordered 58-action model roster shared with the Studio producer and
 # DevOps cloud verifier. Tuple fields: actionId, lane, role, family, kind, name.
@@ -330,6 +340,7 @@ def _is_public_https_url(value: Any) -> bool:
         if (
             parsed.scheme != "https"
             or not host
+            or "%" in parsed.netloc
             or parsed.username is not None
             or parsed.password is not None
             or host in {"localhost", "localhost.localdomain"}
@@ -672,6 +683,50 @@ def _load_digest_bound_json(
         return None
 
 
+def _load_integrity_bound_checkpoint(
+    findings: Findings,
+    evidence_path: Path,
+    digest: Any,
+) -> tuple[Path, dict] | None:
+    """Load the checkpoint whose declared artifact is its canonical integrity hash."""
+    path = evidence_path.with_name("checkpoint.json")
+    if not path.is_file():
+        findings.errors.append(f"AWS SDK checkpoint supporting evidence is missing: {path}")
+        return None
+    try:
+        checkpoint = _load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        findings.errors.append(f"AWS SDK checkpoint supporting evidence is invalid JSON: {exc}")
+        return None
+    integrity = checkpoint.get("integrity")
+    declared = integrity.get("digest") if isinstance(integrity, dict) else None
+    unsigned = dict(checkpoint)
+    unsigned.pop("integrity", None)
+    if (
+        not SHA256.fullmatch(str(digest or ""))
+        or not isinstance(integrity, dict)
+        or integrity.get("algorithm") != "sha256"
+        or declared != digest
+        or _canonical_sha256(unsigned) != digest
+    ):
+        findings.errors.append(
+            "AWS SDK checkpoint canonical bytes do not match its declared integrity digest"
+        )
+        return None
+    return path, checkpoint
+
+
+def _target_journey_entry(
+    value: dict | tuple[Path, dict] | None,
+) -> tuple[Path | None, dict | None]:
+    if isinstance(value, tuple) and len(value) == 2:
+        path, document = value
+        return path, document
+    if isinstance(value, dict):
+        return None, value
+    return None, None
+
+
 def _validate_generic_aws_evidence_bundle(
     findings: Findings,
     manifest: dict,
@@ -679,7 +734,8 @@ def _validate_generic_aws_evidence_bundle(
     evidence_path: Path,
     evidence_document: dict,
     run_url: Any,
-) -> tuple[Path, dict] | None:
+    aws_journey_receipt: dict | tuple[Path, dict] | None = None,
+) -> dict[str, tuple[Path, dict]]:
     """Validate the final document plus every producer document it cites by digest."""
     components = manifest.get("components") or {}
     expected_arc_components = {
@@ -699,7 +755,13 @@ def _validate_generic_aws_evidence_bundle(
     artifacts = evidence_document.get("artifacts")
     if not isinstance(artifacts, dict):
         findings.errors.append("generic AWS final evidence artifacts must be an object")
-        return None
+        return {}
+    if set(artifacts) != set(AWS_FINAL_ARTIFACTS):
+        findings.errors.append(
+            "generic AWS final evidence artifact inventory drift "
+            f"(missing={sorted(set(AWS_FINAL_ARTIFACTS) - set(artifacts))}, "
+            f"extra={sorted(set(artifacts) - set(AWS_FINAL_ARTIFACTS))})"
+        )
     for artifact_name in AWS_FINAL_ARTIFACTS:
         if not SHA256.fullmatch(str(artifacts.get(artifact_name, ""))):
             findings.errors.append(
@@ -710,20 +772,40 @@ def _validate_generic_aws_evidence_bundle(
             "generic AWS final evidence platformManifest digest differs from the candidate"
         )
 
-    binding_record = _load_digest_bound_json(
-        findings,
-        evidence_path,
-        "provision-binding.json",
-        artifacts.get("provisionBinding"),
-        label="AWS provision binding",
+    artifact_records: dict[str, tuple[Path, dict]] = {}
+    for artifact_name, filename in AWS_FINAL_ARTIFACT_FILES.items():
+        record = _load_digest_bound_json(
+            findings,
+            evidence_path,
+            filename,
+            artifacts.get(artifact_name),
+            label=f"AWS final artifact {artifact_name}",
+        )
+        if record is not None:
+            artifact_records[artifact_name] = record
+    checkpoint_record = _load_integrity_bound_checkpoint(
+        findings, evidence_path, artifacts.get("sdkCheckpoint")
     )
-    teardown_record = _load_digest_bound_json(
-        findings,
-        evidence_path,
-        "teardown-evidence.json",
-        artifacts.get("teardownEvidence"),
-        label="AWS teardown evidence",
-    )
+    if checkpoint_record is not None:
+        artifact_records["sdkCheckpoint"] = checkpoint_record
+
+    journey_path, journey_document = _target_journey_entry(aws_journey_receipt)
+    journey_record = artifact_records.get("sdkJourneyReceipt")
+    if journey_document is not None and journey_record is not None:
+        if journey_document != journey_record[1]:
+            findings.errors.append(
+                "AWS final artifact sdkJourneyReceipt differs from the supplied AWS SDK receipt"
+            )
+        if journey_path is not None and (
+            not journey_path.is_file()
+            or _sha256(journey_path) != artifacts.get("sdkJourneyReceipt")
+        ):
+            findings.errors.append(
+                "AWS final artifact sdkJourneyReceipt does not bind the supplied AWS SDK receipt bytes"
+            )
+
+    binding_record = artifact_records.get("provisionBinding")
+    teardown_record = artifact_records.get("teardownEvidence")
 
     expected_provision_components = {
         name: (components.get(name) or {}).get("sha")
@@ -795,6 +877,46 @@ def _validate_generic_aws_evidence_bundle(
                     "AWS provision evidence does not prove the exact candidate plan/apply/readiness/handoff"
                 )
 
+        handoff_record = artifact_records.get("secretlessHandoff")
+        if handoff_record is not None:
+            _, handoff = handoff_record
+            handoff_env = handoff.get("env") or {}
+            handoff_refs = handoff.get("secretRefs") or {}
+            endpoint = binding.get("endpoint")
+            if (
+                handoff.get("schemaVersion") != "honua.mcp-proxy.handoff/v1"
+                or not isinstance(handoff_env, dict)
+                or not isinstance(handoff_refs, dict)
+                or handoff_env.get("HONUA_BASE_URL") != endpoint
+                or handoff_env.get("HONUA_MCP_REMOTE_URL")
+                != f"{str(endpoint).rstrip('/')}/mcp"
+                or "HONUA_ADMIN_KEY" in handoff_env
+                or "HONUA_API_KEY" in handoff_env
+                or handoff_refs.get("HONUA_ADMIN_KEY")
+                != binding.get("adminKeySecretRef")
+            ):
+                findings.errors.append(
+                    "AWS secretless handoff does not bind the exact provision endpoint/reference"
+                )
+
+        if checkpoint_record is not None:
+            _, checkpoint = checkpoint_record
+            if (
+                checkpoint.get("schemaVersion")
+                != "honua.zero-to-map.checkpoint/v1"
+                or checkpoint.get("candidateId") != identity.get("candidateId")
+                or checkpoint.get("releaseId") != manifest.get("platformRelease")
+                or checkpoint.get("target") != "aws-ecs"
+                or checkpoint.get("state") != "paused"
+                or checkpoint.get("sourceRevision")
+                != (components.get("honua-sdk-js") or {}).get("sha")
+                or checkpoint.get("provisionReceiptSha256")
+                != _sha256(binding_record[0])
+            ):
+                findings.errors.append(
+                    "AWS SDK checkpoint does not bind the exact candidate/provision receipt"
+                )
+
     embedded_teardown = evidence_document.get("teardown")
     if teardown_record is not None:
         _, teardown = teardown_record
@@ -849,7 +971,7 @@ def _validate_generic_aws_evidence_bundle(
                 findings.errors.append(
                     "AWS teardown proof does not bind the exact candidate destroy/cleanup"
                 )
-    return binding_record
+    return artifact_records
 
 
 def validate_external_receipts(
@@ -858,7 +980,9 @@ def validate_external_receipts(
     contract: dict,
     receipts: dict[str, tuple[Path, dict]],
     evidence_documents: dict[str, tuple[Path, dict]] | None = None,
-    target_journey_receipts: dict[str, dict] | None = None,
+    target_journey_receipts: dict[
+        str, dict | tuple[Path, dict]
+    ] | None = None,
 ) -> tuple[Findings, list[dict]]:
     findings = Findings()
     records: list[dict] = []
@@ -874,6 +998,7 @@ def validate_external_receipts(
     # unrelated 64-hex value from another run or endpoint.
     aws_provision_binding: tuple[Path, dict] | None = None
     aws_provision_run_url: str | None = None
+    aws_final_artifacts: dict[str, tuple[Path, dict]] | None = None
     for expected in contract.get("externalReceipts") or []:
         receipt_id = expected.get("id")
         supplied = receipts.get(receipt_id)
@@ -910,8 +1035,8 @@ def validate_external_receipts(
                 )
                 continue
             evidence_path, evidence_document = model_evidence
-            target_journey_receipt = target_journey_receipts.get(
-                model_contract["target"]
+            _, target_journey_receipt = _target_journey_entry(
+                target_journey_receipts.get(model_contract["target"])
             )
             if target_journey_receipt is None:
                 findings.blockers.append(
@@ -931,6 +1056,7 @@ def validate_external_receipts(
                 target_journey_receipt,
                 aws_provision_binding=aws_provision_binding,
                 aws_provision_run_url=aws_provision_run_url,
+                aws_final_artifacts=aws_final_artifacts,
             )
             records.append(
                 {
@@ -1016,16 +1142,18 @@ def validate_external_receipts(
                 findings.errors.append(
                     f"external receipt {receipt_id} evidence disagrees on {key}"
                 )
-        binding_record = _validate_generic_aws_evidence_bundle(
+        artifact_records = _validate_generic_aws_evidence_bundle(
             findings,
             manifest,
             identity,
             evidence_path,
             evidence_document,
             evidence.get("url"),
+            target_journey_receipts.get("aws-ecs"),
         )
         if receipt_id == "aws-ecs-provision":
-            aws_provision_binding = binding_record
+            aws_final_artifacts = artifact_records
+            aws_provision_binding = artifact_records.get("provisionBinding")
             run_url = evidence.get("url")
             if isinstance(run_url, str):
                 aws_provision_run_url = run_url
@@ -1074,6 +1202,7 @@ def _validate_real_model_receipt(
     *,
     aws_provision_binding: tuple[Path, dict] | None = None,
     aws_provision_run_url: str | None = None,
+    aws_final_artifacts: dict[str, tuple[Path, dict]] | None = None,
 ) -> None:
     target = model_contract["target"]
     receipt_fields = {
@@ -1152,6 +1281,96 @@ def _validate_real_model_receipt(
                 findings.errors.append(
                     "aws-ecs real-model endpointSha256 does not bind the provisioned endpoint"
                 )
+        if aws_final_artifacts is None:
+            findings.errors.append(
+                "aws-ecs real-model receipt has no validated final artifact context"
+            )
+        else:
+            model_receipt_record = aws_final_artifacts.get(
+                "awsEcsRealModelReceipt"
+            )
+            model_evidence_record = aws_final_artifacts.get(
+                "awsEcsRealModelEvidence"
+            )
+            if (
+                model_receipt_record is None
+                or model_receipt_record[1] != receipt
+                or not receipt_path.is_file()
+                or _sha256(receipt_path) != _sha256(model_receipt_record[0])
+            ):
+                findings.errors.append(
+                    "aws-ecs real-model receipt differs from the digest-listed final artifact"
+                )
+            if (
+                model_evidence_record is None
+                or model_evidence_record[1] != evidence_document
+                or not evidence_path.is_file()
+                or _sha256(evidence_path) != _sha256(model_evidence_record[0])
+            ):
+                findings.errors.append(
+                    "aws-ecs real-model evidence differs from the digest-listed final artifact"
+                )
+
+            checkpoint_record = aws_final_artifacts.get("sdkCheckpoint")
+            console_record = aws_final_artifacts.get("consoleReceipt")
+            sdk_console_record = aws_final_artifacts.get("sdkConsoleReceipt")
+            checkpoint_digest = (
+                ((checkpoint_record[1].get("integrity") or {}).get("digest"))
+                if checkpoint_record is not None
+                else None
+            )
+            console_digest = (
+                _sha256(console_record[0]) if console_record is not None else None
+            )
+            sdk_console_digest = (
+                _sha256(sdk_console_record[0])
+                if sdk_console_record is not None
+                else None
+            )
+            if deterministic.get("checkpointDigest") != checkpoint_digest:
+                findings.errors.append(
+                    "aws-ecs real-model checkpointDigest differs from the digest-listed checkpoint"
+                )
+            if deterministic.get("consoleAggregateSha256") != console_digest:
+                findings.errors.append(
+                    "aws-ecs real-model Console aggregate differs from the digest-listed receipt"
+                )
+            if (
+                console_record is None
+                or sdk_console_record is None
+                or console_record[1] != sdk_console_record[1]
+                or console_digest != sdk_console_digest
+            ):
+                findings.errors.append(
+                    "AWS aggregate and SDK Console receipts are not the same content-addressed approval"
+                )
+            console_action = _receipt_action_map(journey_receipt or {}).get(
+                "console-approval"
+            ) or {}
+            console_action_evidence = console_action.get("evidence") or {}
+            if console_action_evidence.get("sha256") != sdk_console_digest:
+                findings.errors.append(
+                    "AWS SDK Console action does not bind the digest-listed Console receipt"
+                )
+            console_evidence_record = _load_digest_bound_json(
+                findings,
+                console_record[0] if console_record is not None else evidence_path,
+                "console-evidence.json",
+                deterministic.get("consoleEvidenceSha256"),
+                label="AWS Console browser evidence",
+            )
+            if console_evidence_record is not None:
+                console_evidence = console_evidence_record[1]
+                console_candidate = console_evidence.get("candidate") or {}
+                if (
+                    console_candidate.get("candidateId")
+                    != identity.get("candidateId")
+                    or console_candidate.get("releaseId")
+                    != manifest.get("platformRelease")
+                ):
+                    findings.errors.append(
+                        "AWS Console browser evidence does not bind the exact candidate/release"
+                    )
     checks = receipt.get("checks") or {}
     for check in (expected.get("claims") or {}).get("requiredChecks") or []:
         if checks.get(check) != "passed":
@@ -1734,9 +1953,15 @@ def main(argv: list[str] | None = None) -> int:
                 expected_target="local-docker" if args.mode == "live" else None,
             )
             if args.mode == "live":
-                target_journey_receipts: dict[str, dict] = {}
+                target_journey_receipts: dict[
+                    str, tuple[Path, dict]
+                ] = {}
                 if receipt is not None:
-                    target_journey_receipts["local-docker"] = receipt
+                    assert args.sdk_receipt is not None
+                    target_journey_receipts["local-docker"] = (
+                        args.sdk_receipt,
+                        receipt,
+                    )
                 for entry in args.target_sdk_receipt:
                     if "=" not in entry:
                         raise ValueError("--target-sdk-receipt requires TARGET=PATH")
@@ -1755,7 +1980,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     receipt_findings.errors.extend(target_findings.errors)
                     receipt_findings.blockers.extend(target_findings.blockers)
-                    target_journey_receipts[target] = target_receipt
+                    target_journey_receipts[target] = (
+                        Path(raw_path),
+                        target_receipt,
+                    )
                 supplied: dict[str, tuple[Path, dict]] = {}
                 for entry in args.external_receipt:
                     if "=" not in entry:

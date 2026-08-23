@@ -273,6 +273,7 @@ def _public_https_origin(value: str, label: str) -> str:
     if (
         parsed.scheme != "https"
         or not host
+        or "%" in parsed.netloc
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query
