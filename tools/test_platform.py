@@ -91,6 +91,14 @@ def test_structure_rejects_actor_replayable_or_released_pending_candidate_state(
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
     manifest["protocolCertification"]["candidateCutAt"] = "not-a-cut"
+    manifest["protocolCertification"]["ledger"].update(
+        {
+            "status": "pending",
+            "commit": "pending",
+            "requirementsSourceRevision": "pending",
+            "sha256": "pending",
+        }
+    )
     manifest["status"] = "released"
     f = vp.validate(manifest, matrix, None)
     assert not f.ok

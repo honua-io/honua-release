@@ -26,21 +26,21 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-08-20"             # honua-server re-pin date; #83 re-pin was 2026-08-17, rc.1 freeze 2026-08-01
+snapshotDate: "2026-08-21"             # exact-candidate ledger cut for honua-server e3ab87ce
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
 # deliberately blocks certification until honua-evidence publishes the exact-candidate ledger and
 # this reviewed manifest pins its immutable commit and byte digest.
 protocolCertification:
-  candidateCutAt: "2026-08-20T00:00:00Z"
+  candidateCutAt: "2026-08-21T15:13:36Z"
   ledger:
-    status: pending
+    status: bound
     repository: "honua-io/honua-evidence"
-    commit: pending
-    requirementsSourceRevision: pending
-    path: "protocol-certification.json"
-    sha256: pending
+    commit: "c595f9d6c01e9e31aa46d460506950378f14ad85"
+    requirementsSourceRevision: "47ec70604bb0db43b03f32dac1b114f1154bc2ca"
+    path: "data/protocol-certification.v1.json"
+    sha256: "sha256:a2c8ae757e1d8671f037873605985a0446d66d75e09936632ffa73148a2d58c7"
 
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
@@ -104,17 +104,17 @@ components:
     #   * #3349 changes an advertised CAPABILITY-ID set, not a contract version (see the
     #     contractVersions block below). The wire contract versions were re-read from this image and
     #     are unchanged.
-    sha: "f897700159e2791c9468c6ca85bb4e2a3a8d8433"   # published nightly AOT candidate source commit
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-f897700"
-    # Digest of the immutable nightly-aot-f897700 multi-arch index resolved from GHCR on 2026-08-20:
-    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-aot-f897700
-    #   Digest: sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a
-    #   linux/amd64 -> sha256:167c14dbc5ea3da929157af80db63e028c3d83d0f91572cb554f59149c1153f7
-    #   linux/arm64 -> sha256:dccc5678031451ef82427b61cccfa07b65f27082de3a160cabfa7d6fa18c8712
+    sha: "e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e"   # exact certified source candidate
+    image: "ghcr.io/honua-io/honua-server:rc-cert-e3ab87c-e3ab87c"
+    # Digest of the exact public candidate index resolved from GHCR:
+    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:rc-cert-e3ab87c-e3ab87c
+    #   Digest: sha256:d7a45c871bf318b4882ec8e1c32004803e6d0210246be30120751f05dee1a14d
+    #   linux/amd64 -> sha256:25657cae0f65d88287f1f23db1ee7ff2de17edbe6cbf1cb891fe8e3a0ef25a66
+    #   unknown/unknown -> attestation for the amd64 manifest
     # The floating :nightly-aot, :trunk-aot and :nightly-aot-20260820 tags all resolve to this same
     # index digest (checked with `--format '{{.Manifest.Digest}}'`), so the immutable per-sha tag and
     # the floating tags agree — this is the artifact those tags currently serve.
-    digest: "sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a"
+    digest: "sha256:d7a45c871bf318b4882ec8e1c32004803e6d0210246be30120751f05dee1a14d"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -127,13 +127,13 @@ components:
     awsEcsArchitecture: "x86_64"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
-    # Resolved from GHCR on 2026-08-20 against THIS pin's Lambda tag (single-arch manifest):
+    # The verified candidate exposes an amd64 child manifest; use that exact child for x86_64 mirroring:
     #   $ docker buildx imagetools inspect \
-    #       ghcr.io/honua-io/honua-server:nightly-lambda-aot-f897700-arm64
+    #       ghcr.io/honua-io/honua-server:rc-cert-e3ab87c-e3ab87c@sha256:25657cae0f65d88287f1f23db1ee7ff2de17edbe6cbf1cb891fe8e3a0ef25a66
     #   MediaType: application/vnd.oci.image.manifest.v1+json
-    #   Digest:    sha256:d97baf44b17ba5b9537320281f721252ed12f1fb43bee001011d720f3ae7d622
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-f897700-arm64"
-    awsLambdaDigest: "sha256:d97baf44b17ba5b9537320281f721252ed12f1fb43bee001011d720f3ae7d622"
+    #   Digest:    sha256:25657cae0f65d88287f1f23db1ee7ff2de17edbe6cbf1cb891fe8e3a0ef25a66
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:rc-cert-e3ab87c-e3ab87c"
+    awsLambdaDigest: "sha256:25657cae0f65d88287f1f23db1ee7ff2de17edbe6cbf1cb891fe8e3a0ef25a66"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -144,7 +144,7 @@ components:
     # Lambda manifest into the release account and verify its config/rootfs before
     # recording ECR's registry-specific digest. Never carry a prior pin's value forward.
     awsLambdaEcrDigest: "pending-ecr-mirror"
-    awsLambdaArchitecture: "arm64"
+    awsLambdaArchitecture: "x86_64"
     contractVersions:
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
       # (src/Honua.Server/Features/Admin/AdminInfoEndpoints.cs: AdminApiMajor="v1", AdminApiMajorNumber=1).
