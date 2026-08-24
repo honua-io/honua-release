@@ -416,6 +416,7 @@ jobs:
           HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF: ${{ vars.HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF }}
           HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
           HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
+          HONUA_ECS_CERTIFICATE_ARN: ${{ vars.HONUA_ECS_CERTIFICATE_ARN }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail

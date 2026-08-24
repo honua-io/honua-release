@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import json
 import os
+import pytest
 import subprocess
 import sys
 import tempfile
@@ -30,7 +31,15 @@ from targets.terraform_target import ecs, serverless  # noqa: E402
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
             "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
             "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE",
-            "HONUA_AWS_RUNNER_CIDR")
+            "HONUA_AWS_RUNNER_CIDR", "HONUA_ECS_CERTIFICATE_ARN")
+
+
+@pytest.fixture(autouse=True)
+def _strict_ecs_certificate(monkeypatch):
+    monkeypatch.setenv(
+        "HONUA_ECS_CERTIFICATE_ARN",
+        "arn:aws:acm:us-east-1:123456789012:certificate/test-certificate",
+    )
 
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
@@ -278,6 +287,7 @@ def test_prefix_distinct_per_redis_mode_no_collision(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_ECS_CERTIFICATE_ARN", "arn:aws:acm:us-east-1:123456789012:certificate/example")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     for factory in (serverless, ecs):
@@ -1211,11 +1221,14 @@ def test_ecs_opens_the_alb_to_the_runner_only(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_ECS_CERTIFICATE_ARN", "arn:aws:acm:us-east-1:123456789012:certificate/example")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
 
     ecs_vars = _tf_vars(ecs(run_id="r1")._vars(False))
-    assert json.loads(ecs_vars["allow_http_ingress_cidrs"]) == ["192.0.2.10/32"]
+    assert ecs_vars["alb_certificate_arn"] == "arn:aws:acm:us-east-1:123456789012:certificate/example"
+    assert json.loads(ecs_vars["allow_https_ingress_cidrs"]) == ["192.0.2.10/32"]
+    assert "allow_http_ingress_cidrs" not in ecs_vars
 
     # Serverless has no ALB and its root does not declare the var — passing it would be a tf error.
     assert "allow_http_ingress_cidrs" not in _tf_vars(serverless(run_id="r1")._vars(False))
@@ -1227,6 +1240,7 @@ def test_ecs_rejects_a_broad_alb_ingress(monkeypatch):
     monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "0.0.0.0/0")
+    monkeypatch.setenv("HONUA_ECS_CERTIFICATE_ARN", "arn:aws:acm:us-east-1:123456789012:certificate/example")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
     with __import__("pytest").raises(ProvisionError, match="single IPv4 /32"):
         ecs(run_id="r1")._vars(False)

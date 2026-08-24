@@ -57,6 +57,8 @@ class TfTargetSpec:
     # a reachable endpoint without ever putting a plain-HTTP ALB on 0.0.0.0/0 (which the module's own
     # `http_ingress_requires_https` check exists to discourage).
     needs_runner_alb_access: bool = False
+    certificate_arn_env: str = ""
+    certificate_arn_var: str = ""
     architecture_env: str = ""
     architecture_var: str = ""
     architecture_is_list: bool = False
@@ -103,6 +105,8 @@ class TerraformTarget(DeployTarget):
             missing.append("HONUA_AWS_DB_INGRESS_CIDR (ephemeral runner /32 for PostGIS bootstrap)")
         if self.spec.needs_runner_alb_access and not os.environ.get("HONUA_AWS_RUNNER_CIDR"):
             missing.append("HONUA_AWS_RUNNER_CIDR (ephemeral runner /32 for ALB ingress)")
+        if self.spec.certificate_arn_env and not os.environ.get(self.spec.certificate_arn_env):
+            missing.append(f"{self.spec.certificate_arn_env} (ACM certificate ARN for HTTPS)")
         if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
             missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
         if missing:
@@ -149,8 +153,17 @@ class TerraformTarget(DeployTarget):
             ])
         if self.spec.needs_runner_alb_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
-            values.append(
-                f"-var=allow_http_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}")
+            certificate_env = self.spec.certificate_arn_env
+            certificate_var = self.spec.certificate_arn_var
+            if not certificate_env or not certificate_var:
+                raise ProvisionError(f"{self.name}: HTTPS certificate wiring is incomplete")
+            certificate_arn = os.environ.get(certificate_env, "").strip()
+            if not certificate_arn.startswith("arn:aws:acm:"):
+                raise ProvisionError(f"{self.name}: {certificate_env} must be an ACM certificate ARN")
+            values.extend([
+                f"-var={certificate_var}={certificate_arn}",
+                f"-var=allow_https_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
+            ])
         if self.spec.architecture_env:
             architecture = os.environ.get(self.spec.architecture_env, "").strip()
             if architecture not in {"arm64", "x86_64"}:
@@ -307,6 +320,8 @@ ECS_SPEC = TfTargetSpec(
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,
+    certificate_arn_env="HONUA_ECS_CERTIFICATE_ARN",
+    certificate_arn_var="alb_certificate_arn",
     architecture_env="HONUA_ECS_ARCHITECTURE",
     architecture_var="task_cpu_architecture",
 )
