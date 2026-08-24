@@ -970,3 +970,34 @@ def test_licensed_receipt_requires_bound_live_entitlement_assertion():
 
     value["evidence_receipt"]["entitlement"]["deployment_target"] = "local-docker"
     assert not cert._valid_receipt(value)
+
+
+def test_receipt_that_binds_requirement_context_must_bind_it_truthfully():
+    # contract_revision carries only the PRODUCER revision, so a policy-side
+    # denominator change (preview -> supported, or a tier promotion) moves the
+    # governed requirement without moving any SHA. A receipt that binds that
+    # context must bind it to the cell it is certifying.
+    cell = _cell()
+    assert cert._valid_receipt(cell)
+
+    for field, wrong in (("maturity", "preview"), ("required_tier", "release")):
+        bound = copy.deepcopy(cell)
+        bound["evidence_receipt"]["identity"][field] = bound[field]
+        assert cert._valid_receipt(bound), field
+
+        stale = copy.deepcopy(bound)
+        stale["evidence_receipt"]["identity"][field] = wrong
+        assert not cert._valid_receipt(stale), field
+
+
+def test_receipt_that_binds_a_requirements_revision_must_match_the_owned_one():
+    cell = _cell()
+    bound = copy.deepcopy(cell)
+    bound["evidence_receipt"]["identity"]["requirements_revision"] = "2026-08-21-complete.10"
+
+    assert cert._valid_receipt(bound, None, "2026-08-21-complete.10")
+    # Reusing evidence under a different owned denominator must not validate.
+    assert not cert._valid_receipt(bound, None, "2026-08-22-complete.11")
+    assert not cert._valid_receipt(bound, None, None)
+    # An unbound receipt is unaffected (producers have not migrated yet).
+    assert cert._valid_receipt(cell, None, "2026-08-22-complete.11")

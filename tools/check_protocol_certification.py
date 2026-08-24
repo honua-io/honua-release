@@ -231,7 +231,11 @@ def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
     )
 
 
-def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
+def _valid_receipt(
+    cell: dict,
+    candidate_cut_at: str | None = None,
+    requirements_revision: str | None = None,
+) -> bool:
     receipt = cell.get("evidence_receipt")
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
@@ -260,6 +264,22 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
         if _timestamp(candidate_cut_at) is None:
             return False
         identity_fields.add("candidate_cut_at")
+    # Requirement-context binding (docs/PROTOCOL-CERTIFICATION-PLAN.md:75 invalidates
+    # evidence on a relevant maturity/requirement change). contract_revision only
+    # carries the PRODUCER revision, so a policy-side change -- preview promoted to
+    # supported, or a tier promotion -- moves the governed denominator without moving
+    # any SHA. A receipt that binds that context must bind it truthfully; a receipt
+    # that does not bind it cannot be silently accepted as if it had.
+    bound_requirement_fields = tuple(
+        field for field in ("maturity", "required_tier")
+        if isinstance(identity, dict) and field in identity
+    )
+    identity_fields.update(bound_requirement_fields)
+    binds_requirements_revision = (
+        isinstance(identity, dict) and "requirements_revision" in identity
+    )
+    if binds_requirements_revision:
+        identity_fields.add("requirements_revision")
     facets = receipt.get("facets")
     if (
         receipt.get("schema") != "honua.certification-evidence-receipt/v1"
@@ -277,6 +297,11 @@ def _valid_receipt(cell: dict, candidate_cut_at: str | None = None) -> bool:
         or (
             cell.get("licensed")
             and identity.get("entitlement_policy_revision") != cell.get("entitlement_policy_revision")
+        )
+        or any(identity.get(field) != cell.get(field) for field in bound_requirement_fields)
+        or (
+            binds_requirements_revision
+            and identity.get("requirements_revision") != requirements_revision
         )
         or receipt.get("result") != cell.get("result")
         or not isinstance(facets, dict)
@@ -555,7 +580,7 @@ def evaluate(
                 fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
             elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
                 fail(prefix, "passing cell requires every scenario facet to pass")
-            if not _valid_receipt(raw, candidate.get("cut_at")):
+            if not _valid_receipt(raw, candidate.get("cut_at"), owned_revision):
                 fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
             elif _receipt_digest(evidence_receipt) != evidence_digest:
                 fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
