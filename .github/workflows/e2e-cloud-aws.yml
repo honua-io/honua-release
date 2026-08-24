@@ -290,6 +290,7 @@ jobs:
       HONUA_LAMBDA_ARCHITECTURE: ${{ needs.candidate.outputs.lambda_architecture }}
       HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
       HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}
+      HONUA_ECS_CERTIFICATE_ARN: ${{ vars.HONUA_ECS_CERTIFICATE_ARN }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -416,7 +417,6 @@ jobs:
           HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF: ${{ vars.HONUA_AI_ARC_CONSOLE_TOKEN_SECRET_REF }}
           HONUA_AI_PROVIDER: ${{ vars.HONUA_AI_PROVIDER }}
           HONUA_AI_MODEL: ${{ vars.HONUA_AI_MODEL }}
-          HONUA_ECS_CERTIFICATE_ARN: ${{ vars.HONUA_ECS_CERTIFICATE_ARN }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
@@ -453,6 +453,7 @@ jobs:
         if: always()
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_ECS_CERTIFICATE_ARN: ${{ vars.HONUA_ECS_CERTIFICATE_ARN }}
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           # run_cloud already tears down; reconstruct this exact matrix cell's variables so the backstop

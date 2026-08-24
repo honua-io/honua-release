@@ -12,11 +12,31 @@ import contextlib
 import hashlib
 import json
 import os
-import pytest
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import pytest
+except ImportError:  # Keep the documented standalone runner usable without pytest installed.
+    class _PytestCompat:
+        @staticmethod
+        def fixture(*args, **kwargs):
+            return lambda function: function
+
+        @staticmethod
+        @contextlib.contextmanager
+        def raises(expected, match=None):
+            try:
+                yield
+            except expected as error:
+                if match is not None and not __import__("re").search(match, str(error)):
+                    raise AssertionError(f"exception did not match {match!r}: {error}") from error
+            else:
+                raise AssertionError(f"expected {expected.__name__} to be raised")
+
+    pytest = _PytestCompat()
 
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
@@ -393,7 +413,7 @@ def test_terraform_target_applies_one_saved_plan_and_exposes_secret_free_evidenc
 
 
 def test_aws_ai_arc_refuses_the_current_plain_http_ecs_endpoint():
-    with __import__("pytest").raises(ProvisionError, match="requires a public HTTPS endpoint"):
+    with pytest.raises(ProvisionError, match="requires a public HTTPS endpoint"):
         run_cloud._prepare_aws_ecs_ai_arc(
             object(),
             "http://plain-alb.example.test",
@@ -438,13 +458,13 @@ def test_console_candidate_probe_rejects_an_unpinned_or_non_public_origin():
         "shortCommit": "b" * 12,
         "areas": ["studio", "catalog", "operate", "share"],
     })
-    with __import__("pytest").raises(ProvisionError, match="manifest-pinned commit"):
+    with pytest.raises(ProvisionError, match="manifest-pinned commit"):
         run_cloud._verify_console_candidate(
             "https://console.example.test",
             sha,
             lambda _url: cc.HttpResponse(200, body),
         )
-    with __import__("pytest").raises(ProvisionError, match="public HTTPS origin"):
+    with pytest.raises(ProvisionError, match="public HTTPS origin"):
         run_cloud._verify_console_candidate(
             "http://127.0.0.1:5174",
             sha,
@@ -479,7 +499,7 @@ def test_cloud_public_origin_rejects_credentials_and_internal_hosts():
         "https://224.0.0.1/",
         "https://[::1]/",
     ):
-        with __import__("pytest").raises(ProvisionError):
+        with pytest.raises(ProvisionError):
             run_cloud._public_https_origin(value, "test candidate")
 
 
@@ -576,7 +596,7 @@ def test_aws_ai_arc_requires_the_credential_free_sealed_handoff(tmp_path: Path):
         encoding="utf-8",
     )
 
-    with __import__("pytest").raises(ProvisionError, match="predate the sealed"):
+    with pytest.raises(ProvisionError, match="predate the sealed"):
         run_cloud._require_sealed_ai_arc_producer_contract(studio, console)
 
     studio_entry.write_text(
@@ -614,11 +634,11 @@ def test_ai_arc_requires_distinct_arn_references_for_each_credential_role():
     assert run_cloud._validate_ai_arc_secret_references(refs) == refs
 
     invalid = {**refs, "console": "shared-secret-name"}
-    with __import__("pytest").raises(ProvisionError, match="console"):
+    with pytest.raises(ProvisionError, match="console"):
         run_cloud._validate_ai_arc_secret_references(invalid)
 
     reused = {**refs, "console": refs["admin"]}
-    with __import__("pytest").raises(ProvisionError, match="must be distinct"):
+    with pytest.raises(ProvisionError, match="must be distinct"):
         run_cloud._validate_ai_arc_secret_references(reused)
 
 
@@ -737,7 +757,7 @@ def test_serverless_rejects_broad_db_ingress(monkeypatch):
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "0.0.0.0/0")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
-    with __import__("pytest").raises(ProvisionError, match="single IPv4 /32"):
+    with pytest.raises(ProvisionError, match="single IPv4 /32"):
         serverless(run_id="r1")._vars(False)
 
 
@@ -956,7 +976,7 @@ def test_eks_teardown_passes_the_same_kms_var_it_applied(monkeypatch):
 
 def test_eks_rejects_a_broad_api_server_cidr(monkeypatch):
     target = _eks_env(monkeypatch, cidr="0.0.0.0/0")
-    with __import__("pytest").raises(ProvisionError, match="IPv4 /32"):
+    with pytest.raises(ProvisionError, match="IPv4 /32"):
         target._tf_vars(False)
 
 
@@ -968,7 +988,7 @@ def test_eks_helm_pins_the_exact_manifest_image_by_digest(monkeypatch):
     assert values["image.tag"] == ""          # digest-pinned: the chart renders repository@digest
     # A tag-only reference stays a tag-only reference; a bare repository is not a usable pin.
     assert target._image_values("ghcr.io/x/y:tag") == ("ghcr.io/x/y", "tag", "")
-    with __import__("pytest").raises(ProvisionError, match="tag or digest"):
+    with pytest.raises(ProvisionError, match="tag or digest"):
         target._image_values("ghcr.io/x/y")
 
 
@@ -1109,7 +1129,7 @@ def test_eks_teardown_fails_closed_when_the_vpc_cannot_be_destroyed(monkeypatch)
                         subprocess.CompletedProcess(command, 1, "", "no cluster"))
     monkeypatch.setattr(target, "_tf", lambda root, *a, **k:
                         subprocess.CompletedProcess(a, 1, "", "DependencyViolation"))
-    with __import__("pytest").raises(ProvisionError, match="teardown failed"):
+    with pytest.raises(ProvisionError, match="teardown failed"):
         target.teardown(redis_enabled=False)
 
 
@@ -1129,7 +1149,7 @@ def test_terraform_target_teardown_fails_closed(monkeypatch):
     monkeypatch.setattr(target, "_iac_root", lambda: Path("."))
     monkeypatch.setattr(target, "_tf", lambda root, *a, **k:
                         subprocess.CompletedProcess(a, 1, "", "DependencyViolation: ALB in use"))
-    with __import__("pytest").raises(ProvisionError, match="teardown failed"):
+    with pytest.raises(ProvisionError, match="teardown failed"):
         target.teardown(redis_enabled=False)
 
 
@@ -1242,7 +1262,7 @@ def test_ecs_rejects_a_broad_alb_ingress(monkeypatch):
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "0.0.0.0/0")
     monkeypatch.setenv("HONUA_ECS_CERTIFICATE_ARN", "arn:aws:acm:us-east-1:123456789012:certificate/example")
     monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
-    with __import__("pytest").raises(ProvisionError, match="single IPv4 /32"):
+    with pytest.raises(ProvisionError, match="single IPv4 /32"):
         ecs(run_id="r1")._vars(False)
 
 
@@ -1381,9 +1401,21 @@ def test_ecs_extended_journey_runs_before_ephemeral_target_teardown(monkeypatch)
 
 
 if __name__ == "__main__":
+    import io
     import traceback
 
     class _MP:
+        def __init__(self):
+            self._attributes = []
+            self._saved = {
+                key: os.environ.get(key)
+                for key in _AWS_ENV
+            }
+            os.environ.setdefault(
+                "HONUA_ECS_CERTIFICATE_ARN",
+                "arn:aws:acm:us-east-1:123456789012:certificate/standalone-test",
+            )
+
         def delenv(self, k, raising=True):
             import os
             os.environ.pop(k, None)
@@ -1393,17 +1425,57 @@ if __name__ == "__main__":
             os.environ[k] = v
 
         def setattr(self, obj, name, value):
+            self._attributes.append((obj, name, getattr(obj, name)))
             setattr(obj, name, value)
+
+        def undo(self):
+            for obj, name, value in reversed(self._attributes):
+                setattr(obj, name, value)
+            for key, value in self._saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    class _Capture:
+        def __init__(self):
+            self.out = io.StringIO()
+            self.err = io.StringIO()
+
+        def readouterr(self):
+            result = type("Captured", (), {
+                "out": self.out.getvalue(),
+                "err": self.err.getvalue(),
+            })()
+            self.out.seek(0)
+            self.out.truncate(0)
+            self.err.seek(0)
+            self.err.truncate(0)
+            return result
 
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
+            monkeypatch = _MP()
+            capsys = _Capture() if "capsys" in fn.__code__.co_varnames else None
+            args = []
+            if "monkeypatch" in fn.__code__.co_varnames:
+                args.append(monkeypatch)
+            if "tmp_path" in fn.__code__.co_varnames:
+                args.append(Path(tempfile.mkdtemp(prefix="honua-cloud-test-")))
+            if capsys is not None:
+                args.append(capsys)
             try:
-                fn(_MP()) if "monkeypatch" in fn.__code__.co_varnames else fn()
+                with contextlib.redirect_stdout(capsys.out if capsys else sys.stdout), contextlib.redirect_stderr(
+                    capsys.err if capsys else sys.stderr
+                ):
+                    fn(*args)
                 print(f"PASS {name}")
             except Exception:  # noqa: BLE001
                 failures += 1
                 print(f"FAIL {name}")
                 traceback.print_exc()
+            finally:
+                monkeypatch.undo()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
