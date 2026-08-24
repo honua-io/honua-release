@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   certify:
-    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@7fe27c33dd8feff4bbc28bf75c85edc06d9acd61
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@7fe27c33dd8feff4bbc28bf75c85edc06d9acd61 # v1.0.0 - trusted gate workflow
     with:
       matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
       matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
