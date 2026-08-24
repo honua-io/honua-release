@@ -106,8 +106,12 @@ def _timestamp(value: object) -> datetime | None:
 
 def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         return None, f"ledger unavailable or invalid JSON: {exc}"
     if not isinstance(value, dict):
         return None, "ledger root must be an object"
@@ -381,6 +385,13 @@ def evaluate(
         fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
     source_revisions = requirements.get("source_revisions", {})
     catalog_server_sha = source_revisions.get("server", {}).get("commit")
+    if tier == "release" and (
+        not isinstance(expected_source_sha, str) or not SHA_RE.fullmatch(expected_source_sha)
+    ):
+        fail(
+            "expected_source_sha",
+            "release certification requires an independently frozen full server source SHA",
+        )
     if expected_source_sha and catalog_server_sha != expected_source_sha:
         fail(
             "requirements.source_revisions.server.commit",

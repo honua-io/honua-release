@@ -531,6 +531,23 @@ def test_duplicate_normalized_key_fails():
     assert any("duplicate" in finding["why"] for finding in report["findings"])
 
 
+def test_load_ledger_rejects_duplicate_json_keys(tmp_path):
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"schema":"honua.protocol-certification/v1","schema":"forged"}', encoding="utf-8")
+
+    value, error = cert.load_ledger(path)
+
+    assert value is None
+    assert error is not None and "schema" in error
+
+
+def test_release_evaluation_requires_external_server_source_sha():
+    report = _evaluate(_ledger(_cell()), "release", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any(finding["check"] == "expected_source_sha" for finding in report["findings"])
+
+
 def test_non_addressable_requires_reason_and_matching_result():
     report = _evaluate(_ledger(_cell(addressable_by_client=False, result="pass")), "release", now=NOW)
     assert report["overall_status"] == "fail"
@@ -712,7 +729,7 @@ def test_release_requires_external_image_and_frozen_component_pins():
 def test_preview_failure_does_not_block_release_claim():
     preview = _cell(maturity="preview", result="fail")
     supported = _cell(canonical_client="GDAL", client_lane="gdal", client_version="3.11.4")
-    report = _evaluate(_ledger(preview, supported), "release", now=NOW)
+    report = _evaluate(_ledger(preview, supported), "release", expected_source_sha=SHA, now=NOW)
     assert report["overall_status"] == "pass"
 
 

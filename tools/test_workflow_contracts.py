@@ -145,7 +145,9 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert "Test the proposed evaluator separately" in gate
     assert "out/requirements-owner/tools/check_protocol_certification.py" in gate
     assert "python3 tools/check_protocol_certification.py \"${args[@]}\"" not in gate
-    assert 'if [[ "$ENFORCEMENT" == "bootstrap" ]]; then status=blocked' in gate
+    assert 'if [[ "$ENFORCEMENT" == "bootstrap" && "$FETCH_CLASS" == "unavailable" ]]; then' in gate
+    assert 'echo "fetch_class=$fetch_class" >> "$GITHUB_OUTPUT"' in gate
+    assert 'fetch_class=integrity' in gate
     assert "if: steps.evaluate.outputs.status == 'fail'" in gate
 
 

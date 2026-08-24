@@ -181,6 +181,7 @@ jobs:
           set -u
           mkdir -p out
           code=0
+          fetch_class=integrity
           if [[ "$MATRIX_REPOSITORY" != "honua-io/honua-evidence" ]] ||
              [[ ! "$MATRIX_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] ||
              [[ ! "$MATRIX_PATH" =~ ^[A-Za-z0-9._/-]+$ ]] ||
@@ -192,7 +193,10 @@ jobs:
           else
             git init -q out/evidence-source
             git -C out/evidence-source remote add origin "https://github.com/${MATRIX_REPOSITORY}.git"
-            git -C out/evidence-source fetch --quiet --depth=1 origin "$MATRIX_COMMIT" || code=$?
+            git -C out/evidence-source fetch --quiet --depth=1 origin "$MATRIX_COMMIT" || {
+              code=$?
+              fetch_class=unavailable
+            }
             if [[ "$code" -eq 0 ]]; then
               fetched_commit="$(git -C out/evidence-source rev-parse FETCH_HEAD)"
               if [[ "${fetched_commit,,}" != "${MATRIX_COMMIT,,}" ]]; then
@@ -207,6 +211,7 @@ jobs:
               if [[ ! -f "$source_matrix" ]]; then
                 echo "::error::Pinned certification ledger path does not exist."
                 code=1
+                fetch_class=unavailable
               else
                 cp "$source_matrix" out/protocol-certification.json
                 source_receipts="$(dirname "$source_matrix")/sha256"
@@ -218,20 +223,25 @@ jobs:
               if [[ "${actual,,}" != "${MATRIX_SHA256,,}" ]]; then
                 echo "::error::Certification ledger digest mismatch: expected $MATRIX_SHA256, got $actual."
                 code=1
+                fetch_class=integrity
               fi
             fi
             if [[ "$code" -eq 0 ]]; then
               git init -q out/requirements-owner
               git -C out/requirements-owner remote add origin \
                 "https://github.com/${GITHUB_REPOSITORY}.git"
-              git -C out/requirements-owner fetch --quiet --depth=1 origin \
-                "$EXPECTED_REQUIREMENTS_REVISION" || code=$?
+                git -C out/requirements-owner fetch --quiet --depth=1 origin \
+                "$EXPECTED_REQUIREMENTS_REVISION" || {
+                  code=$?
+                  fetch_class=unavailable
+                }
             fi
             if [[ "$code" -eq 0 ]]; then
               requirements_commit="$(git -C out/requirements-owner rev-parse FETCH_HEAD)"
               if [[ "${requirements_commit,,}" != "${EXPECTED_REQUIREMENTS_REVISION,,}" ]]; then
                 echo "::error::Requirements owner checkout did not resolve the pinned commit."
                 code=1
+                fetch_class=integrity
               else
                 git -C out/requirements-owner checkout --quiet --detach FETCH_HEAD || code=$?
               fi
@@ -240,9 +250,11 @@ jobs:
               if [[ ! -f out/requirements-owner/certification/protocol-certification-requirements.v1.json ]]; then
                 echo "::error::Pinned requirements owner has no certification denominator."
                 code=1
+                fetch_class=integrity
               elif [[ ! -f out/requirements-owner/tools/check_protocol_certification.py ]]; then
                 echo "::error::Pinned requirements owner has no trusted certification evaluator."
                 code=1
+                fetch_class=integrity
               else
                 cp out/requirements-owner/certification/protocol-certification-requirements.v1.json \
                   out/protocol-certification-requirements.v1.json
@@ -250,6 +262,7 @@ jobs:
             fi
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "fetch_class=$fetch_class" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate certification ledger
         id: evaluate
@@ -268,16 +281,26 @@ jobs:
           EXPECTED_GEOSPATIAL_MCP_SHA: ${{ inputs.expected_geospatial_mcp_sha }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
+          FETCH_CLASS: ${{ steps.fetch.outputs.fetch_class }}
         run: |
           set +e
-          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION" --expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA" --expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA" --expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA" --expected-geospatial-grpc-sha "$EXPECTED_GEOSPATIAL_GRPC_SHA" --expected-geospatial-mcp-sha "$EXPECTED_GEOSPATIAL_MCP_SHA")
+          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION")
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
           [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
+          [[ -n "$EXPECTED_SDK_JS_SHA" ]] && args+=(--expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA")
+          [[ -n "$EXPECTED_SDK_PYTHON_SHA" ]] && args+=(--expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA")
+          [[ -n "$EXPECTED_SDK_DOTNET_SHA" ]] && args+=(--expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")
+          [[ -n "$EXPECTED_GEOSPATIAL_GRPC_SHA" ]] && args+=(--expected-geospatial-grpc-sha "$EXPECTED_GEOSPATIAL_GRPC_SHA")
+          [[ -n "$EXPECTED_GEOSPATIAL_MCP_SHA" ]] && args+=(--expected-geospatial-mcp-sha "$EXPECTED_GEOSPATIAL_MCP_SHA")
           if [[ "$FETCH_EXIT_CODE" != 0 ]]; then
             echo "::error::Certification ledger fetch or digest verification failed."
             code=2
-            if [[ "$ENFORCEMENT" == "bootstrap" ]]; then status=blocked; else status=fail; fi
+            if [[ "$ENFORCEMENT" == "bootstrap" && "$FETCH_CLASS" == "unavailable" ]]; then
+              status=blocked
+            else
+              status=fail
+            fi
           else
             # Enforcement runs only from the externally pinned requirements-owner
             # revision. The proposed evaluator was tested above but cannot certify
