@@ -110,6 +110,11 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
         text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
         assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
+        assert (
+            "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
+            in text
+        )
+        assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in text
 
     release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
         encoding="utf-8"
@@ -149,6 +154,14 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert 'echo "fetch_class=$fetch_class" >> "$GITHUB_OUTPUT"' in gate
     assert 'fetch_class=integrity' in gate
     assert "if: steps.evaluate.outputs.status == 'fail'" in gate
+    release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
+        in release_train
+    )
+    assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
 
 
 def _step_text(step: dict) -> str:

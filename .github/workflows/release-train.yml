@@ -224,7 +224,7 @@ jobs:
 
   gate_protocol_certification: # normalized canonical-client cells for the exact candidate
     needs: [freeze, gate_conformance]
-    uses: ./.github/workflows/gate-protocol-certification.yml
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@7fe27c33dd8feff4bbc28bf75c85edc06d9acd61
     with:
       matrix_repository: ${{ needs.freeze.outputs.certification_repository }}
       matrix_commit: ${{ needs.freeze.outputs.certification_commit }}
