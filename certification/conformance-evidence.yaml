@@ -62,11 +62,9 @@ esri:
   # honua-server image at evaluation time, so the bundle is bound to the exact build being released.
   # Evidence about a different build is worse than no evidence, because it reads as a pass.
   #
-  # The evidence PRODUCER is pinned here rather than in platform-manifest.yaml. It belongs in the
-  # manifest conceptually -- that is the release's pin ledger -- but `components:` is iterated by
-  # the BOM generator and the upgrade-diff gate, and honua-esri-compat ships no consumable artifact,
-  # so adding it there is a separate change with its own blast radius (honua-release#136). Pinning
-  # it here keeps the evidence version-bound today without a fake artifact entry.
+  # The canonical producer pin is platform-manifest.yaml evidenceSources.esri-compat. This value is
+  # retained temporarily for older federation consumers and is checked for equality by the manifest
+  # validator; it must never become parallel configuration truth.
   #
   # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
   # is the backstop: a bundle for the wrong image fails rather than silently certifying.
@@ -81,13 +79,8 @@ demos:
   # candidate. That is the drift the rest of this gate design exists to prevent, so the source is
   # pinned like every other cross-repo input.
   #
-  # Pinned HERE rather than in platform-manifest.yaml for the same reason as the esri producer
-  # above: `components:` is iterated by the BOM generator and the upgrade-diff gate, and honua-site
-  # ships no consumable artifact -- no package, no image, no chart -- so an entry there needs either
-  # a fake artifact or teaching both tools about artifact-less components. That is honua-release#136,
-  # which is open and should be decided on its own merits, not as a side effect of wiring S9. When
-  # #136 lands (the stated preference there is a distinct top-level manifest section rather than
-  # overloading `components:`) this pin and the esri one move together.
+  # The canonical producer pin is platform-manifest.yaml evidenceSources.demos. This compatibility
+  # copy remains for older consumers and is checked for equality by the manifest validator.
   #
   # The ref MUST carry assets/demos/csp-bootstrap.js + assets/demos/backend-override.js: without the
   # backend-override shim the demos are still locked to demo.honua.io by their page CSP. The driver

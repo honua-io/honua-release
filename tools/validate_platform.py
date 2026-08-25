@@ -60,6 +60,12 @@ SHA_PREFIX = "sha:"
 # a stock `registry:2`, which preserves the source digest) — it is only knowable after a real mirror.
 # honua-release#99 tracks replacing it; e2e-cloud-aws.yml rejects it once HONUA_AWS_ROLE_ARN is set.
 PENDING_ECR_MIRROR = "pending-ecr-mirror"
+FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+NPM_INTEGRITY_RE = re.compile(r"sha512-[A-Za-z0-9+/]+={0,2}")
+ALLOWED_ECOSYSTEMS = {"npm", "pypi", "nuget"}
+ALLOWED_PUBLICATION_STATES = {"published", "promoted", "staged", "unpublished"}
+ALLOWED_TRUSTED_EVENTS = {"push", "schedule", "workflow_dispatch", "workflow_run"}
 
 
 @dataclass
@@ -166,6 +172,107 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
         for comp_name in (matrix.get(section) or {}):
             if comp_name not in components:
                 f.error(f"matrix: {section} names unknown component {comp_name!r} (not in manifest)")
+
+    _check_client_artifacts(manifest.get("clientArtifacts"), f)
+    _check_evidence_sources(manifest.get("evidenceSources"), f)
+
+
+def _mapping(value: object, path: str, f: Findings) -> dict:
+    if not isinstance(value, dict) or not value:
+        f.error(f"manifest: {path} must be a non-empty mapping")
+        return {}
+    return value
+
+
+def _full_sha(value: object) -> bool:
+    return bool(FULL_SHA_RE.fullmatch(str(value or "")))
+
+
+def _check_client_artifacts(value: object, f: Findings) -> None:
+    for name, artifact in _mapping(value, "clientArtifacts", f).items():
+        path = f"clientArtifacts.{name}"
+        if not isinstance(artifact, dict):
+            f.error(f"manifest: {path} must be a mapping")
+            continue
+        ecosystem = artifact.get("ecosystem")
+        if ecosystem not in ALLOWED_ECOSYSTEMS:
+            f.error(f"manifest: {path}.ecosystem must be one of {sorted(ALLOWED_ECOSYSTEMS)}")
+        for key in ("package", "version", "repository"):
+            if not str(artifact.get(key, "")).strip():
+                f.error(f"manifest: {path}.{key} is required")
+        if not semver.is_semver(str(artifact.get("version", ""))):
+            f.error(f"manifest: {path}.version must be an exact semver")
+        if not _full_sha(artifact.get("sourceSha")):
+            f.error(f"manifest: {path}.sourceSha must be a full 40-character commit SHA")
+        state = artifact.get("publicationState")
+        if state not in ALLOWED_PUBLICATION_STATES:
+            f.error(f"manifest: {path}.publicationState must be one of {sorted(ALLOWED_PUBLICATION_STATES)}")
+        if not isinstance(artifact.get("targets"), list) or not artifact["targets"]:
+            f.error(f"manifest: {path}.targets must be a non-empty list")
+        digest, integrity = artifact.get("digest"), artifact.get("integrity")
+        if digest is not None and not DIGEST_RE.fullmatch(str(digest)):
+            f.error(f"manifest: {path}.digest must be sha256:<64hex>")
+        if integrity is not None and not NPM_INTEGRITY_RE.fullmatch(str(integrity)):
+            f.error(f"manifest: {path}.integrity must be an npm sha512 SRI value")
+        if ecosystem == "npm" and digest is not None:
+            f.error(f"manifest: {path} must use integrity, not digest, for npm bytes")
+        if ecosystem != "npm" and integrity is not None:
+            f.error(f"manifest: {path} must use digest, not npm integrity")
+
+
+def _check_evidence_sources(value: object, f: Findings) -> None:
+    for name, source in _mapping(value, "evidenceSources", f).items():
+        path = f"evidenceSources.{name}"
+        if not isinstance(source, dict):
+            f.error(f"manifest: {path} must be a mapping")
+            continue
+        for key in ("repository", "workflowPath", "trustedBranch", "artifactIdentity", "evidencePolicyRevision"):
+            if not str(source.get(key, "")).strip():
+                f.error(f"manifest: {path}.{key} is required")
+        if not _full_sha(source.get("producerSha")):
+            f.error(f"manifest: {path}.producerSha must be a full 40-character commit SHA")
+        events = source.get("trustedEvents")
+        if not isinstance(events, list) or not events or any(e not in ALLOWED_TRUSTED_EVENTS for e in events):
+            f.error(f"manifest: {path}.trustedEvents contains an unsupported or empty event set")
+
+
+def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | None, f: Findings) -> None:
+    """Keep compatibility copies from becoming a second source of pin truth."""
+    if evidence_config is None:
+        return
+    sources = manifest.get("evidenceSources") or {}
+    pairs = (("esri-compat", "esri", "evidenceRef"), ("demos", "demos", "sourceRef"))
+    for source_name, section, field_name in pairs:
+        canonical = str((sources.get(source_name) or {}).get("producerSha", ""))
+        legacy = str((evidence_config.get(section) or {}).get(field_name, ""))
+        if canonical and legacy and canonical != legacy:
+            f.error(
+                f"coherence: evidenceSources.{source_name}.producerSha={canonical} disagrees with "
+                f"certification/conformance-evidence.yaml {section}.{field_name}={legacy}"
+            )
+
+
+def check_exact_candidate(manifest: dict, f: Findings) -> None:
+    """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    server = ((manifest.get("components") or {}).get("honua-server") or {})
+    if not server.get("image") or not DIGEST_RE.fullmatch(str(server.get("digest", ""))):
+        f.error("exact-candidate: components.honua-server requires an image and immutable digest")
+    for name, artifact in (manifest.get("clientArtifacts") or {}).items():
+        path = f"clientArtifacts.{name}"
+        if artifact.get("required", True) is False:
+            continue
+        if artifact.get("publicationState") not in {"published", "promoted"}:
+            f.error(f"exact-candidate: {path} does not name published/promoted bytes")
+        if not (artifact.get("digest") or artifact.get("integrity")):
+            f.error(f"exact-candidate: {path} lacks an immutable digest/integrity pin")
+        version = str(artifact.get("version", ""))
+        if version in {"", "latest", "next", "local", "pre-release"} or any(c in version for c in "*^~<>"):
+            f.error(f"exact-candidate: {path}.version is floating or local")
+        if artifact.get("source") == "local":
+            f.error(f"exact-candidate: {path} cannot use source=local")
+    for name, source in (manifest.get("evidenceSources") or {}).items():
+        if source.get("required", True) and not _full_sha(source.get("producerSha")):
+            f.error(f"exact-candidate: evidenceSources.{name} lacks a trusted immutable producer pin")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -280,13 +387,15 @@ def _narrowed(base: semver.Range, cur: semver.Range) -> str:
 # --------------------------------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------------------------------
-def validate(manifest: dict, matrix: dict, baseline_matrix: dict | None) -> Findings:
+def validate(manifest: dict, matrix: dict, baseline_matrix: dict | None, exact_candidate: bool = False) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
+    if exact_candidate:
+        check_exact_candidate(manifest, f)
     return f
 
 
@@ -297,6 +406,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drift", action="store_true", help="skip drift even if --baseline is given")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--matrix", default=str(MATRIX_PATH))
+    ap.add_argument("--exact-candidate", action="store_true",
+                    help="reject unpublished/floating/local pins; use for release certification")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
@@ -308,7 +419,10 @@ def main(argv: list[str] | None = None) -> int:
         if baseline_matrix is None:
             print(f"note: no baseline compatibility-matrix.yaml at {args.baseline!r}; skipping drift")
 
-    f = validate(manifest, matrix, baseline_matrix)
+    f = validate(manifest, matrix, baseline_matrix, exact_candidate=args.exact_candidate)
+    evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
+    if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
+        check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
 
     for w in f.warnings:
         print(f"WARN  {w}")

@@ -316,6 +316,108 @@ components:
     sha: "4c0a5d2d4da17bc2c132e8aa7c5ba9fe8a66709c"   # branch: trunk, newest green
     artifact: "oci-chart:honua"
 
+# Customer-installable certification inputs. These are package bytes, not deployable platform
+# components: BOM and upgrade tools intentionally continue to iterate only `components`.
+clientArtifacts:
+  honua-sdk-js:
+    ecosystem: npm
+    package: "@honua/sdk-js"
+    version: "0.1.7-beta.0"
+    integrity: "sha512-e2NwOqg5rv4jDzyXFc8dTzOBYvkfd/gugzPNOpBZTbgJgA5o+dtP/uc6kSLqPu8IfcfhtGDrp/ptICxYnB2udg=="
+    repository: honua-io/honua-sdk-js
+    sourceSha: "653fd86be0ebea023af930e352a15f6b4180f2ee"
+    publicationState: published
+    targets: [node, browser]
+  honua-mcp-server:
+    ecosystem: npm
+    package: "@honua/mcp-server"
+    version: "0.1.4-beta.0"
+    integrity: "sha512-TqqVscgNZMg+y+qUs3f9ShpKT8n38W3njXkTciqXKdXsk5PILG1fjwQur5/Da0KVg895L0qH5EqXRAwnjzO30w=="
+    repository: honua-io/honua-sdk-js
+    sourceSha: "ac29d1601f499ebd9b099fd4629b0997fdc81f1f"
+    publicationState: published
+    targets: [node, honua-cli, honua-admin, honua-mcp-proxy]
+  honua-sdk-python-wheel:
+    ecosystem: pypi
+    package: honua-sdk
+    version: "0.1.10"
+    filename: honua_sdk-0.1.10-py3-none-any.whl
+    digest: "sha256:88bb538005c3262e65584d89109d2174b6a8f78184ce3513a2fb0754f1da0c08"
+    repository: honua-io/honua-sdk-python
+    sourceSha: "e28c67c8e3ef99bcc86c891ecc01a6940d7d7e59"
+    publicationState: published
+    targets: [python3]
+  honua-sdk-dotnet:
+    ecosystem: nuget
+    package: Honua.Sdk
+    version: "1.6.0"
+    digest: "sha256:e5c3bf0a243822cb3d76cca6ef090b226f8502480c6a6699d7e34e24c1aeeadc"
+    repository: honua-io/honua-sdk-dotnet
+    sourceSha: "a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4"
+    publicationState: published
+    registry: github-packages
+    targets: [net8.0, net10.0]
+
+# Non-shipping workflows whose observations can affect promotion. A full producer commit is the
+# trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
+evidenceSources:
+  esri-compat:
+    repository: honua-io/honua-esri-compat
+    workflowPath: .github/workflows/esri-sdk-certification.yml
+    producerSha: "167b510a93623eae1897bb89824b2eb65d24a53f"
+    trustedEvents: [workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: esri-certification-bundle
+    evidencePolicyRevision: conformance-evidence-v1
+  cite:
+    repository: honua-io/honua-server
+    workflowPath: .github/workflows/cite-evidence-report.yml
+    producerSha: "f897700159e2791c9468c6ca85bb4e2a3a8d8433"
+    trustedEvents: [schedule, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: cite-status
+    evidencePolicyRevision: cite-required-suites-v1
+  grpc:
+    repository: honua-io/geospatial-grpc
+    workflowPath: .github/workflows/ci.yml
+    producerSha: "73fc882b1ae00d0a4a348aeadfba9f48b1a0317c"
+    trustedEvents: [push, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: grpc-conformance
+    evidencePolicyRevision: protocol-certification-v1
+  mcp:
+    repository: honua-io/geospatial-mcp
+    workflowPath: .github/workflows/security.yml
+    producerSha: "5e052a76b6485edbe78c3482488c58f66700bd59"
+    trustedEvents: [push, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: mcp-conformance
+    evidencePolicyRevision: protocol-certification-v1
+  sdk:
+    repository: honua-io/honua-sdk-js
+    workflowPath: .github/workflows/live-conformance.yml
+    producerSha: "7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6"
+    trustedEvents: [push, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: sdk-conformance
+    evidencePolicyRevision: protocol-certification-v1
+  cloud-native:
+    repository: honua-io/honua-iac
+    workflowPath: .github/workflows/terraform-ci.yml
+    producerSha: "cace70f7b592a583a478ed6f002c7de17b053282"
+    trustedEvents: [push, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: cloud-native-conformance
+    evidencePolicyRevision: protocol-certification-v1
+  demos:
+    repository: honua-io/honua-site
+    workflowPath: .github/workflows/pages.yml
+    producerSha: "0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+    trustedEvents: [push]
+    trustedBranch: trunk
+    artifactIdentity: demos-source
+    evidencePolicyRevision: demos-s9-v1
+
 # Experimental + disabled for this release (ADR-0059): present in the binary but deliberately gated
 # OFF and unadvertised in the capability manifest. Explicitly EXCLUDED from the rc.1 certified set —
 # snapshotted here for provenance only, not part of the certified deploy set.

@@ -52,9 +52,15 @@ jobs:
       # and publishes it as the run's `candidate-manifest` artifact the downstream gates certify. This
       # is a real, fail-able step (a malformed/incoherent manifest stops the train here), not an echo.
       - name: Validate + publish the candidate manifest
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          python tools/validate_platform.py
+          ARGS=()
+          if [ "$DRY_RUN" = "false" ]; then
+            ARGS+=(--exact-candidate)
+          fi
+          python tools/validate_platform.py "${ARGS[@]}"
           echo "candidate platform_label (input): ${{ inputs.platform_label }}"
           echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
