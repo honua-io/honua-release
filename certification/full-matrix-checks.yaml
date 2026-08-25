@@ -1,0 +1,18 @@
+# Full-matrix evidence required in addition to a component's ordinary check-runs.
+#
+# honua-server's lightweight PR Gate and selective merge-train runs intentionally omit large parts
+# of CI. A release pin is certifiable only when the authoritative CI workflow ran on that exact SHA
+# and its stable release-critical lanes all completed successfully. The workflow's CI Gate and Test
+# Suite Summary aggregate the shards; the named .NET/Python lanes prevent a selective run from
+# impersonating a full run.
+honua-server:
+  workflow: .github/workflows/ci.yml
+  events:
+    - schedule
+    - workflow_dispatch
+  requiredChecks:
+    - name: Build & Format Check
+    - name: .NET Foundation Tests
+    - name: Python Integration Tests
+    - name: Test Suite Summary
+    - name: CI Gate
