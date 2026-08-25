@@ -111,3 +111,7 @@ capabilities:
   - id: upgrade-preflight
     claim: "A customer-runnable preflight validates current->target upgrades (DB migrations, config) before applying."
     status: roadmap
+
+  - id: terminal-control-plane-completeness
+    claim: "One installed-client terminal workspace certifies the Admin CLI and bounded MCP projection roster through a deterministic zero-to-published-map journey."
+    status: roadmap

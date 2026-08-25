@@ -13,3 +13,13 @@ breaking-changes/upgrade-actions section. `.github/workflows/promote.yml` attach
 
 **Still a stub:** the per-component breaking-change rollup from change metadata (PLAN §8) — until that
 lands the breaking-changes section points operators at each component's own release notes.
+
+## 2026.1 terminal-first workspace
+
+The primary product path is one terminal workspace using the installed `honua` Admin CLI and bounded
+MCP profile against the same server contracts. The authoritative control-plane target is 396
+Admin REST/CLI operations: 385 policy-governed MCP projections plus 11 named secret/session
+exclusions that remain CLI-only with a private secret sink. Console and browser Studio have separate
+client receipts; neither defines terminal completeness. Live journey certification remains blocked
+on the upstream operation/runtime, session/scope, proposal authorization, and evidence-posture work
+recorded in `certification/terminal-journey/journey.v1.json`.
