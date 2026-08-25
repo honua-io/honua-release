@@ -112,14 +112,24 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
         return False, f"wheel digest mismatch: {actual}"
     target = work / "site-packages"
     target.mkdir()
-    try:
-        with zipfile.ZipFile(wheel) as archive:
-            archive.extractall(target)
-    except zipfile.BadZipFile:
-        return False, "pinned PyPI bytes are not a valid wheel"
+    pip = _run([sys.executable, "-m", "pip", "--version"], cwd=work)
+    if pip.returncode == 0:
+        installed = _run([sys.executable, "-m", "pip", "install", "--target", str(target), str(wheel)], cwd=work)
+        if installed.returncode:
+            return False, installed.stderr[-2000:]
+    else:
+        # Minimal hosts can still perform the exact-byte install preflight. Live certification
+        # requires pip so the wheel's declared runtime dependencies are installed as a consumer sees them.
+        try:
+            with zipfile.ZipFile(wheel) as archive:
+                archive.extractall(target)
+        except zipfile.BadZipFile:
+            return False, "pinned PyPI bytes are not a valid wheel"
     if not (target / "honua_sdk" / "__init__.py").is_file():
         return False, "installed wheel does not expose honua_sdk"
     if os.environ.get("HONUA_SERVER_URL"):
+        if pip.returncode:
+            return False, "live PyPI certification requires pip for declared dependencies"
         env = os.environ.copy()
         env["PYTHONPATH"] = str(target)
         probe = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/probe.py"
