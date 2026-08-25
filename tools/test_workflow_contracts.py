@@ -177,6 +177,35 @@ def test_every_promote_step_that_can_refuse_is_allowed_to_refuse():
             assert not _neutralised(step), f"guard step is neutralised: {step.get('name')}"
 
 
+def test_promotion_request_uses_the_scoped_claude_app_identity():
+    workflow = _workflow("request-promotion.yml")
+    triggers = _triggers(workflow)
+    assert set(triggers) == {"workflow_run"}, "the human reviewer must not have a redispatch trigger"
+    assert triggers["workflow_run"] == {"workflows": ["release-train"], "types": ["completed"]}
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
+
+    dispatch = workflow["jobs"]["dispatch"]
+    assert "conclusion == 'success'" in dispatch["if"]
+    assert "event == 'workflow_dispatch'" in dispatch["if"]
+    assert "head_branch == github.event.repository.default_branch" in dispatch["if"]
+
+    steps = dispatch["steps"]
+    app_token = next(step for step in steps if step.get("id") == "app-token")
+    assert app_token["uses"].startswith("actions/create-github-app-token@")
+    assert app_token["with"] == {
+        "app-id": "${{ vars.CLAUDE_APP_ID }}",
+        "private-key": "${{ secrets.CLAUDE_APP_PRIVATE_KEY }}",
+        "owner": "${{ github.repository_owner }}",
+        "repositories": "honua-release",
+    }
+
+    commands = "\n".join(_step_text(step) for step in steps)
+    assert "RELEASE_GH_TOKEN" not in commands
+    assert "gh workflow run promote.yml" in commands
+    promote_dispatch = next(step for step in steps if "gh workflow run promote.yml" in _step_text(step))
+    assert promote_dispatch["env"]["GH_TOKEN"] == "${{ steps.app-token.outputs.token }}"
+
+
 def test_repo_control_drift_check_is_read_only():
     workflow = _workflow("repo-control-drift.yml")
     assert workflow["permissions"] == {"contents": "read", "actions": "read"}
