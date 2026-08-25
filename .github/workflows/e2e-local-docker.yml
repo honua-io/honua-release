@@ -256,7 +256,7 @@ jobs:
       - name: Authenticate and restore the pinned honua-console
         if: steps.console.outcome == 'success'
         env:
-          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
           dotnet nuget update source github-honua \
