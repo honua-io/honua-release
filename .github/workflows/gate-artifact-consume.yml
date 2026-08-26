@@ -35,9 +35,8 @@
 #                 CRITICAL: a `skipped` is only ever recorded when the ROOT CAUSE is genuinely
 #                 not-published / unresolvable-external-dep. A malformed artifact (build fails, import
 #                 throws, tarball won't init, chart renders nothing) still FAILS even in bootstrap.
-#   strict (Phase 2 / real cut) — any non-pass (blocked OR skipped) fails the gate. The tolerant
-#                 skip-paths below are all guarded on bootstrap, so a real cut is unchanged: an
-#                 unconsumable artifact is a hard red. Flip on once staging is populated.
+#   strict (Phase 2 / real cut) — any non-pass (blocked OR skipped) and any LOCAL source fallback
+#                 fails the gate. Only exact published bytes can satisfy a real release cell.
 #
 # Emits gate-report.json (schema: {platform_label, generatedAt, enforcement, overallStatus,
 # gates:[{gate,status,why,source,evidence_url}]}) as an artifact for the release train / AI to
@@ -95,7 +94,7 @@ permissions:
 env:
   STAGING_NPM_REGISTRY: "https://registry.npmjs.org"        # public trusted-publishing target
   STAGING_NUGET_SOURCE: "https://nuget.pkg.github.com/honua-io/index.json"
-  STAGING_PYPI_INDEX:   "https://test.pypi.org/simple/"      # TestPyPI as the staging index
+  STAGING_PYPI_INDEX:   "https://pypi.org/simple/"           # public trusted-publishing target
   STAGING_OCI_REGISTRY: "ghcr.io/honua-io"                   # server image + OCI helm chart
   SERVER_HEALTH_PATH:   "/healthz/ready"
   SERVER_PORT:          "8080"
@@ -107,10 +106,20 @@ jobs:
       sdk_js_version: ${{ steps.pins.outputs.sdk_js_version }}
       sdk_js_sha: ${{ steps.pins.outputs.sdk_js_sha }}
       sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}
+      sdk_js_integrity: ${{ steps.pins.outputs.sdk_js_integrity }}
+      mcp_version: ${{ steps.pins.outputs.mcp_version }}
+      mcp_sha: ${{ steps.pins.outputs.mcp_sha }}
+      mcp_package: ${{ steps.pins.outputs.mcp_package }}
+      mcp_integrity: ${{ steps.pins.outputs.mcp_integrity }}
       sdk_dotnet_version: ${{ steps.pins.outputs.sdk_dotnet_version }}
       sdk_dotnet_sha: ${{ steps.pins.outputs.sdk_dotnet_sha }}
+      sdk_dotnet_package: ${{ steps.pins.outputs.sdk_dotnet_package }}
+      sdk_dotnet_digest: ${{ steps.pins.outputs.sdk_dotnet_digest }}
       sdk_python_version: ${{ steps.pins.outputs.sdk_python_version }}
       sdk_python_sha: ${{ steps.pins.outputs.sdk_python_sha }}
+      sdk_python_package: ${{ steps.pins.outputs.sdk_python_package }}
+      sdk_python_filename: ${{ steps.pins.outputs.sdk_python_filename }}
+      sdk_python_digest: ${{ steps.pins.outputs.sdk_python_digest }}
       iac_version: ${{ steps.pins.outputs.iac_version }}
       iac_sha: ${{ steps.pins.outputs.iac_sha }}
       helm_version: ${{ steps.pins.outputs.helm_version }}
@@ -139,16 +148,13 @@ jobs:
 
           manifest = yaml.safe_load(Path("platform-manifest.yaml").read_text(encoding="utf-8"))
           components = manifest.get("components") or {}
-          specs = {
-              "sdk_js": "honua-sdk-js",
-              "sdk_dotnet": "honua-sdk-dotnet",
-              "sdk_python": "honua-sdk-python",
+          component_specs = {
               "iac": "honua-iac",
               "helm": "honua-helm",
               "grpc": "geospatial-grpc",
           }
           values = {}
-          for prefix, component_name in specs.items():
+          for prefix, component_name in component_specs.items():
               component = components.get(component_name) or {}
               sha = str(component.get("sha", ""))
               version = str(component.get("version", ""))
@@ -158,6 +164,45 @@ jobs:
                   raise SystemExit(f"{component_name} does not have a version pin")
               values[f"{prefix}_sha"] = sha
               values[f"{prefix}_version"] = version
+
+          clients = manifest.get("clientArtifacts") or {}
+          client_specs = {
+              "sdk_js": ("honua-sdk-js", "npm"),
+              "mcp": ("honua-mcp-server", "npm"),
+              "sdk_dotnet": ("honua-sdk-dotnet", "nuget"),
+              "sdk_python": ("honua-sdk-python-wheel", "pypi"),
+          }
+          for prefix, (artifact_name, ecosystem) in client_specs.items():
+              artifact = clients.get(artifact_name) or {}
+              if artifact.get("ecosystem") != ecosystem:
+                  raise SystemExit(f"{artifact_name} is not a {ecosystem} client artifact")
+              sha = str(artifact.get("sourceSha", ""))
+              version = str(artifact.get("version", ""))
+              package = str(artifact.get("package", ""))
+              if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise SystemExit(f"{artifact_name} does not have a full lowercase source SHA pin")
+              if not version or not package:
+                  raise SystemExit(f"{artifact_name} does not have exact package/version coordinates")
+              values.update({
+                  f"{prefix}_sha": sha,
+                  f"{prefix}_version": version,
+                  f"{prefix}_package": package,
+              })
+              if ecosystem == "npm":
+                  integrity = str(artifact.get("integrity", ""))
+                  if not re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", integrity):
+                      raise SystemExit(f"{artifact_name} does not have an npm SRI pin")
+                  values[f"{prefix}_integrity"] = integrity
+              else:
+                  digest = str(artifact.get("digest", ""))
+                  if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                      raise SystemExit(f"{artifact_name} does not have a sha256 digest pin")
+                  values[f"{prefix}_digest"] = digest
+              if ecosystem == "pypi":
+                  filename = str(artifact.get("filename", ""))
+                  if not filename:
+                      raise SystemExit(f"{artifact_name} does not have an exact wheel filename")
+                  values[f"{prefix}_filename"] = filename
 
           server = components.get("honua-server") or {}
           server_sha = str(server.get("sha", ""))
@@ -170,11 +215,6 @@ jobs:
           if not server_image.startswith("ghcr.io/honua-io/honua-server:"):
               raise SystemExit("honua-server image is not an explicit GHCR tag")
           values.update(server_sha=server_sha, server_digest=server_digest, server_image=server_image)
-
-          sdk_js_artifact = str((components.get("honua-sdk-js") or {}).get("artifact", ""))
-          if not sdk_js_artifact.startswith("npm:") or not sdk_js_artifact.removeprefix("npm:"):
-              raise SystemExit("honua-sdk-js does not have an npm artifact coordinate")
-          values["sdk_js_package"] = sdk_js_artifact.removeprefix("npm:")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for key, value in values.items():
@@ -200,6 +240,7 @@ jobs:
           SDK_JS_VERSION: ${{ needs.resolve_pins.outputs.sdk_js_version }}
           SDK_JS_SHA: ${{ needs.resolve_pins.outputs.sdk_js_sha }}
           SDK_JS_PACKAGE: ${{ needs.resolve_pins.outputs.sdk_js_package }}
+          SDK_JS_INTEGRITY: ${{ needs.resolve_pins.outputs.sdk_js_integrity }}
         run: |
           set -uo pipefail
           GATE=npm; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -210,15 +251,22 @@ jobs:
           npm init -y >/dev/null 2>&1
 
           echo "::group::Try STAGING (npm registry: $STAGING_NPM_REGISTRY)"
-          if npm install "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}" \
-              --registry "$STAGING_NPM_REGISTRY" >/tmp/npm-staging.log 2>&1; then
-            SOURCE=staging; STATUS=consuming
+          REGISTRY_INTEGRITY="$(npm view "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}" dist.integrity \
+            --registry "$STAGING_NPM_REGISTRY" 2>/tmp/npm-staging.log || true)"
+          if [ -z "$REGISTRY_INTEGRITY" ]; then
+            echo "published package is absent:"; tail -n 5 /tmp/npm-staging.log || true
+          elif [ "$REGISTRY_INTEGRITY" != "$SDK_JS_INTEGRITY" ]; then
+            STATUS=fail; WHY="published ${SDK_JS_PACKAGE}@${SDK_JS_VERSION} integrity does not match clientArtifacts"
+          elif npm install "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}" \
+              --registry "$STAGING_NPM_REGISTRY" >>/tmp/npm-staging.log 2>&1; then
+            SOURCE=published; STATUS=consuming
           else
-            echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/npm-staging.log || true
+            STATUS=fail; WHY="published ${SDK_JS_PACKAGE}@${SDK_JS_VERSION} matched the pin but could not be installed"
+            tail -n 20 /tmp/npm-staging.log || true
           fi
           echo "::endgroup::"
 
-          if [ "$STATUS" != "consuming" ]; then
+          if [ "$STATUS" = "blocked" ]; then
             # STUB (pending real published artifact): build the package locally and consume the
             # `npm pack` tarball — the same artifact `npm publish` would upload. A bundle that was
             # "never built" (sdk-js#310) fails right here.
@@ -271,6 +319,71 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   # nuget — add Honua.Sdk to a project and build against it. Retires the .NET arm of gate (d).
   # ───────────────────────────────────────────────────────────────────────────
+  # Install the terminal companion package and verify every declared executable exists in the
+  # exact manifest-pinned npm package. There is deliberately no source-build fallback for this lane.
+  consume-mcp-npm:
+    needs: resolve_pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+
+      - name: Consume the MCP/CLI npm package
+        env:
+          MCP_VERSION: ${{ needs.resolve_pins.outputs.mcp_version }}
+          MCP_PACKAGE: ${{ needs.resolve_pins.outputs.mcp_package }}
+          MCP_INTEGRITY: ${{ needs.resolve_pins.outputs.mcp_integrity }}
+        run: |
+          set -uo pipefail
+          GATE=npm-mcp; SOURCE=blocked; STATUS=blocked; WHY=""
+          WORK="$RUNNER_TEMP/npm-mcp-consume"; mkdir -p "$WORK"; cd "$WORK"
+          npm init -y >/dev/null 2>&1
+          REGISTRY_INTEGRITY="$(npm view "${MCP_PACKAGE}@${MCP_VERSION}" dist.integrity \
+            --registry "$STAGING_NPM_REGISTRY" 2>/tmp/npm-mcp.log || true)"
+          if [ -z "$REGISTRY_INTEGRITY" ]; then
+            WHY="required published ${MCP_PACKAGE}@${MCP_VERSION} is unavailable"
+          elif [ "$REGISTRY_INTEGRITY" != "$MCP_INTEGRITY" ]; then
+            STATUS=fail; WHY="published ${MCP_PACKAGE}@${MCP_VERSION} integrity does not match clientArtifacts"
+          elif ! npm install "${MCP_PACKAGE}@${MCP_VERSION}" --registry "$STAGING_NPM_REGISTRY" >>/tmp/npm-mcp.log 2>&1; then
+            STATUS=fail; WHY="published ${MCP_PACKAGE}@${MCP_VERSION} matched the pin but could not be installed"
+          elif MCP_PACKAGE="$MCP_PACKAGE" MCP_VERSION="$MCP_VERSION" node <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const root = path.join(process.cwd(), 'node_modules', ...process.env.MCP_PACKAGE.split('/'));
+          const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+          if (pkg.name !== process.env.MCP_PACKAGE || pkg.version !== process.env.MCP_VERSION) process.exit(2);
+          const bins = typeof pkg.bin === 'string' ? {[pkg.name.split('/').pop()]: pkg.bin} : (pkg.bin || {});
+          if (!Object.keys(bins).length) process.exit(3);
+          for (const target of Object.values(bins)) {
+            if (!fs.existsSync(path.join(root, target))) process.exit(4);
+          }
+          console.log('verified package identity and bins:', Object.keys(bins).join(', '));
+          JS
+          then
+            SOURCE=published; STATUS=pass; WHY="installed exact pinned bytes and verified every declared executable"
+          else
+            STATUS=fail; WHY="installed ${MCP_PACKAGE}@${MCP_VERSION} has invalid identity or missing executable bytes"
+          fi
+          tail -n 20 /tmp/npm-mcp.log 2>/dev/null || true
+          {
+            echo "gate=$GATE"
+            echo "source=$SOURCE"
+            echo "status=$STATUS"
+            echo "why=$WHY"
+          } >> "$GITHUB_ENV"
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: ${{ env.gate || 'npm-mcp' }}
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'blocked' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+
   consume-nuget:
     needs: resolve_pins
     runs-on: ubuntu-latest
@@ -286,6 +399,8 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           SDK_DOTNET_VERSION: ${{ needs.resolve_pins.outputs.sdk_dotnet_version }}
           SDK_DOTNET_SHA: ${{ needs.resolve_pins.outputs.sdk_dotnet_sha }}
+          SDK_DOTNET_PACKAGE: ${{ needs.resolve_pins.outputs.sdk_dotnet_package }}
+          SDK_DOTNET_DIGEST: ${{ needs.resolve_pins.outputs.sdk_dotnet_digest }}
         run: |
           set -uo pipefail
           GATE=nuget; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -301,14 +416,50 @@ jobs:
           echo "::group::Try STAGING (nuget source: $STAGING_NUGET_SOURCE)"
           dotnet nuget add source "$STAGING_NUGET_SOURCE" -n honua-staging \
             -u honua -p "$GH_TOKEN" --store-password-in-clear-text >/tmp/nuget-src.log 2>&1 || true
-          if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE" >/tmp/nuget-staging.log 2>&1; then
-            SOURCE=staging; STATUS=consuming
+          NUPKG="$WORK/${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg"
+          NUGET_URL="https://nuget.pkg.github.com/honua-io/download/${SDK_DOTNET_PACKAGE}/${SDK_DOTNET_VERSION}/${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg"
+          if ! curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$NUGET_URL" -o "$NUPKG" 2>/tmp/nuget-download.log; then
+            echo "published package is absent:"; tail -n 5 /tmp/nuget-download.log || true
+          elif [ "sha256:$(sha256sum "$NUPKG" | cut -d' ' -f1)" != "$SDK_DOTNET_DIGEST" ]; then
+            STATUS=fail; WHY="published ${SDK_DOTNET_PACKAGE}@${SDK_DOTNET_VERSION} digest does not match clientArtifacts"
           else
-            echo "staging add miss (expected until publish lands):"; tail -n 5 /tmp/nuget-staging.log || true
+            PUBLISHED_FEED="$WORK/publishedfeed"
+            NUGET_PACKAGES="$WORK/packages"
+            export NUGET_PACKAGES
+            mkdir -p "$PUBLISHED_FEED" "$NUGET_PACKAGES"
+            cp "$NUPKG" "$PUBLISHED_FEED/"
+            cat > "$WORK/NuGet.published.config" <<EOF
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="verified-published" value="$PUBLISHED_FEED" />
+              <add key="honua-staging" value="$STAGING_NUGET_SOURCE" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <honua-staging>
+                <add key="Username" value="honua" />
+                <add key="ClearTextPassword" value="$GH_TOKEN" />
+              </honua-staging>
+            </packageSourceCredentials>
+          </configuration>
+          EOF
+            if dotnet add Consumer package "$SDK_DOTNET_PACKAGE" --version "$SDK_DOTNET_VERSION" --no-restore >/tmp/nuget-staging.log 2>&1 \
+              && dotnet restore Consumer --configfile "$WORK/NuGet.published.config" >>/tmp/nuget-staging.log 2>&1; then
+              RESTORED_NUPKG="$(find "$NUGET_PACKAGES" -type f -iname "${SDK_DOTNET_PACKAGE}.${SDK_DOTNET_VERSION}.nupkg" -print -quit)"
+              if [ -z "$RESTORED_NUPKG" ] || [ "sha256:$(sha256sum "$RESTORED_NUPKG" | cut -d' ' -f1)" != "$SDK_DOTNET_DIGEST" ]; then
+                STATUS=fail; WHY="restored ${SDK_DOTNET_PACKAGE}@${SDK_DOTNET_VERSION} bytes do not match clientArtifacts"
+              else
+                SOURCE=published; STATUS=consuming
+              fi
+            else
+              STATUS=fail; WHY="verified published ${SDK_DOTNET_PACKAGE}@${SDK_DOTNET_VERSION} could not be restored from the local feed"
+              tail -n 20 /tmp/nuget-staging.log || true
+            fi
           fi
           echo "::endgroup::"
 
-          if [ "$STATUS" != "consuming" ]; then
+          if [ "$STATUS" = "blocked" ]; then
             # STUB (pending real published artifact): build the .nupkg from source (`dotnet pack`),
             # serve it from a local folder feed, and add the package from there — the exact artifact
             # `dotnet nuget push` would publish.
@@ -320,7 +471,7 @@ jobs:
               dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
                 --store-password-in-clear-text --configfile src/NuGet.config >/tmp/nuget-pack.log 2>&1 || true
               if ( cd src && dotnet pack -c Release -o "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1 ); then
-                if dotnet add Consumer package Honua.Sdk --version "$SDK_DOTNET_VERSION" --source "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1; then
+                if dotnet add Consumer package "$SDK_DOTNET_PACKAGE" --version "$SDK_DOTNET_VERSION" --source "$WORK/localfeed" >>/tmp/nuget-pack.log 2>&1; then
                   SOURCE=local; STATUS=consuming
                 else
                   STATUS=fail; WHY="packed Honua.Sdk but consuming project could not add it"; tail -n 20 /tmp/nuget-pack.log || true
@@ -384,6 +535,9 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           SDK_PYTHON_VERSION: ${{ needs.resolve_pins.outputs.sdk_python_version }}
           SDK_PYTHON_SHA: ${{ needs.resolve_pins.outputs.sdk_python_sha }}
+          SDK_PYTHON_PACKAGE: ${{ needs.resolve_pins.outputs.sdk_python_package }}
+          SDK_PYTHON_FILENAME: ${{ needs.resolve_pins.outputs.sdk_python_filename }}
+          SDK_PYTHON_DIGEST: ${{ needs.resolve_pins.outputs.sdk_python_digest }}
         run: |
           set -uo pipefail
           GATE=pip; SOURCE=blocked; STATUS=blocked; WHY=""
@@ -391,14 +545,23 @@ jobs:
           python -m venv .venv && . .venv/bin/activate && python -m pip install -U pip wheel build >/dev/null 2>&1
 
           echo "::group::Try STAGING (pip index: $STAGING_PYPI_INDEX)"
-          if python -m pip install --index-url "$STAGING_PYPI_INDEX" "honua-sdk==${SDK_PYTHON_VERSION}" >/tmp/pip-staging.log 2>&1; then
-            SOURCE=staging; STATUS=consuming
+          mkdir -p "$WORK/published"
+          if ! python -m pip download --no-deps --only-binary=:all: --index-url "$STAGING_PYPI_INDEX" \
+              --dest "$WORK/published" "${SDK_PYTHON_PACKAGE}==${SDK_PYTHON_VERSION}" >/tmp/pip-staging.log 2>&1; then
+            echo "published wheel is absent:"; tail -n 5 /tmp/pip-staging.log || true
+          elif [ ! -f "$WORK/published/$SDK_PYTHON_FILENAME" ]; then
+            STATUS=fail; WHY="registry did not return exact wheel ${SDK_PYTHON_FILENAME}"
+          elif [ "sha256:$(sha256sum "$WORK/published/$SDK_PYTHON_FILENAME" | cut -d' ' -f1)" != "$SDK_PYTHON_DIGEST" ]; then
+            STATUS=fail; WHY="published ${SDK_PYTHON_FILENAME} digest does not match clientArtifacts"
+          elif python -m pip install "$WORK/published/$SDK_PYTHON_FILENAME" >>/tmp/pip-staging.log 2>&1; then
+            SOURCE=published; STATUS=consuming
           else
-            echo "staging install miss (expected until publish lands):"; tail -n 5 /tmp/pip-staging.log || true
+            STATUS=fail; WHY="published ${SDK_PYTHON_FILENAME} matched the pin but could not be installed"
+            tail -n 20 /tmp/pip-staging.log || true
           fi
           echo "::endgroup::"
 
-          if [ "$STATUS" != "consuming" ]; then
+          if [ "$STATUS" = "blocked" ]; then
             # STUB (pending real published artifact): build the wheel from source (`python -m build`)
             # and pip-install THAT wheel — the same artifact `twine upload` would publish.
             echo "::group::LOCAL fallback — build honua-sdk-python wheel and pip install it"
@@ -884,7 +1047,7 @@ jobs:
   # report — assemble gate-report.json from every fragment; fail the gate per enforcement.
   # ───────────────────────────────────────────────────────────────────────────
   report:
-    needs: [consume-npm, consume-nuget, consume-pip, consume-terraform, consume-helm, consume-docker, consume-grpc-codegen]
+    needs: [consume-npm, consume-mcp-npm, consume-nuget, consume-pip, consume-terraform, consume-helm, consume-docker, consume-grpc-codegen]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -916,7 +1079,8 @@ jobs:
             --arg ts "$(date -u +%FT%TZ)" \
             --arg run "$RUN_URL" '
             def decided(enf):
-              if .status=="pass" then "pass"
+              if .status=="pass" and enf=="strict" and .source=="local" then "fail"
+              elif .status=="pass" then "pass"
               # skipped = a publish-dependent consume that honestly cannot run in a no-publish dry-run
               # cut. Tolerated under bootstrap (does not reduce the gate); a real cut strict forbids it.
               elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)
@@ -965,7 +1129,7 @@ jobs:
           OVERALL='${{ steps.assemble.outputs.overall_status }}'
           echo "overall gate status: $OVERALL"
           # The gate MUST be able to fail. Any real consume failure => fail, always.
-          # Under enforcement=strict a `blocked` (unpublished/unreachable) also fails.
+          # Under enforcement=strict a `blocked` or local source-build fallback also fails.
           if [ "$OVERALL" = "fail" ]; then
             echo "::error::artifact-consumption gate FAILED"; exit 1
           fi

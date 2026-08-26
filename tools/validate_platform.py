@@ -209,6 +209,12 @@ def _check_client_artifacts(value: object, f: Findings) -> None:
             f.error(f"manifest: {path}.publicationState must be one of {sorted(ALLOWED_PUBLICATION_STATES)}")
         if not isinstance(artifact.get("targets"), list) or not artifact["targets"]:
             f.error(f"manifest: {path}.targets must be a non-empty list")
+        elif any(not isinstance(target, str) or not target.strip() for target in artifact["targets"]):
+            f.error(f"manifest: {path}.targets must contain non-empty strings")
+        if "required" in artifact and not isinstance(artifact["required"], bool):
+            f.error(f"manifest: {path}.required must be a boolean")
+        if artifact.get("source") not in {None, "registry", "local", "checkout", "build"}:
+            f.error(f"manifest: {path}.source names an unsupported package source")
         digest, integrity = artifact.get("digest"), artifact.get("integrity")
         if digest is not None and not DIGEST_RE.fullmatch(str(digest)):
             f.error(f"manifest: {path}.digest must be sha256:<64hex>")
@@ -216,8 +222,16 @@ def _check_client_artifacts(value: object, f: Findings) -> None:
             f.error(f"manifest: {path}.integrity must be an npm sha512 SRI value")
         if ecosystem == "npm" and digest is not None:
             f.error(f"manifest: {path} must use integrity, not digest, for npm bytes")
+        if ecosystem == "npm" and integrity is None:
+            f.error(f"manifest: {path} requires npm integrity for immutable package bytes")
         if ecosystem != "npm" and integrity is not None:
             f.error(f"manifest: {path} must use digest, not npm integrity")
+        if ecosystem in {"pypi", "nuget"} and digest is None:
+            f.error(f"manifest: {path} requires a sha256 digest for immutable package bytes")
+        if ecosystem == "pypi" and not str(artifact.get("filename", "")).strip():
+            f.error(f"manifest: {path}.filename is required for an exact wheel pin")
+        if ecosystem == "nuget" and artifact.get("registry") != "github-packages":
+            f.error(f"manifest: {path}.registry must identify the GitHub Packages registry")
 
 
 def _check_evidence_sources(value: object, f: Findings) -> None:
@@ -234,6 +248,8 @@ def _check_evidence_sources(value: object, f: Findings) -> None:
         events = source.get("trustedEvents")
         if not isinstance(events, list) or not events or any(e not in ALLOWED_TRUSTED_EVENTS for e in events):
             f.error(f"manifest: {path}.trustedEvents contains an unsupported or empty event set")
+        if "required" in source and not isinstance(source["required"], bool):
+            f.error(f"manifest: {path}.required must be a boolean")
 
 
 def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | None, f: Findings) -> None:
@@ -268,8 +284,9 @@ def check_exact_candidate(manifest: dict, f: Findings) -> None:
         version = str(artifact.get("version", ""))
         if version in {"", "latest", "next", "local", "pre-release"} or any(c in version for c in "*^~<>"):
             f.error(f"exact-candidate: {path}.version is floating or local")
-        if artifact.get("source") == "local":
-            f.error(f"exact-candidate: {path} cannot use source=local")
+        source_mode = artifact.get("source")
+        if source_mode not in {None, "registry"}:
+            f.error(f"exact-candidate: {path} cannot use source={source_mode}; checkout/build fallbacks are forbidden")
     for name, source in (manifest.get("evidenceSources") or {}).items():
         if source.get("required", True) and not _full_sha(source.get("producerSha")):
             f.error(f"exact-candidate: evidenceSources.{name} lacks a trusted immutable producer pin")

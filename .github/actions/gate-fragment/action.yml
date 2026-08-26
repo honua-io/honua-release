@@ -17,7 +17,7 @@ inputs:
     description: "raw outcome: pass | fail | blocked | skipped (anything else is treated as fail downstream)"
     required: true
   source:
-    description: "where the artifact came from: staging | local | blocked"
+    description: "where the artifact came from: published | staging | local | blocked"
     required: true
   why:
     description: "human-readable reason / evidence"

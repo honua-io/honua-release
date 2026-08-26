@@ -35,15 +35,25 @@ def test_artifact_consume_pins_registry_versions_from_manifest():
     assert 'npm install "${SDK_JS_PACKAGE}@${SDK_JS_VERSION}"' in workflow
     assert 'sdk_js_package: ${{ steps.pins.outputs.sdk_js_package }}' in workflow
     assert "@honua-io/sdk-js" not in workflow
-    assert 'Honua.Sdk --version "$SDK_DOTNET_VERSION"' in workflow
-    assert "honua-sdk==${SDK_PYTHON_VERSION}" in workflow
+    assert 'package "$SDK_DOTNET_PACKAGE" --version "$SDK_DOTNET_VERSION"' in workflow
+    assert 'sdk_dotnet_package: ${{ steps.pins.outputs.sdk_dotnet_package }}' in workflow
+    assert '"${SDK_PYTHON_PACKAGE}==${SDK_PYTHON_VERSION}"' in workflow
+    assert 'sdk_python_package: ${{ steps.pins.outputs.sdk_python_package }}' in workflow
+    assert "SDK_JS_INTEGRITY" in workflow
+    assert "SDK_DOTNET_DIGEST" in workflow
+    assert "SDK_PYTHON_DIGEST" in workflow
+    assert 'cp "$NUPKG" "$PUBLISHED_FEED/"' in workflow
+    assert 'NUGET_PACKAGES="$WORK/packages"' in workflow
+    assert 'dotnet restore Consumer --configfile "$WORK/NuGet.published.config"' in workflow
+    assert 'sha256sum "$RESTORED_NUPKG"' in workflow
+    assert 'package "$SDK_DOTNET_PACKAGE" --version "$SDK_DOTNET_VERSION" --source "$STAGING_NUGET_SOURCE"' not in workflow
     assert 'buf.build/honua-io/geospatial:v${GRPC_VERSION}' in workflow
 
 
 def test_artifact_consumers_select_runnable_roots_and_valid_runtime_config():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert '--source "$STAGING_NUGET_SOURCE"' in workflow
+    assert '<add key="honua-staging" value="$STAGING_NUGET_SOURCE" />' in workflow
     assert '--source "$WORK/localfeed"' in workflow
     assert 'NF==2 && $2=="Chart.yaml" && !root' in workflow
     assert 'END {print root}' in workflow

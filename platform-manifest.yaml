@@ -389,7 +389,7 @@ evidenceSources:
     repository: honua-io/geospatial-mcp
     workflowPath: .github/workflows/security.yml
     producerSha: "5e052a76b6485edbe78c3482488c58f66700bd59"
-    trustedEvents: [push, workflow_dispatch]
+    trustedEvents: [push, schedule]
     trustedBranch: trunk
     artifactIdentity: mcp-conformance
     evidencePolicyRevision: protocol-certification-v1
@@ -397,7 +397,7 @@ evidenceSources:
     repository: honua-io/honua-sdk-js
     workflowPath: .github/workflows/live-conformance.yml
     producerSha: "7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6"
-    trustedEvents: [push, workflow_dispatch]
+    trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance
     evidencePolicyRevision: protocol-certification-v1
@@ -405,7 +405,7 @@ evidenceSources:
     repository: honua-io/honua-iac
     workflowPath: .github/workflows/terraform-ci.yml
     producerSha: "cace70f7b592a583a478ed6f002c7de17b053282"
-    trustedEvents: [push, workflow_dispatch]
+    trustedEvents: [push]
     trustedBranch: trunk
     artifactIdentity: cloud-native-conformance
     evidencePolicyRevision: protocol-certification-v1
