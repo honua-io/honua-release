@@ -54,6 +54,7 @@ jobs:
       - name: Validate + publish the candidate manifest
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
           ARGS=()
@@ -61,6 +62,11 @@ jobs:
             ARGS+=(--exact-candidate)
           fi
           python tools/validate_platform.py "${ARGS[@]}"
+          if [ "$DRY_RUN" = "false" ]; then
+            python tools/verify_client_artifacts.py
+            python tools/verify_evidence_sources.py
+          fi
+          python tools/generate_evidence_index.py --out release-evidence-pins.json
           echo "candidate platform_label (input): ${{ inputs.platform_label }}"
           echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -69,6 +75,7 @@ jobs:
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            release-evidence-pins.json
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -384,6 +391,9 @@ jobs:
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
+          python tools/generate_evidence_index.py \
+            --manifest out/certified-candidate/platform-manifest.yaml \
+            --out out/certified-candidate/release-evidence-pins.json
 
       - name: Upload bound platform gate-report.json
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -9,8 +9,7 @@
 #
 # Principle (AGENTS.md): a gate that can't fail is worse than no gate — and a *conformance* gate that
 # false-passes is the worst kind (it manufactures release confidence). So:
-#   - the mcp job runs the real checker against geospatial-mcp trunk (the maintained suite carrying
-#     the geospatial-mcp#25 fix; the Phase 0 manifest still pins a pre-fix sha) and parses it with
+#   - the mcp job runs the real checker at the exact evidenceSources.mcp producer SHA and parses it with
 #     certification/parse_conformance.py, which FAILS on any manifest FAIL, on a reference impl that
 #     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
 #     parser is self-tested in-job before it is trusted.
@@ -104,20 +103,25 @@ jobs:
           GATE=conformance-mcp; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/mcp"; mkdir -p "$WORK"
 
-          # Manifest-pinned sha is recorded for traceability. We certify against geospatial-mcp TRUNK
-          # (the maintained conformance suite that carries the geospatial-mcp#25 resource-coverage fix
-          # this gate exists to enforce); the Phase 0 manifest snapshot still pins a pre-fix sha, so
-          # certifying the pin would run the old, false-passing checker. Once the train regenerates the
-          # manifest to post-fix shas, point this at the pin.
-          SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('geospatial-mcp',{}) or {}).get('sha','') or '')")"
-          echo "manifest-pinned geospatial-mcp sha (traceability): ${SHA:-<none>}"
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("mcp") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; SHA="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
+          if [ "$REPO" != "honua-io/geospatial-mcp" ]; then
+            STATUS=fail; WHY="evidenceSources.mcp repository is not honua-io/geospatial-mcp"
+          fi
 
-          echo "::group::Clone geospatial-mcp trunk (public)"
-          if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-mcp.git" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
-            cd "$WORK/mcp"; SOURCE=trunk
-            HEAD_SHA="$(git rev-parse --short HEAD)"
+          echo "::group::Clone the exact manifest-pinned geospatial-mcp producer"
+          if [ "$STATUS" != "fail" ] && bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" geospatial-mcp "$SHA" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
+            cd "$WORK/mcp"; SOURCE="${REPO}@${SHA}#${ARTIFACT}"
           else
-            STATUS=blocked; WHY="geospatial-mcp not cloneable"; tail -n 5 /tmp/mcp-clone.log || true
+            [ "$STATUS" = "fail" ] || { STATUS=blocked; WHY="pinned geospatial-mcp producer is not cloneable"; }
+            tail -n 5 /tmp/mcp-clone.log || true
           fi
           echo "::endgroup::"
 
@@ -141,7 +145,7 @@ jobs:
             # `bash -e` — we read the verdict from its printed status= line, not its exit code.
             VERDICT="$(printf '%s' "$OUT" | python "$GITHUB_WORKSPACE/certification/parse_conformance.py" --rc "$RC" || true)"
             STATUS="$(printf '%s\n' "$VERDICT" | sed -n 's/^status=//p')"
-            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [source=trunk@${HEAD_SHA}; manifest pins ${SHA:0:12}]"
+            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [producer=${REPO}@${SHA:0:12}; artifact=${ARTIFACT}]"
             [ -n "$STATUS" ] || { STATUS=fail; WHY="parser produced no verdict"; }
           fi
 
@@ -181,19 +185,26 @@ jobs:
       - name: Install gate dependencies
         run: pip install --quiet pyyaml
 
-      # The evidence producer is pinned in certification/conformance-evidence.yaml, so the bundle we
-      # federate is read from THAT revision -- never from its default branch. A bundle built by a
-      # different revision of the harness measures a different denominator and must not certify this
-      # candidate. (Why not platform-manifest.yaml: see the note in that config file / #136.)
+      # The evidence producer is pinned in platform-manifest.yaml evidenceSources. A bundle built by
+      # a different revision of the harness measures a different denominator and cannot certify this
+      # candidate.
       - name: Resolve the pinned evidence revision
         id: pin
         run: |
           set -euo pipefail
-          SHA="$(python -c "import yaml;print((yaml.safe_load(open('certification/conformance-evidence.yaml')).get('esri') or {}).get('evidenceRef') or '')")"
-          REPO="$(python -c "import yaml;print((yaml.safe_load(open('certification/conformance-evidence.yaml')).get('esri') or {}).get('evidenceRepo') or 'honua-io/honua-esri-compat')")"
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("esri-compat") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; SHA="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
-          echo "pinned evidence source: $REPO@${SHA:-<unpinned>}"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "pinned evidence source: $REPO@${SHA:-<unpinned>}#$ARTIFACT"
 
       # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
       # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
@@ -239,7 +250,7 @@ jobs:
           " 2>/dev/null || echo 'Esri evidence could not be evaluated')"
           {
             echo "status=$STATUS"
-            echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}"
+            echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}#${{ steps.pin.outputs.artifact }}"
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
@@ -276,7 +287,19 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p _conformance
-          URL="https://raw.githubusercontent.com/honua-io/honua-server/trunk/docs/cite-status.md"
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("cite") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; PRODUCER="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "producer=$PRODUCER" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          URL="https://raw.githubusercontent.com/${REPO}/${PRODUCER}/docs/cite-status.md"
           if curl -fsSL "$URL" -o _conformance/cite-status.md; then
             echo "fetched=true" >> "$GITHUB_OUTPUT"
             SHA="$(grep -oE '[0-9a-f]{40}' _conformance/cite-status.md | head -1)"
@@ -374,7 +397,7 @@ jobs:
           " 2>/dev/null || echo 'OGC/STAC evidence could not be evaluated')"
           {
             echo "status=$STATUS"
-            echo "source=federated:cite+stac"
+            echo "source=federated:${{ steps.cite.outputs.repo }}@${{ steps.cite.outputs.producer }}#${{ steps.cite.outputs.artifact }}+stac"
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment

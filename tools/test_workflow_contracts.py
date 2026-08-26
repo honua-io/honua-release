@@ -33,6 +33,39 @@ def test_manifest_validate_runs_for_every_pull_request_with_stable_check_name():
     assert "validate" in workflow["jobs"]
 
 
+def test_real_release_cut_verifies_published_bytes_and_producer_trust():
+    freeze = _workflow("release-train.yml")["jobs"]["freeze"]
+    commands = "\n".join(_step_text(step) for step in freeze["steps"])
+    assert "--exact-candidate" in commands
+    assert "verify_client_artifacts.py" in commands
+    assert "verify_evidence_sources.py" in commands
+    assert "generate_evidence_index.py" in commands
+    assert 'DRY_RUN" = "false' in commands
+
+
+def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks():
+    workflow = _workflow("gate-artifact-consume.yml")
+    jobs = workflow["jobs"]
+    resolve = "\n".join(_step_text(step) for step in jobs["resolve_pins"]["steps"])
+    assert 'manifest.get("clientArtifacts")' in resolve
+    assert "honua-mcp-server" in resolve
+    assert "consume-mcp-npm" in jobs
+    report = "\n".join(_step_text(step) for step in jobs["report"]["steps"])
+    assert '.source=="local"' in report and 'enf=="strict"' in report
+
+
+def test_conformance_gate_consumes_manifest_pinned_evidence_producers():
+    jobs = _workflow("certification.yml")["jobs"]
+    mcp = "\n".join(_step_text(step) for step in jobs["conformance-mcp"]["steps"])
+    esri = "\n".join(_step_text(step) for step in jobs["conformance-esri-geoservices"]["steps"])
+    cite = "\n".join(_step_text(step) for step in jobs["conformance-ogc-stac"]["steps"])
+    assert 'get("evidenceSources")' in mcp and 'get("mcp")' in mcp
+    assert "checkout_component.sh" in mcp and "clone --depth 1" not in mcp
+    assert 'get("evidenceSources")' in esri and 'get("esri-compat")' in esri
+    assert 'get("evidenceSources")' in cite and 'get("cite")' in cite
+    assert "/trunk/docs/cite-status.md" not in cite
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 

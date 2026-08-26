@@ -132,6 +132,31 @@ def test_exact_candidate_rejects_local_or_unpublished_client():
     assert any("cannot use source=local" in e for e in f.errors)
 
 
+@pytest.mark.parametrize("source", ["local", "checkout", "build"])
+def test_exact_candidate_rejects_every_source_build_fallback(source):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["clientArtifacts"]["honua-sdk-js"]["source"] = source
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any(f"cannot use source={source}" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_null_server_image():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"]["image"] = None
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any("requires an image and immutable digest" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_required_producer_without_pin():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["evidenceSources"]["cite"]["producerSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any("lacks a trusted immutable producer pin" in e for e in f.errors)
+
+
 def test_exact_candidate_accepts_committed_pins():
     manifest, matrix = _real_files()
     f = vp.validate(manifest, matrix, None, exact_candidate=True)

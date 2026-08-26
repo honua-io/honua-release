@@ -43,14 +43,19 @@ Repos are expected as siblings of `honua-release` (override with `--repos-root`)
 ```bash
 python tools/validate_platform.py                      # structure + coherence
 python tools/validate_platform.py --baseline origin/main   # + drift vs that ref
+python tools/validate_platform.py --exact-candidate    # reject release placeholders/fallbacks
+python tools/verify_client_artifacts.py                # fetch and hash exact published package bytes
+python tools/verify_evidence_sources.py                # verify producer SHA ancestry + workflow triggers
 python -m pytest tools/test_platform.py                # self-test (proves each rule can fail)
 ```
 
 CI: `.github/workflows/manifest-validate.yml` runs this per-PR (drift vs the PR base) and is
 callable by the release train as a reusable gate (`workflow_call`, input `baseline_ref`).
 
-Only dependency: `pyyaml`. `semver.py` is a minimal stdlib SemVer + range implementation (no
-third-party semver lib).
+The validators require `pyyaml`; schema self-tests also require `jsonschema`. `semver.py` is a
+minimal stdlib SemVer + range implementation (no third-party semver lib). The two remote pin
+verifiers run only for a non-dry-run release cut; they fail closed when published bytes or trusted
+producer metadata cannot be fetched.
 
 ## `candidate_binding.py` — certified-candidate integrity boundary
 
