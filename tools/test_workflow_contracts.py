@@ -130,6 +130,11 @@ def test_release_protocol_gate_binds_all_shipped_producers_to_the_manifest():
     train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
         encoding="utf-8"
     )
+    assert "expected_server_certification_sha" in gate
+    assert "--expected-server-certification-sha" in gate
+    assert "serverCertificationProducerSha" in train
+    assert "server_certification_sha" in train
+    assert "expected_server_certification_sha:" in train
     for source in ("js", "python", "dotnet"):
         assert f"expected_sdk_{source}_sha" in gate
         assert f"--expected-sdk-{source}-sha" in gate

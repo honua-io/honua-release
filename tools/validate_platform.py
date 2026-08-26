@@ -132,6 +132,18 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             raise ValueError
     except ValueError:
         f.error("manifest: protocolCertification.candidateCutAt must be a timezone-aware ISO-8601 timestamp")
+    if not _full_sha(certification.get("serverCertificationProducerSha")):
+        f.error(
+            "manifest: protocolCertification.serverCertificationProducerSha must be a full "
+            "40-character commit SHA"
+        )
+    elif certification.get("serverCertificationProducerSha") != (
+        (manifest.get("components") or {}).get("honua-server") or {}
+    ).get("sha"):
+        f.error(
+            "manifest: protocolCertification.serverCertificationProducerSha must match the "
+            "frozen honua-server component SHA"
+        )
 
     ledger = certification.get("ledger") or {}
     ledger_status = str(ledger.get("status", "")).strip()

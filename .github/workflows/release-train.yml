@@ -43,6 +43,7 @@ jobs:
     outputs:
       server_sha: ${{ steps.candidate.outputs.server_sha }}
       server_digest: ${{ steps.candidate.outputs.server_digest }}
+      server_certification_sha: ${{ steps.candidate.outputs.server_certification_sha }}
       sdk_js_sha: ${{ steps.candidate.outputs.sdk_js_sha }}
       sdk_python_sha: ${{ steps.candidate.outputs.sdk_python_sha }}
       sdk_dotnet_sha: ${{ steps.candidate.outputs.sdk_dotnet_sha }}
@@ -95,6 +96,7 @@ jobs:
           ledger = certification["ledger"]
           print(f"server_sha={server['sha']}")
           print(f"server_digest={server['digest']}")
+          print(f"server_certification_sha={certification['serverCertificationProducerSha']}")
           print(f"sdk_js_sha={manifest['components']['honua-sdk-js']['sha']}")
           print(f"sdk_python_sha={manifest['components']['honua-sdk-python']['sha']}")
           print(f"sdk_dotnet_sha={manifest['components']['honua-sdk-dotnet']['sha']}")
@@ -242,6 +244,7 @@ jobs:
       expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
       expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
       expected_cut_at: ${{ needs.freeze.outputs.candidate_cut_at }}
+      expected_server_certification_sha: ${{ needs.freeze.outputs.server_certification_sha }}
       expected_sdk_js_sha: ${{ needs.freeze.outputs.sdk_js_sha }}
       expected_sdk_python_sha: ${{ needs.freeze.outputs.sdk_python_sha }}
       expected_sdk_dotnet_sha: ${{ needs.freeze.outputs.sdk_dotnet_sha }}

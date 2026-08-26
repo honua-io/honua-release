@@ -34,6 +34,8 @@ snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by
 # this reviewed manifest pins its immutable commit and byte digest.
 protocolCertification:
   candidateCutAt: "2026-08-21T15:13:36Z"
+  # The source-test-host harness must certify the exact frozen honua-server candidate.
+  serverCertificationProducerSha: "e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e"
   ledger:
     status: bound
     repository: "honua-io/honua-evidence"
