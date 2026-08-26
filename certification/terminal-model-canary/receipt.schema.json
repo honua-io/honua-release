@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/terminal-model-canary-receipt-v1.json",
+  "title": "Honua terminal-model canary receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "receiptSchema",
+    "evidenceKey",
+    "generatedAt",
+    "status",
+    "scope",
+    "journeyContract",
+    "candidate",
+    "endpoint",
+    "driver",
+    "stages",
+    "actions",
+    "transcript",
+    "errorInjection",
+    "totals",
+    "assertions",
+    "notices",
+    "linkedEvidence"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "receiptSchema": {"const": "terminal-model-canary-receipt-v1"},
+    "evidenceKey": {"const": "release.e2e.terminal-model-canary"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["pass", "fail", "blocked", "skipped"]},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery", "executionToGreen", "blockedBy"],
+      "properties": {
+        "delivery": {"const": "harness-only"},
+        "executionToGreen": {"enum": ["blocked", "attempted", "pass"]},
+        "blockedBy": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "journeyContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "schemaVersion", "evidenceKey", "receiptSchema"],
+      "properties": {
+        "path": {"const": "certification/terminal-journey/journey.v1.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "schemaVersion": {"type": "integer", "minimum": 1},
+        "evidenceKey": {"type": "string", "minLength": 1},
+        "receiptSchema": {"type": "string", "minLength": 1}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platformRelease", "components", "clientArtifacts"],
+      "properties": {
+        "platformRelease": {"type": "string", "minLength": 1},
+        "components": {"type": "object"},
+        "clientArtifacts": {"type": "object"}
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configured", "baseUrl", "model", "runtime", "quantization", "authentication"],
+      "properties": {
+        "configured": {"type": "boolean"},
+        "baseUrl": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"]},
+        "runtime": {"type": ["string", "null"]},
+        "quantization": {"type": ["string", "null"]},
+        "authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "credentialReference", "required"],
+          "properties": {
+            "mode": {"enum": ["bearer-env", "none"]},
+            "credentialReference": {"type": ["string", "null"]},
+            "required": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "driver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configured", "command", "protocol", "protocolPath", "protocolSha256", "owner"],
+      "properties": {
+        "configured": {"type": "boolean"},
+        "command": {"type": ["string", "null"]},
+        "protocol": {"const": "terminal-journey-driver-v1"},
+        "protocolPath": {"const": "certification/terminal-model-canary/driver-protocol.v1.json"},
+        "protocolSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "owner": {"const": "honua-release#123"}
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["number", "id", "status", "modelActionSequences", "harnessActionSequences", "blockedBy"],
+        "properties": {
+          "number": {"type": "integer", "minimum": 1},
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["not-run", "running", "pass", "fail", "blocked", "skipped"]},
+          "modelActionSequences": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+          "harnessActionSequences": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+          "blockedBy": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "stageNumber", "stageId", "attribution", "kind", "status", "request", "result", "selectionEvidence"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1},
+          "stageNumber": {"type": "integer", "minimum": 1},
+          "stageId": {"type": "string", "minLength": 1},
+          "attribution": {"enum": ["MODEL_SELECTED", "HARNESS_DRIVEN"]},
+          "kind": {"enum": ["terminal_command", "tool_call", "setup", "error_injection", "approval", "verification", "teardown"]},
+          "status": {"enum": ["pass", "fail", "blocked", "pending"]},
+          "request": {},
+          "result": {},
+          "selectionEvidence": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["transcriptSequence"],
+                "properties": {"transcriptSequence": {"type": "integer", "minimum": 1}}
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"attribution": {"const": "MODEL_SELECTED"}}},
+            "then": {
+              "properties": {
+                "kind": {"enum": ["terminal_command", "tool_call"]},
+                "selectionEvidence": {"type": "object"}
+              }
+            },
+            "else": {
+              "properties": {
+                "kind": {"enum": ["setup", "error_injection", "approval", "verification", "teardown"]},
+                "selectionEvidence": {"type": "null"}
+              }
+            }
+          }
+        ]
+      }
+    },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redacted", "entries"],
+      "properties": {
+        "redacted": {"const": true},
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence", "stageId", "role", "content"],
+            "properties": {
+              "sequence": {"type": "integer", "minimum": 1},
+              "stageId": {"type": ["string", "null"]},
+              "role": {"enum": ["system", "user", "assistant", "driver"]},
+              "content": {}
+            }
+          }
+        }
+      }
+    },
+    "errorInjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "stageId", "injectedBy", "recoverable", "status", "injectionActionSequence", "triggeringModelActionSequence", "recoveryModelActionSequence"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "stageId": {"type": "string", "minLength": 1},
+        "injectedBy": {"const": "HARNESS_DRIVEN"},
+        "recoverable": {"const": true},
+        "status": {"enum": ["not-run", "armed", "observed", "recovered", "failed"]},
+        "injectionActionSequence": {"type": ["integer", "null"], "minimum": 1},
+        "triggeringModelActionSequence": {"type": ["integer", "null"], "minimum": 1},
+        "recoveryModelActionSequence": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promptTokens", "completionTokens", "totalTokens", "modelCalls", "elapsedMs"],
+      "properties": {
+        "promptTokens": {"type": "integer", "minimum": 0},
+        "completionTokens": {"type": "integer", "minimum": 0},
+        "totalTokens": {"type": "integer", "minimum": 0},
+        "modelCalls": {"type": "integer", "minimum": 0},
+        "elapsedMs": {"type": "integer", "minimum": 0}
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toolProfilePresent", "evidenceFresh", "authentication", "catalogExact", "fakeSuccessRejected", "rbacDenial", "tenantIsolation", "proposerApproverSeparation", "currentAuthorityRevalidation", "pixelProof", "finalUrlProof"],
+      "properties": {
+        "toolProfilePresent": {"$ref": "#/$defs/assertionStatus"},
+        "evidenceFresh": {"$ref": "#/$defs/assertionStatus"},
+        "authentication": {"$ref": "#/$defs/assertionStatus"},
+        "catalogExact": {"$ref": "#/$defs/assertionStatus"},
+        "fakeSuccessRejected": {"$ref": "#/$defs/assertionStatus"},
+        "rbacDenial": {"$ref": "#/$defs/assertionStatus"},
+        "tenantIsolation": {"$ref": "#/$defs/assertionStatus"},
+        "proposerApproverSeparation": {"$ref": "#/$defs/assertionStatus"},
+        "currentAuthorityRevalidation": {"$ref": "#/$defs/assertionStatus"},
+        "pixelProof": {"$ref": "#/$defs/assertionStatus"},
+        "finalUrlProof": {"$ref": "#/$defs/assertionStatus"}
+      }
+    },
+    "notices": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "linkedEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministicJourney", "deterministicReceipt"],
+      "properties": {
+        "deterministicJourney": {"const": "honua-release#123"},
+        "deterministicReceipt": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256", "generatedAt", "status", "candidateVerified", "freshnessVerified"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "generatedAt": {"type": "string", "format": "date-time"},
+                "status": {"const": "pass"},
+                "candidateVerified": {"const": true},
+                "freshnessVerified": {"const": true}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "assertionStatus": {"enum": ["not-run", "pass", "fail", "blocked"]}
+  }
+}
