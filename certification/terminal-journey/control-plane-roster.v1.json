@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "contract": "admin-v1",
+  "expected": {
+    "restCliOperations": 396,
+    "mcpProjections": 385,
+    "mcpExclusions": 11
+  },
+  "exclusions": [
+    {"id": "api-key-create-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "api-key-rotate-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "api-key-reveal-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "oauth-client-create-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "oauth-client-rotate-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "service-account-create-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "service-account-rotate-secret", "class": "one-time-secret", "sink": "private-cli"},
+    {"id": "session-create", "class": "session", "sink": "private-cli"},
+    {"id": "session-revoke", "class": "session", "sink": "private-cli"},
+    {"id": "authorization-code-exchange", "class": "session", "sink": "private-cli"},
+    {"id": "bootstrap-token-issue", "class": "one-time-secret", "sink": "private-cli"}
+  ],
+  "upstreamRoster": {
+    "status": "blocked",
+    "blockedBy": "https://github.com/honua-io/honua-server/issues/3363",
+    "requiredExports": ["admin-openapi-operation-ids.json", "admin-mcp-projection-manifest.json"]
+  }
+}
