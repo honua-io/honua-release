@@ -30,10 +30,20 @@ POLICY_PATH = REPO_ROOT / "certification" / "release-promotion-approval.yaml"
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
 REVIEWER_ID = 12301237
 REVIEWER_LOGIN = "mikemcdougall"
+STANDBY_ID = 7654321
+STANDBY_LOGIN = "standby-owner"
 
 
 def _policy() -> dict:
     return yaml.safe_load(POLICY_PATH.read_text(encoding="utf-8"))
+
+
+def _multi_reviewer_policy() -> dict:
+    policy = _policy()
+    policy["approval"]["required_reviewers"].append(
+        {"id": STANDBY_ID, "login": STANDBY_LOGIN, "kind": "human"}
+    )
+    return policy
 
 
 def _environment(**overrides) -> dict:
@@ -53,6 +63,15 @@ def _environment(**overrides) -> dict:
             {"id": 2, "type": "branch_policy"},
         ],
     }
+    environment.update(overrides)
+    return environment
+
+
+def _multi_reviewer_environment(**overrides) -> dict:
+    environment = _environment()
+    environment["protection_rules"][0]["reviewers"].append(
+        {"type": "User", "reviewer": {"id": STANDBY_ID, "login": STANDBY_LOGIN}}
+    )
     environment.update(overrides)
     return environment
 
@@ -84,10 +103,11 @@ def _failed(result: dict) -> list[str]:
 # ── the shipped policy is itself valid ──────────────────────────────────────────────────────────
 
 
-def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
+def test_shipped_policy_declares_a_nonempty_human_reviewer_roster_and_an_attestation():
     policy = load_policy(POLICY_PATH)
     assert policy["environment"]["name"] == "release-promotion"
-    assert policy["approval"]["required_reviewer"]["kind"] == "human"
+    assert policy["approval"]["required_reviewers"]
+    assert all(reviewer["kind"] == "human" for reviewer in policy["approval"]["required_reviewers"])
     assert policy["approval"]["require_prevent_self_review"] is True
     assert policy["attestation"]["max_attestation_age_days"] > 0
 
@@ -99,12 +119,12 @@ def test_shipped_policy_declares_a_human_reviewer_and_an_attestation():
         {"environment": {}, "approval": {}, "attestation": {}},
         {
             "environment": {"name": "release-promotion"},
-            "approval": {"required_reviewer": {"id": 1, "kind": "bot"}},
+            "approval": {"required_reviewers": [{"id": 1, "kind": "bot"}]},
             "attestation": {"attested_at": "2026-01-01T00:00:00Z", "max_attestation_age_days": 30},
         },
         {
             "environment": {"name": "release-promotion"},
-            "approval": {"required_reviewer": {"id": 1, "kind": "human"}},
+            "approval": {"required_reviewers": [{"id": 1, "kind": "human"}]},
             "attestation": {"attested_at": "nope", "max_attestation_age_days": 30},
         },
     ],
@@ -119,8 +139,47 @@ def test_an_untrustworthy_policy_is_refused(policy: dict, tmp_path: Path):
 # ── the AC test matrix ──────────────────────────────────────────────────────────────────────────
 
 
-def test_successful_independent_approval_passes():
+def test_single_reviewer_roster_with_independent_promoter_passes():
     result = _evaluate(_environment())
+    assert result["status"] == "pass", result["why"]
+    assert _failed(result) == []
+
+
+@pytest.mark.parametrize(
+    ("promotion_actor", "promotion_actor_id", "expected_approver"),
+    [
+        (REVIEWER_LOGIN, REVIEWER_ID, STANDBY_LOGIN),
+        (STANDBY_LOGIN, STANDBY_ID, REVIEWER_LOGIN),
+    ],
+)
+def test_each_multi_roster_member_can_supply_the_single_independent_approval(
+    promotion_actor: str,
+    promotion_actor_id: int,
+    expected_approver: str,
+):
+    # The protected-environment approval happens before this preflight runs. With
+    # prevent_self_review enabled and one roster member as promoter, GitHub can only have admitted
+    # the job after the other (parameterized) member supplied the single required approval.
+    result = _evaluate(
+        _multi_reviewer_environment(),
+        policy=_multi_reviewer_policy(),
+        promotion_actor=promotion_actor,
+        promotion_actor_id=promotion_actor_id,
+    )
+
+    assert result["status"] == "pass", result["why"]
+    actor_check = next(
+        check for check in result["checks"] if check["check"] == "independent-promoting-actor"
+    )
+    assert expected_approver in actor_check["why"]
+
+
+def test_multi_reviewer_roster_order_does_not_change_the_policy_match():
+    environment = _multi_reviewer_environment()
+    environment["protection_rules"][0]["reviewers"].reverse()
+
+    result = _evaluate(environment, policy=_multi_reviewer_policy())
+
     assert result["status"] == "pass", result["why"]
     assert _failed(result) == []
 
@@ -139,12 +198,37 @@ def test_absent_reviewer_rule_fails():
     assert "human-reviewer" in _failed(result)
 
 
+def test_empty_live_reviewer_roster_fails_closed():
+    environment = _environment()
+    environment["protection_rules"][0]["reviewers"] = []
+
+    result = _evaluate(environment)
+
+    assert result["status"] == "fail"
+    assert "environment-policy" in _failed(result)
+    assert "reviewer-matches-policy" in _failed(result)
+
+
 def test_wrong_reviewer_fails():
     environment = _environment()
     environment["protection_rules"][0]["reviewers"] = [
         {"type": "User", "reviewer": {"id": 999, "login": "someone-else"}}
     ]
     result = _evaluate(environment)
+    assert result["status"] == "fail"
+    assert "environment-policy" in _failed(result)
+    assert "reviewer-matches-policy" in _failed(result)
+
+
+def test_substituting_an_unattested_multi_roster_member_fails():
+    environment = _multi_reviewer_environment()
+    environment["protection_rules"][0]["reviewers"][1] = {
+        "type": "User",
+        "reviewer": {"id": 999, "login": "unattested-owner"},
+    }
+
+    result = _evaluate(environment, policy=_multi_reviewer_policy())
+
     assert result["status"] == "fail"
     assert "environment-policy" in _failed(result)
     assert "reviewer-matches-policy" in _failed(result)
@@ -340,6 +424,35 @@ def test_deleting_any_policy_block_is_refused(block: str, tmp_path: Path):
     policy = _policy()
     policy.pop(block)
     with pytest.raises(ApprovalPolicyError):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_empty_declared_reviewer_roster_is_refused(tmp_path: Path):
+    policy = _policy()
+    policy["approval"]["required_reviewers"] = []
+
+    with pytest.raises(ApprovalPolicyError, match="at least one"):
+        load_policy(_write(policy, tmp_path))
+
+
+def test_declared_reviewer_roster_over_githubs_six_member_limit_is_refused(tmp_path: Path):
+    policy = _policy()
+    policy["approval"]["required_reviewers"].extend(
+        {"id": 200 + index, "login": f"standby-{index}", "kind": "human"}
+        for index in range(6)
+    )
+
+    with pytest.raises(ApprovalPolicyError, match="at most 6"):
+        load_policy(_write(policy, tmp_path))
+
+
+@pytest.mark.parametrize("field", ["id", "login"])
+def test_duplicate_declared_reviewer_identity_is_refused(field: str, tmp_path: Path):
+    policy = _multi_reviewer_policy()
+    first_reviewer = policy["approval"]["required_reviewers"][0]
+    policy["approval"]["required_reviewers"][1][field] = first_reviewer[field]
+
+    with pytest.raises(ApprovalPolicyError, match=f"duplicate {field}"):
         load_policy(_write(policy, tmp_path))
 
 

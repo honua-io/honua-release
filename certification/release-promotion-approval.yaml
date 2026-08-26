@@ -37,16 +37,17 @@ environment:
   allowed_protection_rule_types: [required_reviewers, branch_policy, wait_timer]
 
 approval:
-  # Exactly one required-reviewer rule, naming exactly this human. Rotation = change these two fields
-  # and re-attest (docs/RELEASE-PROMOTION-APPROVAL-GATE.md § Reviewer rotation).
-  required_reviewer:
-    id: 12301237
-    login: mikemcdougall
-    kind: human
+  # The live environment must name exactly this roster: at least one and at most six human Users.
+  # GitHub requires one approval from any roster member. Add or rotate members here and in the live
+  # environment, then re-attest (docs/RELEASE-PROMOTION-APPROVAL-GATE.md § Roster changes).
+  required_reviewers:
+    - id: 12301237
+      login: mikemcdougall
+      kind: human
   # GitHub must refuse an approval from the actor that started the deployment.
   require_prevent_self_review: true
-  # The checker additionally refuses to accept a reviewer that IS the promoting actor, so the
-  # two-actor property holds even if GitHub's own self-review semantics change or are turned off.
+  # The checker additionally requires at least one roster member other than the promoting actor, so
+  # the two-actor property remains satisfiable and GitHub's prevent-self-review control enforces it.
   require_independent_promoting_actor: true
   # Principals that may dispatch the release train / promote but must NEVER count as an approver.
   # Names only — no tokens, ids, or credentials belong in this file.
@@ -79,8 +80,8 @@ attestation:
     the runbook in docs/RELEASE-PROMOTION-APPROVAL-GATE.md, then read back and compared against this
     file with tools/check_release_promotion_approval.py. Every check passed except
     attestation-current, which is the expected refusal for an environment modified after the previous
-    attestation — this commit is that re-attestation. Verified live settings: single required
-    reviewer mikemcdougall (id 12301237, type User), prevent_self_review true, deployment branch
+    attestation — this commit is that re-attestation. Verified live settings: a one-member reviewer
+    roster containing mikemcdougall (id 12301237, type User), prevent_self_review true, deployment branch
     policy protected_branches true / custom_branch_policies false, protection rule types limited to
     branch_policy + required_reviewers, and default branch trunk protected. Promotion remains
-    two-actor: the required reviewer must not be the actor that dispatches promote.
+    two-actor: a different roster member must approve when a roster member dispatches promote.

@@ -47,26 +47,26 @@ promotion fails closed — but the design must be re-chosen (Enterprise, or an e
 
 | layer | enforces |
 |---|---|
-| `release-promotion` environment protection rules | a named human must approve before the promote job runs |
+| `release-promotion` environment protection rules | one human from the declared reviewer roster must approve before the promote job runs |
 | `deployment_branch_policy: protected_branches` | promotion may only run from a protected branch |
 | `prevent_self_review` | the actor that started the deployment cannot approve it |
-| `tools/check_release_promotion_approval.py` (promote preflight) | the live configuration still matches the attested settings-as-code, promotion ran from the protected default branch, and the promoting actor is not the required reviewer |
+| `tools/check_release_promotion_approval.py` (promote preflight) | the live configuration still matches the attested settings-as-code, promotion ran from the protected default branch, and at least one roster member other than the promoting actor can approve |
 | `tools/candidate_binding.py validate-run` | the exact certified train identity: a successful live `release-train` run from the protected default branch of this repository |
 | `tools/finalize_release.py` | every gate green (or an explicitly allow-listed skip) before anything is tagged |
 
 Everything the preflight refuses on:
 
 - environment **missing** or metadata **unreadable** (HTTP error / no permission) — never read as "fine";
-- **no required-reviewer rule**, more than one rule, or more than one reviewer;
-- **wrong reviewer** (id or login differs from the attested reviewer);
-- reviewer that is not a `User`, whose login ends in `[bot]`, or that is a listed **automation
-  principal** — an automation-only approver is not an approver;
+- **no required-reviewer rule**, more than one rule, or an empty or over-six reviewer roster;
+- **roster drift** (the live reviewer id/login pairs differ from the attested roster);
+- any reviewer that is not a `User`, whose login ends in `[bot]`, or that is a listed **automation
+  principal** — every roster entry must be a human approval authority;
 - **self-review permitted** (`prevent_self_review` not enabled);
 - an **unreviewed protection-rule type** (for example a custom deployment-protection-rule app, which
   could approve automatically);
 - deployment branch policy that is **not protected-branches-only**;
 - the repository default branch **not protected**, or promotion dispatched from another branch;
-- promotion **started by the required reviewer** (approval would not be independent of the request);
+- promotion started by the **only** roster member (no different member could approve independently);
 - the attestation **expired**, or the environment **modified after** the last attestation.
 
 Each check is emitted to `release-promotion-approval-evidence.json` (uploaded by the promote run) as
@@ -80,8 +80,9 @@ protection settings must match `certification/release-promotion-approval.yaml` e
 the drift check will refuse.
 
 ```bash
-# 1. Create the environment with protected-branch-only deployments, a single required human
-#    reviewer, and self-review disabled.
+# 1. Create the environment with protected-branch-only deployments, the exact declared human
+#    reviewer roster, and self-review disabled. Repeat both reviewers[] fields for each roster member
+#    (GitHub supports one to six); this one-member command matches the current declaration.
 gh api -X PUT repos/<repo>/environments/release-promotion \
   -F "prevent_self_review=true" \
   -F "reviewers[][type]=User" -F "reviewers[][id]=12301237" \
@@ -109,9 +110,11 @@ enforcement, required pull requests, and the required `validate` check — see
 
 ## Two-actor operation
 
-`prevent_self_review` plus the preflight's independent-actor check means **the required reviewer must
-not be the one who dispatches `promote`**. In steady state the release automation (or a second human)
-dispatches and the reviewer approves — "AI proposes, the pipeline disposes".
+GitHub requires one approval from any member of `approval.required_reviewers`. `prevent_self_review`
+means a roster member who dispatches `promote` cannot supply that approval; when that happens, a
+different roster member must approve. The preflight independently requires such a different roster
+member to exist. In steady state the release automation dispatches and any available roster member
+approves — "AI proposes, the pipeline disposes".
 
 A single-seat owner therefore cannot both dispatch and approve. That is the intended property, not a
 defect.
@@ -155,19 +158,20 @@ the `release-promotion` approval prompt, and the preflight evidence must contain
 `independent-promoting-actor: pass`. Reaching the prompt proves this path without approving it or
 creating a tag.
 
-**The gate requires exactly ONE reviewer.** `certification/release-promotion-approval.yaml` declares a single
-`required_reviewer`, and the checker refuses when the environment names any other set — more than one
-reviewer, a different login, a Team, or an app. A second concurrent reviewer is therefore **not**
-supported today; if a human needs to dispatch promote personally, **rotate** the required reviewer to
-another human (below) rather than adding one alongside, and never disable `prevent_self_review`.
-Supporting a declared multi-reviewer roster for continuity is tracked in honua-release#93.
+The policy declares an exact `required_reviewers` roster of one to six human `User` accounts. GitHub
+needs only one member's approval, so a standby can approve when the primary is unavailable. The
+checker compares the live roster's id/login pairs to the declaration as a set; reordering is harmless,
+but an added, removed, substituted, Team, app, or automation reviewer is refused. The current roster
+contains one member because no second human repository member is presently available.
 
-## Reviewer rotation
+## Roster changes
 
-1. Add the new reviewer to the `release-promotion` environment (step 1 above, with the new id).
-2. Update `approval.required_reviewer.{id,login}` in `certification/release-promotion-approval.yaml` and
-   refresh `attestation.attested_at` in the same pull request.
-3. Remove the outgoing reviewer from the environment.
+1. Add or remove reviewers in the `release-promotion` environment (step 1 above), keeping one to six
+   human `User` accounts and `prevent_self_review: true`.
+2. Make the identical change to `approval.required_reviewers` in
+   `certification/release-promotion-approval.yaml` and refresh `attestation.attested_at` in the same
+   pull request.
+3. If rotating a member, remove the outgoing reviewer only after the replacement is present.
 4. Confirm `repo-control-drift` is green.
 
 The order matters: the environment and the declaration must never disagree for longer than one
@@ -181,17 +185,16 @@ which leaves durable evidence:
 
 1. File an incident issue in `honua-io/honua-release` **before** changing anything, recording who, why,
    and the intended window.
-2. **Rotate the required reviewer to an available human** — the only change the gate accepts. Because
-   the checker requires exactly the attested reviewer, this is *two* coordinated changes and both are
+2. **Add or rotate an available human in the reviewer roster.** Because the checker requires the live
+   roster to match the attested roster exactly, this is *two* coordinated changes and both are
    mandatory:
-   - an admin replaces the reviewer on the environment (`gh api -X PUT ... reviewers[][id]=<new id>`);
-   - a pull request updates `approval.required_reviewer.{id,login}` and `attestation.attested_at`,
-     linking the incident issue.
+   - an admin updates the environment roster (`gh api -X PUT ... reviewers[][id]=<new id>`);
+   - a pull request makes the identical `approval.required_reviewers` change and refreshes
+     `attestation.attested_at`, linking the incident issue.
 
-   Do **not** add a second reviewer (the gate refuses more than one — see *Two-actor operation*),
-   delete the environment, disable `prevent_self_review`, or weaken the branch policy. Those are the
-   properties the gate exists to protect, and the preflight refuses them anyway; a mid-incident
-   attempt would simply produce a hard refusal.
+   Do not delete the environment, leave the roster empty, exceed six reviewers, disable
+   `prevent_self_review`, or weaken the branch policy. Those are the properties the gate exists to
+   protect, and the preflight refuses them.
 3. Promote as normal, with the new reviewer approving and someone else dispatching. The approval, the
    deployment record, and `release-promotion-approval-evidence.json` are the audit trail.
 4. **Re-lock immediately after:** restore the environment to the declared settings, run the read-back
@@ -204,14 +207,10 @@ Never weaken `tools/check_release_promotion_approval.py`, `tools/candidate_bindi
 
 ## Current state
 
-`certification/release-promotion-approval.yaml` records `attestation.applied: false`: the `release-promotion`
-environment **does not exist yet** in this repository, so promotion is blocked. That is the intended
-safe state (#43, #44). Applying the runbook above and committing the attestation is the remaining
-owner action; the repo-side gate, evidence, drift check, and tests are in place and enforcing.
-
-While `applied` is false, `repo-control-drift` reports the gap as a warning rather than a permanent
-red — it is an early-warning monitor, and `promote.yml` runs the identical check and *refuses*, so the
-unapplied state can never let a release through. Once `applied` is true, any drift is hard red.
+`certification/release-promotion-approval.yaml` records `attestation.applied: true`. The live
+`release-promotion` environment currently matches its one-member roster. `repo-control-drift` reports
+any later roster or protection-setting drift as hard red, and `promote.yml` runs the identical check
+and refuses promotion.
 
 ## Verify locally
 
