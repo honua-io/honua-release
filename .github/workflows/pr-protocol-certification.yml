@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   certify:
-    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@ca80d76e9114251eadf5373829a0d983c37643db # trusted gate workflow (trunk, #159 squash)
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@ca80d76e9114251eadf5373829a0d983c37643db # v1.0.1 - trusted gate workflow (trunk, #159 squash)
     with:
       matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
       matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
