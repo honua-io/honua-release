@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "protocol": "terminal-journey-driver-v1",
+  "owner": "honua-release#123",
+  "adapterPath": "certification/terminal-journey/live_driver.py",
+  "transport": "one JSON request on stdin and one JSON response on stdout per invocation",
+  "operations": {
+    "setup": {
+      "purpose": "create one clean workspace from exact candidate pins and return only credential references",
+      "requiredResponse": ["status", "workspaceId", "observation", "toolView", "credentialReferences"]
+    },
+    "observe": {
+      "purpose": "return current server-authored state and the bounded actions available for one imported journey stage",
+      "requiredResponse": ["status", "stageStatus", "observation", "toolView"]
+    },
+    "execute": {
+      "purpose": "execute exactly the model-selected terminal command or tool call; report injectedError or recoveredError with the armed error ID when applicable",
+      "requiredResponse": ["status", "stageStatus", "result", "canonicalIds"]
+    },
+    "inject_error": {
+      "purpose": "arm one recoverable error for the next matching model-selected action",
+      "requiredResponse": ["status", "errorId", "recoverable"]
+    },
+    "approve": {
+      "purpose": "use the separate human approver profile after the model reaches AwaitingApproval",
+      "requiredResponse": ["status", "principalProfile", "proposalId", "approvalId", "proposerSelfApproval"]
+    },
+    "verify": {
+      "purpose": "verify final URL, pixel proof, exact IDs, isolation, RBAC, separation, and current authority",
+      "requiredResponse": ["status", "assertions", "finalUrlProof", "pixelProof", "canonicalIds"]
+    },
+    "teardown": {
+      "purpose": "remove the isolated namespace within the declared budget",
+      "requiredResponse": ["status", "workspaceId"]
+    }
+  },
+  "prohibitions": [
+    "responses must not contain credential values",
+    "execute must reject actions outside the server-authored bounded tool view",
+    "approval must use a principal distinct from the proposer",
+    "no operation may report pass from mocked or replayed state"
+  ]
+}

@@ -1,0 +1,95 @@
+name: Terminal model canary harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Hosted runner for a reachable hosted endpoint, or self-hosted for a local endpoint
+        required: true
+        type: choice
+        default: ubuntu-latest
+        options:
+          - ubuntu-latest
+          - self-hosted
+      base_url:
+        description: OpenAI-compatible base URL; empty uses the repository variable and otherwise records a skip
+        required: false
+        type: string
+      model:
+        description: Endpoint model identifier; empty uses the repository variable and otherwise records a skip
+        required: false
+        type: string
+      authentication:
+        description: Use none for local endpoints or bearer for the hosted key secret
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - bearer
+      runtime:
+        description: Runtime identifier recorded in the receipt
+        required: false
+        type: string
+      quantization:
+        description: Quantization identifier recorded in the receipt
+        required: false
+        type: string
+      deterministic_receipt:
+        description: URI of the green #123 receipt for this exact candidate
+        required: false
+        type: string
+      inject_stage:
+        description: Optional #123 journey stage ID; defaults to the fourth imported stage
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 90
+    env:
+      TERMINAL_MODEL_BASE_URL: ${{ inputs.base_url || vars.TERMINAL_MODEL_BASE_URL }}
+      TERMINAL_MODEL_NAME: ${{ inputs.model || vars.TERMINAL_MODEL_NAME }}
+      TERMINAL_MODEL_RUNTIME: ${{ inputs.runtime || vars.TERMINAL_MODEL_RUNTIME }}
+      TERMINAL_MODEL_QUANTIZATION: ${{ inputs.quantization || vars.TERMINAL_MODEL_QUANTIZATION }}
+      TERMINAL_MODEL_API_KEY: ${{ secrets.TERMINAL_MODEL_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install harness dependencies
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - name: Run harness against the imported #123 journey contract
+        shell: bash
+        env:
+          DETERMINISTIC_RECEIPT: ${{ inputs.deterministic_receipt }}
+          INJECT_STAGE: ${{ inputs.inject_stage }}
+          MODEL_AUTHENTICATION: ${{ inputs.authentication }}
+        run: |
+          args=(
+            --manifest platform-manifest.yaml
+            --journey certification/terminal-journey/journey.v1.json
+            --driver-protocol certification/terminal-model-canary/driver-protocol.v1.json
+            --receipt-schema certification/terminal-model-canary/receipt.schema.json
+            --output artifacts/terminal-model-canary-receipt.json
+          )
+          [ -n "$DETERMINISTIC_RECEIPT" ] && args+=(--deterministic-receipt "$DETERMINISTIC_RECEIPT")
+          [ -n "$INJECT_STAGE" ] && args+=(--inject-stage "$INJECT_STAGE")
+          if [ "$MODEL_AUTHENTICATION" = "bearer" ]; then
+            args+=(--require-api-key)
+          else
+            args+=(--no-api-key)
+          fi
+          python tools/terminal_model_canary.py "${args[@]}"
+      - name: Upload harness receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: terminal-model-canary-harness-receipt
+          path: artifacts/terminal-model-canary-receipt.json
+          if-no-files-found: error
