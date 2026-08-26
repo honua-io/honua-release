@@ -173,7 +173,7 @@ def test_non_default_branch_train_metadata_is_refused():
     assert identity is None
 
 
-def test_release_promotion_environment_requires_expected_human_reviewer():
+def test_release_promotion_environment_requires_exact_human_reviewer_roster():
     environment = {
         "name": "release-promotion",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
@@ -190,7 +190,7 @@ def test_release_promotion_environment_requires_expected_human_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237],
     )
     assert ok, why
 
@@ -198,13 +198,13 @@ def test_release_promotion_environment_requires_expected_human_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237],
     )
     assert not ok
     assert "required-reviewer" in why
 
 
-def test_release_promotion_environment_rejects_any_additional_reviewer():
+def test_release_promotion_environment_accepts_an_exact_multi_reviewer_roster():
     environment = {
         "name": "release-promotion",
         "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
@@ -214,7 +214,7 @@ def test_release_promotion_environment_rejects_any_additional_reviewer():
                 "prevent_self_review": False,
                 "reviewers": [
                     {"type": "User", "reviewer": {"id": 12301237, "login": "mikemcdougall"}},
-                    {"type": "Team", "reviewer": {"id": 99, "slug": "release-automation"}},
+                    {"type": "User", "reviewer": {"id": 99, "login": "standby-owner"}},
                 ],
             },
         ],
@@ -223,11 +223,61 @@ def test_release_promotion_environment_rejects_any_additional_reviewer():
     ok, why = cb.validate_environment_metadata(
         environment,
         expected_name="release-promotion",
-        expected_reviewer_id=12301237,
+        expected_reviewer_ids=[12301237, 99],
+    )
+
+    assert ok, why
+
+
+def test_release_promotion_environment_rejects_an_empty_expected_roster():
+    environment = {
+        "name": "release-promotion",
+        "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": True,
+                "reviewers": [
+                    {"type": "User", "reviewer": {"id": 12301237, "login": "mikemcdougall"}},
+                ],
+            },
+        ],
+    }
+
+    ok, why = cb.validate_environment_metadata(
+        environment,
+        expected_name="release-promotion",
+        expected_reviewer_ids=[],
     )
 
     assert not ok
-    assert "exactly" in why
+    assert "at least one" in why
+
+
+def test_release_promotion_environment_rejects_unattested_roster_member():
+    environment = {
+        "name": "release-promotion",
+        "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
+        "protection_rules": [
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": True,
+                "reviewers": [
+                    {"type": "User", "reviewer": {"id": 12301237, "login": "mikemcdougall"}},
+                    {"type": "User", "reviewer": {"id": 99, "login": "standby-owner"}},
+                ],
+            },
+        ],
+    }
+
+    ok, why = cb.validate_environment_metadata(
+        environment,
+        expected_name="release-promotion",
+        expected_reviewer_ids=[12301237],
+    )
+
+    assert not ok
+    assert "do not match expected roster" in why
 
 
 def test_missing_binding_is_refused(tmp_path: Path):

@@ -7,8 +7,9 @@ way the release automation cannot satisfy on its own:
 
   * the intended settings live in git (certification/release-promotion-approval.yaml) so they are reviewable
     and diffable, and the live environment is compared against them;
-  * a designated HUMAN reviewer must be required by the GitHub environment, and neither a bot
-    principal nor the actor that started the promotion may satisfy that requirement;
+  * an exact roster of HUMAN reviewers must be required by the GitHub environment, and no bot
+    principal may enter it;
+  * if a roster member starts the promotion, another roster member must remain eligible to approve;
   * promotion is restricted to the repository's protected default branch;
   * every failure mode — missing environment, unreadable metadata, weakened rule, expired or
     superseded attestation, automation-only reviewer — is a REFUSAL, never a pass.
@@ -28,7 +29,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from candidate_binding import validate_environment_metadata  # noqa: E402
+from candidate_binding import MAX_REQUIRED_REVIEWERS, validate_environment_metadata  # noqa: E402
 
 PASS = "pass"
 FAIL = "fail"
@@ -140,15 +141,31 @@ def load_policy(path: Path) -> dict:
             "environment.allowed_protection_rule_types must allow 'required_reviewers'"
         )
 
-    reviewer = approval.get("required_reviewer")
-    if not isinstance(reviewer, dict):
-        raise ApprovalPolicyError("approval.required_reviewer is required")
-    reviewer_id = reviewer.get("id")
-    if not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0:
-        raise ApprovalPolicyError("approval.required_reviewer.id must be a positive integer")
-    _require_text(reviewer, "login", "approval.required_reviewer")
-    if reviewer.get("kind") != "human":
-        raise ApprovalPolicyError("approval.required_reviewer.kind must be 'human'")
+    reviewers = approval.get("required_reviewers")
+    if not isinstance(reviewers, list) or not reviewers:
+        raise ApprovalPolicyError("approval.required_reviewers must contain at least one reviewer")
+    if len(reviewers) > MAX_REQUIRED_REVIEWERS:
+        raise ApprovalPolicyError(
+            f"approval.required_reviewers may contain at most {MAX_REQUIRED_REVIEWERS} reviewers"
+        )
+
+    reviewer_ids: list[int] = []
+    reviewer_logins: list[str] = []
+    for index, reviewer in enumerate(reviewers):
+        where = f"approval.required_reviewers[{index}]"
+        if not isinstance(reviewer, dict):
+            raise ApprovalPolicyError(f"{where} must be a reviewer mapping")
+        reviewer_id = reviewer.get("id")
+        if not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0:
+            raise ApprovalPolicyError(f"{where}.id must be a positive integer")
+        reviewer_ids.append(reviewer_id)
+        reviewer_logins.append(_require_text(reviewer, "login", where).lower())
+        if reviewer.get("kind") != "human":
+            raise ApprovalPolicyError(f"{where}.kind must be 'human'")
+    if len(set(reviewer_ids)) != len(reviewer_ids):
+        raise ApprovalPolicyError("approval.required_reviewers must not contain duplicate ids")
+    if len(set(reviewer_logins)) != len(reviewer_logins):
+        raise ApprovalPolicyError("approval.required_reviewers must not contain duplicate logins")
 
     _require_true(approval, "require_prevent_self_review", "approval")
     _require_true(approval, "require_independent_promoting_actor", "approval")
@@ -157,6 +174,15 @@ def load_policy(path: Path) -> dict:
         not isinstance(name, str) or not name.strip() for name in principals
     ):
         raise ApprovalPolicyError("approval.automation_principals must be a list of names")
+    automation_logins = {str(name).strip().lower() for name in principals}
+    invalid_reviewers = sorted(
+        login for login in reviewer_logins if login.endswith("[bot]") or login in automation_logins
+    )
+    if invalid_reviewers:
+        raise ApprovalPolicyError(
+            "approval.required_reviewers must contain only human accounts, not automation "
+            f"principals: {invalid_reviewers}"
+        )
 
     _require_true(promotion, "require_protected_default_branch", "promotion")
     _require_true(promotion, "require_promotion_from_default_branch", "promotion")
@@ -218,7 +244,7 @@ def evaluate(
     approval = policy["approval"]
     promotion_policy = policy["promotion"]
     attestation = policy["attestation"]
-    reviewer_policy = approval["required_reviewer"]
+    reviewer_policy = approval["required_reviewers"]
     expected_name = env_policy["name"]
     checks: list[dict] = []
 
@@ -237,12 +263,13 @@ def evaluate(
         record("environment-readable", True, f"environment {expected_name!r} metadata was read")
 
     if environment is not None:
-        # The #43 preflight, unchanged and unweakened: name, protected-branch-only deployment policy,
-        # exactly one required-reviewer rule, exactly one User reviewer, exact expected id.
+        # The #43 preflight, unchanged and unweakened except for #93's declared roster: name,
+        # protected-branch-only deployment policy, exactly one required-reviewer rule, one-to-six
+        # User reviewers, and the exact expected id set.
         ok, why = validate_environment_metadata(
             environment,
             expected_name=expected_name,
-            expected_reviewer_id=reviewer_policy["id"],
+            expected_reviewer_ids=[reviewer["id"] for reviewer in reviewer_policy],
         )
         record("environment-policy", ok, why)
 
@@ -274,34 +301,49 @@ def evaluate(
         )
 
         reviewers = (rule or {}).get("reviewers")
-        reviewer_logins = [
-            entry.get("reviewer", {}).get("login")
+        live_reviewers = [
+            {
+                "id": entry.get("reviewer", {}).get("id"),
+                "login": entry.get("reviewer", {}).get("login"),
+                "type": entry.get("type"),
+            }
             for entry in (reviewers if isinstance(reviewers, list) else [])
             if isinstance(entry, dict) and isinstance(entry.get("reviewer"), dict)
         ]
         automation_principals = approval["automation_principals"]
         human_reviewers = [
-            login
-            for login in reviewer_logins
-            if not _is_automation_principal(login, automation_principals)
+            reviewer
+            for reviewer in live_reviewers
+            if reviewer["type"] == "User"
+            and not _is_automation_principal(reviewer["login"], automation_principals)
         ]
+        all_reviewers_are_human = bool(live_reviewers) and len(human_reviewers) == len(live_reviewers)
         record(
             "human-reviewer",
-            bool(human_reviewers),
-            "the environment names no human reviewer — an automation principal (or an unnamed "
-            f"reviewer) cannot be the approval authority: {reviewer_logins}"
-            if not human_reviewers
-            else f"required reviewer(s) are human accounts: {human_reviewers}",
+            all_reviewers_are_human,
+            "every roster member must be a named human User — an automation principal, Team, app, "
+            f"or unnamed reviewer cannot be an approval authority: {live_reviewers}"
+            if not all_reviewers_are_human
+            else f"required reviewers are human accounts: {human_reviewers}",
         )
 
-        expected_login = reviewer_policy["login"]
+        expected_roster = {
+            (reviewer["id"], reviewer["login"].strip().lower()) for reviewer in reviewer_policy
+        }
+        live_roster = {
+            (reviewer["id"], reviewer["login"].strip().lower())
+            for reviewer in live_reviewers
+            if isinstance(reviewer["id"], int) and isinstance(reviewer["login"], str)
+        }
+        roster_matches = len(live_reviewers) == len(reviewer_policy) and live_roster == expected_roster
         record(
             "reviewer-matches-policy",
-            reviewer_logins == [expected_login],
-            f"live reviewer(s) {reviewer_logins} do not match the attested reviewer "
-            f"{[expected_login]} — settings drifted from certification/release-promotion-approval.yaml"
-            if reviewer_logins != [expected_login]
-            else f"live reviewer matches the attested reviewer {expected_login!r}",
+            roster_matches,
+            f"live reviewer roster {sorted(live_roster)} does not match the attested roster "
+            f"{sorted(expected_roster)} — settings drifted from "
+            "certification/release-promotion-approval.yaml"
+            if not roster_matches
+            else f"live reviewer roster matches the attested roster {sorted(expected_roster)}",
         )
 
     # ── branch restriction ────────────────────────────────────────────────────────────────────
@@ -343,18 +385,36 @@ def evaluate(
             "promote mode requires the promoting actor, and none was supplied",
         )
     elif promotion_actor is not None or promotion_actor_id is not None:
-        same_login = (
-            isinstance(promotion_actor, str)
-            and promotion_actor.strip().lower() == reviewer_policy["login"].strip().lower()
-        )
-        same_id = promotion_actor_id is not None and promotion_actor_id == reviewer_policy["id"]
+        matching_reviewers = [
+            reviewer
+            for reviewer in reviewer_policy
+            if (
+                isinstance(promotion_actor, str)
+                and promotion_actor.strip().lower() == reviewer["login"].strip().lower()
+            )
+            or (promotion_actor_id is not None and promotion_actor_id == reviewer["id"])
+        ]
+        independent_reviewers = [
+            reviewer for reviewer in reviewer_policy if reviewer not in matching_reviewers
+        ]
+        independent_approval_possible = bool(independent_reviewers)
+        if matching_reviewers and independent_reviewers:
+            actor_why = (
+                f"promotion actor {promotion_actor!r} is in the reviewer roster, so prevent_self_review "
+                "requires approval from a different roster member: "
+                f"{[reviewer['login'] for reviewer in independent_reviewers]}"
+            )
+        elif matching_reviewers:
+            actor_why = (
+                f"promotion was started by the roster's only eligible reviewer ({promotion_actor}) — "
+                "no different roster member can provide independent approval"
+            )
+        else:
+            actor_why = f"promotion actor {promotion_actor!r} is outside the reviewer roster"
         record(
             "independent-promoting-actor",
-            not (same_login or same_id),
-            f"promotion was started by the required reviewer ({promotion_actor}) — approval would "
-            "not be independent of the actor requesting the release"
-            if (same_login or same_id)
-            else f"promotion actor {promotion_actor!r} is not the required reviewer",
+            independent_approval_possible,
+            actor_why,
         )
 
     # ── attestation freshness + drift ─────────────────────────────────────────────────────────
@@ -404,10 +464,9 @@ def evaluate(
         "mode": mode,
         "environment": expected_name,
         "repository": env_policy["repository"],
-        "expected_reviewer": {
-            "id": reviewer_policy["id"],
-            "login": reviewer_policy["login"],
-        },
+        "expected_reviewers": [
+            {"id": reviewer["id"], "login": reviewer["login"]} for reviewer in reviewer_policy
+        ],
         "generatedAt": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "checks": checks,
     }

@@ -21,6 +21,7 @@ BINDING_SCHEMA_VERSION = 1
 PLATFORM_MANIFEST = "platform-manifest.yaml"
 COMPATIBILITY_MATRIX = "compatibility-matrix.yaml"
 CERTIFICATION_MODES = frozenset({"live", "dry-run"})
+MAX_REQUIRED_REVIEWERS = 6
 _ARTIFACT_FILENAMES = (PLATFORM_MANIFEST, COMPATIBILITY_MATRIX)
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -157,9 +158,21 @@ def validate_environment_metadata(
     environment: dict,
     *,
     expected_name: str,
-    expected_reviewer_id: int,
+    expected_reviewer_ids: list[int],
 ) -> tuple[bool, str]:
-    """Require a protected-branch release-promotion environment with the expected human reviewer."""
+    """Require a protected-branch environment with the exact expected human-reviewer roster."""
+    if not isinstance(expected_reviewer_ids, list) or not expected_reviewer_ids:
+        return False, "expected reviewer roster must contain at least one reviewer id"
+    if len(expected_reviewer_ids) > MAX_REQUIRED_REVIEWERS:
+        return False, f"expected reviewer roster may contain at most {MAX_REQUIRED_REVIEWERS} reviewer ids"
+    if any(
+        not isinstance(reviewer_id, int) or isinstance(reviewer_id, bool) or reviewer_id <= 0
+        for reviewer_id in expected_reviewer_ids
+    ):
+        return False, "expected reviewer roster must contain only positive integer ids"
+    if len(set(expected_reviewer_ids)) != len(expected_reviewer_ids):
+        return False, "expected reviewer roster must not contain duplicate reviewer ids"
+
     if not isinstance(environment, dict):
         return False, "environment metadata must be an object"
     if environment.get("name") != expected_name:
@@ -181,20 +194,42 @@ def validate_environment_metadata(
         return False, "release-promotion environment must have exactly one required-reviewer rule"
 
     reviewers = reviewer_rules[0].get("reviewers")
-    if not isinstance(reviewers, list) or len(reviewers) != 1:
-        return False, f"release-promotion environment must require exactly reviewer id {expected_reviewer_id}"
-    reviewer = reviewers[0]
-    if not (
-        isinstance(reviewer, dict)
-        and reviewer.get("type") == "User"
-        and isinstance(reviewer.get("reviewer"), dict)
-        and reviewer["reviewer"].get("id") == expected_reviewer_id
-    ):
-        return False, f"release-promotion environment does not require reviewer id {expected_reviewer_id}"
+    if not isinstance(reviewers, list) or not reviewers:
+        return False, "release-promotion environment reviewer roster must contain at least one reviewer"
+    if len(reviewers) > MAX_REQUIRED_REVIEWERS:
+        return False, (
+            "release-promotion environment reviewer roster may contain at most "
+            f"{MAX_REQUIRED_REVIEWERS} reviewers"
+        )
+
+    observed_ids: list[int] = []
+    for reviewer in reviewers:
+        principal = reviewer.get("reviewer") if isinstance(reviewer, dict) else None
+        reviewer_id = principal.get("id") if isinstance(principal, dict) else None
+        if (
+            not isinstance(reviewer, dict)
+            or reviewer.get("type") != "User"
+            or not isinstance(reviewer_id, int)
+            or isinstance(reviewer_id, bool)
+            or reviewer_id <= 0
+        ):
+            return False, "release-promotion environment reviewer roster must contain only User reviewers"
+        observed_ids.append(reviewer_id)
+
+    if len(set(observed_ids)) != len(observed_ids):
+        return False, "release-promotion environment reviewer roster contains duplicate reviewer ids"
+    if set(observed_ids) != set(expected_reviewer_ids):
+        return False, (
+            f"release-promotion environment reviewer ids {sorted(observed_ids)} do not match "
+            f"expected roster {sorted(expected_reviewer_ids)}"
+        )
 
     prevents_self_review = reviewer_rules[0].get("prevent_self_review") is True
     self_review = "disabled" if prevents_self_review else "allowed"
-    return True, f"release-promotion environment requires expected human reviewer; self-review is {self_review}"
+    return True, (
+        "release-promotion environment requires the exact expected human-reviewer roster "
+        f"{sorted(observed_ids)}; self-review is {self_review}"
+    )
 
 
 def build_candidate_binding(
@@ -421,7 +456,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate_environment.add_argument("--environment-metadata", required=True, type=Path)
     validate_environment.add_argument("--expected-name", required=True)
-    validate_environment.add_argument("--expected-reviewer-id", required=True, type=int)
+    validate_environment.add_argument(
+        "--expected-reviewer-id",
+        dest="expected_reviewer_ids",
+        required=True,
+        action="append",
+        type=int,
+        help="expected human reviewer id; repeat for every roster member",
+    )
 
     bind = commands.add_parser("bind", help="create a certified candidate bundle")
     bind.add_argument("--report", required=True, type=Path)
@@ -443,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
             ok, why = validate_environment_metadata(
                 environment,
                 expected_name=args.expected_name,
-                expected_reviewer_id=args.expected_reviewer_id,
+                expected_reviewer_ids=args.expected_reviewer_ids,
             )
             print(f"{'OK' if ok else 'REFUSED'}: {why}", file=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
