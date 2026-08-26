@@ -45,6 +45,7 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REQUIREMENTS_SCHEMA_ID = "honua.protocol-certification-requirements/v1"
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "certification" / "protocol-certification-requirements.v1.json"
 FROZEN_RELEASE_SOURCES = (
+    "server-certification",
     "sdk-js",
     "sdk-python",
     "sdk-dotnet",
@@ -855,6 +856,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-requirements-source-revision", required=True)
     parser.add_argument("--expected-image-digest")
     parser.add_argument("--expected-cut-at", help="independently frozen ISO-8601 candidate cut")
+    parser.add_argument("--expected-server-certification-sha")
     parser.add_argument("--expected-sdk-js-sha")
     parser.add_argument("--expected-sdk-python-sha")
     parser.add_argument("--expected-sdk-dotnet-sha")
@@ -883,6 +885,7 @@ def main(argv: list[str] | None = None) -> int:
         expected_image_digest=args.expected_image_digest,
         expected_cut_at=args.expected_cut_at,
         expected_component_source_shas={
+            "server-certification": args.expected_server_certification_sha,
             "sdk-js": args.expected_sdk_js_sha,
             "sdk-python": args.expected_sdk_python_sha,
             "sdk-dotnet": args.expected_sdk_dotnet_sha,

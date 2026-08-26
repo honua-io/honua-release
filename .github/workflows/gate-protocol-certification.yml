@@ -43,6 +43,11 @@ on:
         required: false
         type: string
         default: ""
+      expected_server_certification_sha:
+        description: Frozen server-certification producer SHA for release certification
+        required: false
+        type: string
+        default: ""
       expected_sdk_js_sha:
         description: Frozen honua-sdk-js component SHA for release certification
         required: false
@@ -129,6 +134,10 @@ on:
         type: string
       expected_cut_at:
         description: Independently frozen ISO-8601 candidate cut
+        required: false
+        type: string
+      expected_server_certification_sha:
+        description: Frozen server-certification producer SHA for release certification
         required: false
         type: string
       expected_sdk_js_sha:
@@ -301,6 +310,7 @@ jobs:
           EXPECTED_REQUIREMENTS_REVISION: ${{ inputs.expected_requirements_source_revision }}
           EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
           EXPECTED_CUT_AT: ${{ inputs.expected_cut_at }}
+          EXPECTED_SERVER_CERTIFICATION_SHA: ${{ inputs.expected_server_certification_sha }}
           EXPECTED_SDK_JS_SHA: ${{ inputs.expected_sdk_js_sha }}
           EXPECTED_SDK_PYTHON_SHA: ${{ inputs.expected_sdk_python_sha }}
           EXPECTED_SDK_DOTNET_SHA: ${{ inputs.expected_sdk_dotnet_sha }}
@@ -318,6 +328,7 @@ jobs:
           [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
           [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
           [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
+          [[ -n "$EXPECTED_SERVER_CERTIFICATION_SHA" ]] && args+=(--expected-server-certification-sha "$EXPECTED_SERVER_CERTIFICATION_SHA")
           [[ -n "$EXPECTED_SDK_JS_SHA" ]] && args+=(--expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA")
           [[ -n "$EXPECTED_SDK_PYTHON_SHA" ]] && args+=(--expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA")
           [[ -n "$EXPECTED_SDK_DOTNET_SHA" ]] && args+=(--expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")

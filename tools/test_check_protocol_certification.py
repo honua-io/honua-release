@@ -153,6 +153,7 @@ def _requirements(*cells, complete=True):
         "complete": complete,
         "source_revisions": {
             "server": {"commit": SHA},
+            "server-certification": {"commit": SHA},
             "sdk-js": {"commit": SHA},
             "sdk-python": {"commit": SHA},
             "sdk-dotnet": {"commit": SHA},
@@ -756,7 +757,7 @@ def test_release_requires_external_image_and_frozen_component_pins():
     assert sum(
         finding["check"].startswith("expected_component_source_shas.")
         for finding in missing["findings"]
-    ) == 5
+    ) == 6
 
     mismatched = cert.evaluate(
         ledger,
@@ -777,6 +778,44 @@ def test_release_requires_external_image_and_frozen_component_pins():
         finding["check"] == "requirements.source_revisions.sdk-js.commit"
         for finding in mismatched["findings"]
     )
+
+
+def test_release_server_certification_match_passes():
+    report = _evaluate(_ledger(), "release", expected_source_sha=SHA, now=NOW)
+    assert report["overall_status"] == "pass"
+
+
+def test_release_server_certification_mismatch_fails():
+    requirements = _requirements()
+    requirements["source_revisions"]["server-certification"]["commit"] = "f" * 40
+    report = _evaluate(_ledger(), "release", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any(
+        finding["check"] == "requirements.source_revisions.server-certification.commit"
+        for finding in report["findings"]
+    )
+
+
+def test_release_requires_server_certification_sha():
+    expected = {source: SHA for source in cert.FROZEN_RELEASE_SOURCES}
+    del expected["server-certification"]
+    report = _evaluate(
+        _ledger(), "release", expected_component_source_shas=expected, now=NOW
+    )
+    assert report["overall_status"] == "fail"
+    assert any(
+        finding["check"] == "expected_component_source_shas.server-certification"
+        for finding in report["findings"]
+    )
+
+
+def test_non_release_tiers_do_not_bind_server_certification_sha():
+    for tier in ("pr", "nightly"):
+        cell = _cell(required_tier=tier)
+        requirements = _requirements(cell)
+        requirements["source_revisions"]["server-certification"]["commit"] = "f" * 40
+        report = _evaluate(_ledger(cell), tier, requirements=requirements, now=NOW)
+        assert report["overall_status"] == "pass"
 
 
 def test_preview_failure_does_not_block_release_claim():
