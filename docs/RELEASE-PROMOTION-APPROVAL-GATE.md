@@ -116,6 +116,45 @@ dispatches and the reviewer approves — "AI proposes, the pipeline disposes".
 A single-seat owner therefore cannot both dispatch and approve. That is the intended property, not a
 defect.
 
+### Automated dispatch through the org-installed `claude` App
+
+`.github/workflows/request-promotion.yml` listens only for a successful, default-branch, manually
+dispatched live `release-train` completion. It validates the immutable certified-candidate binding,
+mints an installation token for the org-installed `claude` GitHub App scoped to this repository, and
+dispatches `promote.yml`. The promotion run is therefore started by `claude[bot]`, while the named
+human remains solely responsible for approving the protected environment.
+
+This path requires an organization owner to complete the following setup. It must not be tested with
+`RELEASE_GH_TOKEN`, the repository `GITHUB_TOKEN`, or another App as a workaround: those identities
+either preserve the self-review deadlock, cannot trigger a new workflow, or change the reviewed trust
+boundary.
+
+1. In the existing `claude` GitHub App settings, change repository permission **Actions** from
+   **Read-only** to **Read and write**, then have an organization owner accept the installation's new
+   permissions. Keep its existing installation on `honua-io/honua-release`.
+2. Generate a private key for that App and store the exact configuration names consumed by the
+   workflow:
+
+   ```bash
+   gh variable set CLAUDE_APP_ID --repo honua-io/honua-release --body "1236702"
+   gh secret set CLAUDE_APP_PRIVATE_KEY --repo honua-io/honua-release < /path/to/claude.private-key.pem
+   ```
+
+   Delete the downloaded private-key file after GitHub confirms the secret was stored. Never paste
+   the PEM into an issue, pull request, workflow, log, or shell history.
+3. Verify the installed App reports `actions: write` before attempting the acceptance dispatch:
+
+   ```bash
+   gh api orgs/honua-io/installations \
+     --jq '.installations[] | select(.app_slug == "claude") | {app_id, repository_selection, actions: .permissions.actions}'
+   ```
+
+After those owner actions, complete acceptance with a successful live `release-train` promotion
+request. Its `request-promotion` child must dispatch `promote.yml` as `claude[bot]`; the run must reach
+the `release-promotion` approval prompt, and the preflight evidence must contain
+`independent-promoting-actor: pass`. Reaching the prompt proves this path without approving it or
+creating a tag.
+
 **The gate requires exactly ONE reviewer.** `certification/release-promotion-approval.yaml` declares a single
 `required_reviewer`, and the checker refuses when the environment names any other set — more than one
 reviewer, a different login, a Team, or an app. A second concurrent reviewer is therefore **not**
