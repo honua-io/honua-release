@@ -764,7 +764,7 @@ def unavailable_receipt(
             "green against the candidate"
         )
     elif not builder.receipt["linkedEvidence"]["deterministicReceipt"]:
-        builder.mark_blocked("live execution requires the green deterministic #123 receipt URI")
+        builder.mark_blocked("live execution requires a validated green deterministic #123 receipt")
     elif not endpoint.runtime or not endpoint.quantization:
         builder.mark_blocked("live execution requires explicit model runtime and quantization identifiers")
     else:
