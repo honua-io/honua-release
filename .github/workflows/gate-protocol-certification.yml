@@ -58,6 +58,21 @@ on:
         required: false
         type: string
         default: ""
+      expected_sdk_js_version:
+        description: Shipped honua-sdk-js artifact version for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_python_version:
+        description: Shipped honua-sdk-python artifact version for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_dotnet_version:
+        description: Shipped honua-sdk-dotnet artifact version for release certification
+        required: false
+        type: string
+        default: ""
       expected_geospatial_grpc_sha:
         description: Frozen geospatial-grpc component SHA for release certification
         required: false
@@ -126,6 +141,18 @@ on:
         type: string
       expected_sdk_dotnet_sha:
         description: Frozen honua-sdk-dotnet component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_js_version:
+        description: Shipped honua-sdk-js artifact version for release certification
+        required: false
+        type: string
+      expected_sdk_python_version:
+        description: Shipped honua-sdk-python artifact version for release certification
+        required: false
+        type: string
+      expected_sdk_dotnet_version:
+        description: Shipped honua-sdk-dotnet artifact version for release certification
         required: false
         type: string
       expected_geospatial_grpc_sha:
@@ -277,6 +304,9 @@ jobs:
           EXPECTED_SDK_JS_SHA: ${{ inputs.expected_sdk_js_sha }}
           EXPECTED_SDK_PYTHON_SHA: ${{ inputs.expected_sdk_python_sha }}
           EXPECTED_SDK_DOTNET_SHA: ${{ inputs.expected_sdk_dotnet_sha }}
+          EXPECTED_SDK_JS_VERSION: ${{ inputs.expected_sdk_js_version }}
+          EXPECTED_SDK_PYTHON_VERSION: ${{ inputs.expected_sdk_python_version }}
+          EXPECTED_SDK_DOTNET_VERSION: ${{ inputs.expected_sdk_dotnet_version }}
           EXPECTED_GEOSPATIAL_GRPC_SHA: ${{ inputs.expected_geospatial_grpc_sha }}
           EXPECTED_GEOSPATIAL_MCP_SHA: ${{ inputs.expected_geospatial_mcp_sha }}
           ENFORCEMENT: ${{ inputs.enforcement }}
@@ -291,6 +321,9 @@ jobs:
           [[ -n "$EXPECTED_SDK_JS_SHA" ]] && args+=(--expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA")
           [[ -n "$EXPECTED_SDK_PYTHON_SHA" ]] && args+=(--expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA")
           [[ -n "$EXPECTED_SDK_DOTNET_SHA" ]] && args+=(--expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")
+          [[ -n "$EXPECTED_SDK_JS_VERSION" ]] && args+=(--expected-sdk-js-version "$EXPECTED_SDK_JS_VERSION")
+          [[ -n "$EXPECTED_SDK_PYTHON_VERSION" ]] && args+=(--expected-sdk-python-version "$EXPECTED_SDK_PYTHON_VERSION")
+          [[ -n "$EXPECTED_SDK_DOTNET_VERSION" ]] && args+=(--expected-sdk-dotnet-version "$EXPECTED_SDK_DOTNET_VERSION")
           [[ -n "$EXPECTED_GEOSPATIAL_GRPC_SHA" ]] && args+=(--expected-geospatial-grpc-sha "$EXPECTED_GEOSPATIAL_GRPC_SHA")
           [[ -n "$EXPECTED_GEOSPATIAL_MCP_SHA" ]] && args+=(--expected-geospatial-mcp-sha "$EXPECTED_GEOSPATIAL_MCP_SHA")
           if [[ "$FETCH_EXIT_CODE" != 0 ]]; then

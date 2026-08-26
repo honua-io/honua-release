@@ -51,6 +51,12 @@ FROZEN_RELEASE_SOURCES = (
     "geospatial-grpc",
     "geospatial-mcp",
 )
+SHIPPED_CLIENT_SOURCES = {
+    "@honua/sdk-js": "sdk-js",
+    "Honua SDK JavaScript": "sdk-js",
+    "Honua SDK Python": "sdk-python",
+    "Honua SDK .NET": "sdk-dotnet",
+}
 FORMAT_BUDGET_OBSERVATION_FIELDS = {
     "requests", "transferred_bytes", "full_object_downloads", "range_requests",
     "cache_hits", "coordinate_error", "geometry_error", "metadata_assertions",
@@ -359,6 +365,7 @@ def evaluate(
     expected_image_digest: str | None = None,
     expected_cut_at: str | datetime | None = None,
     expected_component_source_shas: dict[str, str] | None = None,
+    expected_client_versions: dict[str, str] | None = None,
     now: datetime | None = None,
     requirements: dict | None = None,
     receipt_root: Path | None = None,
@@ -415,6 +422,14 @@ def evaluate(
                     f"requirements.source_revisions.{source_name}.commit",
                     f"owned {source_name} producer {owned_component_sha!r} does not match "
                     f"frozen release component {expected_component_sha!r}",
+                )
+        frozen_client_versions = expected_client_versions or {}
+        for source_name in sorted(set(SHIPPED_CLIENT_SOURCES.values())):
+            expected_client_version = frozen_client_versions.get(source_name)
+            if not isinstance(expected_client_version, str) or not expected_client_version.strip():
+                fail(
+                    f"expected_client_versions.{source_name}",
+                    f"release certification requires the shipped {source_name} client version",
                 )
     owned_revision = requirements.get("revision")
     owned_complete = requirements.get("complete")
@@ -632,6 +647,17 @@ def evaluate(
         if not _in_scope(raw, tier):
             continue
         scoped.append(raw)
+        if tier == "release":
+            client_source = SHIPPED_CLIENT_SOURCES.get(raw["canonical_client"])
+            expected_client_version = (expected_client_versions or {}).get(client_source or "")
+            if client_source and isinstance(expected_client_version, str) and expected_client_version.strip():
+                if raw["client_version"] != expected_client_version:
+                    fail(
+                        prefix,
+                        f"certified {raw['canonical_client']} version {raw['client_version']!r} "
+                        f"does not match shipped {client_source} artifact version "
+                        f"{expected_client_version!r}",
+                    )
         if raw["canonical_client"] == UNASSIGNED_CANONICAL_CLIENT:
             fail(
                 prefix,
@@ -832,6 +858,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-sdk-js-sha")
     parser.add_argument("--expected-sdk-python-sha")
     parser.add_argument("--expected-sdk-dotnet-sha")
+    parser.add_argument("--expected-sdk-js-version")
+    parser.add_argument("--expected-sdk-python-version")
+    parser.add_argument("--expected-sdk-dotnet-version")
     parser.add_argument("--expected-geospatial-grpc-sha")
     parser.add_argument("--expected-geospatial-mcp-sha")
     parser.add_argument("--requirements", help="exact pinned requirements catalog to evaluate")
@@ -859,6 +888,11 @@ def main(argv: list[str] | None = None) -> int:
             "sdk-dotnet": args.expected_sdk_dotnet_sha,
             "geospatial-grpc": args.expected_geospatial_grpc_sha,
             "geospatial-mcp": args.expected_geospatial_mcp_sha,
+        },
+        expected_client_versions={
+            "sdk-js": args.expected_sdk_js_version,
+            "sdk-python": args.expected_sdk_python_version,
+            "sdk-dotnet": args.expected_sdk_dotnet_version,
         },
         now=now,
         requirements=requirements,
