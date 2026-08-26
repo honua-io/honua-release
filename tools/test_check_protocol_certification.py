@@ -17,6 +17,11 @@ SHA = "a" * 40
 REQUIREMENTS_SOURCE_SHA = "d" * 40
 DIGEST = "sha256:" + "b" * 64
 CUT = "2026-08-20T09:00:00Z"
+SHIPPED_CLIENT_VERSIONS = {
+    "sdk-js": "0.1.7-beta.0",
+    "sdk-python": "0.1.10",
+    "sdk-dotnet": "1.6.0",
+}
 
 
 def _cell(**overrides):
@@ -169,6 +174,7 @@ def _evaluate(ledger, tier, **kwargs):
             "expected_component_source_shas",
             {source: SHA for source in cert.FROZEN_RELEASE_SOURCES},
         )
+        kwargs.setdefault("expected_client_versions", SHIPPED_CLIENT_VERSIONS)
     requirements = kwargs.pop("requirements", _requirements(*ledger["cells"]))
     return cert.evaluate(
         ledger,
@@ -176,6 +182,53 @@ def _evaluate(ledger, tier, **kwargs):
         requirements=requirements,
         **kwargs,
     )
+
+
+def test_release_shipped_client_version_match_passes():
+    cell = _cell(
+        canonical_client="Honua SDK .NET",
+        client_lane="sdk-dotnet",
+        client_version="1.6.0",
+    )
+    report = _evaluate(_ledger(cell), "release", expected_source_sha=SHA, now=NOW)
+    assert report["overall_status"] == "pass"
+
+
+def test_release_shipped_client_version_mismatch_fails():
+    cell = _cell(
+        canonical_client="Honua SDK Python",
+        client_lane="sdk-python",
+        client_version="0.1.11",
+    )
+    report = _evaluate(_ledger(cell), "release", now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("does not match shipped sdk-python artifact version" in finding["why"] for finding in report["findings"])
+
+
+def test_release_requires_all_shipped_client_versions():
+    report = _evaluate(_ledger(), "release", expected_client_versions={}, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert {
+        finding["check"]
+        for finding in report["findings"]
+        if finding["check"].startswith("expected_client_versions.")
+    } == {
+        "expected_client_versions.sdk-js",
+        "expected_client_versions.sdk-python",
+        "expected_client_versions.sdk-dotnet",
+    }
+
+
+def test_non_release_tiers_do_not_bind_shipped_client_versions():
+    cell = _cell(
+        canonical_client="Honua SDK .NET",
+        client_lane="sdk-dotnet",
+        client_version="source-preview",
+        required_tier="pr",
+    )
+    for tier in ("pr", "nightly"):
+        report = _evaluate(_ledger(cell), tier, expected_client_versions={}, now=NOW)
+        assert report["overall_status"] == "pass"
 
 
 def test_catalog_server_revision_must_match_candidate():

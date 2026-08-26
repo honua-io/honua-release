@@ -135,6 +135,10 @@ def test_release_protocol_gate_binds_all_shipped_producers_to_the_manifest():
         assert f"--expected-sdk-{source}-sha" in gate
         assert f"sdk_{source}_sha" in train
         assert f"expected_sdk_{source}_sha:" in train
+        assert f"expected_sdk_{source}_version" in gate
+        assert f"--expected-sdk-{source}-version" in gate
+        assert f"sdk_{source}_version" in train
+        assert f"expected_sdk_{source}_version:" in train
     for source in ("grpc", "mcp"):
         assert f"expected_geospatial_{source}_sha" in gate
         assert f"--expected-geospatial-{source}-sha" in gate
