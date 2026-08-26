@@ -13,9 +13,11 @@ Run: python -m pytest tools/test_platform.py    (or: python tools/test_platform.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 import semver
 import validate_platform as vp
@@ -60,6 +62,12 @@ def test_committed_manifest_and_matrix_are_valid():
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
 
 
+def test_committed_manifest_matches_published_json_schema():
+    schema = json.loads((REPO_ROOT / "schemas/platform-manifest.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(_real_files()[0])
+
+
 # ---- structure rules can fail ---------------------------------------------------------------------
 def test_structure_rejects_unknown_client():
     manifest, matrix = _real_files()
@@ -83,6 +91,59 @@ def test_structure_rejects_component_with_no_valid_pin():
     manifest["components"]["honua-sdk-js"] = {"version": "not-semver"}  # no sha either
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("neither a valid semver" in e for e in f.errors)
+
+
+def test_structure_rejects_client_without_immutable_source_sha():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["clientArtifacts"]["honua-sdk-js"]["sourceSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("clientArtifacts.honua-sdk-js.sourceSha" in e for e in f.errors)
+
+
+def test_structure_keeps_evidence_sources_out_of_components():
+    manifest, matrix = _real_files()
+    # One repository can both ship a deployable component and publish installable bytes; the
+    # records remain independent even when their logical names match.
+    assert manifest["clientArtifacts"] is not manifest["components"]
+    assert set(manifest["evidenceSources"]).isdisjoint(manifest["components"])
+    f = vp.validate(manifest, matrix, None)
+    assert f.ok, f.errors
+
+
+def test_structure_rejects_floating_evidence_producer_ref():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["evidenceSources"]["esri-compat"]["producerSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("evidenceSources.esri-compat.producerSha" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_local_or_unpublished_client():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    artifact = manifest["clientArtifacts"]["honua-sdk-js"]
+    artifact.update(source="local", publicationState="unpublished")
+    artifact.pop("integrity")
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok
+    assert any("does not name published/promoted bytes" in e for e in f.errors)
+    assert any("lacks an immutable digest/integrity pin" in e for e in f.errors)
+    assert any("cannot use source=local" in e for e in f.errors)
+
+
+def test_exact_candidate_accepts_committed_pins():
+    manifest, matrix = _real_files()
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert f.ok, f.errors
+
+
+def test_legacy_evidence_pin_cannot_drift_from_manifest():
+    manifest, _ = _real_files()
+    config = {"esri": {"evidenceRef": "f" * 40}}
+    f = vp.Findings()
+    vp.check_legacy_evidence_pin_coherence(manifest, config, f)
+    assert not f.ok and any("evidenceSources.esri-compat" in e for e in f.errors)
 
 
 def test_structure_requires_explicit_aws_runtime_architectures():

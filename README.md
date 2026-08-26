@@ -11,6 +11,9 @@ It owns:
 - **`certification/`** — cross-repo conformance + artifact-consumption gates.
 - **`e2e/`** — the cross-component & cross-cloud integration/parity harness (the executable compatibility matrix).
 - **`release-notes/`**, **`bom/`** — aggregated release notes, SBOM, provenance.
+- **`clientArtifacts` / `evidenceSources`** in `platform-manifest.yaml` — immutable package bytes
+  and trusted non-shipping producer pins. `tools/generate_evidence_index.py` exports these pins for
+  certification consumers without changing deployable `components` BOM/upgrade semantics.
 - **`mcp/`** — MCP release tools (eventual AI-coordinated / autonomous release cutting).
 
 Shared reusable CI workflows live in the org `.github` repo; each component repo owns its SemVer + gates and
