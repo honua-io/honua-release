@@ -58,6 +58,89 @@ jobs:
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
 
+      - name: Validate complete protocol certification denominator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          harness_sha="$(jq -r '.sources["server-certification"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#harness_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-server/contents/docs/gis/data/protocol-harness-assignments.v1.json?ref=$harness_sha" \
+            -o "$RUNNER_TEMP/protocol-harness-assignments.v1.json"
+          cmp certification/sources/server/protocol-harness-assignments.v1.json \
+            "$RUNNER_TEMP/protocol-harness-assignments.v1.json"
+          server_sha="$(jq -r '.sources.server.commit' certification/sources/source-revisions.v1.json)"
+          test "${#server_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-server/contents/docs/gis/data/capability-matrix.v1.json?ref=$server_sha" \
+            -o "$RUNNER_TEMP/server-capability-matrix.v1.json"
+          cmp certification/sources/server/capability-matrix.v1.json \
+            "$RUNNER_TEMP/server-capability-matrix.v1.json"
+          sdk_js_sha="$(jq -r '.sources["sdk-js"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_js_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-js/contents/config/protocol-certification.v1.json?ref=$sdk_js_sha" \
+            -o "$RUNNER_TEMP/sdk-js-protocol-certification.v1.json"
+          cmp certification/sources/sdk-js/protocol-certification.v1.json \
+            "$RUNNER_TEMP/sdk-js-protocol-certification.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-js/contents/config/sdk-coverage.v1.json?ref=$sdk_js_sha" \
+            -o "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-js/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
+          sdk_python_sha="$(jq -r '.sources["sdk-python"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_python_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/compatibility/sdk-coverage.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-python/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/conformance/protocol-certification.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
+          cmp certification/sources/sdk-python/protocol-certification.v1.json \
+            "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
+          sdk_dotnet_sha="$(jq -r '.sources["sdk-dotnet"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_dotnet_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-dotnet/contents/contracts/sdk-coverage.v1.json?ref=$sdk_dotnet_sha" \
+            -o "$RUNNER_TEMP/sdk-dotnet-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-dotnet/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-dotnet-sdk-coverage.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-dotnet/contents/contracts/sdk-certification.v1.json?ref=$sdk_dotnet_sha" \
+            -o "$RUNNER_TEMP/sdk-dotnet-sdk-certification.v1.json"
+          cmp certification/sources/sdk-dotnet/sdk-certification.v1.json \
+            "$RUNNER_TEMP/sdk-dotnet-sdk-certification.v1.json"
+          python certification/generate-protocol-requirements.py
+          git diff --exit-code -- certification/protocol-certification-requirements.v1.json
+          python certification/validate-protocol-requirements.py
+
       - name: Resolve drift baseline
         id: baseline
         env:

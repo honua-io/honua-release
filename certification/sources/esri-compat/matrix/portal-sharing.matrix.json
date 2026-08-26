@@ -1,0 +1,197 @@
+{
+  "service": "portal-sharing",
+  "display_name": "Portal Sharing",
+  "prefix": "PS",
+  "source_doc": "docs/guides/secure/authentication.md",
+  "generated_from": "honua-server (geoservices-rest-parity.json)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 6,
+    "partial": 6,
+    "not_implemented": 4,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 12,
+    "total": 16
+  },
+  "cases": [
+    {
+      "id": "PS-OP-GENERATE-TOKEN",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Generate Token",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /sharing/rest/generateToken; POST /sharing/rest/generateToken",
+      "notes": "Accepts username, password, client (referer|ip), referer, expiration (minutes; clamped to MaxExpirationMinutes), and f=json. Returns { token, expires (Unix ms), ssl: true }. Issuance is HTTPS-only by default and edition-gated by identity.portal-token (402 Payment Required when inactive)."
+    },
+    {
+      "id": "PS-OP-SHARING-REST-INFO",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Sharing REST Info",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /sharing/rest/info",
+      "notes": "Emits isTokenBasedSecurity from the live portal-token configuration plus a real tokenServicesUrl. currentVersion/fullVersion are deliberately omitted (Honua does not advertise an ArcGIS Server version; guarded by NoArcGisServerVersionTests) \u2014 a known, intentional divergence from the Esri document."
+    },
+    {
+      "id": "PS-OP-OAUTH2-AUTHORIZE-CALLBACK",
+      "kind": "operation",
+      "group": "operations",
+      "name": "OAuth2 authorize; callback",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /sharing/rest/oauth2/authorize; GET /sharing/rest/oauth2/callback",
+      "notes": "Authorization-code + PKCE bridge that delegates the user leg to the operator's OIDC provider and returns an ArcGIS-shaped code. Opt-in: returns 404 until an OIDC provider is configured, and every redirect_uri is rejected until Authentication:PortalToken:OAuth2:AllowedRedirectUris is populated. PKCE is required by default."
+    },
+    {
+      "id": "PS-OP-OAUTH2-INTROSPECT",
+      "kind": "operation",
+      "group": "operations",
+      "name": "OAuth2 introspect",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /sharing/rest/oauth2/introspect",
+      "notes": "RFC 7662 introspection over opaque, JWT, and refresh tokens, admin-authorized. Off by default (EnableIntrospection \u2192 404 when disabled). Emits active, sub, username, scope, token_type, and exp; client_id, iat, nbf, aud, iss, and jti are not emitted."
+    },
+    {
+      "id": "PS-OP-OAUTH2-REVOKE",
+      "kind": "operation",
+      "group": "operations",
+      "name": "OAuth2 revoke",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /sharing/rest/oauth2/revoke",
+      "notes": "RFC 7009 revocation for opaque, JWT, and refresh tokens; always returns 200 per \u00a72.2."
+    },
+    {
+      "id": "PS-OP-OAUTH2-TOKEN",
+      "kind": "operation",
+      "group": "operations",
+      "name": "OAuth2 token",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "POST /sharing/rest/oauth2/token",
+      "notes": "authorization_code and refresh_token grants with rotating refresh tokens (rotation on by default); Basic-auth client credentials accepted. POST only \u2014 the GET form was deliberately removed. The client_credentials grant is opt-in (EnableClientCredentials, default false \u2192 unsupported_grant_type), as is its optional IdP/OIDC federation."
+    },
+    {
+      "id": "PS-OP-GROUP-CREATEGROUP-ADDUSERS-REMOVEUSERS-D",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Group; createGroup; addUsers; removeUsers; delete group",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /sharing/rest/community/groups/{groupId}; POST /sharing/rest/community/createGroup; POST /sharing/rest/community/groups/{groupId}/addUsers; POST /sharing/rest/community/groups/{groupId}/delete; POST /sharing/rest/community/groups/{groupId}/removeUsers",
+      "notes": "In-memory, single-node, non-durable group overlay (lost on restart, not replicated). Group membership is never consulted by any read path, so it does not affect item visibility. createGroup accepts only title/description/access/tags and silently defaults an unknown access to private; snippet, phone, thumbnail, isViewOnly, isInvitationOnly, capabilities, and membershipAccess are ignored. addUsers/removeUsers ignore admins and return {success, groupId, members} rather than Esri's notAdded/notRemoved arrays. Private-group existence is not leaked; the owner cannot be removed; owner-or-admin gated."
+    },
+    {
+      "id": "PS-OP-COMMUNITY-SELF",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Community Self",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /sharing/rest/community/self",
+      "notes": "Returns username and fullName from the caller's claims; role is hardcoded \"org_user\" rather than derived from RBAC, and Esri's groups array is absent (the group store is never consulted). id/email/orgId/privileges are not emitted. Anonymous callers get 401."
+    },
+    {
+      "id": "PS-OP-ITEM-ITEM-DATA",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Item; item data",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /sharing/rest/content/items/{id}; GET /sharing/rest/content/items/{id}/data",
+      "notes": "Projects a graph service into an Esri item document; RBAC-correct (404 for unknown and for hidden alike, so existence is not leaked). owner falls back to a hardcoded \"honua\" when unauthored, and numViews/size/thumbnail/licenseInfo/ownerFolder/protected/appCategories are absent. The /data route currently returns the same item description document rather than the item's data payload (web map JSON / file bytes) \u2014 a known divergence."
+    },
+    {
+      "id": "PS-OP-SHARE-UNSHARE",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Share; unshare",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "POST /sharing/rest/content/items/{itemId}/share; POST /sharing/rest/content/items/{itemId}/unshare",
+      "notes": "Records sharing intent in an in-memory, single-node store that does not survive restart and is not replicated. It is write-only: no read path consults it, so sharing an item to everyone/org/a group does not change what /search or /content/items/{id} return for any caller \u2014 those project from the Metadata v2 graph and RBAC alone. Item existence is not validated, notSharedWith is always empty (group existence is never checked), and confirmItemControl, bulk items, and folder are ignored. Owner-or-admin gated."
+    },
+    {
+      "id": "PS-OP-PORTAL-SELF",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Portal Self",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /sharing/rest/portals/self",
+      "notes": "Only username and fullName are real (projected from the caller's claims). The portal id (\"0123456789ABCDEF\"), name, portalName, isPortal, and role are hardcoded; org settings, urlKey, allSSL, basemaps, and privileges are absent. Sufficient for client bootstrap, not for portal administration."
+    },
+    {
+      "id": "PS-OP-SEARCH",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Search",
+      "esri_path": "",
+      "methods": "",
+      "status": "partial",
+      "endpoint": "GET /sharing/rest/search",
+      "notes": "Honours q, start, num (capped at 100), sortField (title/created/modified/owner only) and sortOrder. The q grammar supports type:/owner:/tags:/id:/title: qualifiers plus free text; unknown qualifiers silently degrade to free text, and boolean operators, wildcards, and ranges are unsupported. bbox, filter, categories, countFields, and restrict are ignored. The item universe is FeatureServer/MapServer/ImageServer graph services only \u2014 web maps, apps, layers, and files are not items."
+    },
+    {
+      "id": "PS-OP-OAUTH2-NAMED-USER-AUTHORIZATION-CODE-FLO",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "OAuth2 named-user / authorization-code flow is tracked under a separate ticket",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "PS-OP-PORTAL-ITEM-GROUP-AND-COMMUNITY-SURFACES",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "Portal item, group, and community surfaces (item editing, sharing graph, content listing) are not exposed",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "PS-OP-NO-REFRESH-TOKEN-MECHANISM-CLIENTS-RE-IS",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "no refresh-token mechanism; clients re-issue tokens on expiry",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "PS-OP-NO-PER-TOKEN-REVOCATION-API-INVALIDATION",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "no per-token revocation API \u00e2\u20ac\u201d invalidation is TTL- and binding-driven",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    }
+  ]
+}

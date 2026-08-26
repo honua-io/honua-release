@@ -1,0 +1,288 @@
+{
+  "schemaVersion": "sdk-coverage.v1",
+  "package": "honua-sdk-python (packages/honua-sdk + packages/honua-admin)",
+  "generator": "scripts/gen_sdk_coverage.py",
+  "keyListPolicy": "Canonical capability key vocabulary is owned and published by honua-io/honua-server (docs/gis/data/capability-keys.v1.json, honua-server#2893). This SDK consumes it for validation only -- keys are never redefined or copied here beyond the entries this SDK actually implements. See scripts/gen_sdk_coverage.py for the HONUA_CAPABILITY_KEY_LIST_URL / pinned-fixture resolution order.",
+  "capabilities": [
+    {
+      "key": "admin.control-plane",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_admin.AsyncHonuaAdminClient",
+        "honua_admin.HonuaAdminClient"
+      ]
+    },
+    {
+      "key": "discovery.capability-manifest",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.AsyncHonuaClient.capabilities",
+        "honua_admin.AsyncHonuaAdminClient.get_capabilities",
+        "honua_admin.AsyncHonuaAdminClient.get_capability_flags",
+        "honua_admin.AsyncHonuaAdminClient.check_compatibility"
+      ]
+    },
+    {
+      "key": "editing.featureserver-edits",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesFeatureServerClient.apply_edits",
+        "honua_sdk.AsyncHonuaClient.apply_edits",
+        "honua_sdk.AsyncHonuaClient.apply_edits_result"
+      ]
+    },
+    {
+      "key": "geocoding.forward",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.geocoding.HonuaGeocodingClient.forward_geocode",
+        "honua_sdk.async_geocoding.AsyncHonuaGeocodingClient.forward_geocode"
+      ]
+    },
+    {
+      "key": "geocoding.reverse",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.geocoding.HonuaGeocodingClient.reverse_geocode",
+        "honua_sdk.async_geocoding.AsyncHonuaGeocodingClient.reverse_geocode"
+      ]
+    },
+    {
+      "key": "ops.health",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.AsyncHonuaClient.readiness"
+      ]
+    },
+    {
+      "key": "process.ogc-api-processes",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.geoprocessing.HonuaGeoprocessing",
+        "honua_sdk.geoprocessing.AsyncHonuaGeoprocessing"
+      ]
+    },
+    {
+      "key": "raster.multidim-coverage",
+      "status": "partial",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesImageServerClient.multidimensional_info"
+      ],
+      "note": "Read-only: the client can query dimension/variable metadata for an already-registered multidimensional ImageServer via multidimensionalInfo. There is no client surface to register or configure a NetCDF4/HDF5/Zarr multidimensional coverage -- that is server-admin configuration this SDK's control-plane client does not expose."
+    },
+    {
+      "key": "raster.temporal-mosaic",
+      "status": "partial",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesImageServerClient.compute_histograms",
+        "honua_sdk.protocols.GeoServicesImageServerClient.compute_statistics_histograms",
+        "honua_sdk.protocols.GeoServicesImageServerClient.get_samples"
+      ],
+      "note": "mosaic_rule + a single ISO-8601 time instant select a raster temporal mosaic on the ImageServer histogram/statistics/sample analysis operations only. export_image, tile, identify, and query do not accept a typed time/mosaic_rule parameter (only generic extra_params passthrough), so temporal mosaic selection does not extend to raster rendering/export."
+    },
+    {
+      "key": "scene.catalog",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.SceneClient.list_scenes",
+        "honua_sdk.protocols.SceneClient.get_scene"
+      ]
+    },
+    {
+      "key": "serve.3d-tiles-scene",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.SceneClient",
+        "honua_sdk.protocols.AsyncSceneClient",
+        "honua_sdk.protocols.enumerate_tileset_contents",
+        "honua_sdk.protocols.parse_scene_package_manifest"
+      ]
+    },
+    {
+      "key": "serve.elevation",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.ElevationClient",
+        "honua_sdk.protocols.AsyncElevationClient"
+      ]
+    },
+    {
+      "key": "serve.geoservices-featureserver",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesFeatureServerClient",
+        "honua_sdk.protocols.AsyncGeoServicesFeatureServerClient",
+        "honua_sdk.AsyncHonuaClient.feature_server"
+      ]
+    },
+    {
+      "key": "serve.geoservices-geometry-service",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesGeometryServerClient",
+        "honua_sdk.protocols.AsyncGeoServicesGeometryServerClient",
+        "honua_sdk.AsyncHonuaClient.geometry_server"
+      ]
+    },
+    {
+      "key": "serve.geoservices-imageserver",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesImageServerClient",
+        "honua_sdk.protocols.AsyncGeoServicesImageServerClient",
+        "honua_sdk.AsyncHonuaClient.image_server"
+      ]
+    },
+    {
+      "key": "serve.geoservices-mapserver",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.GeoServicesMapServerClient",
+        "honua_sdk.protocols.AsyncGeoServicesMapServerClient",
+        "honua_sdk.AsyncHonuaClient.map_server",
+        "honua_sdk.AsyncHonuaClient.export_map"
+      ]
+    },
+    {
+      "key": "serve.geoservices-root",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.AsyncHonuaClient.list_services",
+        "honua_sdk.AsyncHonuaClient.list_service_summaries"
+      ]
+    },
+    {
+      "key": "serve.i3s-scene",
+      "status": "partial",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.SceneClient.resolve_scene",
+        "honua_sdk.protocols.SceneClient.fetch_tile"
+      ],
+      "note": "I3S-tagged scene endpoints resolve and fetch as opaque bytes through the same generic scene-endpoint resolution used for 3D Tiles, but there is no I3S-specific scene-layer-package (.slpk) node/resource-tree parsing -- only the 3D Tiles tileset.json walker (enumerate_tileset_contents) is implemented."
+    },
+    {
+      "key": "serve.odata",
+      "status": "partial",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.ODataClient",
+        "honua_sdk.protocols.AsyncODataClient"
+      ],
+      "note": "Read/query only (service_document, metadata, layers, features, and pagination helpers). No create/update/delete entity-set operations are implemented, so the write half of 'query and edit features through OData v4' is not covered."
+    },
+    {
+      "key": "serve.ogc-api-coverages",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.OgcCoveragesClient",
+        "honua_sdk.protocols.AsyncOgcCoveragesClient"
+      ]
+    },
+    {
+      "key": "serve.ogc-api-features",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.ogc.HonuaOgcFeatures",
+        "honua_sdk.ogc.HonuaOgcFeatureCollection",
+        "honua_sdk.ogc.AsyncHonuaOgcFeatures",
+        "honua_sdk.ogc.AsyncHonuaOgcFeatureCollection"
+      ]
+    },
+    {
+      "key": "serve.ogc-api-maps",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.OgcMapsClient",
+        "honua_sdk.protocols.AsyncOgcMapsClient"
+      ]
+    },
+    {
+      "key": "serve.ogc-api-records",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.OgcRecordsClient",
+        "honua_sdk.protocols.OgcRecordsCollectionClient",
+        "honua_sdk.protocols.AsyncOgcRecordsClient",
+        "honua_sdk.protocols.AsyncOgcRecordsCollectionClient"
+      ]
+    },
+    {
+      "key": "serve.ogc-api-tiles",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.OgcTilesClient",
+        "honua_sdk.protocols.AsyncOgcTilesClient"
+      ]
+    },
+    {
+      "key": "serve.stac",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.StacClient",
+        "honua_sdk.protocols.AsyncStacClient"
+      ]
+    },
+    {
+      "key": "serve.wfs",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.WfsClient",
+        "honua_sdk.protocols.AsyncWfsClient"
+      ]
+    },
+    {
+      "key": "serve.wms",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.WmsClient",
+        "honua_sdk.protocols.AsyncWmsClient"
+      ]
+    },
+    {
+      "key": "serve.wmts",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_sdk.protocols.WmtsClient",
+        "honua_sdk.protocols.AsyncWmtsClient"
+      ]
+    },
+    {
+      "key": "styling.ogc-api-styles",
+      "status": "covered",
+      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "entrypoints": [
+        "honua_admin.AsyncHonuaAdminClient.list_styles",
+        "honua_admin.AsyncHonuaAdminClient.get_stylesheet",
+        "honua_admin.AsyncHonuaAdminClient.get_style_metadata",
+        "honua_admin.AsyncHonuaAdminClient.update_style"
+      ]
+    }
+  ]
+}

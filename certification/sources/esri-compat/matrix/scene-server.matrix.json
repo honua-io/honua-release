@@ -1,0 +1,43 @@
+{
+  "service": "scene-server",
+  "display_name": "SceneServer (I3S, Enterprise-gated)",
+  "prefix": "SCN",
+  "source_doc": "src/Honua.Protocols.Scene.I3s",
+  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "parity": "gated",
+  "counts": {
+    "implemented": 0,
+    "partial": 0,
+    "not_implemented": 2,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 0,
+    "total": 2
+  },
+  "cases": [
+    {
+      "id": "SCN-OP-I3S-SCENESERVER-SERVICE-DESCRIPTOR",
+      "kind": "operation",
+      "group": "scene-server",
+      "name": "I3S SceneServer service descriptor",
+      "esri_path": "/scenes/{sceneId}/SceneServer",
+      "methods": "GET",
+      "status": "not_implemented",
+      "endpoint": "GET /scenes/{sceneId}/SceneServer",
+      "notes": "Route registered and reachable, but EDITION-GATED: returns 403 'I3S scene serving requires the Enterprise edition. Current edition: Community.' (live-checked 2026-06-19). Supported-but-gated, not absent."
+    },
+    {
+      "id": "SCN-OP-I3S-SCENESERVER-LAYER",
+      "kind": "operation",
+      "group": "scene-server",
+      "name": "I3S SceneServer layer (3D Object)",
+      "esri_path": "/scenes/{sceneId}/SceneServer/layers/{layerId}",
+      "methods": "GET",
+      "status": "not_implemented",
+      "endpoint": "GET /scenes/{sceneId}/SceneServer/layers/{layerId}",
+      "notes": "Enterprise-gated (403 on Community). Advertises the scene's 3D Object layer for ArcGIS / I3S clients when licensed."
+    }
+  ]
+}

@@ -1,0 +1,488 @@
+#!/usr/bin/env python3
+"""Generate the complete protocol/client certification denominator."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).parent
+OUTPUT = ROOT / "protocol-certification-requirements.v1.json"
+SOURCES = ROOT / "sources"
+SUPPORTED = {"implemented", "partial", "covered"}
+FIXTURE = "docker/cng/seed.sql@{source_sha}"
+IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
+PR_SDK_SMOKE_OPERATIONS = {
+    "sdk-js": {
+        ("featureserver", "metadata"),
+        ("featureserver", "query"),
+        ("grpc-web", "query"),
+        ("imageserver", "export-image"),
+        ("ogc-features", "items"),
+        ("stac", "search"),
+        ("wmts", "get-tile"),
+    },
+    "sdk-python": {
+        ("geoservices-root", "list-services"),
+        ("geoservices-featureserver", "layer-metadata"),
+        ("geoservices-featureserver", "query"),
+        ("ogc-api-features", "items"),
+        ("ogc-api-processes", "list-processes"),
+    },
+}
+
+
+def load(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def main() -> None:
+    revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
+    format_source = json.loads(
+        (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
+    )
+    fixture_pins = json.loads(
+        (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
+    )["fixtures"]
+    requirements = [
+        {
+            **row,
+            "budget_expectations": row.get("budget_expectations"),
+            "entitlement_policy_revision": row.get("entitlement_policy_revision"),
+        }
+        for row in format_source["requirements"]
+    ]
+    seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
+
+    def add(*, capability: str, surface: str, operation: str, client: str, lane: str,
+            version: str, contract: str, auth_policy: str,
+            target: str = "local-docker", licensed: bool = False,
+            entitlement_policy: str | None = None,
+            facets: list[str] | None = None, fixture: str = FIXTURE,
+            required_tier: str = "nightly", addressable: bool = True,
+            addressability_reason: str | None = None,
+            test_ids: list[str] | None = None) -> None:
+        key = (surface, operation, client, version, target)
+        if key in seen:
+            return
+        seen.add(key)
+        row = {
+            "capability_key": capability,
+            "surface": surface,
+            "operation": operation,
+            "maturity": "supported",
+            "canonical_client": client,
+            "client_lane": lane,
+            "client_version": version,
+            "deployment_target": target,
+            "required_tier": required_tier,
+            "licensed": licensed,
+            "entitlement_policy_revision": entitlement_policy,
+            "addressable_by_client": addressable,
+            "addressability_reason": addressability_reason,
+            "scenario_facets": facets or ["positive", "metadata", "media-schema"],
+            "contract_revision": contract,
+            "auth_policy_revision": auth_policy,
+            "fixture_revision": fixture,
+            "budget_expectations": None,
+        }
+        if test_ids is not None:
+            row["test_ids"] = test_ids
+        requirements.append(row)
+
+    sdk_sources = [
+        ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
+        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", fixture_pins["sdk-js"]),
+        ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
+    ]
+    sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
+    for source_name, collection, client, version, surface, fixture in sdk_sources:
+        snapshot = load(SOURCES / source_name / "sdk-coverage.v1.json")
+        for capability in snapshot[collection]:
+            if capability.get("status") not in SUPPORTED:
+                continue
+            sdk_capability_operations[(source_name, capability["key"])] = list(
+                capability.get("entrypoints", [])
+            )
+            for entrypoint in capability.get("entrypoints", []):
+                add(
+                    capability=capability["key"],
+                    surface=f"{surface}:{slug(capability['key'])}",
+                    operation=entrypoint,
+                    client=client, lane=surface, version=version,
+                    contract=f"{source_name}-coverage@{revisions[source_name]['commit']}",
+                    auth_policy="anonymous-public-v1",
+                    facets=["positive", "media-schema"], fixture=fixture,
+                )
+
+    sdk_operation_policies = {
+        ("sdk-js", "streaming.feature-subscriptions", "realtime", "subscribe"): {
+            "auth_policy_revision": "api-key-protected-v1",
+            "deployment_target": "licensed-release",
+            "required_tier": "release",
+            "licensed": True,
+            "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
+        },
+        ("sdk-js", "streaming.feature-subscriptions", "realtime", "resume"): {
+            "auth_policy_revision": "api-key-protected-v1",
+            "deployment_target": "licensed-release",
+            "required_tier": "release",
+            "licensed": True,
+            "entitlement_policy_revision": "honua-pro-feature-subscriptions-v1",
+        },
+    }
+    applied_sdk_operation_policies = set()
+    for source_name in ("sdk-python", "sdk-js"):
+        contract = load(SOURCES / source_name / "protocol-certification.v1.json")
+        for operation in contract["operations"]:
+            policy_key = (
+                source_name, operation["capability_key"],
+                operation["surface"], operation["operation"],
+            )
+            policy = sdk_operation_policies.get(policy_key, {})
+            if policy:
+                applied_sdk_operation_policies.add(policy_key)
+            add(
+                capability=operation["capability_key"], surface=operation["surface"],
+                operation=operation["operation"], client=contract["canonicalClient"],
+                lane=f"{source_name}-certification", version=contract["clientVersion"],
+                contract=f"{source_name}-certification@{revisions[source_name]['commit']}",
+                auth_policy=policy.get(
+                    "auth_policy_revision",
+                    operation.get("authPolicyRevision", "anonymous-public-v1"),
+                ),
+                target=policy.get(
+                    "deployment_target",
+                    operation.get("deploymentTarget", "local-docker"),
+                ),
+                fixture=(
+                    fixture_pins["sdk-js"]
+                    if source_name == "sdk-js"
+                    else contract["fixtureRevision"]
+                ),
+                facets=operation["scenario_facets"],
+                licensed=policy.get("licensed", operation.get("licensed", False)),
+                entitlement_policy=policy.get(
+                    "entitlement_policy_revision",
+                    operation.get("entitlementPolicyRevision"),
+                ),
+                required_tier=(
+                    policy.get("required_tier")
+                    or operation.get("requiredTier")
+                    or (
+                        "pr"
+                        if (operation["surface"], operation["operation"])
+                        in PR_SDK_SMOKE_OPERATIONS[source_name]
+                        else "nightly"
+                    )
+                ),
+            )
+    if applied_sdk_operation_policies != set(sdk_operation_policies):
+        raise ValueError(
+            "SDK operation policies do not exactly match the pinned protocol contracts: "
+            f"missing={sorted(set(sdk_operation_policies) - applied_sdk_operation_policies)}"
+        )
+
+    dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
+    dotnet_addressable_operations = sum(
+        operation["status"] != "non-addressable" for operation in dotnet["operations"]
+    )
+    tier_order = ("pr", "nightly", "release")
+    for operation in dotnet["operations"]:
+        required_tier = next(
+            (tier for tier in tier_order if tier in operation["requiredTiers"]), None
+        )
+        if operation["status"] == "non-addressable" or required_tier is None:
+            continue
+        facets = list(dict.fromkeys(
+            "positive" if facet == "read-only" else facet
+            for facet in operation["scenarioFacets"]
+        ))
+        add(
+            capability=f"sdk-dotnet.{operation['surface']}", surface=operation["surface"],
+            operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
+            version="1.6.0", contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
+            auth_policy="api-key-protected-v1",
+            fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
+            facets=facets, required_tier=required_tier,
+        )
+
+    grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
+    grpc_fixture = f"geospatial-grpc-conformance@{grpc['fixture_version']}+{grpc['source_sha']}"
+    grpc_clients = (
+        ("Generated gRPC .NET client", "grpc-dotnet"),
+        ("Generated gRPC Python client", "grpc-python"),
+        ("Generated gRPC TypeScript client", "grpc-typescript"),
+    )
+    for rpc in grpc["operations"]:
+        operation = f"{rpc['service']}/{rpc['operation']}"
+        for client, lane in grpc_clients:
+            add(
+                capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
+                client=client, lane=lane, version=f"source@{grpc['source_sha']}",
+                contract=f"geospatial-grpc@{grpc['source_sha']}", auth_policy="anonymous-public-v1",
+                fixture=grpc_fixture,
+                facets=["positive", "negative", "media-schema"],
+            )
+
+    mcp = load(SOURCES / "geospatial-mcp" / "operations.v1.json")
+    mcp_clients = (
+        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "1.30.0"),
+        ("MCP Inspector", "mcp-inspector", "2.3.0"),
+    )
+    for entry in mcp["operations"]:
+        for client, lane, version in mcp_clients:
+            add(
+                capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
+                client=client, lane=lane, version=version,
+                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy="anonymous-public-v1",
+                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema"],
+            )
+
+    server = load(SOURCES / "server" / "capability-matrix.v1.json")
+    lane_clients = {
+        "desktop-qgis": ("QGIS", "3.40"),
+        "desktop-arcgis": ("ArcGIS Pro", "3.5"),
+        "ci-desktop": ("QGIS", "3.40"),
+        "js": ("Honua SDK JavaScript", "0.1.7-beta.0"),
+        "js-cesium": ("CesiumJS", "1.132.0"),
+        "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
+        "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
+        "bi-excel": ("Microsoft Excel", "Microsoft 365"),
+        "bi-powerbi": ("Microsoft Power BI", "2026.08"),
+        "ci-bi": ("Microsoft.OData.Client", "8.3"),
+    }
+    for capability in server["capabilities"]:
+        for cite in capability.get("cite", []):
+            suite = cite["suite"]
+            add(
+                capability=capability["key"], surface=slug(suite), operation=capability["key"],
+                client="OGC CITE", lane=f"cite-{slug(suite)}", version=suite,
+                contract=f"server-capability-matrix@{revisions['server']['commit']}",
+                auth_policy="anonymous-public-v1",
+                facets=["positive", "negative", "crs-axis", "media-schema"],
+            )
+        for interop in capability.get("interop", []):
+            lane = interop["clientLane"]
+            client, version = lane_clients.get(lane, (lane, f"pin@{revisions['server']['commit'][:12]}"))
+            add(
+                capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
+                client=client, lane=lane, version=version,
+                contract=f"server-capability-matrix@{revisions['server']['commit']}",
+                auth_policy="anonymous-public-v1",
+            )
+
+    assignments = load(SOURCES / "canonical-client-assignments.v1.json")
+    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
+    for assignment in assignments["assignments"]:
+        capability = server_by_key.get(assignment["capability_key"])
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        for client_id in assignment["clients"]:
+            client = assignments["clients"][client_id]
+            version = client["version"].replace("{server_sha}", revisions["server"]["commit"])
+            add(
+                capability=assignment["capability_key"], surface=assignment["surface"],
+                operation=assignment["capability_key"], client=client["name"],
+                lane=f"{client['lane']}-{slug(assignment['surface'])}", version=version,
+                contract=f"canonical-client-assignments@{assignments['revision']}",
+                auth_policy="anonymous-and-protected-v1",
+                facets=assignment["scenario_facets"],
+            )
+
+    protocol_harness = load(SOURCES / "server" / "protocol-harness-assignments.v1.json")
+    harness_source_sha = revisions["server-certification"]["commit"]
+    harness_contract = (
+        f"server-protocol-harness@{protocol_harness['revision']}+{harness_source_sha}"
+    )
+    harness_capabilities = {
+        assignment["capability_key"] for assignment in protocol_harness["assignments"]
+    }
+    for assignment in protocol_harness["assignments"]:
+        capability = server_by_key.get(assignment["capability_key"])
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        add(
+            capability=assignment["capability_key"], surface=assignment["surface"],
+            operation=assignment["operation"], client=protocol_harness["canonical_client"],
+            lane=protocol_harness["client_lane"], version=f"source@{harness_source_sha}",
+            contract=harness_contract,
+            auth_policy=protocol_harness["auth_policy_revision"],
+            target=protocol_harness["deployment_target"],
+            fixture=f"server-test-fixtures@{harness_source_sha}",
+            facets=assignment["scenario_facets"],
+            required_tier=protocol_harness["required_tier"],
+            test_ids=assignment["test_ids"],
+        )
+
+    sdk_protocols = load(SOURCES / "official-sdk-protocol-assignments.v1.json")
+    for capability_key in sdk_protocols["capabilities"]:
+        capability = server_by_key.get(capability_key)
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        if capability_key not in harness_capabilities and not any(
+            sdk_capability_operations.get((client["source"], capability_key))
+            for client in sdk_protocols["clients"]
+        ):
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
+                client="UNASSIGNED PROTOCOL HARNESS",
+                lane=f"protocol-harness-gap-{slug(capability_key)}", version="policy-v1",
+                contract=f"official-sdk-protocol-assignments@{sdk_protocols['revision']}",
+                auth_policy="unassigned-protocol-harness-v1", facets=["positive"],
+            )
+
+    applicability = load(SOURCES / "canonical-client-applicability.v1.json")
+    allowed_classifications = {
+        "official-sdk-required",
+        "canonical-external-required",
+        "not-client-addressable",
+    }
+    decision_keys: set[str] = set()
+    for decision in applicability["decisions"]:
+        capability_key = decision["capability_key"]
+        classification = decision["classification"]
+        if capability_key in decision_keys:
+            raise ValueError(f"duplicate canonical-client applicability decision: {capability_key}")
+        decision_keys.add(capability_key)
+        if classification not in allowed_classifications:
+            raise ValueError(
+                f"unknown canonical-client applicability classification for {capability_key}: "
+                f"{classification}"
+            )
+        capability = server_by_key.get(capability_key)
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        contract = f"canonical-client-applicability@{applicability['revision']}"
+        if classification == "official-sdk-required":
+            if capability_key not in harness_capabilities and not any(
+                sdk_capability_operations.get((client["source"], capability_key))
+                for client in sdk_protocols["clients"]
+            ):
+                add(
+                    capability=capability_key, surface=slug(capability_key),
+                    operation=f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability_key}",
+                    client="UNASSIGNED PROTOCOL HARNESS",
+                    lane=f"protocol-harness-gap-{slug(capability_key)}",
+                    version="policy-v1", contract=contract,
+                    auth_policy="unassigned-protocol-harness-v1", facets=["positive"],
+                )
+            continue
+        elif classification == "canonical-external-required":
+            client_ids = decision.get("clients", [])
+            if not client_ids:
+                raise ValueError(f"canonical external decision has no clients: {capability_key}")
+            unknown_clients = set(client_ids) - set(applicability["clients"])
+            if unknown_clients:
+                raise ValueError(
+                    f"canonical external decision has unknown clients for {capability_key}: "
+                    f"{sorted(unknown_clients)}"
+                )
+            clients = [applicability["clients"][client_id] for client_id in client_ids]
+            facets = decision["scenario_facets"]
+        else:
+            reason = decision.get("reason")
+            if not reason:
+                raise ValueError(f"non-client-addressable decision has no reason: {capability_key}")
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=capability_key, client="NOT CLIENT ADDRESSABLE",
+                lane=f"not-client-addressable-{slug(capability_key)}", version="policy-v1",
+                contract=contract, auth_policy="not-client-addressable-v1",
+                facets=["not-client-addressable"], addressable=False,
+                addressability_reason=reason,
+            )
+            continue
+        for client in clients:
+            add(
+                capability=capability_key, surface=slug(capability_key),
+                operation=capability_key, client=client["name"],
+                lane=f"{client['lane']}-{slug(capability_key)}", version=client["version"],
+                contract=contract, auth_policy=client["auth_policy_revision"], facets=facets,
+            )
+
+    esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
+    esri_clients = [
+        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None),
+        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None),
+        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None),
+        ("ArcGIS Pro/arcpy", "3.5", "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1"),
+    ]
+    for service in esri_index["services"]:
+        matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
+        for case in matrix["cases"]:
+            if case.get("status") not in SUPPORTED:
+                continue
+            if service["service"] == "ogc":
+                continue
+            facets = ["positive", "auth", "media-schema"]
+            if "query" in case["name"].lower():
+                facets += ["pagination", "limit", "crs-axis"]
+            for client, version, lane, target, licensed, entitlement_policy in esri_clients:
+                add(
+                    capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
+                    client=client, lane=f"{lane}-{service['service']}", version=version,
+                    contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
+                    auth_policy="anonymous-and-protected-v1", target=target,
+                    licensed=licensed, entitlement_policy=entitlement_policy, facets=facets,
+                )
+
+    ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")
+    for case in ogc["cases"]:
+        if case.get("status") not in SUPPORTED:
+            continue
+        name = case["name"].lower()
+        if "features" in name or "wfs" in name:
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", "3.40", "qgis")]
+        elif "tiles" in name or "wmts" in name or "wms" in name:
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
+        elif "wcs" in name or "coverage" in name:
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.36.0", "owslib")]
+        else:
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("Honua SDK Python", f"source-preview@{revisions['sdk-python']['commit']}", "sdk-python")]
+        for client, version, lane in clients:
+            add(
+                capability="serve.ogc", surface="ogc", operation=case["id"], client=client,
+                lane=f"{lane}-ogc", version=version,
+                contract=f"esri-ogc-matrix@{revisions['esri-compat']['commit']}",
+                auth_policy="anonymous-and-protected-v1",
+                facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
+            )
+
+    requirements.sort(key=lambda row: (
+        row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"]
+    ))
+    output = {
+        "schema": "honua.protocol-certification-requirements/v1",
+        "revision": "2026-08-21-complete.10",
+        "complete": True,
+        "scope_notes": (
+            "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "
+            "Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC "
+            "clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, "
+            "official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol "
+            "and every Honua-specific application capability, executable operation contracts for all three Honua "
+            "SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, "
+            "pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, "
+            "and exact operation-to-test contracts for the server protocol integration harness. "
+            f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
+            "18 explicitly non-addressable public abstractions "
+            "remain documented in its pinned source contract and excluded from client certification. "
+            "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
+        ),
+        "source_revisions": revisions,
+        "requirements": requirements,
+    }
+    OUTPUT.write_text(json.dumps(output, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    print(f"Wrote {OUTPUT} with {len(requirements)} required certification cells.")
+
+
+if __name__ == "__main__":
+    main()

@@ -66,6 +66,104 @@ def test_conformance_gate_consumes_manifest_pinned_evidence_producers():
     assert "/trunk/docs/cite-status.md" not in cite
 
 
+def test_manifest_validate_binds_python_snapshots_to_the_pinned_source():
+    workflow = _workflow("manifest-validate.yml")
+    text = "\n".join(
+        _step_text(step) for step in workflow["jobs"]["validate"]["steps"]
+    )
+    assert '.sources["sdk-python"].commit' in text
+    assert "honua-sdk-python/contents/compatibility/sdk-coverage.v1.json?ref=$sdk_python_sha" in text
+    assert "honua-sdk-python/contents/conformance/protocol-certification.v1.json?ref=$sdk_python_sha" in text
+    assert "cmp certification/sources/sdk-python/sdk-coverage.v1.json" in text
+    assert "cmp certification/sources/sdk-python/protocol-certification.v1.json" in text
+
+
+def test_manifest_validate_binds_server_and_dotnet_snapshots_to_pinned_sources():
+    workflow = _workflow("manifest-validate.yml")
+    text = "\n".join(
+        _step_text(step) for step in workflow["jobs"]["validate"]["steps"]
+    )
+    assert ".sources.server.commit" in text
+    assert "honua-server/contents/docs/gis/data/capability-matrix.v1.json?ref=$server_sha" in text
+    assert "cmp certification/sources/server/capability-matrix.v1.json" in text
+    assert '.sources["sdk-dotnet"].commit' in text
+    assert "honua-sdk-dotnet/contents/contracts/sdk-coverage.v1.json?ref=$sdk_dotnet_sha" in text
+    assert "honua-sdk-dotnet/contents/contracts/sdk-certification.v1.json?ref=$sdk_dotnet_sha" in text
+    assert "cmp certification/sources/sdk-dotnet/sdk-coverage.v1.json" in text
+    assert "cmp certification/sources/sdk-dotnet/sdk-certification.v1.json" in text
+
+
+def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha():
+    gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "inputs.expected_requirements_source_revision" in gate
+    assert (
+        "EXPECTED_REQUIREMENTS_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}"
+        not in gate
+    )
+    assert "EXPECTED_REQUIREMENTS_REVISION" in gate
+    assert "out/requirements-owner" in gate
+    assert "out/requirements-owner/certification/protocol-certification-requirements.v1.json" in gate
+    assert "--requirements out/protocol-certification-requirements.v1.json" in gate
+
+    for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
+        text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
+        assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
+        assert (
+            "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
+            in text
+        )
+        assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in text
+
+    release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "ledger['requirementsSourceRevision']" in release_train
+    assert "expected_requirements_source_revision:" in release_train
+
+
+def test_release_protocol_gate_binds_all_shipped_producers_to_the_manifest():
+    gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
+        encoding="utf-8"
+    )
+    train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
+        encoding="utf-8"
+    )
+    for source in ("js", "python", "dotnet"):
+        assert f"expected_sdk_{source}_sha" in gate
+        assert f"--expected-sdk-{source}-sha" in gate
+        assert f"sdk_{source}_sha" in train
+        assert f"expected_sdk_{source}_sha:" in train
+    for source in ("grpc", "mcp"):
+        assert f"expected_geospatial_{source}_sha" in gate
+        assert f"--expected-geospatial-{source}-sha" in gate
+        assert f"geospatial_{source}_sha" in train
+        assert f"expected_geospatial_{source}_sha:" in train
+
+
+def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_unavailability():
+    gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Test the proposed evaluator separately" in gate
+    assert "out/requirements-owner/tools/check_protocol_certification.py" in gate
+    assert "python3 tools/check_protocol_certification.py \"${args[@]}\"" not in gate
+    assert 'if [[ "$ENFORCEMENT" == "bootstrap" && "$FETCH_CLASS" == "unavailable" ]]; then' in gate
+    assert 'echo "fetch_class=$fetch_class" >> "$GITHUB_OUTPUT"' in gate
+    assert 'fetch_class=integrity' in gate
+    assert "if: steps.evaluate.outputs.status == 'fail'" in gate
+    release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
+        in release_train
+    )
+    assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 

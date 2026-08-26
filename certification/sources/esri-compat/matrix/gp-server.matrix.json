@@ -1,0 +1,208 @@
+{
+  "service": "gp-server",
+  "display_name": "GPServer",
+  "prefix": "GP",
+  "source_doc": "docs/guides/query-analyze/run-geoprocessing.md",
+  "generated_from": "honua-server (geoservices-rest-parity.json)",
+  "parity": "partial",
+  "counts": {
+    "implemented": 14,
+    "partial": 0,
+    "not_implemented": 3,
+    "rejected": 0,
+    "ignored": 0,
+    "not_applicable": 0,
+    "unknown": 0,
+    "total_supported": 14,
+    "total": 17
+  },
+  "cases": [
+    {
+      "id": "GP-OP-GP-SERVICE-INFO",
+      "kind": "operation",
+      "group": "operations",
+      "name": "GP Service Info (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer; POST /rest/services/{serviceId}/GPServer",
+      "notes": "Returns service metadata and the published task list projected from the built-in IProcessCatalog. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-TASK-METADATA",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Task Metadata",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task",
+      "notes": "Returns task name, display name, parameters, and choice lists. Served via PrintingTools endpoints."
+    },
+    {
+      "id": "GP-OP-EXECUTE-TASK",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Execute Task (sync)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute; POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute",
+      "notes": "Synchronous map export returning image bytes. PrintingTools-specific implementation."
+    },
+    {
+      "id": "GP-OP-JOB-STATUS",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Job Status",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/jobs/{jobId}",
+      "notes": "Job status polling with result parameter URL. PrintingTools-specific implementation."
+    },
+    {
+      "id": "GP-OP-JOB-RESULTS",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Job Results",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/jobs/{jobId}/results/Output_File",
+      "notes": "Single-parameter result access (Output_File only). PrintingTools-specific implementation."
+    },
+    {
+      "id": "GP-OP-SUBMIT-JOB",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Submit Job (async)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/submitJob; POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/submitJob",
+      "notes": "Asynchronous map export job submission. PrintingTools-specific implementation."
+    },
+    {
+      "id": "GP-OP-TEMPLATE-LISTING",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Template Listing (sync)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/Utilities/PrintingTools/GPServer/Get Layout Templates Info Task/execute",
+      "notes": "Returns available layout templates. PrintingTools-specific implementation."
+    },
+    {
+      "id": "GP-OP-GP-TASK-INFO",
+      "kind": "operation",
+      "group": "operations",
+      "name": "GP Task Info (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}; POST /rest/services/{serviceId}/GPServer/{taskName}",
+      "notes": "Returns task metadata projected from the built-in IProcessCatalog, including parameter descriptions and Esri data types. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-EXECUTE-TASK-2",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Execute Task (generic, sync)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/execute; POST /rest/services/{serviceId}/GPServer/{taskName}/execute",
+      "notes": "Runs sync-eligible (deterministic single-geometry geometry.* / conversion.geometry-format) tasks inline through the same canonical job runtime as submitJob and returns the Esri execute envelope (results + messages). Async-only tasks return a 400 capability message pointing at submitJob. Honors env:outSR for reprojectable geometry outputs (unlike submitJob, which rejects env:* controls). Implemented in #1660."
+    },
+    {
+      "id": "GP-OP-JOBS-LIST",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Jobs List",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/jobs",
+      "notes": "Lists submitted/running/completed/failed jobs for a task, newest first, with opaque cursor paging. Job/Read authorization and per-job ownership are enforced in the shared job service before any job is surfaced."
+    },
+    {
+      "id": "GP-OP-JOB-STATUS-2",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Job Status (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/jobs/{jobId}",
+      "notes": "Job status polling with route binding validation. Maps ExecutionJobRecord to Esri status. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-CANCEL-JOB",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Cancel Job (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/jobs/{jobId}/cancel; POST /rest/services/{serviceId}/GPServer/{taskName}/jobs/{jobId}/cancel",
+      "notes": "Job cancellation with route binding validation. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-JOB-RESULTS-2",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Job Results (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/jobs/{jobId}/results/{paramName}",
+      "notes": "Per-output result access with route binding validation. Result storage pending execution engine. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-SUBMIT-JOB-2",
+      "kind": "operation",
+      "group": "operations",
+      "name": "Submit Job (generic)",
+      "esri_path": "",
+      "methods": "",
+      "status": "implemented",
+      "endpoint": "GET /rest/services/{serviceId}/GPServer/{taskName}/submitJob; POST /rest/services/{serviceId}/GPServer/{taskName}/submitJob",
+      "notes": "Resolves the published task name against the built-in IProcessCatalog, validates inputs, persists GPServer route metadata, and returns an Esri job envelope. Implemented in #723."
+    },
+    {
+      "id": "GP-OP-PUBLISHED-GENERIC-TASK-NAMES-CURRENTLY-M",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "published generic task names currently mirror internal built-in process IDs (for example geometry.buffer)",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "GP-OP-GP-ENVIRONMENT-CONTROLS-ARE-REJECTED-WIT",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "GP environment controls (env:*) are rejected with 400 until engine support is available; context is preserved as protocol metadata but not interpreted yet",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    },
+    {
+      "id": "GP-OP-PER-PARAMETER-RESULT-RETRIEVAL-ROUTE-REG",
+      "kind": "operation",
+      "group": "knownGaps",
+      "name": "per-parameter result retrieval route registered but actual output retrieval pending execution-engine/result-storage support",
+      "esri_path": "",
+      "methods": "",
+      "status": "not_implemented",
+      "endpoint": "",
+      "notes": "from parity index knownGaps"
+    }
+  ]
+}
