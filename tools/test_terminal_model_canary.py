@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,48 @@ def _schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
+def _green_deterministic_receipt(*, generated_at: datetime | None = None) -> dict:
+    manifest = canary.load_manifest(MANIFEST)
+    journey = canary.load_journey(JOURNEY)
+    server = manifest["components"]["honua-server"]
+    return {
+        "schemaVersion": 1,
+        "generatedAt": (generated_at or datetime.now(timezone.utc)).isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "evidenceKey": journey["evidenceKey"],
+        "release": manifest["platformRelease"],
+        "clientArtifacts": {
+            name: {
+                key: pin.get(key)
+                for key in ("package", "version", "integrity", "digest", "sourceSha")
+            }
+            for name, pin in manifest["clientArtifacts"].items()
+            if name in {"honua-sdk-js", "honua-mcp-server"}
+        },
+        "server": {
+            "sourceSha": server["sha"],
+            "image": f"{server['image']}@{server['digest']}",
+        },
+        "roster": {"status": "pass"},
+        "status": "pass",
+        "stages": [
+            {
+                "number": stage["number"],
+                "stage": stage["id"],
+                "command": stage["command"],
+                "status": "pass",
+                "evidence": {
+                    "uri": f"artifact://terminal-journey/{stage['id']}",
+                    "freshness": "verified-current",
+                    "completeness": "complete",
+                },
+            }
+            for stage in journey["stages"]
+        ],
+    }
+
+
 def _workflow() -> tuple[dict, dict]:
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github" / "workflows" / "terminal-model-canary.yml").read_text(
@@ -68,6 +111,52 @@ def test_skipped_receipt_validates_against_the_committed_schema():
     assert list(Draft202012Validator(_schema()).iter_errors(receipt)) == []
     assert receipt["journeyContract"]["sha256"] == canary._sha256(JOURNEY)
     assert receipt["journeyContract"]["path"] == "certification/terminal-journey/journey.v1.json"
+
+
+def test_green_deterministic_receipt_is_parsed_and_bound_to_the_candidate(tmp_path: Path):
+    receipt_path = tmp_path / "artifacts" / "terminal-journey-receipt.json"
+    receipt_path.parent.mkdir()
+    receipt_path.write_text(json.dumps(_green_deterministic_receipt()), encoding="utf-8")
+
+    proof = canary.validate_deterministic_receipt(
+        Path("artifacts/terminal-journey-receipt.json"),
+        manifest=canary.load_manifest(MANIFEST),
+        journey=canary.load_journey(JOURNEY),
+        repo_root=tmp_path,
+    )
+
+    assert proof["status"] == "pass"
+    assert proof["candidateVerified"] is True
+    assert proof["freshnessVerified"] is True
+    assert proof["path"] == "artifacts/terminal-journey-receipt.json"
+    assert proof["sha256"] == canary._sha256(receipt_path)
+
+
+@pytest.mark.parametrize("mutation", ["arbitrary", "candidate", "stale"])
+def test_invalid_deterministic_receipt_cannot_satisfy_the_green_prerequisite(
+    tmp_path: Path,
+    mutation: str,
+):
+    receipt_path = tmp_path / "receipt.json"
+    receipt = _green_deterministic_receipt()
+    if mutation == "arbitrary":
+        receipt_path.write_text("not a receipt", encoding="utf-8")
+    else:
+        if mutation == "candidate":
+            receipt["server"]["sourceSha"] = "0" * 40
+        else:
+            receipt["generatedAt"] = (
+                datetime.now(timezone.utc) - timedelta(hours=25)
+            ).isoformat().replace("+00:00", "Z")
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(canary.CanaryError):
+        canary.validate_deterministic_receipt(
+            receipt_path,
+            manifest=canary.load_manifest(MANIFEST),
+            journey=canary.load_journey(JOURNEY),
+            repo_root=tmp_path,
+        )
 
 
 def test_model_and_harness_actions_have_distinct_provable_attribution():
@@ -357,6 +446,15 @@ def test_workflow_is_manual_only_and_references_the_single_123_journey_contract(
 def test_protocol_declares_123_as_the_live_adapter_owner():
     protocol = json.loads(PROTOCOL.read_text(encoding="utf-8"))
     assert protocol["owner"] == "honua-release#123"
+    assert protocol["deterministicReceiptRequirements"] == {
+        "status": "pass",
+        "maxAgeHours": 24,
+        "candidateBinding": "exact release, server source/image pins, and #123 client artifact pins",
+        "stageBinding": (
+            "exact imported stage order, IDs, commands, pass status, verified-current freshness, "
+            "and complete evidence"
+        ),
+    }
     assert set(protocol["operations"]) == {
         "setup",
         "observe",

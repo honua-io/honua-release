@@ -27,8 +27,11 @@ provider-neutral:
 
 Missing endpoint configuration produces a `skipped` receipt and a visible notice. It can never produce
 `pass`. A configured endpoint without the #123 adapter produces `blocked`, naming that dependency.
-An attempted live run also requires the URI of #123's green receipt for the exact candidate plus
-explicit runtime and quantization identifiers.
+An attempted live run also requires a repository-local path to #123's green receipt plus explicit
+runtime and quantization identifiers. The harness parses that receipt, requires a passing roster and
+all imported stages, enforces a 24-hour freshness window, and exact-matches its release, server, and
+#123 client-artifact pins to the candidate manifest. It records the validated receipt's path and hash;
+an arbitrary, stale, blocked, incomplete, or differently pinned receipt fails before model execution.
 
 ## Evidence boundary
 

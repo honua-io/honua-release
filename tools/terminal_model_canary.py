@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +110,96 @@ def load_manifest(path: Path) -> dict[str, Any]:
     ):
         raise CanaryError("candidate manifest must contain components and clientArtifacts pins")
     return manifest
+
+
+def validate_deterministic_receipt(
+    path: Path,
+    *,
+    manifest: dict[str, Any],
+    journey: dict[str, Any],
+    repo_root: Path = ROOT,
+    now: datetime | None = None,
+    max_age_hours: int = 24,
+) -> dict[str, Any]:
+    """Validate #123's green receipt and bind it to this exact candidate."""
+    root = repo_root.resolve()
+    resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
+    try:
+        relative_path = resolved.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise CanaryError("deterministic #123 receipt path must stay inside the repository") from exc
+    receipt = _load_json(resolved)
+    if receipt.get("schemaVersion") != 1 or receipt.get("evidenceKey") != journey.get("evidenceKey"):
+        raise CanaryError("deterministic #123 receipt schema or evidence key is invalid")
+    roster = receipt.get("roster")
+    if (
+        receipt.get("status") != "pass"
+        or not isinstance(roster, dict)
+        or roster.get("status") != "pass"
+    ):
+        raise CanaryError("deterministic #123 receipt is not green")
+
+    generated = receipt.get("generatedAt")
+    try:
+        generated_at = datetime.fromisoformat(str(generated).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise CanaryError("deterministic #123 receipt generatedAt is invalid") from exc
+    if generated_at.tzinfo is None:
+        raise CanaryError("deterministic #123 receipt generatedAt must include a timezone")
+    checked_at = now or datetime.now(timezone.utc)
+    age = checked_at - generated_at.astimezone(timezone.utc)
+    if age < timedelta(minutes=-5) or age > timedelta(hours=max_age_hours):
+        raise CanaryError(
+            f"deterministic #123 receipt is outside the {max_age_hours}-hour freshness window"
+        )
+
+    server = manifest["components"]["honua-server"]
+    expected_server = {
+        "sourceSha": server["sha"],
+        "image": f"{server['image']}@{server['digest']}",
+    }
+    expected_artifacts = {
+        name: {
+            key: pin.get(key)
+            for key in ("package", "version", "integrity", "digest", "sourceSha")
+        }
+        for name, pin in manifest["clientArtifacts"].items()
+        if name in {"honua-sdk-js", "honua-mcp-server"}
+    }
+    if (
+        receipt.get("release") != manifest["platformRelease"]
+        or receipt.get("server") != expected_server
+        or receipt.get("clientArtifacts") != expected_artifacts
+    ):
+        raise CanaryError("deterministic #123 receipt candidate pins do not match the manifest")
+
+    stages = receipt.get("stages")
+    if not isinstance(stages, list) or len(stages) != len(journey["stages"]):
+        raise CanaryError("deterministic #123 receipt does not cover the imported journey")
+    for expected, actual in zip(journey["stages"], stages, strict=True):
+        evidence = actual.get("evidence") if isinstance(actual, dict) else None
+        if (
+            not isinstance(actual, dict)
+            or actual.get("number") != expected["number"]
+            or actual.get("stage") != expected["id"]
+            or actual.get("command") != expected["command"]
+            or actual.get("status") != "pass"
+            or not isinstance(evidence, dict)
+            or evidence.get("freshness") != "verified-current"
+            or evidence.get("completeness") != "complete"
+            or not evidence.get("uri")
+        ):
+            raise CanaryError(
+                f"deterministic #123 receipt stage {expected['id']} is not complete and current"
+            )
+    return {
+        "path": relative_path,
+        "sha256": _sha256(resolved),
+        "generatedAt": generated,
+        "status": "pass",
+        "candidateVerified": True,
+        "freshnessVerified": True,
+    }
 
 
 @dataclass(frozen=True)
@@ -250,7 +340,7 @@ class ReceiptBuilder:
         endpoint: EndpointConfig,
         driver_command: Path | None,
         injection_stage: str,
-        deterministic_receipt: str | None,
+        deterministic_receipt: dict[str, Any] | None,
         redactor: Redactor,
     ):
         self.journey = journey
@@ -629,7 +719,7 @@ def build_receipt_builder(
     endpoint: EndpointConfig,
     driver_command: Path | None,
     injection_stage: str | None = None,
-    deterministic_receipt: str | None = None,
+    deterministic_receipt: dict[str, Any] | None = None,
 ) -> ReceiptBuilder:
     manifest = load_manifest(manifest_path)
     journey = load_journey(journey_path)
@@ -926,7 +1016,7 @@ def main(argv: list[str] | None = None) -> int:
     authentication.add_argument("--no-api-key", action="store_true")
     authentication.add_argument("--require-api-key", action="store_true")
     parser.add_argument("--driver-command", type=Path, default=DEFAULT_DRIVER)
-    parser.add_argument("--deterministic-receipt")
+    parser.add_argument("--deterministic-receipt", type=Path)
     parser.add_argument("--inject-stage")
     parser.add_argument("--max-actions-per-stage", type=int, default=12)
     args = parser.parse_args(argv)
@@ -950,25 +1040,37 @@ def main(argv: list[str] | None = None) -> int:
             endpoint=endpoint,
             driver_command=args.driver_command,
             injection_stage=args.inject_stage,
-            deterministic_receipt=args.deterministic_receipt,
+            deterministic_receipt=None,
         )
-        if (
-            not endpoint.configured
-            or (endpoint.require_api_key and not endpoint.api_key)
-            or args.driver_command is None
-            or not args.driver_command.is_file()
-            or not args.deterministic_receipt
-            or not endpoint.runtime
-            or not endpoint.quantization
-        ):
-            unavailable_receipt(builder, endpoint, args.driver_command)
-        else:
-            execute_live(
-                builder,
-                endpoint=endpoint,
-                driver_command=args.driver_command,
-                max_actions_per_stage=args.max_actions_per_stage,
-            )
+        if args.deterministic_receipt:
+            try:
+                builder.receipt["linkedEvidence"]["deterministicReceipt"] = (
+                    validate_deterministic_receipt(
+                        args.deterministic_receipt,
+                        manifest=load_manifest(args.manifest),
+                        journey=builder.journey,
+                    )
+                )
+            except CanaryError as exc:
+                builder.mark_failed(str(exc))
+        if builder.receipt["status"] != "fail":
+            if (
+                not endpoint.configured
+                or (endpoint.require_api_key and not endpoint.api_key)
+                or args.driver_command is None
+                or not args.driver_command.is_file()
+                or not builder.receipt["linkedEvidence"]["deterministicReceipt"]
+                or not endpoint.runtime
+                or not endpoint.quantization
+            ):
+                unavailable_receipt(builder, endpoint, args.driver_command)
+            else:
+                execute_live(
+                    builder,
+                    endpoint=endpoint,
+                    driver_command=args.driver_command,
+                    max_actions_per_stage=args.max_actions_per_stage,
+                )
         schema = _load_json(args.receipt_schema)
         receipt = builder.validated_receipt(schema)
         write_receipt(args.output, receipt)

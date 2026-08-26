@@ -234,7 +234,24 @@
       "required": ["deterministicJourney", "deterministicReceipt"],
       "properties": {
         "deterministicJourney": {"const": "honua-release#123"},
-        "deterministicReceipt": {"type": ["string", "null"]}
+        "deterministicReceipt": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256", "generatedAt", "status", "candidateVerified", "freshnessVerified"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "generatedAt": {"type": "string", "format": "date-time"},
+                "status": {"const": "pass"},
+                "candidateVerified": {"const": true},
+                "freshnessVerified": {"const": true}
+              }
+            }
+          ]
+        }
       }
     }
   },

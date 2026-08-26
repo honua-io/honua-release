@@ -4,6 +4,12 @@
   "owner": "honua-release#123",
   "adapterPath": "certification/terminal-journey/live_driver.py",
   "transport": "one JSON request on stdin and one JSON response on stdout per invocation",
+  "deterministicReceiptRequirements": {
+    "status": "pass",
+    "maxAgeHours": 24,
+    "candidateBinding": "exact release, server source/image pins, and #123 client artifact pins",
+    "stageBinding": "exact imported stage order, IDs, commands, pass status, verified-current freshness, and complete evidence"
+  },
   "operations": {
     "setup": {
       "purpose": "create one clean workspace from exact candidate pins and return only credential references",

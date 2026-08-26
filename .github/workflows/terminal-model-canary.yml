@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       deterministic_receipt:
-        description: URI of the green #123 receipt for this exact candidate
+        description: Repository-local path to the green #123 receipt for this exact candidate
         required: false
         type: string
       inject_stage:
