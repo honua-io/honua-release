@@ -133,7 +133,9 @@ def test_endpoint_absent_is_a_visible_skip_and_never_a_pass(tmp_path: Path, monk
     assert receipt["scope"]["executionToGreen"] == "blocked"
     assert all(stage["status"] == "skipped" for stage in receipt["stages"])
     assert "never passed" in receipt["notices"][0]
-    assert "::notice" in capsys.readouterr().out
+    output_text = capsys.readouterr().out
+    assert "::notice title=Terminal model canary skipped" in output_text
+    assert "TERMINAL_MODEL" not in output_text
 
 
 def test_recoverable_error_bookkeeping_binds_harness_injection_to_model_recovery():

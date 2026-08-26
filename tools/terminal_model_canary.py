@@ -972,10 +972,26 @@ def main(argv: list[str] | None = None) -> int:
         schema = _load_json(args.receipt_schema)
         receipt = builder.validated_receipt(schema)
         write_receipt(args.output, receipt)
-        for notice in receipt["notices"]:
-            print(f"::notice title=Terminal model canary::{notice}")
-        print(f"terminal model canary: {receipt['status']}")
-        return 0 if receipt["status"] in {"pass", "blocked", "skipped"} else 1
+        status = receipt["status"]
+        if status == "skipped":
+            print(
+                "::notice title=Terminal model canary skipped::Required endpoint or hosted "
+                "credential configuration is absent; see the redacted receipt"
+            )
+            print("terminal model canary: skipped")
+            return 0
+        if status == "blocked":
+            print(
+                "::notice title=Terminal model canary blocked::A required live dependency is "
+                "absent; see the redacted receipt"
+            )
+            print("terminal model canary: blocked")
+            return 0
+        if status == "pass":
+            print("terminal model canary: pass")
+            return 0
+        print("terminal model canary: fail")
+        return 1
     except CanaryError as exc:
         print(f"terminal model canary harness error: {exc}", file=sys.stderr)
         return 2
