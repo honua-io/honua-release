@@ -1,6 +1,7 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
   "revision": "2026-08-21-complete.10",
+  "receipt_schema_min": "v1",
   "complete": true,
   "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, and exact operation-to-test contracts for the server protocol integration harness. The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
   "source_revisions": {

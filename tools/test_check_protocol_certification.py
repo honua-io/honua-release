@@ -150,6 +150,7 @@ def _requirements(*cells, complete=True):
     return {
         "schema": cert.REQUIREMENTS_SCHEMA_ID,
         "revision": "requirements-test-v1",
+        "receipt_schema_min": "v1",
         "complete": complete,
         "source_revisions": {
             "server": {"commit": SHA},
@@ -1110,3 +1111,51 @@ def test_receipt_that_binds_a_requirements_revision_must_match_the_owned_one():
     assert not cert._valid_receipt(bound, None, None)
     # An unbound receipt is unaffected (producers have not migrated yet).
     assert cert._valid_receipt(cell, None, "2026-08-22-complete.11")
+
+
+def test_v2_receipt_with_full_requirement_context_passes():
+    cell = _cell()
+    receipt = cell["evidence_receipt"]
+    receipt["schema"] = "honua.certification-evidence-receipt/v2"
+    receipt["identity"].update({
+        "maturity": cell["maturity"],
+        "required_tier": cell["required_tier"],
+        "requirements_revision": "requirements-test-v1",
+    })
+    assert cert._valid_receipt(cell, None, "requirements-test-v1")
+
+
+def test_v2_receipt_requires_every_requirement_context_field():
+    cell = _cell()
+    receipt = cell["evidence_receipt"]
+    receipt["schema"] = "honua.certification-evidence-receipt/v2"
+    receipt["identity"].update({
+        "maturity": cell["maturity"],
+        "required_tier": cell["required_tier"],
+        "requirements_revision": "requirements-test-v1",
+    })
+    for field in ("maturity", "required_tier", "requirements_revision"):
+        missing = copy.deepcopy(cell)
+        del missing["evidence_receipt"]["identity"][field]
+        assert not cert._valid_receipt(missing, None, "requirements-test-v1"), field
+
+
+def test_v1_receipt_passes_when_catalog_minimum_is_v1():
+    report = _evaluate(_ledger(), "nightly", now=NOW)
+    assert report["overall_status"] == "pass"
+
+
+def test_v1_receipt_fails_for_passing_required_cell_when_catalog_minimum_is_v2():
+    requirements = _requirements()
+    requirements["receipt_schema_min"] = "v2"
+    report = _evaluate(_ledger(), "nightly", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("requires a v2 evidence receipt" in finding["why"] for finding in report["findings"])
+
+
+def test_catalog_receipt_schema_min_rejects_unknown_values():
+    requirements = _requirements()
+    requirements["receipt_schema_min"] = "v3"
+    report = _evaluate(_ledger(), "nightly", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any(finding["check"] == "requirements.receipt_schema_min" for finding in report["findings"])
