@@ -8,7 +8,7 @@ import verify_evidence_sources as ves
 
 
 class FakeClient:
-    def __init__(self, *, comparison: str = "ahead", events: str = "push:\n  branches: [trunk]\n"):
+    def __init__(self, *, comparison: str = "behind", events: str = "push:\n  branches: [trunk]\n"):
         self.comparison = comparison
         self.events = events
 
@@ -63,3 +63,13 @@ def test_ordered_negative_branch_filter_can_reinclude_trusted_branch():
     events = "push:\n  branches: ['*', '!release/**', trunk]\n"
     identity = ves.verify_source("producer", SOURCE, FakeClient(events=events))
     assert identity.startswith("honua-io/producer@")
+
+
+def test_verify_manifest_checks_non_evidence_pins_too():
+    manifest = {
+        "components": {"honua-server": {"sha": "a" * 40}},
+        "evidenceSources": {"producer": SOURCE},
+        "protocolCertification": {"ledger": {"requirementsSourceRevision": "pending"}},
+    }
+    verified = ves.verify_manifest(manifest, FakeClient())
+    assert len(verified) == 1

@@ -7,12 +7,16 @@ import base64
 import fnmatch
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import trunk_reachability as tr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -114,10 +118,10 @@ def verify_source(name: str, source: dict, client: GitHubClient) -> str:
         raise VerificationError(f"{name}: producer commit did not resolve exactly to {producer_sha}")
 
     comparison = client.json(
-        f"repos/{repository}/compare/{urllib.parse.quote(producer_sha, safe='')}..."
-        f"{urllib.parse.quote(trusted_branch, safe='')}"
+        f"repos/{repository}/compare/{urllib.parse.quote(trusted_branch, safe='')}..."
+        f"{urllib.parse.quote(producer_sha, safe='')}"
     )
-    if comparison.get("status") not in {"ahead", "identical"}:
+    if comparison.get("status") not in {"behind", "identical"}:
         raise VerificationError(f"{name}: producer SHA is not on trusted branch {trusted_branch!r}")
 
     content = client.json(
@@ -151,6 +155,10 @@ def verify_source(name: str, source: dict, client: GitHubClient) -> str:
 
 
 def verify_manifest(manifest: dict, client: GitHubClient) -> list[str]:
+    try:
+        tr.verify_manifest_pins(manifest, client)
+    except tr.ReachabilityError as exc:
+        raise VerificationError(str(exc)) from exc
     sources = manifest.get("evidenceSources") or {}
     if not isinstance(sources, dict) or not sources:
         raise VerificationError("evidenceSources must be a non-empty mapping")
@@ -170,8 +178,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github-token-env", default="GITHUB_TOKEN")
     args = parser.parse_args(argv)
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
+    token = os.environ.get(args.github_token_env, "")
+    if not token and os.environ.get("GITHUB_ACTIONS") != "true":
+        print("SKIP  evidence source and trunk-reachability checks unavailable offline "
+              f"({args.github_token_env} is unset)")
+        return 0
     try:
-        client = GitHubClient(os.environ.get(args.github_token_env, ""))
+        client = GitHubClient(token)
         verified = verify_manifest(manifest, client)
     except VerificationError as exc:
         print(f"ERROR {exc}")
