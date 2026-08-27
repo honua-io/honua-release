@@ -31,6 +31,15 @@ _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTIT
             "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE",
             "HONUA_AWS_RUNNER_CIDR")
 
+TEST_SERVER_SHA = "a" * 40
+
+
+def _expected_ga(ids, excluded=None, revision=TEST_SERVER_SHA):
+    expected = {"expectedGa": ids, "excluded": excluded or [], "sourceSnapshot": {}}
+    if revision is not None:
+        expected["sourceSnapshot"]["deploymentRevision"] = revision
+    return expected
+
 
 # ---- canonical checks: result normalisation -------------------------------------------------------
 def _fetcher(routes):
@@ -117,7 +126,7 @@ def test_geoprocessing_catalog():
 
 
 def test_capability_manifest_pass_unauthenticated():
-    expected = {"expectedGa": ["a.one", "a.two"], "excluded": [{"id": "b.gated", "reason": "gated"}]}
+    expected = _expected_ga(["a.one", "a.two"], [{"id": "b.gated", "reason": "gated"}])
     body = json.dumps({
         "schemaVersion": "honua.capability_manifest.v1",
         "capabilities": [
@@ -127,20 +136,62 @@ def test_capability_manifest_pass_unauthenticated():
         ],
     })
     r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-                                     expected=expected)
+                                     expected=expected, frozen_server_sha=TEST_SERVER_SHA)
     assert r.status == "pass"
     assert r.evidence["expectedGaCount"] == 2
     assert r.evidence["availableCountUnauthenticated"] == 1
 
 
+def test_capability_manifest_revision_match_passes():
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    r = cc.check_capability_manifest(
+        "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
+        expected=_expected_ga([]), frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
+    assert r.status == "pass"
+
+
+def test_capability_manifest_revision_mismatch_fails_strict_blocks_bootstrap():
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    expected = _expected_ga([], revision="b" * 40)
+
+    strict = cc.check_capability_manifest(
+        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
+    bootstrap = cc.check_capability_manifest(
+        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA, enforcement="bootstrap")
+
+    assert strict.status == "fail"
+    assert bootstrap.status == "blocked"
+    for result in (strict, bootstrap):
+        assert "b" * 40 in result.why
+        assert TEST_SERVER_SHA in result.why
+        assert "honua-release#183" in result.why
+
+
+def test_capability_manifest_missing_snapshot_revision_fails_closed():
+    body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+
+    strict = cc.check_capability_manifest(
+        "http://x", fetch, expected=_expected_ga([], revision=None),
+        frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
+    bootstrap = cc.check_capability_manifest(
+        "http://x", fetch, expected=_expected_ga([], revision=None),
+        frozen_server_sha=TEST_SERVER_SHA, enforcement="bootstrap")
+
+    assert strict.status == "fail"
+    assert bootstrap.status == "blocked"
+    assert "sourceSnapshot.deploymentRevision=None" in strict.why
+
+
 def test_capability_manifest_fail_on_missing_or_unsupported_id():
-    expected = {"expectedGa": ["a.one", "a.missing"], "excluded": []}
+    expected = _expected_ga(["a.one", "a.missing"])
     body = json.dumps({
         "schemaVersion": "honua.capability_manifest.v1",
         "capabilities": [{"id": "a.one", "supported": False, "available": False}],
     })
     r = cc.check_capability_manifest("http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
-                                     expected=expected)
+                                     expected=expected, frozen_server_sha=TEST_SERVER_SHA)
     assert r.status == "fail"
     assert "a.missing" in r.why
 
@@ -188,25 +239,28 @@ def test_capability_manifest_blocked_when_expected_ga_file_missing(monkeypatch):
 
 
 def test_capability_manifest_authenticated_asserts_available():
-    expected = {"expectedGa": ["a.one"], "excluded": []}
+    expected = _expected_ga(["a.one"])
     unauth_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
                               "capabilities": [{"id": "a.one", "supported": True, "available": False}]})
     auth_ok_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1",
                                "capabilities": [{"id": "a.one", "supported": True, "available": True}]})
     fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
     auth_fetch_ok = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_ok_body))])
-    r = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_ok)
+    r = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_ok,
+                                     frozen_server_sha=TEST_SERVER_SHA)
     assert r.status == "pass" and r.evidence["authenticated"] is True
 
     auth_fetch_stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, unauth_body))])
-    r2 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_stale)
+    r2 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_stale,
+                                      frozen_server_sha=TEST_SERVER_SHA)
     assert r2.status == "fail" and "available=true when authenticated" in r2.why
 
     # An expected-GA id entirely OMITTED from the authenticated manifest (not just present-but-
     # unavailable) must also fail, not silently drop out of the `unavailable` list.
     auth_omitted_body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     auth_fetch_omitted = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, auth_omitted_body))])
-    r3 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_omitted)
+    r3 = cc.check_capability_manifest("http://x", fetch, expected=expected, authenticated_fetch=auth_fetch_omitted,
+                                      frozen_server_sha=TEST_SERVER_SHA)
     assert r3.status == "fail" and "a.one" in r3.why and "available=true when authenticated" in r3.why
 
 
