@@ -395,7 +395,19 @@ components:
     #                  `Publish artifacts PR + gate strict validation`
     # Neither is triaged here. `Integration + Conformance` is a real product lane and must be resolved
     # or explicitly excused before this sha is certified — it is NOT covered by any existing excuse.
-    sha: "9f859b2938a049875b188b3b6aea00e463887198"   # branch: trunk HEAD (2 red lanes, see above)
+    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429 (trunk HEAD), to carry honua-sdk-js#1524 "alerts
+    # edition gating + truthful integration evidence": the Pro Vitest pass now APPENDS the alerts
+    # surface to integration-meta.json instead of truncating every other surface, and the
+    # shard-report merge runs under always() so the certification fragment exists on failure paths.
+    # Ancestry proven — #1524's merge commit IS this sha:
+    #   $ gh api repos/honua-io/honua-sdk-js/pulls/1524 -q .merge_commit_sha
+    #   2facb429c016e05365e30c6918d8f81300af485c   (merged=true)
+    # Census at 2facb429: 40 success, 3 skipped, 1 FAILURE — strictly better than the prior pin's 2:
+    # `Integration + Conformance` (the certification-fragment producer lane, red at 9f859b29) is now
+    # GREEN; the single remaining red is the SAME untriaged `Publish artifacts PR + gate strict
+    # validation` lane already named above. SDK Integration run 33051662692-adjacent (run
+    # 33051662004) completed success at this sha on 2026-08-27.
+    sha: "2facb429c016e05365e30c6918d8f81300af485c"   # branch: trunk HEAD (1 red lane, see above)
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).

@@ -36,7 +36,7 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     # Golden values track platform-manifest.yaml; refreshed with the 2026-08-27 working snapshot.
     assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
     assert pins["sdk-python"] == ("516c727", "manifest/frozen")
-    assert pins["sdk-js"] == ("9f859b2", "manifest/frozen")
+    assert pins["sdk-js"] == ("2facb42", "manifest/frozen")
     assert pins["server-certification"] == ("ac30266", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v1", "proposed": "v1"}
 
