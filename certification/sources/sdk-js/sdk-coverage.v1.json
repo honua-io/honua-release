@@ -4,7 +4,7 @@
   "schemaVersion": 1,
   "sdk": {
     "package": "@honua/sdk-js",
-    "version": "0.1.7-beta.0"
+    "version": "0.1.8-beta.0"
   },
   "generatedFrom": [
     "config/sdk-coverage-crosswalk.v1.json",
@@ -231,16 +231,21 @@
     },
     {
       "key": "process.geoprocessing",
-      "status": "partial",
+      "status": "covered",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
+        "HonuaClient.geoprocessing()",
+        "HonuaClient.geoprocessingRunner()",
+        "Source.protocol()",
         "discoverGeoServices()"
       ],
       "evidence": [
-        "test/geoservices-discovery.test.ts"
+        "test/contract/geoprocessing-job-run.test.ts",
+        "test/contract/geoservices-conformance.test.ts",
+        "test/geoservices-discovery.test.ts",
+        "test/process-runner.test.ts"
       ],
-      "source": "support-manifest",
-      "note": "Returns task execution and job-lifecycle metadata without starting a job or inventing a queryable Source."
+      "source": "support-manifest"
     },
     {
       "key": "raster.cloud-cog-serving",
