@@ -38,6 +38,8 @@ def main() -> None:
         (ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
     )
     jsonschema.validate(catalog, schema)
+    if catalog["receipt_schema_min"] not in {"v1", "v2"}:
+        raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:
         raise ValueError("Catalog source revisions differ from the pinned source manifest.")
     if catalog["complete"] is not True:

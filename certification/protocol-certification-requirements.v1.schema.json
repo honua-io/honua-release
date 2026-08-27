@@ -4,10 +4,11 @@
   "title": "Honua protocol certification requirements",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "revision", "complete", "scope_notes", "source_revisions", "requirements"],
+  "required": ["schema", "revision", "receipt_schema_min", "complete", "scope_notes", "source_revisions", "requirements"],
   "properties": {
     "schema": { "const": "honua.protocol-certification-requirements/v1" },
     "revision": { "type": "string", "minLength": 1 },
+    "receipt_schema_min": { "enum": ["v1", "v2"] },
     "complete": { "type": "boolean" },
     "scope_notes": { "type": "string", "minLength": 1 },
     "source_revisions": {

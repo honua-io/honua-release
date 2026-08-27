@@ -248,6 +248,7 @@ def _valid_receipt(
     requirements_revision: str | None = None,
 ) -> bool:
     receipt = cell.get("evidence_receipt")
+    receipt_schema = receipt.get("schema") if isinstance(receipt, dict) else None
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
     identity_fields = set(RECEIPT_ID_FIELDS)
@@ -281,19 +282,23 @@ def _valid_receipt(
     # supported, or a tier promotion -- moves the governed denominator without moving
     # any SHA. A receipt that binds that context must bind it truthfully; a receipt
     # that does not bind it cannot be silently accepted as if it had.
+    context_required = receipt_schema == "honua.certification-evidence-receipt/v2"
     bound_requirement_fields = tuple(
         field for field in ("maturity", "required_tier")
-        if isinstance(identity, dict) and field in identity
+        if context_required or (isinstance(identity, dict) and field in identity)
     )
     identity_fields.update(bound_requirement_fields)
-    binds_requirements_revision = (
+    binds_requirements_revision = context_required or (
         isinstance(identity, dict) and "requirements_revision" in identity
     )
     if binds_requirements_revision:
         identity_fields.add("requirements_revision")
     facets = receipt.get("facets")
     if (
-        receipt.get("schema") != "honua.certification-evidence-receipt/v1"
+        receipt_schema not in {
+            "honua.certification-evidence-receipt/v1",
+            "honua.certification-evidence-receipt/v2",
+        }
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
@@ -391,6 +396,9 @@ def evaluate(
             requirements = {}
     if requirements.get("schema") != REQUIREMENTS_SCHEMA_ID:
         fail("requirements", f"owned requirements schema must be {REQUIREMENTS_SCHEMA_ID!r}")
+    receipt_schema_min = requirements.get("receipt_schema_min")
+    if receipt_schema_min not in {"v1", "v2"}:
+        fail("requirements.receipt_schema_min", "owned requirements receipt_schema_min must be 'v1' or 'v2'")
     source_revisions = requirements.get("source_revisions", {})
     catalog_server_sha = source_revisions.get("server", {}).get("commit")
     if tier == "release" and (
@@ -676,6 +684,15 @@ def evaluate(
             fail(prefix, f"cell source_sha {raw['source_sha']!r} does not match ledger candidate")
         if not raw["addressable_by_client"]:
             continue
+        if (
+            raw["result"] == "pass"
+            and receipt_schema_min == "v2"
+            and (
+                not isinstance(evidence_receipt, dict)
+                or evidence_receipt.get("schema") != "honua.certification-evidence-receipt/v2"
+            )
+        ):
+            fail(prefix, "passing required cell requires a v2 evidence receipt when receipt_schema_min is 'v2'")
         if raw["result"] != "pass":
             fail(prefix, f"required addressable {tier} cell result is {raw['result']!r}, expected 'pass'")
 
