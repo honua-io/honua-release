@@ -143,3 +143,80 @@ def test_scans_reusable_workflows_and_composite_actions(tmp_path: Path):
     violations = pins.validate_tree(tmp_path)
 
     assert {item.path.name for item in violations} == {"caller.yml", "action.yml"}
+
+
+def test_rejects_historical_pr_only_reusable_workflow_sha(tmp_path: Path):
+    historical = "7fe27c33dd8feff4bbc28bf75c85edc06d9acd61"
+    _write(
+        tmp_path,
+        ".github/workflows/caller.yml",
+        "jobs:\n  call:\n"
+        "    uses: honua-io/honua-release/.github/workflows/"
+        f"gate-protocol-certification.yml@{historical} # v1\n",
+    )
+
+    responses = {
+        "repos/honua-io/honua-release": {"default_branch": "trunk"},
+        f"repos/honua-io/honua-release/compare/{historical}...trunk": {"status": "diverged"},
+    }
+    violations = pins.validate_tree(
+        tmp_path, check_reachability=True, gh_api=responses.__getitem__
+    )
+
+    assert len(violations) == 1
+    assert "not reachable" in violations[0].message
+    assert "Merge the reusable-workflow change" in violations[0].message
+    assert "re-pin uses:" in violations[0].message
+
+
+def test_accepts_reusable_workflow_sha_reachable_from_default_branch(tmp_path: Path):
+    reachable = "34649bbc0a0886427c2e35d40edebf2d7bdc01e3"
+    _write(
+        tmp_path,
+        ".github/workflows/caller.yml",
+        "jobs:\n  call:\n"
+        "    uses: honua-io/honua-release/.github/workflows/"
+        f"gate-protocol-certification.yml@{reachable} # v1\n",
+    )
+
+    responses = {
+        "repos/honua-io/honua-release": {"default_branch": "trunk"},
+        f"repos/honua-io/honua-release/compare/{reachable}...trunk": {"status": "ahead"},
+    }
+
+    assert pins.validate_tree(
+        tmp_path, check_reachability=True, gh_api=responses.__getitem__
+    ) == []
+
+
+def test_offline_validation_skips_same_org_reachability_api(tmp_path: Path):
+    _write(
+        tmp_path,
+        ".github/workflows/caller.yml",
+        "jobs:\n  call:\n"
+        f"    uses: honua-io/repo/.github/workflows/gate.yml@{'a' * 40} # v1\n",
+    )
+
+    def unexpected_api_call(endpoint: str) -> object:
+        raise AssertionError(f"offline validation called {endpoint}")
+
+    assert pins.validate_tree(tmp_path, gh_api=unexpected_api_call) == []
+
+
+def test_ci_reachability_check_fails_closed_when_api_is_unavailable(tmp_path: Path):
+    _write(
+        tmp_path,
+        ".github/workflows/caller.yml",
+        "jobs:\n  call:\n"
+        f"    uses: honua-io/repo/.github/workflows/gate.yml@{'a' * 40} # v1\n",
+    )
+
+    def unavailable_api(endpoint: str) -> object:
+        raise RuntimeError(f"stubbed failure for {endpoint}")
+
+    violations = pins.validate_tree(
+        tmp_path, check_reachability=True, gh_api=unavailable_api
+    )
+
+    assert len(violations) == 1
+    assert "could not verify default-branch reachability" in violations[0].message

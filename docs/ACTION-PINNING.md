@@ -8,7 +8,10 @@ retain the corresponding human-readable version in an inline comment.
 third-party dependency and runs near the start of the branch-protected `validate` job. A tag,
 branch, shortened SHA, unpinned Docker image, or missing version comment fails that job. Local
 `./.github/...` actions and reusable workflows are repository content reviewed in the same PR and
-are exempt.
+are exempt. In GitHub Actions, the gate also uses the GitHub compare API to require every
+`honua-io/.../.github/workflows/...@sha` pin to be reachable from that repository's default branch;
+local runs skip this network-only check. Merge a same-organization reusable-workflow change to its
+default branch before re-pinning callers to that merged SHA.
 
 ## Updating a pin
 
