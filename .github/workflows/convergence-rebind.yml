@@ -1,0 +1,62 @@
+name: convergence-rebind
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply the repository-side rebind changes (default is read-only PLAN)"
+        required: true
+        type: boolean
+        default: false
+      receipt_min:
+        description: "Minimum receipt schema"
+        required: true
+        type: choice
+        default: keep
+        options: [keep, v1, v2]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install validator dependencies
+        run: python -m pip install "jsonschema>=4.23"
+      - name: Plan convergence rebind
+        if: ${{ !inputs.apply }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/convergence_rebind.py --receipt-min '${{ inputs.receipt_min }}'
+      - name: Apply convergence rebind repository changes
+        if: ${{ inputs.apply }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/convergence_rebind.py --apply --receipt-min '${{ inputs.receipt_min }}'
+      - name: Open reviewed rebind PR
+        if: ${{ inputs.apply }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="convergence-rebind/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "Mike McDougall"
+          git config user.email "mike@honua.io"
+          git switch -c "$branch"
+          git add certification/sources certification/protocol-certification-requirements.v1.json certification/generate-protocol-requirements.py .github/workflows/pr-protocol-certification.yml .github/workflows/nightly-protocol-certification.yml .github/workflows/release-train.yml
+          git commit -m "chore(certification): apply convergence rebind"
+          git push origin "$branch"
+          gh pr create --base trunk --head "$branch" --title "chore(certification): apply convergence rebind" --body-file rebind-receipt.md
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: convergence-rebind-plan
+          path: rebind-plan.json
+          if-no-files-found: error
