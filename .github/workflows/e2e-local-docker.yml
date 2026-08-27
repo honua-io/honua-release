@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-python
-          ref: 953f2b3ba2cbb2d947b13c8ac5848cebe1860a76
+          ref: 516c727dc03cae3b6b312595a9f4bfcee5f34cad   # 2026-08-27 refresh; mirrors components.honua-sdk-python.sha
           path: _e2e-sdk-python
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -78,7 +78,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-dotnet
-          ref: a5fb6f54a34524ea19e9e635e4c6aa258aec11c5
+          ref: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6   # 2026-08-27 refresh; mirrors components.honua-sdk-dotnet.sha
           path: _e2e-sdk-dotnet
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -93,10 +93,13 @@ jobs:
           python - <<'PY'
           import yaml
           components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
+          # Advanced by the 2026-08-27 working-snapshot refresh. Only the SHAs move: the versions are
+          # published package coordinates and are deliberately unchanged (no new packages were cut),
+          # which is also why the npm/NuGet install lines below still name 0.1.7-beta.0 and 1.6.0.
           expected = {
-              "honua-sdk-js": ("7cb892e2de43c4bfbb80d20868fcdbfc4340bdb6", "0.1.7-beta.0"),
-              "honua-sdk-python": ("953f2b3ba2cbb2d947b13c8ac5848cebe1860a76", "0.1.10"),
-              "honua-sdk-dotnet": ("a5fb6f54a34524ea19e9e635e4c6aa258aec11c5", "1.6.0"),
+              "honua-sdk-js": ("9f859b2938a049875b188b3b6aea00e463887198", "0.1.7-beta.0"),
+              "honua-sdk-python": ("516c727dc03cae3b6b312595a9f4bfcee5f34cad", "0.1.10"),
+              "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
           }
           for name, (sha, version) in expected.items():
               actual = components[name]
