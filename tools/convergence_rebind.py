@@ -90,10 +90,10 @@ def load_json(root: Path, path: Path) -> Any:
     return json.loads((root / path).read_text(encoding="utf-8"))
 
 
-def manifest_value(text: str, component: str) -> str:
-    match = re.search(rf"^  {re.escape(component)}:\n(?:(?:    |      ).*\n)*?    sha: [\"']?([0-9a-f]{{40}})", text, re.MULTILINE)
+def manifest_value(text: str, component: str, field: str = "sha") -> str:
+    match = re.search(rf"^  {re.escape(component)}:\n(?:(?:    |      ).*\n)*?    {re.escape(field)}: [\"']?([^\s\"']+)", text, re.MULTILINE)
     if not match:
-        raise Finding(f"manifest target missing for components.{component}.sha")
+        raise Finding(f"manifest target missing for components.{component}.{field}")
     return match.group(1)
 
 
@@ -208,11 +208,15 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
     return plan, payloads, ledger
 
 
-def post_merge_commands() -> str:
-    return """```bash
+def post_merge_commands(root: Path = ROOT) -> str:
+    manifest = (root / MANIFEST).read_text(encoding="utf-8")
+    candidate_source_sha = checked_sha(manifest_value(manifest, "honua-server"), "candidate source SHA")
+    candidate_image_digest = manifest_value(manifest, "honua-server", "digest")
+    candidate_cut_at = scalar(manifest, "candidateCutAt")
+    return f"""```bash
 # Run after this PR is squash-merged.
 RELEASE_SHA=<THIS_PR_SQUASH_SHA>
-gh workflow run aggregate.yml --repo honua-io/honua-evidence -f requirements_source_revision="$RELEASE_SHA"
+gh workflow run aggregate.yml -R honua-io/honua-evidence -f requirements_revision="$RELEASE_SHA" -f candidate_source_sha="{candidate_source_sha}" -f candidate_image_digest="{candidate_image_digest}" -f candidate_cut_at="{candidate_cut_at}"
 # Wait for aggregation to finish, verify its ledger binds $RELEASE_SHA, then fill these exact values.
 EVIDENCE_SHA=<HONUA_EVIDENCE_AGGREGATION_COMMIT>
 LEDGER_SHA256=sha256:<HONUA_EVIDENCE_LEDGER_SHA256>
@@ -223,7 +227,7 @@ gh variable set PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION --repo honua
 ```"""
 
 
-def human(plan: dict[str, Any]) -> str:
+def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     lines = ["CONVERGENCE REBIND PLAN", "", "Vendored source pins:"]
     for row in plan["sources"]:
         lines.append(f"  {row['source']}: {row['current'][:8]} -> {row['target'][:8]} ({row['rule']})")
@@ -232,7 +236,7 @@ def human(plan: dict[str, Any]) -> str:
     for name, values in plan["bindings"].items(): lines.append(f"  {name}: {values['current']} -> {values['proposed']}")
     lines += ["", "Gate workflow pins:"]
     for pin in plan["gate_workflow_pins"]: lines.append(f"  {pin['path']}: {pin['current']} -> {pin['proposed_comment']}")
-    lines += ["", "Post-merge commands:", post_merge_commands()]
+    lines += ["", "Post-merge commands:", post_merge_commands(root)]
     return "\n".join(lines)
 
 
@@ -267,7 +271,7 @@ def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
         "",
         "The repository-side changes are complete. Ledger aggregation and variable changes remain post-merge operations:",
         "",
-        post_merge_commands(),
+        post_merge_commands(root),
         "",
     ))
     (root / "rebind-receipt.md").write_text(receipt, encoding="utf-8")
@@ -282,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan, payloads, _ = prepare(ROOT, GhCli(), args.receipt_min)
         args.plan_output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
-        print(human(plan))
+        print(human(plan, ROOT))
         if args.apply:
             apply(ROOT, plan, payloads)
             print("\nAPPLY complete. Commit/push these repository-only changes as a PR; do not update variables before squash merge.")
