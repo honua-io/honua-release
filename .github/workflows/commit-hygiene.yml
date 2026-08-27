@@ -8,4 +8,4 @@ permissions:
 
 jobs:
   commit-hygiene:
-    uses: honua-io/.github/.github/workflows/commit-hygiene.yml@3871970fac013313981a9c90feeaa0e275617abb # v1.0.0
+    uses: honua-io/.github/.github/workflows/commit-hygiene.yml@ea62ee5c632cd308e592313c381de37a0df4aea0 # v1.0.0
