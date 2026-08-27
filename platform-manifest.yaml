@@ -395,7 +395,7 @@ components:
     #                  `Publish artifacts PR + gate strict validation`
     # Neither is triaged here. `Integration + Conformance` is a real product lane and must be resolved
     # or explicitly excused before this sha is certified — it is NOT covered by any existing excuse.
-    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429 (trunk HEAD), to carry honua-sdk-js#1524 "alerts
+    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429, to carry honua-sdk-js#1524 "alerts
     # edition gating + truthful integration evidence": the Pro Vitest pass now APPENDS the alerts
     # surface to integration-meta.json instead of truncating every other surface, and the
     # shard-report merge runs under always() so the certification fragment exists on failure paths.
@@ -407,7 +407,11 @@ components:
     # GREEN; the single remaining red is the SAME untriaged `Publish artifacts PR + gate strict
     # validation` lane already named above. SDK Integration run 33051662692-adjacent (run
     # 33051662004) completed success at this sha on 2026-08-27.
-    sha: "2facb429c016e05365e30c6918d8f81300af485c"   # branch: trunk HEAD (1 red lane, see above)
+    # NOT trunk HEAD, and deliberately so: trunk is 4 commits ahead of this sha as of pinning
+    # (`gh api repos/honua-io/honua-sdk-js/compare/2facb429...trunk -q .ahead_by` -> 4). This pin
+    # names #1524's merge commit — the exact revision whose evidence was censused above — rather
+    # than chasing a moving HEAD whose lanes have not been examined.
+    sha: "2facb429c016e05365e30c6918d8f81300af485c"   # branch: trunk, #1524 merge (1 red lane, see above)
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
@@ -635,9 +639,17 @@ evidenceSources:
   sdk:
     repository: honua-io/honua-sdk-js
     workflowPath: .github/workflows/live-conformance.yml
-    # REFRESHED 2026-08-27, 7cb892e2 -> 9f859b29 — same trunk HEAD as components.honua-sdk-js.sha,
-    # carrying honua-sdk-js#1521. Carries the same two red lanes declared at that component.
-    producerSha: "9f859b2938a049875b188b3b6aea00e463887198"
+    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429 — held equal to components.honua-sdk-js.sha, which
+    # is the invariant this field has asserted since the 2026-08-27 refresh. Leaving it behind while
+    # the component advanced would make that assertion false and split the sdk-js pin set in two.
+    # This is invariant maintenance, NOT a new evidence claim, and the distinction is recorded rather
+    # than glossed: live-conformance.yml is schedule-driven, and it has NO run at either revision --
+    # its newest run is at 53a13832 (2026-08-24, schedule). The outgoing pin was equally runless, so
+    # nothing regresses here. tools/verify_evidence_sources.py passes at the new sha because what it
+    # actually requires is satisfied -- the commit resolves, `compare/2facb429...trunk` is `ahead`,
+    # and live-conformance.yml exists there declaring both trusted events [schedule,
+    # workflow_dispatch]. It does not require a workflow RUN at the producer sha.
+    producerSha: "2facb429c016e05365e30c6918d8f81300af485c"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance
