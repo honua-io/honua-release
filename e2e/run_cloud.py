@@ -158,7 +158,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         ready, readiness = _wait_for_endpoint(endpoint, fetch, attempts=_READY_ATTEMPTS,
                                               delay_seconds=_READY_DELAY_SECONDS)
         report["readiness"] = {"ready": ready, **readiness}
-        checks = run_canonical(endpoint, fetch)
+        checks = run_canonical(endpoint, fetch, enforcement="strict" if require_real else "bootstrap")
         report["checks"] = _check_dicts(checks)
         # Cloud-tier unblock (honua-release#61): the canary probe set, GENERIC mode (no service/tile id
         # configured — nothing is seeded on a bare terraform cell yet), so data-dependent probes report
@@ -231,7 +231,8 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
     # Parity vs the reference target, when one was provided.
     if reference_endpoint:
-        ref_checks = run_canonical(reference_endpoint)
+        ref_checks = run_canonical(reference_endpoint,
+                                   enforcement="strict" if require_real else "bootstrap")
         report["reference_checks"] = _check_dicts(ref_checks)
         verdict = compare(
             TargetRun("local-docker", provisioned=True, results=ref_checks),

@@ -121,7 +121,8 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
     fetch = make_fetch()
     admin_fetch = make_fetch({"X-API-Key": admin_api_key}) if admin_api_key else None
 
-    canonical = run_canonical(base, fetch, authenticated_fetch=admin_fetch)
+    canonical = run_canonical(base, fetch, authenticated_fetch=admin_fetch,
+                              frozen_server_sha=candidate_sha, enforcement="bootstrap")
     canary = canary_probes.run_canary(base, fetch, admin_fetch=admin_fetch, service_id=service_id,
                                       tile_layer_id=tile_layer_id,
                                       assert_stac_non_empty=assert_stac_non_empty,
