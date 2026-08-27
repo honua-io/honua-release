@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   certify:
-    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@34649bbc0a0886427c2e35d40edebf2d7bdc01e3 # REBIND: advance to this PR's squash SHA post-merge
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@34649bbc0a0886427c2e35d40edebf2d7bdc01e3 # v1.0.2 - trusted gate workflow (REBIND: advance to this PR squash SHA post-merge)
     with:
       matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
       matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
