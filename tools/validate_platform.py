@@ -337,6 +337,18 @@ def check_exact_candidate(manifest: dict, f: Findings) -> None:
     server = ((manifest.get("components") or {}).get("honua-server") or {})
     if not server.get("image") or not DIGEST_RE.fullmatch(str(server.get("digest", ""))):
         f.error("exact-candidate: components.honua-server requires an image and immutable digest")
+    # A trunk refSource alone proves nothing about WHICH commit was dispatched: a manifest could
+    # claim trunk while pinning (and certifying) a different build. Bind the dispatch ref to the
+    # pinned component so the source claim and the certified bytes are about the same commit.
+    ref = str(candidate.get("ref", ""))
+    server_sha = str(server.get("sha", ""))
+    if not _full_sha(ref):
+        f.error("exact-candidate: candidate.ref must be a full 40-character commit SHA")
+    elif ref != server_sha:
+        f.error(
+            "exact-candidate: candidate.ref must equal components.honua-server.sha; "
+            f"candidate.ref={ref} but the pinned server sha is {server_sha or '<missing>'}"
+        )
     for name, artifact in (manifest.get("clientArtifacts") or {}).items():
         path = f"clientArtifacts.{name}"
         if artifact.get("required", True) is False:
