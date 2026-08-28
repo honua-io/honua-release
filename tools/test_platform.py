@@ -68,6 +68,21 @@ def test_committed_manifest_matches_published_json_schema():
     Draft202012Validator(schema).validate(_real_files()[0])
 
 
+def test_exact_candidate_rejects_non_trunk_dispatched_ref_fixture():
+    manifest, matrix = _real_files()
+    fixture = vp._load_yaml(REPO_ROOT / "tools/fixtures/candidate-manifest-non-trunk.yaml")
+    manifest = copy.deepcopy(manifest)
+    manifest["candidate"] = fixture["candidate"]
+
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+
+    assert not f.ok
+    assert (
+        "exact-candidate: candidate.refSource must be 'trunk'; dispatched ref was "
+        "'release/unsafe-candidate'"
+    ) in f.errors
+
+
 def test_structure_rejects_untrusted_or_unpinned_certification_ledger():
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)

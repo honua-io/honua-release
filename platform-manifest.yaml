@@ -55,6 +55,13 @@ status: rc                             # draft | rc | released
 snapshotDate: "2026-08-27"             # working-snapshot refresh for honua-server ac30266f (see header)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
+# Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
+# honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
+# and names this ref when it is anything other than the literal `trunk`.
+candidate:
+  ref: "ac30266fbd153363bebdbed13130accc8ab0c94a"
+  refSource: "trunk"
+
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
 # deliberately blocks certification until honua-evidence publishes the exact-candidate ledger and
 # this reviewed manifest pins its immutable commit and byte digest.

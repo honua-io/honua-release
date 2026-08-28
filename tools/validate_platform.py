@@ -327,6 +327,13 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
 
 def check_exact_candidate(manifest: dict, f: Findings) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    candidate = manifest.get("candidate") or {}
+    ref_source = candidate.get("refSource")
+    if ref_source != "trunk":
+        f.error(
+            "exact-candidate: candidate.refSource must be 'trunk'; "
+            f"dispatched ref was {ref_source!r}"
+        )
     server = ((manifest.get("components") or {}).get("honua-server") or {})
     if not server.get("image") or not DIGEST_RE.fullmatch(str(server.get("digest", ""))):
         f.error("exact-candidate: components.honua-server requires an image and immutable digest")
