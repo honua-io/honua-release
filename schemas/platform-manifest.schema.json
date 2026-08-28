@@ -3,10 +3,19 @@
   "$id": "https://honua.io/schemas/platform-manifest.schema.json",
   "title": "Honua platform manifest",
   "type": "object",
-  "required": ["platformRelease", "status", "protocolCertification", "components", "clientArtifacts", "evidenceSources"],
+  "required": ["platformRelease", "status", "candidate", "protocolCertification", "components", "clientArtifacts", "evidenceSources"],
   "properties": {
     "platformRelease": {"type": "string", "minLength": 1},
     "status": {"enum": ["draft", "rc", "released"]},
+    "candidate": {
+      "type": "object",
+      "required": ["ref", "refSource"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/sha"},
+        "refSource": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "protocolCertification": {
       "type": "object",
       "required": ["candidateCutAt", "serverCertificationProducerSha", "ledger"],
