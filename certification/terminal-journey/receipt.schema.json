@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/terminal-journey-receipt-v1.json",
+  "title": "Honua deterministic terminal journey receipt",
+  "description": "Receipt emitted by certification/terminal-journey/run.py for evidence key release.e2e.terminal-zero-to-map. Binds the exact candidate pins consumed by the run to a per-stage outcome for all eight numbered journey stages. A stage that cannot execute is 'blocked' and names its missing dependency; it is never 'pass' and there is no skip state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "receiptSchema",
+    "evidenceKey",
+    "generatedAt",
+    "mode",
+    "target",
+    "status",
+    "release",
+    "clientArtifacts",
+    "clientWorkspace",
+    "server",
+    "fixtureRevision",
+    "configRevision",
+    "authPolicyRevision",
+    "roster",
+    "stages",
+    "notices",
+    "linkedEvidence"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "receiptSchema": {"const": "terminal-journey-receipt-v1"},
+    "evidenceKey": {"const": "release.e2e.terminal-zero-to-map"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+
+    "mode": {
+      "description": "'build' materializes the stage contract without contacting a target. 'live' executes the deterministic probes against the configured target.",
+      "enum": ["build", "live"]
+    },
+
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "configPath", "configSha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["none", "local-docker", "aws-ecs"]},
+        "configPath": {"type": ["string", "null"]},
+        "configSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "baseUrl": {"type": ["string", "null"]},
+        "composeProject": {"type": ["string", "null"]}
+      }
+    },
+
+    "status": {"enum": ["pass", "fail", "blocked"]},
+
+    "release": {"type": "string", "minLength": 1},
+
+    "clientArtifacts": {
+      "description": "Exact #136 clientArtifacts pins consumed by this run. Field set and value types are byte-compatible with tools/terminal_model_canary.py's exact-equality candidate check; do not add keys here.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["package", "version", "integrity", "digest", "sourceSha"],
+        "properties": {
+          "package": {"type": "string", "minLength": 1},
+          "version": {"type": "string", "minLength": 1},
+          "integrity": {"type": ["string", "null"]},
+          "digest": {"type": ["string", "null"]},
+          "sourceSha": {"anyOf": [{"$ref": "#/$defs/sha1"}, {"type": "null"}]}
+        }
+      }
+    },
+
+    "clientWorkspace": {
+      "description": "Proof of how the pinned client artifacts were consumed. The driver resolves published bytes from the registry and verifies them against the manifest integrity pin. Checkout, workspace, regenerated and floating-npx sources are rejected by #136 and cannot appear here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "resolved", "commandSurface", "installNotes"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "blocked"]},
+        "installNotes": {
+          "description": "Any deviation applied while making the verified bytes runnable. Deviations may only affect resolution mechanics, never which bytes are used.",
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "source": {
+          "description": "Only published registry bytes are a legal source for a release receipt.",
+          "const": "published-registry-bytes"
+        },
+        "root": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]},
+        "resolved": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "package", "version", "ecosystem", "integrityVerified", "tarballSha256", "bin"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "package": {"type": "string", "minLength": 1},
+              "version": {"type": "string", "minLength": 1},
+              "ecosystem": {"enum": ["npm", "pypi", "nuget"]},
+              "registryUrl": {"type": ["string", "null"]},
+              "integrityVerified": {"type": "boolean"},
+              "tarballSha256": {"$ref": "#/$defs/sha256"},
+              "bin": {
+                "description": "Executable names actually shipped by the published bytes, mapped to their in-package entry point.",
+                "type": "object",
+                "additionalProperties": {"type": "string"}
+              }
+            }
+          }
+        },
+        "commandSurface": {
+          "description": "Per required terminal command, whether the pinned bytes actually provide it. A declared manifest target that ships no executable is recorded absent, and every stage needing it is blocked.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "requiredBy", "status", "providedBy"],
+            "properties": {
+              "command": {"type": "string", "minLength": 1},
+              "requiredBy": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 1, "maximum": 8},
+                "uniqueItems": true
+              },
+              "status": {"enum": ["present", "absent"]},
+              "providedBy": {"type": ["string", "null"]},
+              "detail": {"type": ["string", "null"]}
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "pass"}}, "required": ["status"]},
+          "then": {"properties": {"resolved": {"minItems": 1}}}
+        }
+      ]
+    },
+
+    "server": {
+      "description": "Exact candidate server pins. Field set is byte-compatible with the canary's exact-equality check; do not add keys here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceSha", "image"],
+      "properties": {
+        "sourceSha": {"$ref": "#/$defs/sha1"},
+        "image": {"type": "string", "minLength": 1}
+      }
+    },
+
+    "fixtureRevision": {"type": "string", "minLength": 1},
+    "configRevision": {"type": "string", "minLength": 1},
+    "authPolicyRevision": {"type": "string", "minLength": 1},
+
+    "roster": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "blocked"]}
+      }
+    },
+
+    "stages": {
+      "description": "All eight numbered journey stages, always materialized in order. A short receipt is not a passing receipt.",
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/stage"},
+      "uniqueItems": true
+    },
+
+    "failure": {
+      "description": "Set whenever status is 'fail'. Names the numbered stage and the exact command or tool that broke, so a failure identifies a broken contract rather than a flaky run.",
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["number", "stage", "command", "check", "detail"],
+          "properties": {
+            "number": {"type": "integer", "minimum": 1, "maximum": 8},
+            "stage": {"type": "string", "minLength": 1},
+            "command": {"type": "string", "minLength": 1},
+            "check": {"type": "string", "minLength": 1},
+            "detail": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+
+    "notices": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+
+    "linkedEvidence": {
+      "description": "Sibling receipts are linked by identity only. Neither implementation is embedded here, and neither can substitute for this lane's own stages.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["awsProvisioning", "genuineModelCanary"],
+      "properties": {
+        "awsProvisioning": {"const": "honua-release#129"},
+        "genuineModelCanary": {"const": "honua-release#161"}
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "description": "A green receipt requires every stage green.",
+      "if": {"properties": {"status": {"const": "pass"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "stages": {"items": {"properties": {"status": {"const": "pass"}}}},
+          "clientWorkspace": {"properties": {"status": {"const": "pass"}}},
+          "failure": {"type": "null"}
+        }
+      }
+    },
+    {
+      "description": "A failing receipt must name the numbered stage and command that failed.",
+      "if": {"properties": {"status": {"const": "fail"}}, "required": ["status"]},
+      "then": {"required": ["failure"], "properties": {"failure": {"type": "object"}}}
+    },
+    {
+      "description": "Build mode never contacts a target and therefore can never report pass.",
+      "if": {"properties": {"mode": {"const": "build"}}, "required": ["mode"]},
+      "then": {
+        "properties": {
+          "status": {"enum": ["blocked", "fail"]},
+          "target": {"properties": {"kind": {"const": "none"}}}
+        }
+      }
+    }
+  ],
+
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "source", "freshness", "completeness"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "source": {
+          "description": "'harness-build' is a contract materialization, not an observation. Live observations are attributed to the target that produced them.",
+          "enum": ["harness-build", "live-local-docker", "live-aws-ecs"]
+        },
+        "freshness": {"enum": ["unverified", "stale", "verified-current"]},
+        "completeness": {"enum": ["incomplete", "partial", "complete"]},
+        "observedAt": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+
+    "check": {
+      "description": "One deterministic probe. Fixed command or tool call, no model in the loop, so a failure names a broken contract.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "invocation", "status", "detail"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["http", "cli", "mcp-tool", "compose", "artifact"]},
+        "invocation": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pass", "fail", "blocked"]},
+        "detail": {"type": "string"},
+        "blockedBy": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "description": "A blocked check must name what is missing.",
+          "if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]},
+          "then": {"required": ["blockedBy"], "properties": {"blockedBy": {"minItems": 1}}}
+        }
+      ]
+    },
+
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "number",
+        "stage",
+        "command",
+        "status",
+        "blockedBy",
+        "checks",
+        "operationId",
+        "policyDecisionId",
+        "approvalId",
+        "actuatorId",
+        "verificationId",
+        "evidence"
+      ],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1, "maximum": 8},
+        "stage": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "status": {
+          "description": "There is deliberately no skip state. A stage that cannot run is blocked and names its dependency.",
+          "enum": ["pass", "fail", "blocked"]
+        },
+        "blockedBy": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "operationId": {"type": ["string", "null"]},
+        "policyDecisionId": {"type": ["string", "null"]},
+        "approvalId": {"type": ["string", "null"]},
+        "actuatorId": {"type": ["string", "null"]},
+        "verificationId": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      },
+      "allOf": [
+        {
+          "description": "A blocked stage must name at least one missing upstream dependency.",
+          "if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]},
+          "then": {"properties": {"blockedBy": {"minItems": 1}}}
+        },
+        {
+          "description": "A passing stage carries no outstanding blocker, ran at least one real probe, and its evidence is current and complete. This is the exact shape tools/terminal_model_canary.py requires before a model may run.",
+          "if": {"properties": {"status": {"const": "pass"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "blockedBy": {"maxItems": 0},
+              "checks": {"minItems": 1, "items": {"properties": {"status": {"const": "pass"}}}},
+              "evidence": {
+                "properties": {
+                  "source": {"enum": ["live-local-docker", "live-aws-ecs"]},
+                  "freshness": {"const": "verified-current"},
+                  "completeness": {"const": "complete"}
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "A harness build is never a current, complete observation.",
+          "if": {
+            "properties": {"evidence": {"properties": {"source": {"const": "harness-build"}}, "required": ["source"]}},
+            "required": ["evidence"]
+          },
+          "then": {
+            "properties": {
+              "status": {"enum": ["blocked", "fail"]},
+              "evidence": {
+                "properties": {
+                  "freshness": {"const": "unverified"},
+                  "completeness": {"const": "incomplete"}
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
