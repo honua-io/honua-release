@@ -461,8 +461,8 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-21-complete.10",
-        "receipt_schema_min": "v1",
+        "revision": "2026-08-29-complete.11",
+        "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (
             "Complete supported denominator generated from pinned server capability/CITE/interop assignments, "

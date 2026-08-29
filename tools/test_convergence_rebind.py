@@ -38,7 +38,7 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     assert pins["sdk-python"] == ("516c727", "manifest/frozen")
     assert pins["sdk-js"] == ("2facb42", "manifest/frozen")
     assert pins["server-certification"] == ("ac30266", "manifest/frozen")
-    assert plan["receipt_schema_min"] == {"current": "v1", "proposed": "v1"}
+    assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
 
 
 def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):

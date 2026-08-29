@@ -22,6 +22,7 @@ SHIPPED_CLIENT_VERSIONS = {
     "sdk-python": "0.1.10",
     "sdk-dotnet": "1.6.0",
 }
+UNBOUND_RECEIPT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "unbound-certification-receipt-v1.json"
 
 
 def _cell(**overrides):
@@ -1149,6 +1150,23 @@ def test_v1_receipt_fails_for_passing_required_cell_when_catalog_minimum_is_v2()
     requirements = _requirements()
     requirements["receipt_schema_min"] = "v2"
     report = _evaluate(_ledger(), "nightly", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("requires a v2 evidence receipt" in finding["why"] for finding in report["findings"])
+
+
+def test_release_rejects_unbound_receipt_fixture_when_v2_is_required():
+    cell = _cell(evidence_receipt=json.loads(UNBOUND_RECEIPT_FIXTURE.read_text(encoding="utf-8")))
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    requirements = _requirements(cell)
+    requirements["receipt_schema_min"] = "v2"
+
+    report = _evaluate(_ledger(cell), "release", requirements=requirements, now=NOW)
+
     assert report["overall_status"] == "fail"
     assert any("requires a v2 evidence receipt" in finding["why"] for finding in report["findings"])
 
