@@ -100,6 +100,35 @@ def test_every_required_manifest_pin_family_is_enumerated():
     assert any(name.startswith("evidenceSources.") for name in names)
     assert "protocolCertification.serverCertificationProducerSha" in names
     assert "protocolCertification.ledger.requirementsSourceRevision" in names
+    assert "protocolCertification.ledger.commit" in names
+
+
+def test_bound_ledger_commit_is_pinned_to_the_evidence_repository():
+    manifest = {
+        "protocolCertification": {
+            "ledger": {
+                "status": "bound",
+                "repository": "honua-io/honua-evidence",
+                "commit": "d" * 40,
+                "requirementsSourceRevision": "pending",
+            }
+        }
+    }
+    pins = tr.manifest_pins(manifest)
+    assert [p for p in pins if p.name == "protocolCertification.ledger.commit"] == [
+        tr.Pin("protocolCertification.ledger.commit", "honua-io/honua-evidence", "d" * 40)
+    ]
+
+
+def test_pending_ledger_commit_is_not_pinned():
+    manifest = {
+        "protocolCertification": {
+            "ledger": {"status": "pending", "commit": "pending"}
+        }
+    }
+    assert not [
+        p for p in tr.manifest_pins(manifest) if p.name == "protocolCertification.ledger.commit"
+    ]
 
 
 @pytest.mark.parametrize("status", ["ahead", "diverged", None])

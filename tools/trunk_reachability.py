@@ -89,6 +89,15 @@ def manifest_pins(manifest: dict) -> list[Pin]:
                 requirements_sha,
             )
         )
+    ledger_commit = str(ledger.get("commit", ""))
+    if ledger_commit and ledger_commit != "pending":
+        pins.append(
+            Pin(
+                "protocolCertification.ledger.commit",
+                str(ledger.get("repository", "honua-io/honua-evidence")),
+                ledger_commit,
+            )
+        )
     return pins
 
 
