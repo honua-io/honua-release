@@ -5,9 +5,14 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+from typing import Callable
+from urllib.parse import quote
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -15,6 +20,9 @@ DOCKER_DIGEST = re.compile(r"^docker://[^\s@]+@sha256:[0-9a-f]{64}$")
 VERSION_COMMENT = re.compile(r"^v[0-9]+(?:\.[0-9]+)*(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)")
 DOCKER_VERSION_COMMENT = re.compile(r"^(?:v)?[0-9]+(?:\.[0-9]+)+(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)")
 USES_LINE = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<value>.+?)\s*$")
+SAME_ORG_REUSABLE_WORKFLOW = re.compile(
+    r"^(?P<repository>honua-io/[^/]+)/\.github/workflows/[^@]+$", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -134,7 +142,81 @@ def _prevails(counts: Counter[str], value: str) -> bool:
     return len(prevailing) == 1 and prevailing[0] == value
 
 
-def validate_tree(root: Path) -> list[Violation]:
+def _gh_api(endpoint: str) -> object:
+    """Return one GitHub API response through the authenticated ``gh`` CLI."""
+
+    result = subprocess.run(
+        ["gh", "api", endpoint], capture_output=True, text=True, check=False
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(f"gh api {endpoint}: {detail}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"gh api {endpoint}: response was not valid JSON") from error
+
+
+def _reachability_violations(
+    pins: list[tuple[Path, int, str, str, str]], gh_api: Callable[[str], object]
+) -> list[Violation]:
+    """Verify same-organization reusable workflows are ancestors of their default branch."""
+
+    repositories: dict[str, str] = {}
+    comparisons: dict[tuple[str, str], str] = {}
+    violations: list[Violation] = []
+    for path, line, action, ref, _ in pins:
+        match = SAME_ORG_REUSABLE_WORKFLOW.fullmatch(action)
+        if not match:
+            continue
+        repository = match.group("repository")
+        try:
+            if repository not in repositories:
+                metadata = gh_api(f"repos/{repository}")
+                default_branch = metadata.get("default_branch") if isinstance(metadata, dict) else None
+                if not isinstance(default_branch, str) or not default_branch:
+                    raise RuntimeError(f"repos/{repository}: response omitted default_branch")
+                repositories[repository] = default_branch
+
+            key = (repository, ref)
+            if key not in comparisons:
+                default_branch = repositories[repository]
+                comparison = gh_api(
+                    f"repos/{repository}/compare/{quote(ref, safe='')}..."
+                    f"{quote(default_branch, safe='')}"
+                )
+                status = comparison.get("status") if isinstance(comparison, dict) else None
+                if not isinstance(status, str):
+                    raise RuntimeError(
+                        f"repos/{repository}: compare response omitted status"
+                    )
+                comparisons[key] = status
+        except RuntimeError as error:
+            violations.append(
+                Violation(path, line, f"could not verify default-branch reachability: {error}")
+            )
+            continue
+
+        if comparisons[(repository, ref)] not in {"ahead", "identical"}:
+            default_branch = repositories[repository]
+            violations.append(
+                Violation(
+                    path,
+                    line,
+                    f"{action}@{ref} is not reachable from {repository}'s default branch "
+                    f"'{default_branch}'. Merge the reusable-workflow change to the default "
+                    "branch, then re-pin uses: to the resulting default-branch-reachable SHA.",
+                )
+            )
+    return violations
+
+
+def validate_tree(
+    root: Path,
+    *,
+    check_reachability: bool = False,
+    gh_api: Callable[[str], object] = _gh_api,
+) -> list[Violation]:
     """Return every mutable, undocumented or misdocumented external action reference below ``root``."""
 
     violations: list[Violation] = []
@@ -154,12 +236,15 @@ def validate_tree(root: Path) -> list[Violation]:
             action, ref = value.rsplit("@", 1)
             pins.append((path, line_number, action, ref, _version_label(comment)))
     violations.extend(_consistency_violations(pins))
+    if check_reachability:
+        violations.extend(_reachability_violations(pins, gh_api))
     return sorted(violations, key=lambda item: (str(item.path), item.line))
 
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
-    violations = validate_tree(root)
+    # Network access belongs in CI only. Local/offline validation retains every static pin check.
+    violations = validate_tree(root, check_reachability=os.environ.get("GITHUB_ACTIONS") == "true")
     if violations:
         for violation in violations:
             relative = violation.path.relative_to(root)

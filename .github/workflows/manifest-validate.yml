@@ -44,6 +44,9 @@ jobs:
       # Standard-library-only and deliberately before dependency installation: a mutable action
       # reference must fail the branch-protected validate job even when no Python deps are present.
       - name: Enforce immutable GitHub Actions pins
+        env:
+          # the ancestry check queries the GitHub API through gh
+          GH_TOKEN: ${{ github.token }}
         run: python3 tools/check_action_pins.py
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

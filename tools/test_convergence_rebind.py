@@ -33,10 +33,11 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     root = fixture(tmp_path)
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     pins = {row["source"]: (row["target"][:7], row["rule"]) for row in plan["sources"]}
-    assert pins["sdk-dotnet"] == ("a5fb6f5", "manifest/frozen")
-    assert pins["sdk-python"] == ("953f2b3", "manifest/frozen")
-    assert pins["sdk-js"] == ("7cb892e", "manifest/frozen")
-    assert pins["server-certification"] == ("e3ab87c", "manifest/frozen")
+    # Golden values track platform-manifest.yaml; refreshed with the 2026-08-27 working snapshot.
+    assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
+    assert pins["sdk-python"] == ("516c727", "manifest/frozen")
+    assert pins["sdk-js"] == ("2facb42", "manifest/frozen")
+    assert pins["server-certification"] == ("ac30266", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v1", "proposed": "v1"}
 
 
@@ -49,7 +50,20 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     assert tuple(MODULE.CALLERS) == (Path(".github/workflows/pr-protocol-certification.yml"), Path(".github/workflows/nightly-protocol-certification.yml"), Path(".github/workflows/release-train.yml"))
 
 
-def test_post_merge_block_names_each_variable_exactly_once():
-    block = MODULE.post_merge_commands()
+def test_post_merge_block_has_copy_pasteable_aggregation_inputs(tmp_path):
+    root = fixture(tmp_path)
+    block = MODULE.post_merge_commands(root)
+    manifest = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
+    assert "requirements_source_revision" not in block
+    assert "-R honua-io/honua-evidence" in block
+    for flag in ("requirements_revision", "candidate_source_sha", "candidate_image_digest", "candidate_cut_at"):
+        assert block.count(f"-f {flag}=") == 1
+    assert MODULE.manifest_value(manifest, "honua-server") in block
+    assert MODULE.manifest_value(manifest, "honua-server", "digest") in block
+    assert MODULE.scalar(manifest, "candidateCutAt") in block
+
+
+def test_post_merge_block_names_each_variable_exactly_once(tmp_path):
+    block = MODULE.post_merge_commands(fixture(tmp_path))
     for name in ("PROTOCOL_CERTIFICATION_MATRIX_COMMIT", "PROTOCOL_CERTIFICATION_MATRIX_SHA256", "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION"):
         assert block.count(name) == 1

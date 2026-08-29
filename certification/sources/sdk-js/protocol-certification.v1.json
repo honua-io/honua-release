@@ -2,7 +2,7 @@
   "schema": "honua.sdk-js-protocol-certification/v1",
   "sourceRepository": "honua-io/honua-sdk-js",
   "canonicalClient": "@honua/sdk-js",
-  "clientVersion": "0.1.7-beta.0",
+  "clientVersion": "0.1.8-beta.0",
   "operations": [
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -609,6 +609,15 @@
       "capability_key": "serve.wms",
       "surface": "wms",
       "operation": "get-map",
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "alerts.evaluation",
+      "surface": "alerts",
+      "operation": "evaluation",
       "scenario_facets": [
         "positive",
         "media-schema"
