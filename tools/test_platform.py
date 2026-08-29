@@ -78,16 +78,22 @@ class StubCompareClient:
 
 
 def test_exact_candidate_rejects_historical_off_trunk_server_pin_with_origin():
-    """Regression fixture for the real e3ab87ce candidate found by PR #194."""
+    """Regression for the real e3ab87ce off-trunk candidate found by PR #194.
+
+    Stubs the manifest's CURRENT server pin as diverged rather than hardcoding
+    e3ab87ce: candidate rebinds advance that pin, and a hardcoded sha stops
+    matching any manifest pin — the stub then defaults everything to reachable
+    and the test dies of StopIteration instead of testing anything.
+    """
     manifest, matrix = _real_files()
-    historical_sha = "e3ab87cebb7bf2d32c4e8cdb145f8d626b864d8e"
+    server_sha = manifest["components"]["honua-server"]["sha"]
     client = StubCompareClient(
-        statuses={historical_sha: "diverged"},
-        branches={historical_sha: ["fix/2026.1-esri-defects"]},
+        statuses={server_sha: "diverged"},
+        branches={server_sha: ["fix/2026.1-esri-defects"]},
     )
     f = vp.validate(manifest, matrix, None, exact_candidate=True, reachability_client=client)
     error = next(e for e in f.errors if "components.honua-server.sha" in e)
-    assert historical_sha in error
+    assert server_sha in error
     assert "honua-io/honua-server" in error
     assert "fix/2026.1-esri-defects" in error
 
