@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -53,6 +54,7 @@ import trunk_reachability as tr  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
+REQUIREMENTS_PATH = REPO_ROOT / "certification" / "protocol-certification-requirements.v1.json"
 
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
@@ -92,6 +94,10 @@ class Findings:
 # --------------------------------------------------------------------------------------------------
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_yaml_at_ref(ref: str, rel_path: str) -> dict | None:
@@ -234,6 +240,29 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
 
     _check_client_artifacts(manifest.get("clientArtifacts"), f)
     _check_evidence_sources(manifest.get("evidenceSources"), f)
+
+
+def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Findings) -> None:
+    """A bound ledger may only certify the SDK producers frozen by the manifest."""
+    ledger = ((manifest.get("protocolCertification") or {}).get("ledger") or {})
+    if ledger.get("status") != "bound":
+        return
+
+    components = manifest.get("components") or {}
+    source_revisions = requirements.get("source_revisions") or {}
+    for source, component in (
+        ("sdk-dotnet", "honua-sdk-dotnet"),
+        ("sdk-python", "honua-sdk-python"),
+        ("sdk-js", "honua-sdk-js"),
+    ):
+        manifest_sha = str((components.get(component) or {}).get("sha", "")).strip()
+        catalog_sha = str((source_revisions.get(source) or {}).get("commit", "")).strip()
+        if catalog_sha != manifest_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal components.{component}.sha "
+                f"(catalog={catalog_sha or 'missing'}, manifest={manifest_sha or 'missing'})"
+            )
 
 
 def _mapping(value: object, path: str, f: Findings) -> dict:
@@ -495,11 +524,14 @@ def validate(
     baseline_matrix: dict | None,
     exact_candidate: bool = False,
     reachability_client: tr.APIClient | None = None,
+    requirements: dict | None = None,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
+    if requirements is not None:
+        check_bound_catalog_pin_coherence(manifest, requirements, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
@@ -514,12 +546,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drift", action="store_true", help="skip drift even if --baseline is given")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--matrix", default=str(MATRIX_PATH))
+    ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
     matrix = _load_yaml(Path(args.matrix))
+    requirements = _load_json(Path(args.requirements))
 
     baseline_matrix: dict | None = None
     if args.baseline and not args.no_drift:
@@ -542,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
         baseline_matrix,
         exact_candidate=args.exact_candidate,
         reachability_client=reachability_client,
+        requirements=requirements,
     )
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
