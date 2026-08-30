@@ -797,6 +797,36 @@ def test_release_server_certification_mismatch_fails():
     )
 
 
+def test_release_server_certification_frozen_pin_must_match_server_candidate():
+    divergent_sha = "f" * 40
+    cell = _cell(
+        client_lane="server-protocol-harness",
+        deployment_target="source-test-host",
+        producer_source_sha=divergent_sha,
+        image_digest=None,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["server-certification"]["commit"] = divergent_sha
+    expected = {source: SHA for source in cert.FROZEN_RELEASE_SOURCES}
+    expected["server-certification"] = divergent_sha
+
+    report = _evaluate(
+        _ledger(cell),
+        "release",
+        requirements=requirements,
+        expected_source_sha=SHA,
+        expected_component_source_shas=expected,
+        now=NOW,
+    )
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        finding["check"] == "expected_component_source_shas.server-certification"
+        and "does not match frozen server candidate" in finding["why"]
+        for finding in report["findings"]
+    )
+
+
 def test_release_requires_server_certification_sha():
     expected = {source: SHA for source in cert.FROZEN_RELEASE_SOURCES}
     del expected["server-certification"]

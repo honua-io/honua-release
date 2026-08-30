@@ -173,6 +173,43 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
 
 
+def test_convergence_rebind_is_plan_only_by_default_and_creates_one_review_pr():
+    text = (REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8")
+    assert "default: false" in text
+    assert "python tools/convergence_rebind.py --apply" in text
+    assert text.count("gh workflow run aggregate.yml") == 1
+    assert text.count("gh pr create") == 1
+    assert "--body-file rebind-receipt.md" in text
+    assert "gh variable set" not in text
+    assert "git commit --allow-empty" in text
+    assert '--ref "$correlation_ref"' in text
+    assert '--branch "$correlation_ref"' in text
+    assert "git/refs/heads/$correlation_ref" in text
+
+
+def test_convergence_activation_is_merge_bound_and_sets_all_three_variables():
+    text = (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").read_text(encoding="utf-8")
+    assert "github.event.pull_request.merged == true" in text
+    assert "github.event.pull_request.base.ref == github.event.repository.default_branch" in text
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in text
+    assert "startsWith(github.event.pull_request.head.ref, 'convergence-rebind/')" in text
+    assert "compare/${{ steps.binding.outputs.requirements_revision }}...${{ github.event.pull_request.merge_commit_sha }}" in text
+    assert "use a merge commit and refuse activation" in text
+    assert 'yaml.safe_load(open(path))["jobs"]' in text
+    assert 'ledger["candidate"] == expected_candidate' in text
+    assert 'ledger["requirements_source_revision"] == os.environ["REQUIREMENTS_REVISION"]' in text
+    assert "Merged ledger digest mismatch" in text
+    assert "trap rollback ERR" in text
+    assert 'gh variable get "$name"' in text
+    assert text.count('gh variable set "${names[$i]}"') == 2
+    for name in (
+        "PROTOCOL_CERTIFICATION_MATRIX_COMMIT",
+        "PROTOCOL_CERTIFICATION_MATRIX_SHA256",
+        "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION",
+    ):
+        assert text.count(name) == 1
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 
