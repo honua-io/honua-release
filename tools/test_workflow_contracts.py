@@ -173,6 +173,31 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
 
 
+def test_convergence_rebind_is_plan_only_by_default_and_creates_one_review_pr():
+    text = (REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8")
+    assert "default: false" in text
+    assert "python tools/convergence_rebind.py --apply" in text
+    assert text.count("gh workflow run aggregate.yml") == 1
+    assert text.count("gh pr create") == 1
+    assert "--body-file rebind-receipt.md" in text
+    assert "gh variable set" not in text
+
+
+def test_convergence_activation_is_merge_bound_and_sets_all_three_variables():
+    text = (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").read_text(encoding="utf-8")
+    assert "github.event.pull_request.merged == true" in text
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in text
+    assert "startsWith(github.event.pull_request.head.ref, 'convergence-rebind/')" in text
+    assert "compare/${{ steps.binding.outputs.requirements_revision }}...${{ github.event.pull_request.merge_commit_sha }}" in text
+    assert "refusing variable activation" in text
+    for name in (
+        "PROTOCOL_CERTIFICATION_MATRIX_COMMIT",
+        "PROTOCOL_CERTIFICATION_MATRIX_SHA256",
+        "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION",
+    ):
+        assert text.count(f"gh variable set {name}") == 1
+
+
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 
