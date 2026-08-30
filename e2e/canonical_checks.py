@@ -271,7 +271,8 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     `expected` overrides the committed file for tests; `None` loads e2e/expected-ga-manifest.json — a
     missing/malformed file reports BLOCKED, never a fake pass. Before trusting that list, its
     sourceSnapshot.deploymentRevision must equal the platform manifest's frozen honua-server SHA;
-    mismatch is BLOCKED during bootstrap and FAIL under strict cut enforcement (honua-release#183).
+    a missing or mismatched binding always FAILS, independent of enforcement mode
+    (honua-release#183).
     """
     url = endpoint.rstrip("/") + "/api/v1/capabilities/manifest"
     r = fetch(url)
@@ -307,9 +308,8 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     snapshot = expected.get("sourceSnapshot")
     snapshot_sha = snapshot.get("deploymentRevision") if isinstance(snapshot, dict) else None
     if not isinstance(snapshot_sha, str) or not snapshot_sha or not frozen_server_sha or snapshot_sha != frozen_server_sha:
-        status = "fail" if enforcement == "strict" else "blocked"
         return CheckResult(
-            "capability-manifest", status,
+            "capability-manifest", "fail",
             "expected-GA snapshot revision mismatch: "
             f"sourceSnapshot.deploymentRevision={snapshot_sha!r}, "
             f"components.honua-server.sha={frozen_server_sha!r}; "

@@ -416,6 +416,19 @@ def evaluate(
         )
     if tier == "release":
         frozen_component_shas = expected_component_source_shas or {}
+        expected_server_certification_sha = frozen_component_shas.get("server-certification")
+        if (
+            isinstance(expected_source_sha, str)
+            and SHA_RE.fullmatch(expected_source_sha)
+            and isinstance(expected_server_certification_sha, str)
+            and SHA_RE.fullmatch(expected_server_certification_sha)
+            and expected_server_certification_sha != expected_source_sha
+        ):
+            fail(
+                "expected_component_source_shas.server-certification",
+                f"frozen server-certification producer {expected_server_certification_sha!r} "
+                f"does not match frozen server candidate {expected_source_sha!r}",
+            )
         for source_name in FROZEN_RELEASE_SOURCES:
             expected_component_sha = frozen_component_shas.get(source_name)
             owned_component_sha = (source_revisions.get(source_name) or {}).get("commit")
