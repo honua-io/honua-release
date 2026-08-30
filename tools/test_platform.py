@@ -59,8 +59,40 @@ def _real_files():
 
 def test_committed_manifest_and_matrix_are_valid():
     manifest, matrix = _real_files()
-    f = vp.validate(manifest, matrix, baseline_matrix=None)
+    requirements = vp._load_json(REPO_ROOT / "certification/protocol-certification-requirements.v1.json")
+    f = vp.validate(manifest, matrix, baseline_matrix=None, requirements=requirements)
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
+
+
+def test_bound_ledger_rejects_sdk_catalog_manifest_pin_mismatch():
+    manifest, matrix = _real_files()
+    requirements = vp._load_json(REPO_ROOT / "certification/protocol-certification-requirements.v1.json")
+    requirements = copy.deepcopy(requirements)
+    requirements["source_revisions"]["sdk-python"]["commit"] = "f" * 40
+
+    f = vp.validate(manifest, matrix, baseline_matrix=None, requirements=requirements)
+
+    assert not f.ok
+    assert any(
+        "source_revisions.sdk-python.commit" in error
+        and "components.honua-sdk-python.sha" in error
+        for error in f.errors
+    )
+
+
+def test_pending_ledger_allows_catalog_manifest_pin_transition():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["protocolCertification"]["ledger"].update(
+        status="pending", commit="pending", requirementsSourceRevision="pending", sha256="pending"
+    )
+    requirements = vp._load_json(REPO_ROOT / "certification/protocol-certification-requirements.v1.json")
+    requirements = copy.deepcopy(requirements)
+    requirements["source_revisions"]["sdk-python"]["commit"] = "f" * 40
+
+    f = vp.validate(manifest, matrix, baseline_matrix=None, requirements=requirements)
+
+    assert not any("source_revisions.sdk-python.commit" in error for error in f.errors)
 
 
 class StubCompareClient:
