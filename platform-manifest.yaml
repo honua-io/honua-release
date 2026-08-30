@@ -377,48 +377,11 @@ components:
     # here is the reachable release tag rather than a registry-published one.
 
   honua-sdk-js:
-    # npm `latest` is 0.1.7-beta.0 and js-sdk-v0.1.7-beta.0 (653fd86b) is reachable from the sha
-    # below. honua-sdk-js#1321 (release-please, proposing 0.1.8-beta.0) is OPEN and CONFLICTING, and
-    # 0.1.8-beta.0 is NOT on npm — pinning it would name a package version that cannot be installed,
-    # so this re-pin takes the current PUBLISHED beta and #1321 moves it later.
-    version: "0.1.7-beta.0"            # release tag js-sdk-v0.1.7-beta.0; published on npm
-    # PIN POLICY (honua-release#102, adopted in #109): newest trunk commit whose own CI is green,
-    # not literal trunk HEAD. 9d20f0cb4 was literal HEAD at the last re-pin with FIVE red lanes on
-    # it (a paginated census -- the API default page hides them -- showed 85 check-runs, 5 failing):
-    # two `Compare browser impact routing` (sdk-js#1349), `Sweep merged PRs for stranded merge
-    # commits` (sdk-js#1345), and the `benchmark-live` / `mcp-cert-scheduled` schedules (sdk-js#1351).
-    # `release-please-ci` then surfaced as a sixth (sdk-js#1357) once the others cleared. All are on
-    # trunk now. 7cb892e2d is the newest sha carrying the last of them. Verified green:
-    #   gh api --paginate repos/honua-io/honua-sdk-js/commits/7cb892e2d.../check-runs
-    #   -> 32 success, 2 skipped, 0 failure
-    # REFRESHED 2026-08-27, 7cb892e2 -> 9f859b29 (trunk HEAD), to carry honua-sdk-js#1521 "Emit
-    # truthful protocol certification identity". Ancestry proven — #1521's merge commit IS this sha:
-    #   $ gh api repos/honua-io/honua-sdk-js/pulls/1521 -q .merge_commit_sha
-    #   9f859b2938a049875b188b3b6aea00e463887198   (merged=true; compare -> identical)
-    # NOT GREEN — named rather than left implicit (see the header's pin-policy deviation):
-    #   $ gh api --paginate .../commits/9f859b29.../check-runs -q '.check_runs[].conclusion'
-    #   -> 35 success, 2 skipped, 2 FAILURE
-    #   failing lanes: `Integration + Conformance`
-    #                  `Publish artifacts PR + gate strict validation`
-    # Neither is triaged here. `Integration + Conformance` is a real product lane and must be resolved
-    # or explicitly excused before this sha is certified — it is NOT covered by any existing excuse.
-    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429, to carry honua-sdk-js#1524 "alerts
-    # edition gating + truthful integration evidence": the Pro Vitest pass now APPENDS the alerts
-    # surface to integration-meta.json instead of truncating every other surface, and the
-    # shard-report merge runs under always() so the certification fragment exists on failure paths.
-    # Ancestry proven — #1524's merge commit IS this sha:
-    #   $ gh api repos/honua-io/honua-sdk-js/pulls/1524 -q .merge_commit_sha
-    #   2facb429c016e05365e30c6918d8f81300af485c   (merged=true)
-    # Census at 2facb429: 40 success, 3 skipped, 1 FAILURE — strictly better than the prior pin's 2:
-    # `Integration + Conformance` (the certification-fragment producer lane, red at 9f859b29) is now
-    # GREEN; the single remaining red is the SAME untriaged `Publish artifacts PR + gate strict
-    # validation` lane already named above. SDK Integration run 33051662692-adjacent (run
-    # 33051662004) completed success at this sha on 2026-08-27.
-    # NOT trunk HEAD, and deliberately so: trunk is 4 commits ahead of this sha as of pinning
-    # (`gh api repos/honua-io/honua-sdk-js/compare/2facb429...trunk -q .ahead_by` -> 4). This pin
-    # names #1524's merge commit — the exact revision whose evidence was censused above — rather
-    # than chasing a moving HEAD whose lanes have not been examined.
-    sha: "2facb429c016e05365e30c6918d8f81300af485c"   # branch: trunk, #1524 merge (1 red lane, see above)
+    # Exact published release from honua-sdk-js#1537. The skipped 0.1.8-beta.0 coordinate was never
+    # published; 0.1.9-beta.0 is registry-installable and its release tag resolves to the sha below.
+    version: "0.1.9-beta.0"            # release tag js-sdk-v0.1.9-beta.0; published on npm
+    # npm registry gitHead and the immutable js-sdk-v0.1.9-beta.0 tag both resolve to this commit.
+    sha: "c99e71197dd940ed952aecb024c6de273456f2ae"   # release tag js-sdk-v0.1.9-beta.0
     artifact: "npm:@honua/sdk-js"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
@@ -532,7 +495,7 @@ components:
 # Customer-installable certification inputs. These are package bytes, not deployable platform
 # components: BOM and upgrade tools intentionally continue to iterate only `components`.
 #
-# 2026-08-27 REFRESH — NOTHING IN THIS BLOCK MOVES, AND THAT IS THE CORRECT OUTCOME, NOT AN OMISSION.
+# 2026-08-29 REFRESH — ONLY THE SDK-JS ARTIFACT MOVES FOR HONUA-RELEASE#206.
 # `sourceSha` here does NOT mean "current source revision"; it means "the commit the PUBLISHED BYTES
 # were built from". Advancing it in step with `components.*.sha` would assert that already-published,
 # immutable artifacts came from commits that postdate them — a false provenance claim about bytes
@@ -541,15 +504,11 @@ components:
 # manifest being honest. The file already models the split — components.honua-sdk-js.sha has moved
 # four times while this block's sourceSha has not.
 #
-# Each pin was re-verified against the actual publish provenance on 2026-08-27:
-#   honua-sdk-js         653fd86b = tag js-sdk-v0.1.7-beta.0 -> commit 653fd86b        MATCHES
+# Each pin was re-verified against the actual publish provenance on 2026-08-29:
+#   honua-sdk-js         c99e7119 = tag js-sdk-v0.1.9-beta.0 -> commit c99e7119        MATCHES
 #   honua-mcp-server     ac29d160 = npm registry gitHead for 0.1.4-beta.0              MATCHES
 #   honua-sdk-python-wheel e28c67c8 = tag python-sdk-v0.1.10 -> commit e28c67c8        MATCHES
 #   honua-sdk-dotnet     a88a7fbb = annotated tag dotnet-sdk-v1.6.0 -> commit a88a7fbb MATCHES
-# (One nuance recorded rather than smoothed over: npm reports gitHead 2327a2a6 for @honua/sdk-js
-#  0.1.7-beta.0, which is the publish commit, while this pin names the release-tag commit 653fd86b —
-#  the convention the surrounding comments already use. Flagged, not silently reconciled.)
-#
 # DRIFT FOUND WHILE VERIFYING, DELIBERATELY NOT ACTED ON HERE: newer versions of two of these ARE now
 # published — @honua/mcp-server 0.1.8-beta.0 (npm, 2026-08-26T20:00:08Z, gitHead 883302cc) and
 # honua-sdk 0.1.11 (PyPI, 2026-08-21). Advancing either requires re-reading its integrity/digest from
@@ -558,12 +517,12 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.1.7-beta.0"
-    integrity: "sha512-e2NwOqg5rv4jDzyXFc8dTzOBYvkfd/gugzPNOpBZTbgJgA5o+dtP/uc6kSLqPu8IfcfhtGDrp/ptICxYnB2udg=="
+    version: "0.1.9-beta.0"
+    integrity: "sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "653fd86be0ebea023af930e352a15f6b4180f2ee"
+    sourceSha: "c99e71197dd940ed952aecb024c6de273456f2ae"
     publicationState: published
-    targets: [node, browser]
+    targets: [node, browser, honua-cli, honua-admin]
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
@@ -572,7 +531,7 @@ clientArtifacts:
     repository: honua-io/honua-sdk-js
     sourceSha: "ac29d1601f499ebd9b099fd4629b0997fdc81f1f"
     publicationState: published
-    targets: [node, honua-cli, honua-admin, honua-mcp-proxy]
+    targets: [node, honua-mcp-proxy]
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: honua-sdk
@@ -646,17 +605,17 @@ evidenceSources:
   sdk:
     repository: honua-io/honua-sdk-js
     workflowPath: .github/workflows/live-conformance.yml
-    # REFRESHED 2026-08-27, 9f859b29 -> 2facb429 — held equal to components.honua-sdk-js.sha, which
+    # REFRESHED 2026-08-29, 2facb429 -> c99e7119 — held equal to components.honua-sdk-js.sha, which
     # is the invariant this field has asserted since the 2026-08-27 refresh. Leaving it behind while
     # the component advanced would make that assertion false and split the sdk-js pin set in two.
     # This is invariant maintenance, NOT a new evidence claim, and the distinction is recorded rather
     # than glossed: live-conformance.yml is schedule-driven, and it has NO run at either revision --
     # its newest run is at 53a13832 (2026-08-24, schedule). The outgoing pin was equally runless, so
     # nothing regresses here. tools/verify_evidence_sources.py passes at the new sha because what it
-    # actually requires is satisfied -- the commit resolves, `compare/2facb429...trunk` is `ahead`,
+    # actually requires is satisfied -- the commit resolves, `compare/c99e7119...trunk` is `ahead`,
     # and live-conformance.yml exists there declaring both trusted events [schedule,
     # workflow_dispatch]. It does not require a workflow RUN at the producer sha.
-    producerSha: "2facb429c016e05365e30c6918d8f81300af485c"
+    producerSha: "c99e71197dd940ed952aecb024c6de273456f2ae"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

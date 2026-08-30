@@ -23,7 +23,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "2facb429c016e05365e30c6918d8f81300af485c"
+      "commit": "c99e71197dd940ed952aecb024c6de273456f2ae"
     },
     "esri-compat": {
       "repository": "honua-io/honua-esri-compat",
@@ -258,7 +258,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -269,7 +269,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -281,7 +281,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -292,7 +292,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -304,7 +304,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -315,7 +315,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -327,7 +327,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -338,7 +338,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -350,7 +350,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -361,7 +361,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -373,7 +373,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -384,7 +384,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -396,7 +396,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -407,7 +407,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -444,7 +444,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -455,7 +455,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -467,7 +467,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -478,7 +478,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -605,7 +605,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -616,7 +616,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1086,7 +1086,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1097,7 +1097,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1132,7 +1132,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1143,7 +1143,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1155,7 +1155,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1166,7 +1166,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1178,7 +1178,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1189,7 +1189,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1339,7 +1339,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1350,7 +1350,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1362,7 +1362,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1373,7 +1373,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1385,7 +1385,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1396,7 +1396,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -1408,7 +1408,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1419,7 +1419,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -26451,7 +26451,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -26462,7 +26462,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -26474,7 +26474,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -26485,7 +26485,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -27861,7 +27861,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27872,7 +27872,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -27884,7 +27884,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27895,7 +27895,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -27907,7 +27907,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27918,7 +27918,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -27999,7 +27999,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28010,7 +28010,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -28022,7 +28022,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28033,7 +28033,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -28045,7 +28045,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28056,7 +28056,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -33226,7 +33226,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33238,7 +33238,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -33250,7 +33250,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -33262,7 +33262,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -33274,7 +33274,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33285,7 +33285,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -33297,7 +33297,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33309,7 +33309,7 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -34040,7 +34040,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34051,7 +34051,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -34155,7 +34155,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34166,7 +34166,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -34178,7 +34178,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34189,7 +34189,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -34247,7 +34247,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34258,7 +34258,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36531,7 +36531,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36542,7 +36542,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36577,7 +36577,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36588,7 +36588,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36600,7 +36600,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36611,7 +36611,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36623,7 +36623,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36634,7 +36634,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36672,7 +36672,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36683,7 +36683,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36695,7 +36695,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36706,7 +36706,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36764,7 +36764,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36775,7 +36775,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36787,7 +36787,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36798,7 +36798,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36810,7 +36810,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36821,7 +36821,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36833,7 +36833,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36844,7 +36844,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36931,7 +36931,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36943,7 +36943,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36955,7 +36955,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36967,7 +36967,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -36979,7 +36979,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36991,7 +36991,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37003,7 +37003,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37015,7 +37015,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37152,7 +37152,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37163,7 +37163,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37175,7 +37175,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37186,7 +37186,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37373,7 +37373,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37384,7 +37384,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37419,7 +37419,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37430,7 +37430,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37442,7 +37442,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37453,7 +37453,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37465,7 +37465,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37476,7 +37476,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37488,7 +37488,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37499,7 +37499,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -37511,7 +37511,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37522,7 +37522,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44117,7 +44117,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44128,7 +44128,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44140,7 +44140,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44151,7 +44151,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44163,7 +44163,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44174,7 +44174,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44186,7 +44186,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44197,7 +44197,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44209,7 +44209,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -44221,7 +44221,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44233,7 +44233,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44245,7 +44245,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44257,7 +44257,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -44269,7 +44269,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44353,7 +44353,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44401,7 +44401,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44412,7 +44412,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44562,7 +44562,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44573,7 +44573,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44585,7 +44585,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44596,7 +44596,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44608,7 +44608,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44619,7 +44619,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44631,7 +44631,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44642,7 +44642,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44723,7 +44723,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44734,7 +44734,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44746,7 +44746,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44757,7 +44757,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44792,7 +44792,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44803,7 +44803,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44815,7 +44815,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44826,7 +44826,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44861,7 +44861,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44872,7 +44872,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44953,7 +44953,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -44964,7 +44964,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -44976,7 +44976,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44988,7 +44988,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45046,7 +45046,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45057,7 +45057,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45069,7 +45069,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45080,7 +45080,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45092,7 +45092,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45103,7 +45103,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45115,7 +45115,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45126,7 +45126,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45138,7 +45138,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45149,7 +45149,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45230,7 +45230,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45241,7 +45241,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45253,7 +45253,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45264,7 +45264,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45276,7 +45276,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45288,7 +45288,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45300,7 +45300,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45312,7 +45312,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45372,7 +45372,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45420,7 +45420,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45431,7 +45431,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45443,7 +45443,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45454,7 +45454,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45466,7 +45466,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45477,7 +45477,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45771,7 +45771,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45783,7 +45783,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45795,7 +45795,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45807,7 +45807,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45915,7 +45915,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45926,7 +45926,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45938,7 +45938,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45949,7 +45949,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -45961,7 +45961,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45972,7 +45972,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47255,7 +47255,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47267,7 +47267,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47279,7 +47279,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47290,7 +47290,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47302,7 +47302,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47314,7 +47314,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47326,7 +47326,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47337,7 +47337,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47349,7 +47349,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47360,7 +47360,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47372,7 +47372,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47383,7 +47383,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47806,7 +47806,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47818,7 +47818,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47830,7 +47830,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47842,7 +47842,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47854,7 +47854,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47865,7 +47865,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47877,7 +47877,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -47889,7 +47889,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47901,7 +47901,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47913,7 +47913,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -47949,7 +47949,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48066,7 +48066,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48077,7 +48077,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48089,7 +48089,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48100,7 +48100,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48282,7 +48282,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48294,7 +48294,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48306,7 +48306,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48318,7 +48318,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48330,7 +48330,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48341,7 +48341,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48377,7 +48377,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48401,7 +48401,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48412,7 +48412,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48424,7 +48424,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48435,7 +48435,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48547,7 +48547,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48559,7 +48559,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48571,7 +48571,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48583,7 +48583,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48595,7 +48595,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48607,7 +48607,7 @@
         "pagination",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48619,7 +48619,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48631,7 +48631,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48643,7 +48643,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48654,7 +48654,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48689,7 +48689,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48700,7 +48700,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48712,7 +48712,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48723,7 +48723,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48930,7 +48930,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48942,7 +48942,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -48954,7 +48954,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48966,7 +48966,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49002,7 +49002,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49013,7 +49013,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49025,7 +49025,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49036,7 +49036,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49048,7 +49048,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49059,7 +49059,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49071,7 +49071,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49082,7 +49082,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49094,7 +49094,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49105,7 +49105,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49292,7 +49292,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49303,7 +49303,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49315,7 +49315,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49326,7 +49326,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49338,7 +49338,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49349,7 +49349,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49407,7 +49407,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49418,7 +49418,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49430,7 +49430,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49442,7 +49442,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49454,7 +49454,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49466,7 +49466,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49478,7 +49478,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -49489,7 +49489,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49528,7 +49528,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49552,7 +49552,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49563,7 +49563,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49575,7 +49575,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49586,7 +49586,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49598,7 +49598,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49609,7 +49609,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49621,7 +49621,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49632,7 +49632,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49644,7 +49644,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49655,7 +49655,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49667,7 +49667,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49678,7 +49678,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49690,7 +49690,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49701,7 +49701,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49713,7 +49713,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49725,7 +49725,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49737,7 +49737,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49748,7 +49748,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49889,7 +49889,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49900,7 +49900,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49912,7 +49912,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49923,7 +49923,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -49935,7 +49935,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49946,7 +49946,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50004,7 +50004,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50016,7 +50016,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50028,7 +50028,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50039,7 +50039,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50103,7 +50103,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50254,7 +50254,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50265,7 +50265,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50277,7 +50277,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50288,7 +50288,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50300,7 +50300,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50311,7 +50311,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50323,7 +50323,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50334,7 +50334,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50392,7 +50392,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50404,7 +50404,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50416,7 +50416,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50427,7 +50427,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50463,7 +50463,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50588,7 +50588,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50599,7 +50599,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50611,7 +50611,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50622,7 +50622,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50634,7 +50634,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50645,7 +50645,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50703,7 +50703,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50715,7 +50715,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50727,7 +50727,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -50738,7 +50738,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50774,7 +50774,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK JavaScript",
       "client_lane": "js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50899,7 +50899,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "licensed-release",
       "required_tier": "release",
       "licensed": true,
@@ -50910,7 +50910,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "api-key-protected-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50922,7 +50922,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js-certification",
-      "client_version": "0.1.8-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "licensed-release",
       "required_tier": "release",
       "licensed": true,
@@ -50933,7 +50933,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-certification@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-certification@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "api-key-protected-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -50991,7 +50991,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -51002,7 +51002,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -51161,7 +51161,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -51172,7 +51172,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
@@ -51184,7 +51184,7 @@
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
-      "client_version": "0.1.7-beta.0",
+      "client_version": "0.1.9-beta.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -51195,7 +51195,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-js-coverage@2facb429c016e05365e30c6918d8f81300af485c",
+      "contract_revision": "sdk-js-coverage@c99e71197dd940ed952aecb024c6de273456f2ae",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null

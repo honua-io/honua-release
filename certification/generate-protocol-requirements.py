@@ -98,7 +98,7 @@ def main() -> None:
 
     sdk_sources = [
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
-        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.7-beta.0", "sdk-js", fixture_pins["sdk-js"]),
+        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.9-beta.0", "sdk-js", fixture_pins["sdk-js"]),
         ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
     sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
@@ -250,7 +250,7 @@ def main() -> None:
         "desktop-qgis": ("QGIS", "3.40"),
         "desktop-arcgis": ("ArcGIS Pro", "3.5"),
         "ci-desktop": ("QGIS", "3.40"),
-        "js": ("Honua SDK JavaScript", "0.1.7-beta.0"),
+        "js": ("Honua SDK JavaScript", "0.1.9-beta.0"),
         "js-cesium": ("CesiumJS", "1.132.0"),
         "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
         "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
