@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Plan or apply an atomic protocol-certification convergence rebind.
 
-PLAN is the default and does not modify tracked files.  APPLY changes only the
-reviewable repository half; ledger aggregation and repository-variable updates
-are deliberately emitted as post-merge commands because the squash SHA cannot
-exist before merge.
+PLAN is the default and does not modify tracked files. APPLY stages regenerated
+sources and the catalog. FINALIZE binds a verified evidence ledger and advances
+all reusable-workflow pins in the same review branch. Repository variables are
+activated only from the merged manifest by convergence-rebind-activate.yml.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ CALLERS = (
 )
 PIN_RE = re.compile(r"(honua-io/honua-release/\.github/workflows/gate-protocol-certification\.yml@)[0-9a-f]{40}([^\n]*)")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-REBIND_COMMENT = "# REBIND: advance to this PR's squash SHA post-merge"
+REBIND_COMMENT = "pin to the staged catalog commit in the reviewed rebind PR"
 
 # Only files that are literal upstream snapshots belong here.  The other files
 # under certification/sources are release-owned governance inputs.
@@ -102,6 +102,17 @@ def scalar(text: str, name: str) -> str:
     if not match:
         raise Finding(f"manifest value missing: {name}")
     return match.group(1)
+
+
+def replace_scalar(text: str, name: str, current: str, value: str) -> str:
+    pattern = re.compile(
+        rf"^(\s*{re.escape(name)}:\s*)([\"']?){re.escape(current)}([\"']?)(.*)$",
+        re.MULTILINE,
+    )
+    text, count = pattern.subn(lambda match: f"{match.group(1)}{match.group(2)}{value}{match.group(3)}{match.group(4)}", text)
+    if count != 1:
+        raise Finding(f"manifest value is not unique: {name}")
+    return text
 
 
 def targets(root: Path, gh: GitHub) -> tuple[dict[str, str], dict[str, str]]:
@@ -191,11 +202,11 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         "sources": changes,
         "catalog": {"path": str(CATALOG), "current_cells": len(old_catalog["requirements"]), "proposed_cells": len(new_catalog["requirements"]), "additions": added, "deletions": removed, "diff_lines": len(diff), "changed": old_catalog != new_catalog, "vendored_files_changed": vendored_changes},
         "receipt_schema_min": {"current": old_catalog["receipt_schema_min"], "proposed": receipt_min},
-        "evidence_reaggregation": {"repository": scalar(manifest, "repository"), "requirements_catalog_revision": new_catalog["revision"], "requirements_source_revision": "<THIS_PR_SQUASH_SHA>", "ledger_path": scalar(manifest, "path")},
+        "evidence_reaggregation": {"repository": scalar(manifest, "repository"), "requirements_catalog_revision": new_catalog["revision"], "requirements_source_revision": "<STAGED_CATALOG_COMMIT>", "ledger_path": scalar(manifest, "path")},
         "bindings": {
             "PROTOCOL_CERTIFICATION_MATRIX_COMMIT": {"current": scalar(manifest, "commit"), "proposed": "<HONUA_EVIDENCE_AGGREGATION_COMMIT>"},
             "PROTOCOL_CERTIFICATION_MATRIX_SHA256": {"current": scalar(manifest, "sha256"), "proposed": "sha256:<HONUA_EVIDENCE_LEDGER_SHA256>"},
-            "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION": {"current": scalar(manifest, "requirementsSourceRevision"), "proposed": "<THIS_PR_SQUASH_SHA>"},
+            "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION": {"current": scalar(manifest, "requirementsSourceRevision"), "proposed": "<STAGED_CATALOG_COMMIT>"},
         },
         "gate_workflow_pins": [{"path": str(path), "current": PIN_RE.search((root / path).read_text()).group(0), "proposed_comment": REBIND_COMMENT} for path in CALLERS],
     }
@@ -208,25 +219,6 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
     return plan, payloads, ledger
 
 
-def post_merge_commands(root: Path = ROOT) -> str:
-    manifest = (root / MANIFEST).read_text(encoding="utf-8")
-    candidate_source_sha = checked_sha(manifest_value(manifest, "honua-server"), "candidate source SHA")
-    candidate_image_digest = manifest_value(manifest, "honua-server", "digest")
-    candidate_cut_at = scalar(manifest, "candidateCutAt")
-    return f"""```bash
-# Run after this PR is squash-merged.
-RELEASE_SHA=<THIS_PR_SQUASH_SHA>
-gh workflow run aggregate.yml -R honua-io/honua-evidence -f requirements_revision="$RELEASE_SHA" -f candidate_source_sha="{candidate_source_sha}" -f candidate_image_digest="{candidate_image_digest}" -f candidate_cut_at="{candidate_cut_at}"
-# Wait for aggregation to finish, verify its ledger binds $RELEASE_SHA, then fill these exact values.
-EVIDENCE_SHA=<HONUA_EVIDENCE_AGGREGATION_COMMIT>
-LEDGER_SHA256=sha256:<HONUA_EVIDENCE_LEDGER_SHA256>
-gh variable set PROTOCOL_CERTIFICATION_MATRIX_COMMIT --repo honua-io/honua-release --body "$EVIDENCE_SHA"
-gh variable set PROTOCOL_CERTIFICATION_MATRIX_SHA256 --repo honua-io/honua-release --body "$LEDGER_SHA256"
-gh variable set PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION --repo honua-io/honua-release --body "$RELEASE_SHA"
-# Replace each REBIND placeholder in a follow-up PR with $RELEASE_SHA.
-```"""
-
-
 def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     lines = ["CONVERGENCE REBIND PLAN", "", "Vendored source pins:"]
     for row in plan["sources"]:
@@ -236,7 +228,7 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     for name, values in plan["bindings"].items(): lines.append(f"  {name}: {values['current']} -> {values['proposed']}")
     lines += ["", "Gate workflow pins:"]
     for pin in plan["gate_workflow_pins"]: lines.append(f"  {pin['path']}: {pin['current']} -> {pin['proposed_comment']}")
-    lines += ["", "Post-merge commands:", post_merge_commands(root)]
+    lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
 
@@ -246,16 +238,34 @@ def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
     if dirty:
         raise Finding("APPLY requires a clean worktree")
     for path, data in payloads.items(): (root / path).write_bytes(data)
-    for path in CALLERS:
-        text = (root / path).read_text(encoding="utf-8")
-        text, count = PIN_RE.subn(lambda match: f"{match.group(1)}{match.group(0).split('@', 1)[1][:40]} {REBIND_COMMENT}", text)
-        if count != 1: raise Finding(f"gate pin mismatch: expected exactly one pin in {path}, found {count}")
-        (root / path).write_text(text, encoding="utf-8")
     run_catalog(root, plan["receipt_schema_min"]["proposed"])
-    expected = {str(REVISIONS), str(CATALOG), "certification/generate-protocol-requirements.py", *payloads.keys(), *(str(p) for p in CALLERS)}
+    expected = {str(REVISIONS), str(CATALOG), "certification/generate-protocol-requirements.py", *payloads.keys()}
     changed = set(subprocess.run(["git", "diff", "--name-only"], cwd=root, check=True, capture_output=True, text=True).stdout.splitlines())
     unexpected = changed - expected
     if unexpected: raise Finding(f"catalog regeneration changed unplanned files: {sorted(unexpected)}")
+
+
+def finalize(root: Path, plan: dict[str, Any], requirements_revision: str, evidence_commit: str, ledger_sha256: str) -> None:
+    requirements_revision = checked_sha(requirements_revision, "requirements revision")
+    evidence_commit = checked_sha(evidence_commit, "evidence commit")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", ledger_sha256):
+        raise Finding(f"ledger sha256 is not canonical: {ledger_sha256!r}")
+    manifest_path = root / MANIFEST
+    manifest = manifest_path.read_text(encoding="utf-8")
+    bindings = plan["bindings"]
+    manifest = replace_scalar(manifest, "commit", bindings["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"], evidence_commit)
+    manifest = replace_scalar(manifest, "requirementsSourceRevision", bindings["PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION"]["current"], requirements_revision)
+    manifest = replace_scalar(manifest, "sha256", bindings["PROTOCOL_CERTIFICATION_MATRIX_SHA256"]["current"], ledger_sha256)
+    manifest_path.write_text(manifest, encoding="utf-8")
+    for path in CALLERS:
+        text = (root / path).read_text(encoding="utf-8")
+        text, count = PIN_RE.subn(lambda match: f"{match.group(1)}{requirements_revision}{match.group(2)}", text)
+        if count != 1:
+            raise Finding(f"gate pin mismatch: expected exactly one pin in {path}, found {count}")
+        (root / path).write_text(text, encoding="utf-8")
+    bindings["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["proposed"] = evidence_commit
+    bindings["PROTOCOL_CERTIFICATION_MATRIX_SHA256"]["proposed"] = ledger_sha256
+    bindings["PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION"]["proposed"] = requirements_revision
     receipt = "\n".join((
         "## Convergence rebind receipt",
         "",
@@ -269,9 +279,10 @@ def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
         "",
         f"Receipt schema minimum: `{plan['receipt_schema_min']['current']}` → `{plan['receipt_schema_min']['proposed']}`.",
         "",
-        "The repository-side changes are complete. Ledger aggregation and variable changes remain post-merge operations:",
+        "The ledger was aggregated and byte-verified before this PR was opened. This PR must be merged with a merge commit (not squash- or rebase-merged) so the staged catalog commit remains reachable from trunk. On merge, the trusted activation workflow verifies that ancestry and copies these exact three values from the merged manifest into repository variables.",
         "",
-        post_merge_commands(root),
+        "Closes #191",
+        "Refs #180 #181 #182 #187 #188",
         "",
     ))
     (root / "rebind-receipt.md").write_text(receipt, encoding="utf-8")
@@ -280,16 +291,31 @@ def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--finalize", action="store_true")
+    parser.add_argument("--requirements-revision")
+    parser.add_argument("--evidence-commit")
+    parser.add_argument("--ledger-sha256")
     parser.add_argument("--receipt-min", choices=("keep", "v1", "v2"), default="keep")
     parser.add_argument("--plan-output", type=Path, default=Path("rebind-plan.json"))
     args = parser.parse_args(argv)
     try:
+        if args.apply and args.finalize:
+            raise Finding("--apply and --finalize are mutually exclusive")
+        if args.finalize:
+            if not all((args.requirements_revision, args.evidence_commit, args.ledger_sha256)):
+                raise Finding("--finalize requires --requirements-revision, --evidence-commit, and --ledger-sha256")
+            if not args.plan_output.is_file():
+                raise Finding(f"--finalize requires the staged plan at {args.plan_output}")
+            plan = json.loads(args.plan_output.read_text(encoding="utf-8"))
+            finalize(ROOT, plan, args.requirements_revision, args.evidence_commit, args.ledger_sha256)
+            print("FINALIZE complete. Open the single reviewed rebind PR with rebind-receipt.md as its body.")
+            return 0
         plan, payloads, _ = prepare(ROOT, GhCli(), args.receipt_min)
         args.plan_output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
         print(human(plan, ROOT))
         if args.apply:
             apply(ROOT, plan, payloads)
-            print("\nAPPLY complete. Commit/push these repository-only changes as a PR; do not update variables before squash merge.")
+            print("\nAPPLY complete. Commit and push the staged catalog before evidence aggregation.")
         return 0
     except (Finding, subprocess.CalledProcessError) as exc:
         print(f"REBIND ABORTED: {exc}", file=sys.stderr)

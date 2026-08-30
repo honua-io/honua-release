@@ -18,7 +18,7 @@ REQUIREMENTS_SOURCE_SHA = "d" * 40
 DIGEST = "sha256:" + "b" * 64
 CUT = "2026-08-20T09:00:00Z"
 SHIPPED_CLIENT_VERSIONS = {
-    "sdk-js": "0.1.7-beta.0",
+    "sdk-js": "0.1.9-beta.0",
     "sdk-python": "0.1.10",
     "sdk-dotnet": "1.6.0",
 }
@@ -794,6 +794,36 @@ def test_release_server_certification_mismatch_fails():
     assert report["overall_status"] == "fail"
     assert any(
         finding["check"] == "requirements.source_revisions.server-certification.commit"
+        for finding in report["findings"]
+    )
+
+
+def test_release_server_certification_frozen_pin_must_match_server_candidate():
+    divergent_sha = "f" * 40
+    cell = _cell(
+        client_lane="server-protocol-harness",
+        deployment_target="source-test-host",
+        producer_source_sha=divergent_sha,
+        image_digest=None,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["server-certification"]["commit"] = divergent_sha
+    expected = {source: SHA for source in cert.FROZEN_RELEASE_SOURCES}
+    expected["server-certification"] = divergent_sha
+
+    report = _evaluate(
+        _ledger(cell),
+        "release",
+        requirements=requirements,
+        expected_source_sha=SHA,
+        expected_component_source_shas=expected,
+        now=NOW,
+    )
+
+    assert report["overall_status"] == "fail"
+    assert any(
+        finding["check"] == "expected_component_source_shas.server-certification"
+        and "does not match frozen server candidate" in finding["why"]
         for finding in report["findings"]
     )
 
