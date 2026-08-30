@@ -11,6 +11,7 @@ jobs:
   activate:
     if: >-
       github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'convergence-rebind/')
     runs-on: ubuntu-latest
@@ -32,8 +33,11 @@ jobs:
           assert re.fullmatch(r"sha256:[0-9a-f]{64}", values["matrix_sha256"])
           assert re.fullmatch(r"[0-9a-f]{40}", values["requirements_revision"])
           callers = [".github/workflows/pr-protocol-certification.yml", ".github/workflows/nightly-protocol-certification.yml", ".github/workflows/release-train.yml"]
-          needle = "gate-protocol-certification.yml@" + values["requirements_revision"]
-          assert all(needle in open(path).read() for path in callers)
+          expected = "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@" + values["requirements_revision"]
+          for path in callers:
+              jobs = yaml.safe_load(open(path))["jobs"]
+              pins = [job.get("uses") for job in jobs.values() if isinstance(job, dict) and "gate-protocol-certification.yml@" in str(job.get("uses", ""))]
+              assert pins == [expected], f"{path} does not have exactly one expected gate workflow pin: {pins}"
           for key, value in values.items(): print(f"{key}={value}")
           PY
       - name: Prove the staged requirements commit landed on trunk
@@ -42,12 +46,56 @@ jobs:
         run: |
           set -euo pipefail
           status="$(gh api "repos/$GITHUB_REPOSITORY/compare/${{ steps.binding.outputs.requirements_revision }}...${{ github.event.pull_request.merge_commit_sha }}" --jq .status)"
-          [ "$status" = "ahead" ] || [ "$status" = "identical" ] || { echo "::error::The rebind PR was not rebase-merged; refusing variable activation."; exit 1; }
-      - name: Activate the reviewed variables together
+          [ "$status" = "ahead" ] || [ "$status" = "identical" ] || { echo "::error::The staged commit is not in trunk history; use a merge commit and refuse activation."; exit 1; }
+      - name: Fetch and verify the merged ledger
+        env:
+          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
+          MATRIX_COMMIT: ${{ steps.binding.outputs.matrix_commit }}
+          MATRIX_SHA256: ${{ steps.binding.outputs.matrix_sha256 }}
+          REQUIREMENTS_REVISION: ${{ steps.binding.outputs.requirements_revision }}
+        run: |
+          set -euo pipefail
+          gh api "repos/honua-io/honua-evidence/contents/data/protocol-certification.v1.json?ref=$MATRIX_COMMIT" --jq .content | base64 -d > "$RUNNER_TEMP/protocol-certification.v1.json"
+          actual_sha256="sha256:$(sha256sum "$RUNNER_TEMP/protocol-certification.v1.json" | cut -d' ' -f1)"
+          [ "$actual_sha256" = "$MATRIX_SHA256" ] || { echo "::error::Merged ledger digest mismatch."; exit 1; }
+          python - <<'PY'
+          import json
+          import os
+          import yaml
+          ledger = json.load(open(os.environ["RUNNER_TEMP"] + "/protocol-certification.v1.json"))
+          manifest = yaml.safe_load(open("platform-manifest.yaml"))
+          expected_candidate = {
+              "source_sha": manifest["components"]["honua-server"]["sha"],
+              "image_digest": manifest["components"]["honua-server"]["digest"],
+              "cut_at": manifest["protocolCertification"]["candidateCutAt"],
+          }
+          assert ledger["requirements_source_revision"] == os.environ["REQUIREMENTS_REVISION"]
+          assert ledger["candidate"] == expected_candidate
+          PY
+      - name: Activate the reviewed variables with rollback
         env:
           GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
         run: |
           set -euo pipefail
-          gh variable set PROTOCOL_CERTIFICATION_MATRIX_COMMIT --repo "$GITHUB_REPOSITORY" --body '${{ steps.binding.outputs.matrix_commit }}'
-          gh variable set PROTOCOL_CERTIFICATION_MATRIX_SHA256 --repo "$GITHUB_REPOSITORY" --body '${{ steps.binding.outputs.matrix_sha256 }}'
-          gh variable set PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION --repo "$GITHUB_REPOSITORY" --body '${{ steps.binding.outputs.requirements_revision }}'
+          names=(PROTOCOL_CERTIFICATION_MATRIX_COMMIT PROTOCOL_CERTIFICATION_MATRIX_SHA256 PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION)
+          proposed=('${{ steps.binding.outputs.matrix_commit }}' '${{ steps.binding.outputs.matrix_sha256 }}' '${{ steps.binding.outputs.requirements_revision }}')
+          old=()
+          for name in "${names[@]}"; do old+=("$(gh variable get "$name" --repo "$GITHUB_REPOSITORY" --json value --jq .value)"); done
+          committed=false
+          rollback() {
+            status=$?
+            if [ "$committed" != true ]; then
+              echo "::warning::Activation failed; restoring the prior certification binding."
+              rollback_failed=false
+              for i in "${!names[@]}"; do gh variable set "${names[$i]}" --repo "$GITHUB_REPOSITORY" --body "${old[$i]}" || rollback_failed=true; done
+              [ "$rollback_failed" = false ] || echo "::error::Rollback failed; repository variables require operator repair."
+            fi
+            exit "$status"
+          }
+          trap rollback ERR
+          for i in "${!names[@]}"; do gh variable set "${names[$i]}" --repo "$GITHUB_REPOSITORY" --body "${proposed[$i]}"; done
+          for i in "${!names[@]}"; do
+            actual="$(gh variable get "${names[$i]}" --repo "$GITHUB_REPOSITORY" --json value --jq .value)"
+            [ "$actual" = "${proposed[$i]}" ] || false
+          done
+          committed=true

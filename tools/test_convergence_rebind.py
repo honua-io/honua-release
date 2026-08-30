@@ -68,6 +68,7 @@ def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path):
     receipt = (root / "rebind-receipt.md").read_text()
     for value in (requirements, evidence, digest, "Closes #191", "Refs #180 #181 #182 #187 #188"):
         assert value in receipt
+    assert "merged with a merge commit (not squash- or rebase-merged)" in receipt
 
 
 def test_finalize_rejects_noncanonical_fingerprints(tmp_path):

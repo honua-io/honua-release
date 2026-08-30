@@ -279,7 +279,7 @@ def finalize(root: Path, plan: dict[str, Any], requirements_revision: str, evide
         "",
         f"Receipt schema minimum: `{plan['receipt_schema_min']['current']}` → `{plan['receipt_schema_min']['proposed']}`.",
         "",
-        "The ledger was aggregated and byte-verified before this PR was opened. This PR must be rebase-merged so the staged catalog commit remains reachable from trunk. On merge, the trusted activation workflow verifies that ancestry and copies these exact three values from the merged manifest into repository variables.",
+        "The ledger was aggregated and byte-verified before this PR was opened. This PR must be merged with a merge commit (not squash- or rebase-merged) so the staged catalog commit remains reachable from trunk. On merge, the trusted activation workflow verifies that ancestry and copies these exact three values from the merged manifest into repository variables.",
         "",
         "Closes #191",
         "Refs #180 #181 #182 #187 #188",

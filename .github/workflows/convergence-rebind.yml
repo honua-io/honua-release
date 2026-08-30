@@ -57,7 +57,8 @@ jobs:
           git config user.email "mike@honua.io"
           git switch -c "$branch"
           git add certification/sources certification/protocol-certification-requirements.v1.json certification/generate-protocol-requirements.py
-          git commit -m "chore(certification): stage convergence catalog"
+          # An unchanged denominator still needs a distinct immutable identity.
+          git commit --allow-empty -m "chore(certification): stage convergence catalog"
           git push origin "$branch"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "requirements_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -69,18 +70,25 @@ jobs:
           REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
         run: |
           set -euo pipefail
-          before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          correlation_ref="convergence-rebind-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_head="$(gh api repos/honua-io/honua-evidence/commits/trunk --jq .sha)"
+          cleanup_ref() {
+            gh api --method DELETE "repos/honua-io/honua-evidence/git/refs/heads/$correlation_ref" >/dev/null 2>&1 || true
+          }
+          trap cleanup_ref EXIT
+          gh api --method POST repos/honua-io/honua-evidence/git/refs \
+            -f ref="refs/heads/$correlation_ref" -f sha="$evidence_head" >/dev/null
           candidate_source_sha="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]["sha"])')"
           candidate_image_digest="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]["digest"])')"
           candidate_cut_at="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["protocolCertification"]["candidateCutAt"])')"
-          gh workflow run aggregate.yml -R honua-io/honua-evidence \
+          gh workflow run aggregate.yml -R honua-io/honua-evidence --ref "$correlation_ref" \
             -f requirements_revision="$REQUIREMENTS_REVISION" \
             -f candidate_source_sha="$candidate_source_sha" \
             -f candidate_image_digest="$candidate_image_digest" \
             -f candidate_cut_at="$candidate_cut_at"
           run_id=""
           for attempt in $(seq 1 30); do
-            run_id="$(gh run list -R honua-io/honua-evidence --workflow aggregate.yml --event workflow_dispatch --created ">=$before" --limit 10 --json databaseId --jq '.[0].databaseId // empty')"
+            run_id="$(gh run list -R honua-io/honua-evidence --workflow aggregate.yml --event workflow_dispatch --branch "$correlation_ref" --limit 2 --json databaseId,headBranch --jq 'if length == 1 and .[0].headBranch == "'"$correlation_ref"'" then .[0].databaseId else empty end')"
             [ -z "$run_id" ] || break
             sleep 2
           done
