@@ -18,7 +18,7 @@ REQUIREMENTS_SOURCE_SHA = "d" * 40
 DIGEST = "sha256:" + "b" * 64
 CUT = "2026-08-20T09:00:00Z"
 SHIPPED_CLIENT_VERSIONS = {
-    "sdk-js": "0.1.7-beta.0",
+    "sdk-js": "0.1.9-beta.0",
     "sdk-python": "0.1.10",
     "sdk-dotnet": "1.6.0",
 }

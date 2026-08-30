@@ -4,7 +4,7 @@
   "schemaVersion": 1,
   "sdk": {
     "package": "@honua/sdk-js",
-    "version": "0.1.8-beta.0"
+    "version": "0.1.9-beta.0"
   },
   "generatedFrom": [
     "config/sdk-coverage-crosswalk.v1.json",

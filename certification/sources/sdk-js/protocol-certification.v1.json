@@ -2,7 +2,7 @@
   "schema": "honua.sdk-js-protocol-certification/v1",
   "sourceRepository": "honua-io/honua-sdk-js",
   "canonicalClient": "@honua/sdk-js",
-  "clientVersion": "0.1.8-beta.0",
+  "clientVersion": "0.1.9-beta.0",
   "operations": [
     {
       "capability_key": "serve.geoservices-featureserver",

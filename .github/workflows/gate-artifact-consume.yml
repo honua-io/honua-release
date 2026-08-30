@@ -293,10 +293,12 @@ jobs:
             # ESM dynamic import loads both ESM- and CJS-published packages, so this is a faithful
             # "can a consumer import it" smoke without forcing a module system the package doesn't ship.
             if PKGNAME="$PKGNAME" node --input-type=module \
-                 -e "import(process.env.PKGNAME).then(m=>{const k=Object.keys(m);if(!k.length)throw new Error('empty export');console.log('import ok:',k.slice(0,8));}).catch(e=>{console.error(e);process.exit(1);})"; then
-              STATUS=pass; WHY="installed from ${SOURCE} and imported ${PKGNAME}"
+                 -e "import(process.env.PKGNAME).then(m=>{const k=Object.keys(m);if(!k.length)throw new Error('empty export');console.log('import ok:',k.slice(0,8));}).catch(e=>{console.error(e);process.exit(1);})" \
+               && npx --no-install honua --version \
+               && npx --no-install honua admin --help; then
+              STATUS=pass; WHY="installed from ${SOURCE}, imported ${PKGNAME}, and executed honua-cli/honua-admin"
             else
-              STATUS=fail; WHY="package ${PKGNAME} installed from ${SOURCE} but import failed"
+              STATUS=fail; WHY="package ${PKGNAME} installed from ${SOURCE} but import or honua-cli/honua-admin smoke failed"
             fi
             echo "::endgroup::"
           fi
