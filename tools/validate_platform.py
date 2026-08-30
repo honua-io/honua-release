@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -47,6 +48,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
+import trunk_reachability as tr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -325,11 +327,32 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
             )
 
 
-def check_exact_candidate(manifest: dict, f: Findings) -> None:
+def check_exact_candidate(
+    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
+) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    candidate = manifest.get("candidate") or {}
+    ref_source = candidate.get("refSource")
+    if ref_source != "trunk":
+        f.error(
+            "exact-candidate: candidate.refSource must be 'trunk'; "
+            f"dispatched ref was {ref_source!r}"
+        )
     server = ((manifest.get("components") or {}).get("honua-server") or {})
     if not server.get("image") or not DIGEST_RE.fullmatch(str(server.get("digest", ""))):
         f.error("exact-candidate: components.honua-server requires an image and immutable digest")
+    # A trunk refSource alone proves nothing about WHICH commit was dispatched: a manifest could
+    # claim trunk while pinning (and certifying) a different build. Bind the dispatch ref to the
+    # pinned component so the source claim and the certified bytes are about the same commit.
+    ref = str(candidate.get("ref", ""))
+    server_sha = str(server.get("sha", ""))
+    if not _full_sha(ref):
+        f.error("exact-candidate: candidate.ref must be a full 40-character commit SHA")
+    elif ref != server_sha:
+        f.error(
+            "exact-candidate: candidate.ref must equal components.honua-server.sha; "
+            f"candidate.ref={ref} but the pinned server sha is {server_sha or '<missing>'}"
+        )
     for name, artifact in (manifest.get("clientArtifacts") or {}).items():
         path = f"clientArtifacts.{name}"
         if artifact.get("required", True) is False:
@@ -347,6 +370,11 @@ def check_exact_candidate(manifest: dict, f: Findings) -> None:
     for name, source in (manifest.get("evidenceSources") or {}).items():
         if source.get("required", True) and not _full_sha(source.get("producerSha")):
             f.error(f"exact-candidate: evidenceSources.{name} lacks a trusted immutable producer pin")
+    if reachability_client is not None:
+        try:
+            tr.verify_manifest_pins(manifest, reachability_client)
+        except tr.ReachabilityError as exc:
+            f.error(f"exact-candidate: {exc}")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -461,7 +489,13 @@ def _narrowed(base: semver.Range, cur: semver.Range) -> str:
 # --------------------------------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------------------------------
-def validate(manifest: dict, matrix: dict, baseline_matrix: dict | None, exact_candidate: bool = False) -> Findings:
+def validate(
+    manifest: dict,
+    matrix: dict,
+    baseline_matrix: dict | None,
+    exact_candidate: bool = False,
+    reachability_client: tr.APIClient | None = None,
+) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
@@ -469,7 +503,7 @@ def validate(manifest: dict, matrix: dict, baseline_matrix: dict | None, exact_c
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
-        check_exact_candidate(manifest, f)
+        check_exact_candidate(manifest, f, reachability_client)
     return f
 
 
@@ -493,7 +527,22 @@ def main(argv: list[str] | None = None) -> int:
         if baseline_matrix is None:
             print(f"note: no baseline compatibility-matrix.yaml at {args.baseline!r}; skipping drift")
 
-    f = validate(manifest, matrix, baseline_matrix, exact_candidate=args.exact_candidate)
+    reachability_client = None
+    if args.exact_candidate:
+        if os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("GITHUB_TOKEN"):
+            reachability_client = tr.GhClient()
+        else:
+            print(
+                "SKIP  trunk-reachability checks unavailable offline "
+                "(not running in CI and GITHUB_TOKEN is unset)"
+            )
+    f = validate(
+        manifest,
+        matrix,
+        baseline_matrix,
+        exact_candidate=args.exact_candidate,
+        reachability_client=reachability_client,
+    )
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)

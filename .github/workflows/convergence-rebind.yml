@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: "Apply the repository-side rebind changes (default is read-only PLAN)"
+        description: "Create the reviewed rebind PR (default is read-only PLAN)"
         required: true
         type: boolean
         default: false
@@ -16,12 +16,18 @@ on:
         options: [keep, v1, v2]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
+
+concurrency:
+  group: convergence-rebind
+  cancel-in-progress: false
 
 jobs:
   rebind:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,31 +36,86 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install validator dependencies
-        run: python -m pip install "jsonschema>=4.23"
+        run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
       - name: Plan convergence rebind
-        if: ${{ !inputs.apply }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: python tools/convergence_rebind.py --receipt-min '${{ inputs.receipt_min }}'
-      - name: Apply convergence rebind repository changes
+      - name: Stop after read-only plan
+        if: ${{ !inputs.apply }}
+        run: echo "PLAN only; no branch, evidence dispatch, variable, or PR mutation occurred."
+      - name: Stage regenerated catalog on an immutable review commit
         if: ${{ inputs.apply }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python tools/convergence_rebind.py --apply --receipt-min '${{ inputs.receipt_min }}'
-      - name: Open reviewed rebind PR
-        if: ${{ inputs.apply }}
+        id: stage
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python tools/convergence_rebind.py --apply --receipt-min '${{ inputs.receipt_min }}'
           branch="convergence-rebind/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config user.name "Mike McDougall"
           git config user.email "mike@honua.io"
           git switch -c "$branch"
-          git add certification/sources certification/protocol-certification-requirements.v1.json certification/generate-protocol-requirements.py .github/workflows/pr-protocol-certification.yml .github/workflows/nightly-protocol-certification.yml .github/workflows/release-train.yml
-          git commit -m "chore(certification): apply convergence rebind"
+          git add certification/sources certification/protocol-certification-requirements.v1.json certification/generate-protocol-requirements.py
+          # An unchanged denominator still needs a distinct immutable identity.
+          git commit --allow-empty -m "chore(certification): stage convergence catalog"
           git push origin "$branch"
-          gh pr create --base trunk --head "$branch" --title "chore(certification): apply convergence rebind" --body-file rebind-receipt.md
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "requirements_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Dispatch exact-revision evidence aggregation
+        if: ${{ inputs.apply }}
+        id: aggregate
+        env:
+          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
+          REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
+        run: |
+          set -euo pipefail
+          correlation_ref="convergence-rebind-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_head="$(gh api repos/honua-io/honua-evidence/commits/trunk --jq .sha)"
+          cleanup_ref() {
+            gh api --method DELETE "repos/honua-io/honua-evidence/git/refs/heads/$correlation_ref" >/dev/null 2>&1 || true
+          }
+          trap cleanup_ref EXIT
+          gh api --method POST repos/honua-io/honua-evidence/git/refs \
+            -f ref="refs/heads/$correlation_ref" -f sha="$evidence_head" >/dev/null
+          candidate_source_sha="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]["sha"])')"
+          candidate_image_digest="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]["digest"])')"
+          candidate_cut_at="$(python -c 'import yaml; print(yaml.safe_load(open("platform-manifest.yaml"))["protocolCertification"]["candidateCutAt"])')"
+          gh workflow run aggregate.yml -R honua-io/honua-evidence --ref "$correlation_ref" \
+            -f requirements_revision="$REQUIREMENTS_REVISION" \
+            -f candidate_source_sha="$candidate_source_sha" \
+            -f candidate_image_digest="$candidate_image_digest" \
+            -f candidate_cut_at="$candidate_cut_at"
+          run_id=""
+          for attempt in $(seq 1 30); do
+            run_id="$(gh run list -R honua-io/honua-evidence --workflow aggregate.yml --event workflow_dispatch --branch "$correlation_ref" --limit 2 --json databaseId,headBranch --jq 'if length == 1 and .[0].headBranch == "'"$correlation_ref"'" then .[0].databaseId else empty end')"
+            [ -z "$run_id" ] || break
+            sleep 2
+          done
+          [ -n "$run_id" ] || { echo "::error::Could not identify the dispatched evidence run."; exit 1; }
+          gh run watch "$run_id" -R honua-io/honua-evidence --exit-status
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Verify ledger and finalize all reviewed pins
+        if: ${{ inputs.apply }}
+        env:
+          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
+          REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
+        run: |
+          set -euo pipefail
+          evidence_commit="$(gh api repos/honua-io/honua-evidence/commits/trunk --jq .sha)"
+          gh api "repos/honua-io/honua-evidence/contents/data/protocol-certification.v1.json?ref=$evidence_commit" --jq .content | base64 -d > /tmp/protocol-certification.v1.json
+          actual_revision="$(python -c 'import json; print(json.load(open("/tmp/protocol-certification.v1.json"))["requirements_source_revision"])')"
+          [ "$actual_revision" = "$REQUIREMENTS_REVISION" ] || { echo "::error::Aggregated ledger does not bind the staged requirements revision."; exit 1; }
+          ledger_sha256="sha256:$(sha256sum /tmp/protocol-certification.v1.json | cut -d' ' -f1)"
+          python tools/convergence_rebind.py --finalize --requirements-revision "$REQUIREMENTS_REVISION" --evidence-commit "$evidence_commit" --ledger-sha256 "$ledger_sha256" --receipt-min '${{ inputs.receipt_min }}'
+          python certification/validate-protocol-requirements.py
+          python tools/validate_platform.py
+          python tools/check_action_pins.py
+          python -m pytest tools/test_convergence_rebind.py tools/test_workflow_contracts.py -q
+          git add platform-manifest.yaml .github/workflows/pr-protocol-certification.yml .github/workflows/nightly-protocol-certification.yml .github/workflows/release-train.yml
+          git commit -m "chore(certification): bind convergence ledger and gates"
+          git push origin "${{ steps.stage.outputs.branch }}"
+          gh pr create --base trunk --head "${{ steps.stage.outputs.branch }}" --title "chore(certification): atomically rebind catalog, ledger, and gates" --body-file rebind-receipt.md
       - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: convergence-rebind-plan

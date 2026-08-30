@@ -93,11 +93,10 @@ jobs:
           python - <<'PY'
           import yaml
           components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
-          # Advanced by the 2026-08-27 working-snapshot refresh. Only the SHAs move: the versions are
-          # published package coordinates and are deliberately unchanged (no new packages were cut),
-          # which is also why the npm/NuGet install lines below still name 0.1.7-beta.0 and 1.6.0.
+          # These literals mirror the immutable manifest pins so the seam probes consume the same
+          # published client candidate. The .NET/Python package coordinates remain unchanged.
           expected = {
-              "honua-sdk-js": ("2facb429c016e05365e30c6918d8f81300af485c", "0.1.7-beta.0"),
+              "honua-sdk-js": ("c99e71197dd940ed952aecb024c6de273456f2ae", "0.1.9-beta.0"),
               "honua-sdk-python": ("516c727dc03cae3b6b312595a9f4bfcee5f34cad", "0.1.10"),
               "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
           }
@@ -106,7 +105,7 @@ jobs:
               if (actual.get("sha"), str(actual.get("version"))) != (sha, version):
                   raise SystemExit(f"{name} seam pin drift")
           PY
-          npm install --prefix e2e --no-save --registry https://registry.npmjs.org @honua/sdk-js@0.1.7-beta.0
+          npm install --prefix e2e --no-save --registry https://registry.npmjs.org @honua/sdk-js@0.1.9-beta.0
           python -m pip install ./_e2e-sdk-python/packages/honua-sdk
           WORK="$RUNNER_TEMP/e2e-dotnet-sdk"
           mkdir -p "$WORK/feed"
