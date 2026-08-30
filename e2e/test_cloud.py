@@ -150,25 +150,21 @@ def test_capability_manifest_revision_match_passes():
     assert r.status == "pass"
 
 
-def test_capability_manifest_revision_mismatch_fails_strict_blocks_bootstrap():
+def test_capability_manifest_stale_revision_fails_closed_by_default():
     body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
     expected = _expected_ga([], revision="b" * 40)
 
-    strict = cc.check_capability_manifest(
-        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
-    bootstrap = cc.check_capability_manifest(
-        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA, enforcement="bootstrap")
+    result = cc.check_capability_manifest(
+        "http://x", fetch, expected=expected, frozen_server_sha=TEST_SERVER_SHA)
 
-    assert strict.status == "fail"
-    assert bootstrap.status == "blocked"
-    for result in (strict, bootstrap):
-        assert "b" * 40 in result.why
-        assert TEST_SERVER_SHA in result.why
-        assert "honua-release#183" in result.why
+    assert result.status == "fail"
+    assert "b" * 40 in result.why
+    assert TEST_SERVER_SHA in result.why
+    assert "honua-release#183" in result.why
 
 
-def test_capability_manifest_missing_snapshot_revision_fails_closed():
+def test_capability_manifest_missing_snapshot_revision_fails_closed_in_all_modes():
     body = json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": []})
     fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
 
@@ -180,7 +176,7 @@ def test_capability_manifest_missing_snapshot_revision_fails_closed():
         frozen_server_sha=TEST_SERVER_SHA, enforcement="bootstrap")
 
     assert strict.status == "fail"
-    assert bootstrap.status == "blocked"
+    assert bootstrap.status == "fail"
     assert "sourceSnapshot.deploymentRevision=None" in strict.why
 
 
