@@ -102,6 +102,31 @@ class ClientWorkspace:
     command_surface: list[dict[str, Any]] = field(default_factory=list)
     install_notes: list[str] = field(default_factory=list)
 
+    @classmethod
+    def from_receipt(cls, receipt: dict[str, Any], root: Path) -> ClientWorkspace:
+        """Reconstruct setup's verified workspace metadata without registry access."""
+        resolved = [
+            ResolvedArtifact(
+                name=row["name"],
+                package=row["package"],
+                version=row["version"],
+                ecosystem=row["ecosystem"],
+                registry_url=row.get("registryUrl"),
+                integrity_verified=bool(row["integrityVerified"]),
+                tarball_sha256=row["tarballSha256"],
+                bin=dict(row.get("bin") or {}),
+            )
+            for row in receipt.get("resolved", [])
+        ]
+        return cls(
+            status=receipt["status"],
+            root=root,
+            reason=receipt.get("reason"),
+            resolved=resolved,
+            command_surface=list(receipt.get("commandSurface") or []),
+            install_notes=list(receipt.get("installNotes") or []),
+        )
+
     def command(self, name: str) -> dict[str, Any] | None:
         for row in self.command_surface:
             if row["command"] == name:

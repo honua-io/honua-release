@@ -87,7 +87,9 @@ def _compose_for(target: dict[str, Any], manifest: dict[str, Any]) -> tuple[prob
         env={
             compose_cfg["imageEnv"]: image_ref,
             compose_cfg["portEnv"]: str(port),
-            target["adminPassword"]["env"]: target["adminPassword"]["default"],
+            target["adminPassword"]["env"]: probes.resolve_env_default(
+                target["adminPassword"]["env"], target["adminPassword"]["default"]
+            ),
         },
     )
     return compose, base_url, image_ref
@@ -181,11 +183,16 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     up = compose.up()
     stack_up = up.returncode == 0
 
-    observation = stagelib.Observation(base_url=base_url, image_ref=image_ref if stack_up else None)
+    server_sha = manifest["components"]["honua-server"]["sha"]
+    observation = stagelib.Observation(
+        base_url=base_url,
+        image_ref=image_ref if stack_up else None,
+        expected_revision=server_sha,
+    )
     if stack_up:
         import run as driver  # noqa: PLC0415 - shared observation logic, one implementation
 
-        observation = driver.observe(target, base_url, workspace, bindir, image_ref)
+        observation = driver.observe(target, base_url, workspace, bindir, image_ref, server_sha)
 
     state = {
         "workspaceId": workspace_id,
@@ -194,6 +201,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         "baseUrl": base_url,
         "stackUp": stack_up,
         "armedError": None,
+        "clientWorkspace": workspace.as_receipt(),
     }
     _write_state(workspace_id, state)
 
@@ -205,8 +213,14 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     if not observation.setup_view_present:
         blockers.append(stagelib.SETUP_VIEW)
 
+    if blockers and stack_up:
+        compose.down()
+        stack_up = False
+        state["stackUp"] = False
+        _write_state(workspace_id, state)
+
     return {
-        "status": "blocked" if blockers else "pass",
+        "status": "blocked" if blockers else "ready",
         "workspaceId": workspace_id,
         "observation": _observation_payload(observation),
         "toolView": _tool_view(observation),
@@ -230,7 +244,7 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
     target = json.loads(Path(state["targetPath"]).read_text())
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
     workdir = Path(state["workdir"])
-    workspace = pins.resolve_client_workspace(manifest, workdir / "clients-observe")
+    workspace = pins.ClientWorkspace.from_receipt(state["clientWorkspace"], workdir / "clients")
     bindir = workdir / "install" / "node_modules" / ".bin"
     import run as driver  # noqa: PLC0415
 
@@ -242,6 +256,7 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
         workspace,
         bindir if bindir.is_dir() else None,
         image_ref,
+        server["sha"],
     )
     return state, target, manifest, observation, workspace
 

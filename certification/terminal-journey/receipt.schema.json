@@ -362,6 +362,34 @@
               }
             }
           }
+        },
+        {
+          "description": "Passing mutation stages must carry the canonical operation evidence identities.",
+          "if": {
+            "properties": {
+              "number": {"enum": [3, 4, 5, 6, 7, 8]},
+              "status": {"const": "pass"}
+            },
+            "required": ["number", "status"]
+          },
+          "then": {
+            "properties": {
+              "operationId": {"type": "string", "minLength": 1},
+              "policyDecisionId": {"type": "string", "minLength": 1},
+              "actuatorId": {"type": "string", "minLength": 1},
+              "verificationId": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        {
+          "description": "A passing approval stage must carry its approval identity.",
+          "if": {
+            "properties": {"number": {"const": 8}, "status": {"const": "pass"}},
+            "required": ["number", "status"]
+          },
+          "then": {
+            "properties": {"approvalId": {"type": "string", "minLength": 1}}
+          }
         }
       ]
     }

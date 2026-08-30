@@ -33,6 +33,7 @@ PROPOSAL_AUTHZ = f"{SERVER}/3474"             # proposal/resource authorization
 EVIDENCE_POSTURE = f"{SERVER}/3475"           # source evidence freshness/completeness
 ROLLBACK_TRUTH = f"{SERVER}/3301"             # rollback capability truth
 ROSTER_EXPORTS = f"{SERVER}/3363"             # authoritative Admin roster exports
+APPROVAL_COMMAND = f"{SERVER}/3599"            # separate-principal approval command
 SETUP_VIEW = f"{SERVER}/3428"                 # bounded server-authored terminal setup view
 REDIS_POSTURE = f"{SERVER}/3583"              # typed refusal when Redis is absent
 INSTALLED_CLIENTS = f"{RELEASE}/7"            # installed-client execution engine
@@ -72,12 +73,14 @@ class Observation:
     readiness_detail: str = ""
     capability_manifest: dict[str, Any] | None = None
     anonymous_admin_status: int | None = None
+    anonymous_api_keys_status: int | None = None
     tool_names: tuple[str, ...] = ()
     tools_error: str | None = None
     proxy_available: bool = False
     proxy_detail: str = ""
     proxy_note: str | None = None
     image_ref: str | None = None
+    expected_revision: str | None = None
     setup_view_present: bool = False
 
 
@@ -89,6 +92,11 @@ class StageResult:
     status: str
     blocked_by: list[str] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
+    operation_id: str | None = None
+    policy_decision_id: str | None = None
+    approval_id: str | None = None
+    actuator_id: str | None = None
+    verification_id: str | None = None
 
     @property
     def first_failure(self) -> Check | None:
@@ -207,14 +215,16 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
     else:
         server = manifest.get("server") or manifest.get("Server") or {}
         revision = server.get("deploymentRevision") or server.get("DeploymentRevision")
+        identity_matches = bool(revision) and revision == observation.expected_revision
         checks.append(
             Check(
                 "1.3-candidate-identity",
                 "http",
                 "GET /api/v1/capabilities/manifest",
-                "pass",
+                "pass" if identity_matches else "fail",
                 f"candidate identity reported: revision={revision!r} "
-                f"source={server.get('deploymentRevisionSource') or server.get('DeploymentRevisionSource')!r}",
+                f"source={server.get('deploymentRevisionSource') or server.get('DeploymentRevisionSource')!r}; "
+                f"expected manifest revision={observation.expected_revision!r}",
             )
         )
 
@@ -319,23 +329,18 @@ def stage_2(observation: Observation, workspace_blockers: Callable[[int], list[s
     ]
     # The server-side contract is separately observable, and worth recording: it
     # shows the blocker is the client surface, not the server.
+    api_key_status = observation.anonymous_api_keys_status
     checks.append(
         Check(
             "2.2-admin-endpoint-present",
             "http",
             "GET /api/v1/admin/api-keys/ (credentialed surface exists on the candidate)",
-            "pass" if observation.anonymous_admin_status in (401, 403) else "blocked",
-            "the candidate serves an authenticated Admin API-key surface; only the "
-            "pinned CLI verb is missing",
-            [] if observation.anonymous_admin_status in (401, 403) else [INSTALLED_CLIENTS],
-        )
-        if observation.anonymous_admin_status in (401, 403)
-        else blocked(
-            "2.2-admin-endpoint-present",
-            "http",
-            "GET /api/v1/admin/api-keys/",
-            "the candidate Admin surface could not be probed",
-            [INSTALLED_CLIENTS],
+            "pass" if api_key_status in (401, 403) else "fail",
+            (
+                f"the candidate serves the authenticated Admin API-key surface (HTTP {api_key_status})"
+                if api_key_status in (401, 403)
+                else f"the Admin API-key endpoint returned HTTP {api_key_status}"
+            ),
         )
     )
     return checks
@@ -434,11 +439,12 @@ def stage_7(observation: Observation, workspace_blockers: Callable[[int], list[s
 
 def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[str]]) -> list[Check]:
     return [
-        _admin_cli_check(
+        blocked(
             "8.1-admin-cli",
+            "cli",
             "honua admin operate approveOperationProposal --path id=<proposal-id> --profile approver --yes",
-            workspace_blockers,
-            8,
+            "the installed separate-principal approval command is not available on the candidate",
+            [APPROVAL_COMMAND],
         ),
         blocked(
             "8.2-separate-principal",
@@ -446,7 +452,7 @@ def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[s
             "approve from a separate human principal; proposer self-approval must be denied; poll to published URL",
             "there is no durable proposal to approve, and approved replay must "
             "revalidate the proposer's current authority under narrowed bearer scopes",
-            [PROPOSAL_AUTHZ, SCOPE_NARROWING],
+            [APPROVAL_COMMAND, PROPOSAL_AUTHZ, SCOPE_NARROWING],
         ),
     ]
 

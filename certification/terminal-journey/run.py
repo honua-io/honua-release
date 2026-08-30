@@ -118,10 +118,13 @@ def observe(
     workspace: pins.ClientWorkspace,
     bindir: Path | None,
     image_ref: str | None,
+    expected_revision: str,
 ) -> stagelib.Observation:
     """Run every live probe exactly once and share the result across stages."""
     endpoints = target["endpoints"]
-    observation = stagelib.Observation(base_url=base_url, image_ref=image_ref)
+    observation = stagelib.Observation(
+        base_url=base_url, image_ref=image_ref, expected_revision=expected_revision
+    )
 
     ready, detail = probes.wait_for_ready(
         base_url + endpoints["readiness"],
@@ -142,6 +145,8 @@ def observe(
 
     admin_response = probes.http_get(base_url + endpoints["adminVersion"])
     observation.anonymous_admin_status = admin_response.status
+    api_keys_response = probes.http_get(base_url + endpoints["adminApiKeys"])
+    observation.anonymous_api_keys_status = api_keys_response.status
 
     proxy = bindir / "honua-mcp-proxy" if bindir else None
     if proxy is None or not proxy.exists():
@@ -227,11 +232,11 @@ def build_receipt(
                     "status": result.status,
                     "blockedBy": result.blocked_by,
                     "checks": [c.as_receipt() for c in result.checks],
-                    "operationId": None,
-                    "policyDecisionId": None,
-                    "approvalId": None,
-                    "actuatorId": None,
-                    "verificationId": None,
+                    "operationId": result.operation_id,
+                    "policyDecisionId": result.policy_decision_id,
+                    "approvalId": result.approval_id,
+                    "actuatorId": result.actuator_id,
+                    "verificationId": result.verification_id,
                     "evidence": {
                         "uri": evidence_uri,
                         "source": evidence_source,
@@ -242,7 +247,7 @@ def build_receipt(
                 }
             )
 
-    if any(row["status"] == "fail" for row in stage_rows):
+    if roster["status"] == "fail" or any(row["status"] == "fail" for row in stage_rows):
         status = "fail"
     elif all(row["status"] == "pass" for row in stage_rows) and roster["status"] == "pass" and workspace.status == "pass":
         status = "pass"
@@ -250,7 +255,15 @@ def build_receipt(
         status = "blocked"
 
     failure = None
-    if status == "fail" and stage_results is not None:
+    if status == "fail" and roster["status"] == "fail":
+        failure = {
+            "number": 0,
+            "stage": "control-plane-roster",
+            "command": "compare authoritative REST/CLI and MCP roster exports",
+            "check": "control-plane-roster",
+            "detail": "; ".join(roster.get("problems") or ["control-plane roster failed"]),
+        }
+    elif status == "fail" and stage_results is not None:
         broken = next(r for r in stage_results if r.status == "fail")
         check = broken.first_failure
         failure = {
@@ -347,7 +360,9 @@ def run_live(
         env={
             compose_cfg["imageEnv"]: image_ref,
             compose_cfg["portEnv"]: str(port),
-            target["adminPassword"]["env"]: target["adminPassword"]["default"],
+            target["adminPassword"]["env"]: probes.resolve_env_default(
+                target["adminPassword"]["env"], target["adminPassword"]["default"]
+            ),
         },
     )
 
@@ -363,10 +378,10 @@ def run_live(
             else:
                 running_image = image_ref
         else:
-            running_image = image_ref
+            running_image = None
             notices.append(f"using an externally managed stack at {base_url_override}")
 
-        observation = observe(target, base_url, workspace, bindir, running_image)
+        observation = observe(target, base_url, workspace, bindir, running_image, server["sha"])
         if observation.proxy_note:
             notices.append(observation.proxy_note)
         results = stagelib.run_stages(journey, observation, workspace_blockers)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import selectors
 import subprocess
 import time
 import urllib.error
@@ -82,7 +83,15 @@ def wait_for_ready(url: str, *, timeout_seconds: int) -> tuple[bool, str]:
         try:
             result = http_get(url)
             last = f"HTTP {result.status}: {result.text().strip()[:120]}"
-            if result.status == 200 and "ready" in result.text().strip().lower():
+            body = result.text().strip()
+            ready = body.lower() == "ready"
+            if not ready and "json" in result.content_type.lower():
+                try:
+                    document = result.json()
+                    ready = isinstance(document, dict) and str(document.get("status", "")).lower() == "ready"
+                except json.JSONDecodeError:
+                    ready = False
+            if result.status == 200 and ready:
                 return True, last
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             last = f"unreachable: {exc}"
@@ -92,6 +101,11 @@ def wait_for_ready(url: str, *, timeout_seconds: int) -> tuple[bool, str]:
 
 class ComposeError(RuntimeError):
     pass
+
+
+def resolve_env_default(name: str, default: str) -> str:
+    """Honor an explicitly configured value and fall back only when absent."""
+    return os.environ.get(name, default)
 
 
 @dataclass
@@ -179,7 +193,12 @@ class McpProxySession:
             raise McpError(f"proxy closed the connection during {method}: {exc}") from exc
 
         deadline = time.monotonic() + MCP_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
+        selector = selectors.DefaultSelector()
+        selector.register(self._process.stdout, selectors.EVENT_READ)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise McpError(f"proxy did not answer {method} within {MCP_TIMEOUT_SECONDS}s")
             line = self._process.stdout.readline()
             if not line:
                 stderr = self._process.stderr.read() if self._process.stderr else ""
@@ -193,7 +212,6 @@ class McpProxySession:
                 continue
             if payload.get("id") == self._next_id:
                 return payload
-        raise McpError(f"proxy did not answer {method} within {MCP_TIMEOUT_SECONDS}s")
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         if self._process is None or self._process.stdin is None:
@@ -267,6 +285,8 @@ def enumerate_tools(bin_path: Path, remote_url: str) -> tuple[tuple[str, ...], s
                     f"their resolved module path to read the tool surface ({label}). This is "
                     "a defect in the pinned client artifact, not in the candidate server."
                 )
+            if index > 0:
+                return names, first_error or "installed executable failed", note
             return names, None, note
         if first_error is None:
             first_error = f"{label}: {error}"

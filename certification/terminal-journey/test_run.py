@@ -10,6 +10,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
@@ -105,6 +106,11 @@ class RosterTests(unittest.TestCase):
         verdict = gate.roster_verdict(POLICY, rest, mcp)
         self.assertEqual(verdict["status"], "fail")
         self.assertTrue(verdict["problems"])
+
+    def test_roster_failure_overrides_blocked_stages_in_receipt(self):
+        receipt = build(roster={"status": "fail", "problems": ["drift"]})
+        self.assertEqual(receipt["status"], "fail")
+        self.assertEqual(receipt["failure"]["check"], "control-plane-roster")
 
     def test_same_size_partition_with_wrong_exclusion_fails_and_names_drift(self):
         projected = [f"op-{i:03}" for i in range(385)]
@@ -206,6 +212,23 @@ class StageDisciplineTests(unittest.TestCase):
         self.assertTrue(workspace.missing_for_stage(3))
         self.assertTrue(workspace.missing_for_stage(8))
         self.assertFalse(workspace.missing_for_stage(4))
+
+    def test_candidate_identity_must_match_manifest_revision(self):
+        observation = stagelib.Observation(
+            image_ref="candidate", expected_revision="expected",
+            capability_manifest={"server": {"deploymentRevision": "different"}},
+        )
+        identity = next(c for c in stagelib.stage_1(observation, self._no_blockers) if c.id == "1.3-candidate-identity")
+        self.assertEqual(identity.status, "fail")
+
+    def test_api_key_check_uses_its_independent_observation(self):
+        observation = stagelib.Observation(anonymous_admin_status=401, anonymous_api_keys_status=404)
+        check = next(c for c in stagelib.stage_2(observation, self._no_blockers) if c.id == "2.2-admin-endpoint-present")
+        self.assertEqual(check.status, "fail")
+
+    def test_stage_8_honestly_names_server_3599(self):
+        result = stagelib._resolve(stagelib.stage_8(stagelib.Observation(), self._no_blockers), 8, "approval", "approve")
+        self.assertIn("https://github.com/honua-io/honua-server/issues/3599", result.blocked_by)
 
     def test_blocked_check_without_a_dependency_is_rejected_by_the_schema(self):
         receipt = build()
@@ -315,6 +338,15 @@ class ReceiptTests(unittest.TestCase):
         self.assertIn("readiness", receipt["failure"]["command"] + receipt["failure"]["check"])
         validate(receipt)
 
+    def test_passing_mutation_stage_requires_canonical_ids(self):
+        receipt = build()
+        receipt["mode"] = "live"
+        stage = receipt["stages"][2]
+        stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
+        stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        with self.assertRaises(Exception):
+            validate(receipt)
+
 
 # ---------------------------------------------------------------------------
 # Canary adapter contract
@@ -357,6 +389,33 @@ class DriverProtocolTests(unittest.TestCase):
     def test_credential_references_carry_no_values(self):
         target = json.loads((HERE / "targets" / "local-docker.json").read_text())
         self.assertIn("env", target["adminPassword"])
+
+    @mock.patch.dict("os.environ", {"HONUA_ADMIN_PASSWORD": "configured"})
+    def test_configured_admin_password_wins_over_default(self):
+        self.assertEqual(probes.resolve_env_default("HONUA_ADMIN_PASSWORD", "default"), "configured")
+
+    def test_rehydrated_workspace_reuses_setup_metadata(self):
+        original = pins.ClientWorkspace(status="pass", root=Path("clients"), reason=None, command_surface=[{"command": "honua", "requiredBy": [1], "status": "present"}])
+        restored = pins.ClientWorkspace.from_receipt(original.as_receipt(), Path("clients"))
+        self.assertEqual(restored.command_surface, original.command_surface)
+
+
+class ProbeTests(unittest.TestCase):
+    @mock.patch.object(probes, "http_get")
+    @mock.patch.object(probes.time, "sleep")
+    def test_negative_readiness_text_is_rejected(self, _sleep, http_get):
+        http_get.return_value = probes.HttpResult(200, b"Not ready", "text/plain")
+        ready, _detail = probes.wait_for_ready("http://example/ready", timeout_seconds=0)
+        self.assertFalse(ready)
+
+    @mock.patch.object(probes, "_enumerate_with")
+    def test_broken_installed_proxy_remains_an_error(self, enumerate_with):
+        enumerate_with.side_effect = [((), "exited silently"), (("tool",), None)]
+        with mock.patch.object(Path, "resolve", return_value=Path("/real/proxy.js")):
+            names, error, note = probes.enumerate_tools(Path("/shim/proxy"), "http://example/mcp")
+        self.assertEqual(names, ("tool",))
+        self.assertIn("installed executable", error)
+        self.assertIsNotNone(note)
 
 
 if __name__ == "__main__":
