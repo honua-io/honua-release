@@ -4,11 +4,16 @@ on:
   pull_request:
     paths:
       - certification/terminal-journey/**
+      - certification/terminal-model-canary/**
       - .github/workflows/terminal-journey-contract.yml
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: terminal-journey-contract-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   terminal-contract:
@@ -18,9 +23,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0"
-      - name: Test fail-closed roster and stage attribution
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+
+      # No live stack, no Docker, no network: schema validity, fail-closed roster,
+      # and the stage-outcome discipline that stops a blocked journey reading as pass.
+      - name: Test fail-closed roster, stage discipline and receipt schema
         run: python certification/terminal-journey/test_run.py -v
+
       - name: Build blocked receipt without claiming live success
         env:
           EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -28,10 +37,70 @@ jobs:
           python certification/terminal-journey/run.py --output artifacts/terminal-journey.json --evidence-uri "$EVIDENCE_URI"
           python - <<'PY'
           import json
-          r=json.load(open('artifacts/terminal-journey.json'))
-          assert r['status']=='blocked' and r['roster']['status']=='blocked'
-          assert len(r['stages'])==8 and all(s['status']=='blocked' and s['blockedBy'] for s in r['stages'])
+          r = json.load(open('artifacts/terminal-journey.json'))
+          assert r['mode'] == 'build', r['mode']
+          assert r['status'] == 'blocked' and r['roster']['status'] == 'blocked'
+          assert len(r['stages']) == 8
+          assert all(s['status'] == 'blocked' and s['blockedBy'] for s in r['stages'])
+          assert all(s['evidence']['source'] == 'harness-build' for s in r['stages'])
           PY
+
+      # The committed smoke receipt is real evidence from a real run. It must keep
+      # satisfying the schema, and it must never quietly become a green claim.
+      - name: Validate the committed smoke receipt
+        run: |
+          python - <<'PY'
+          import json
+          import jsonschema
+          schema = json.load(open('certification/terminal-journey/receipt.schema.json'))
+          receipt = json.load(open('certification/terminal-journey/fixtures/smoke-receipt.local-docker.json'))
+          jsonschema.validate(receipt, schema)
+          assert receipt['mode'] == 'live'
+          assert receipt['status'] in {'blocked', 'fail'}, receipt['status']
+          for stage in receipt['stages']:
+              if stage['status'] == 'blocked':
+                  assert stage['blockedBy'], stage['stage']
+          print(f"smoke receipt ok: status={receipt['status']}, "
+                f"{sum(1 for s in receipt['stages'] for c in s['checks'] if c['status'] == 'pass')} passing probes")
+          PY
+
+      # #161 fixes this adapter's path and protocol. Drift here silently breaks the
+      # canary, so assert the contract rather than discovering it at dispatch time.
+      - name: Assert the live driver honours its protocol contract
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import json
+          import subprocess
+          import sys
+          protocol = json.load(open('certification/terminal-model-canary/driver-protocol.v1.json'))
+          adapter = protocol['adapterPath']
+          assert adapter == 'certification/terminal-journey/live_driver.py', adapter
+
+          # Every contracted operation must be registered.
+          sys.path.insert(0, 'certification/terminal-journey')
+          spec = importlib.util.spec_from_file_location('live_driver', adapter)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          missing = sorted(set(protocol['operations']) - set(module.OPERATIONS))
+          assert not missing, f'unimplemented driver operations: {missing}'
+
+          # Exercise the session-bound operations without provisioning anything:
+          # `setup` is the only operation that touches infrastructure, so this
+          # contract lane asserts its registration above and never invokes it.
+          for operation in sorted(set(protocol['operations']) - {'setup'}):
+              request = json.dumps({'protocol': protocol['protocol'], 'operation': operation,
+                                    'workspaceId': 'does-not-exist'})
+              done = subprocess.run([sys.executable, adapter], input=request,
+                                    capture_output=True, text=True, timeout=120)
+              response = json.loads(done.stdout)
+              assert response.get('status') != 'pass', f'{operation} claimed pass with no candidate'
+          bad = subprocess.run([sys.executable, adapter], input='{"protocol":"nope"}',
+                               capture_output=True, text=True, timeout=60)
+          assert json.loads(bad.stdout)['status'] == 'fail'
+          print('driver protocol contract ok')
+          PY
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: terminal-journey-build-receipt

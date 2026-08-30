@@ -3,14 +3,24 @@
   "evidenceKey": "release.e2e.terminal-zero-to-map",
   "receiptSchema": "terminal-journey-receipt-v1",
   "stages": [
-    {"number": 1, "id": "installed-client-handoff", "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list", "blockedBy": ["https://github.com/honua-io/honua-release/issues/7", "https://github.com/honua-io/honua-server/issues/3430"]},
-    {"number": 2, "id": "credential-preflight", "command": "honua admin apiKeys list/effective-permissions", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3430", "https://github.com/honua-io/honua-server/issues/3431"]},
-    {"number": 3, "id": "publish-service", "command": "honua admin connection create/test; import; publish/configure layer and access policy", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411"]},
-    {"number": 4, "id": "style-render", "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411"]},
-    {"number": 5, "id": "bounded-gp", "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411"]},
-    {"number": 6, "id": "durable-compositions", "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411", "https://github.com/honua-io/honua-server/issues/3475"]},
-    {"number": 7, "id": "publication-proposal", "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3474"]},
-    {"number": 8, "id": "separate-principal-approval", "command": "honua admin operate approveOperationProposal --profile approver --yes; poll published URL", "blockedBy": ["https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3431"]}
+    {"number": 1, "id": "installed-client-handoff", "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list", "clientCommands": ["honua", "honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/7", "https://github.com/honua-io/honua-server/issues/3428"]},
+    {"number": 2, "id": "credential-preflight", "command": "honua admin apiKeys list/effective-permissions", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/7", "https://github.com/honua-io/honua-server/issues/3431"]},
+    {"number": 3, "id": "publish-service", "command": "honua admin connection create/test; import; publish/configure layer and access policy", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/7", "https://github.com/honua-io/honua-server/issues/3411"]},
+    {"number": 4, "id": "style-render", "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411"]},
+    {"number": 5, "id": "bounded-gp", "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411", "https://github.com/honua-io/honua-server/issues/3583"]},
+    {"number": 6, "id": "durable-compositions", "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3411", "https://github.com/honua-io/honua-server/issues/3475"]},
+    {"number": 7, "id": "publication-proposal", "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3583"]},
+    {"number": 8, "id": "separate-principal-approval", "command": "honua admin operate approveOperationProposal --profile approver --yes; poll published URL", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3599", "https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3431"]}
   ],
-  "receiptRequired": ["release", "clientArtifacts", "server", "fixtureRevision", "configRevision", "authPolicyRevision", "stage", "command", "operationId", "policyDecisionId", "approvalId", "actuatorId", "verificationId", "evidence", "status"]
+  "receiptRequired": ["release", "clientArtifacts", "clientWorkspace", "server", "fixtureRevision", "configRevision", "authPolicyRevision", "stage", "command", "operationId", "policyDecisionId", "approvalId", "actuatorId", "verificationId", "evidence", "status"],
+  "clientCommandSources": {
+    "honua": "honua-sdk-js",
+    "honua admin": "unshipped",
+    "honua-mcp-proxy": "honua-mcp-server"
+  },
+  "notes": [
+    "`clientCommands` names the terminal commands each stage needs from the pinned #136 clientArtifacts. A stage whose command is not shipped by the pinned bytes is blocked on honua-release#7 regardless of server readiness.",
+    "As of the 2026.1-rc.2 candidate the pinned artifacts ship `honua` (from @honua/sdk-js) and `honua-mcp-proxy` (from @honua/mcp-server). No pinned artifact ships an `honua admin` command surface, so stages 2, 3 and 8 have no runnable client verb.",
+    "`blockedBy` lists the upstream contracts a stage waits on. It is contract metadata; the live driver derives the authoritative per-run blocker set from its own probes."
+  ]
 }
