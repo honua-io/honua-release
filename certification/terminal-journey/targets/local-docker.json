@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "local-docker",
+  "kind": "local-docker",
+  "description": "Owner decision 2026-08-18: the 2026.1 demo venue is local Docker first. This target reuses the repository's existing Phase-A seam compose file so the server image is injected from platform-manifest.yaml and the driver can never run against a floating tag.",
+  "compose": {
+    "file": "e2e/local-docker/docker-compose.yml",
+    "project": "honua-terminal-journey",
+    "serverService": "server",
+    "imageEnv": "HONUA_SERVER_IMAGE",
+    "portEnv": "HONUA_SERVER_PORT",
+    "port": 8137,
+    "notes": "This compose file composes PostGIS + Honua Server only. Redis is absent, so the durable proposal/approval control plane has no backing store here; that bound is tracked by honua-release#202 and honua-server#3583 and is recorded as a receipt notice, never as a pass."
+  },
+  "adminPassword": {
+    "env": "HONUA_ADMIN_PASSWORD",
+    "default": "honua-console-dev-key",
+    "notes": "Installer-provisioned bootstrap credential from the compose file. Never emitted into a receipt."
+  },
+  "endpoints": {
+    "readiness": "/healthz/ready",
+    "liveness": "/healthz/live",
+    "capabilityManifest": "/api/v1/capabilities/manifest",
+    "adminVersion": "/api/v1/admin/version",
+    "adminCapabilities": "/api/v1/admin/capabilities",
+    "adminApiKeys": "/api/v1/admin/api-keys/",
+    "mcp": "/mcp"
+  },
+  "budgets": {
+    "readinessTimeoutSeconds": 300,
+    "teardownTimeoutSeconds": 300
+  },
+  "revisions": {
+    "fixtureRevision": "terminal-zero-to-map-v1",
+    "configRevision": "terminal-profiles-v1",
+    "authPolicyRevision": "terminal-separate-principals-v1"
+  }
+}
