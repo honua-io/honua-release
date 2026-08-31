@@ -87,11 +87,11 @@
               "additionalProperties": false,
               "required": ["schema", "identity", "result", "facets", "payload_base64"],
               "properties": {
-                "schema": { "enum": ["honua.certification-evidence-receipt/v1", "honua.certification-evidence-receipt/v2"] },
+                "schema": { "const": "honua.certification-evidence-receipt/v2" },
                 "identity": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["capability_key", "surface", "operation", "canonical_client", "client_version", "deployment_target", "source_sha", "producer_source_sha", "image_digest", "fixture_revision", "contract_revision", "auth_policy_revision", "started_at", "completed_at"],
+                  "required": ["capability_key", "surface", "operation", "canonical_client", "client_version", "deployment_target", "maturity", "required_tier", "requirements_revision", "source_sha", "producer_source_sha", "image_digest", "fixture_revision", "contract_revision", "auth_policy_revision", "started_at", "completed_at"],
                   "properties": {
                     "capability_key": { "type": "string" },
                     "surface": { "type": "string" },
@@ -142,11 +142,7 @@
                   ]
                 },
                 "payload_base64": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
-              },
-              "allOf": [{
-                "if": { "properties": { "schema": { "const": "honua.certification-evidence-receipt/v2" } }, "required": ["schema"] },
-                "then": { "properties": { "identity": { "required": ["maturity", "required_tier", "requirements_revision"] } } }
-              }]
+              }
             }
           ]
         },
