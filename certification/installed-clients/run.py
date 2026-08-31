@@ -66,6 +66,11 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
         raise CertificationError("matrix has no cells")
 
 
+def server_image_ref(manifest: dict[str, Any]) -> str:
+    server = manifest["components"]["honua-server"]
+    return f"{server['image'].split('@')[0]}@{server['digest']}"
+
+
 def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, check=False)
 
@@ -273,6 +278,9 @@ def main() -> int:
             return 0
         if args.live:
             os.environ["HONUA_SERVER_URL"] = os.environ.get("HONUA_SERVER_URL", "http://localhost:8080")
+            # boot.sh normally reads the repository-root manifest. Bind it to the already
+            # validated candidate when the caller selected a different manifest.
+            os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
             boot = subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "up"], cwd=ROOT)
             if boot.returncode:
                 raise CertificationError("the immutable server candidate did not become ready")
