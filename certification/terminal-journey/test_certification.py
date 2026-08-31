@@ -33,6 +33,19 @@ class CertificationTest(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(changed, SCHEMA)
 
+    def test_certification_requires_the_exact_named_and_gates(self):
+        for gate in tuple(RECEIPT["andGates"]):
+            with self.subTest(gate=gate):
+                changed = json.loads(json.dumps(RECEIPT))
+                del changed["andGates"][gate]
+                with self.assertRaises(jsonschema.ValidationError):
+                    jsonschema.validate(changed, SCHEMA)
+
+        changed = json.loads(json.dumps(RECEIPT))
+        changed["andGates"]["substituteGate"] = changed["andGates"].pop("localCandidate")
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(changed, SCHEMA)
+
 
 if __name__ == "__main__":
     unittest.main()

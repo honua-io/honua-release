@@ -45,8 +45,16 @@
     },
     "andGates": {
       "type": "object",
-      "minProperties": 5,
-      "additionalProperties": {"$ref": "#/$defs/gate"}
+      "additionalProperties": false,
+      "required": ["localCandidate", "awsCandidate", "clientMatrix", "browserStudio", "browserConsole", "controlPlaneRoster"],
+      "properties": {
+        "localCandidate": {"$ref": "#/$defs/gate"},
+        "awsCandidate": {"$ref": "#/$defs/gate"},
+        "clientMatrix": {"$ref": "#/$defs/gate"},
+        "browserStudio": {"$ref": "#/$defs/gate"},
+        "browserConsole": {"$ref": "#/$defs/gate"},
+        "controlPlaneRoster": {"$ref": "#/$defs/gate"}
+      }
     },
     "requiredOutcomes": {
       "type": "object",
@@ -63,7 +71,14 @@
           "promotionEligible": {"const": true},
           "sourceReceipt": {"properties": {"status": {"const": "pass"}}},
           "stages": {"items": {"properties": {"status": {"const": "pass"}}}},
-          "andGates": {"additionalProperties": {"properties": {"status": {"const": "pass"}}}},
+          "andGates": {"properties": {
+            "localCandidate": {"properties": {"status": {"const": "pass"}}},
+            "awsCandidate": {"properties": {"status": {"const": "pass"}}},
+            "clientMatrix": {"properties": {"status": {"const": "pass"}}},
+            "browserStudio": {"properties": {"status": {"const": "pass"}}},
+            "browserConsole": {"properties": {"status": {"const": "pass"}}},
+            "controlPlaneRoster": {"properties": {"status": {"const": "pass"}}}
+          }},
           "requiredOutcomes": {"additionalProperties": {"const": true}},
           "blockers": {"maxItems": 0}
         }
