@@ -115,6 +115,34 @@ jobs:
           fi
           exit "$RC"
 
+      - name: Bind passing canary evidence to the committed candidate lock
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f platform-lock.json || {
+            echo "::error::platform-lock.json is required for burn-in canary evidence"; exit 1;
+          }
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          lock_path = pathlib.Path("platform-lock.json")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          report = json.loads(pathlib.Path("e2e/gate-report-demo-canary.json").read_text(encoding="utf-8"))
+          envelope_path = pathlib.Path("e2e/live-canary-evidence.json")
+          envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+          expected_server = lock["components"]["honua-server"]["source"]["revision"]
+          if envelope.get("candidateServerSha") != expected_server:
+              raise SystemExit("demo deployment revision does not match platform-lock honua-server revision")
+          envelope["runId"] = os.environ["RUN_ID"]
+          envelope["status"] = report.get("status")
+          envelope["candidateLock"] = {
+              "path": "platform-lock.json",
+              "digest": "sha256:" + hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+          }
+          envelope_path.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
+          PY
+
       - name: Upload demo-canary gate-report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

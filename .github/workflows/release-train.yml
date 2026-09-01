@@ -454,6 +454,12 @@ jobs:
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
+          # The lock is the atomic RC identity. A real train without it cannot produce promotion
+          # evidence; copying the committed bytes into every train bundle makes comparisons immutable.
+          test -f platform-lock.json || {
+            echo "::error::platform-lock.json is required for a strict release train"; exit 1;
+          }
+          cp platform-lock.json out/certified-candidate/platform-lock.json
           python tools/generate_evidence_index.py \
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json

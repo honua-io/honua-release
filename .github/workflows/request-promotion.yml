@@ -69,15 +69,31 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: honua-release
 
+      - name: Resolve the committed burn record
+        id: promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM_LABEL: ${{ steps.candidate.outputs.platform_label }}
+        run: |
+          set -euo pipefail
+          RECORD="certification/promotions/${PLATFORM_LABEL}.json"
+          gh api "repos/$GITHUB_REPOSITORY/contents/$RECORD?ref=${{ github.event.repository.default_branch }}" \
+            --jq .content | tr -d '\n' | base64 --decode > promotion-record.json
+          RC_RUN_ID="$(jq -er .rcTrainRunId promotion-record.json)"
+          echo "record=$RECORD" >> "$GITHUB_OUTPUT"
+          echo "rc_run_id=$RC_RUN_ID" >> "$GITHUB_OUTPUT"
+
       - name: Dispatch protected promotion workflow
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PLATFORM_LABEL: ${{ steps.candidate.outputs.platform_label }}
-          TRAIN_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRAIN_RUN_ID: ${{ steps.promotion.outputs.rc_run_id }}
+          PROMOTION_RECORD: ${{ steps.promotion.outputs.record }}
         run: |
           set -euo pipefail
           gh workflow run promote.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref trunk \
             -f platform_label="$PLATFORM_LABEL" \
-            -f train_run_id="$TRAIN_RUN_ID"
+            -f train_run_id="$TRAIN_RUN_ID" \
+            -f promotion_record="$PROMOTION_RECORD"
