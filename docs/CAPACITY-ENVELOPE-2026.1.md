@@ -30,9 +30,12 @@ amendment requires a new lock version before another soak begins and cannot bles
 
 ## Receipt
 
-`tools/check_capacity_soak.py` validates the lock and a receipt. A receipt binds the candidate
-revision and SHA-256 of the exact lock, proves its observation began after the freeze, includes all
-signals and the whole declared envelope, and carries a non-empty signing identity and signature.
+`tools/check_capacity_soak.py` validates the lock and a receipt. The release train runs this gate
+with its required `capacity_receipt_url`; a missing or failing soak therefore blocks certification
+and promotion. A receipt's candidate and observed revisions must both equal the manifest-pinned
+`honua-server` SHA. It also binds the SHA-256 of the exact lock, proves its observation began after
+the freeze, includes all signals and the whole declared envelope, and carries a non-empty signing
+identity and signature.
 Before evaluation, the workflow also uses GitHub artifact-attestation verification to prove that
 `honua-io/honua-server` signed the receipt; self-asserted signature text is insufficient. The
 workflow uploads the validated receipt as immutable run evidence. No skipped outcome maps to green.

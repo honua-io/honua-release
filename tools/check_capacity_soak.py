@@ -30,12 +30,16 @@ def lock_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def evaluate(lock: dict, receipt: dict, digest: str) -> list[str]:
+def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> list[str]:
     failures: list[str] = []
+    if not expected_revision:
+        failures.append("expected manifest-pinned honua-server SHA is missing")
     if receipt.get("status") != "completed":
         failures.append("soak status must be completed (skipped/partial signals are failures)")
-    if receipt.get("candidateRevision") != receipt.get("observedRevision"):
-        failures.append("observed revision does not match candidate revision")
+    if receipt.get("candidateRevision") != expected_revision:
+        failures.append("candidate revision does not match the manifest-pinned honua-server SHA")
+    if receipt.get("observedRevision") != expected_revision:
+        failures.append("observed revision does not match the manifest-pinned honua-server SHA")
     if receipt.get("lockSha256") != digest:
         failures.append("receipt does not bind the exact committed threshold lock")
     try:
@@ -82,11 +86,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lock", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--expected-revision", required=True)
     args = parser.parse_args()
     try:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
-        failures = evaluate(lock, receipt, lock_digest(args.lock))
+        failures = evaluate(lock, receipt, lock_digest(args.lock), args.expected_revision)
     except (OSError, json.JSONDecodeError, ContractError) as exc:
         failures = [str(exc)]
     if failures:

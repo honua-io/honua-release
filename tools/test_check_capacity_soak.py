@@ -31,7 +31,7 @@ def receipt():
 
 
 def failures(value):
-    return gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH))
+    return gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH), REVISION)
 
 
 def test_complete_candidate_bound_receipt_passes():
@@ -46,6 +46,21 @@ def test_skipped_signal_fails():
 def test_revision_mismatch_fails():
     value = receipt(); value["signals"]["queueAgeSeconds"]["revision"] = "b" * 40
     assert any("revision mismatch" in failure for failure in failures(value))
+
+
+def test_receipt_cannot_select_an_unrelated_candidate_revision():
+    value = receipt()
+    value["candidateRevision"] = value["observedRevision"] = "b" * 40
+    for signal in value["signals"].values():
+        signal["revision"] = "b" * 40
+    assert any("manifest-pinned" in failure for failure in failures(value))
+
+
+def test_missing_candidate_revision_fails():
+    value = receipt()
+    value.pop("candidateRevision")
+    value.pop("observedRevision")
+    assert any("manifest-pinned" in failure for failure in failures(value))
 
 
 def test_threshold_cannot_be_selected_after_soak_starts():
