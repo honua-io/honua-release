@@ -33,9 +33,9 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     root = fixture(tmp_path)
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     pins = {row["source"]: (row["target"][:7], row["rule"]) for row in plan["sources"]}
-    # Golden values track platform-manifest.yaml; refreshed with the 2026-08-31 working snapshot.
+    # Golden values track platform-manifest.yaml; refreshed against published identities on 2026-09-01.
     assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
-    assert pins["sdk-python"] == ("516c727", "manifest/frozen")
+    assert pins["sdk-python"] == ("f7930b6", "manifest/frozen")
     assert pins["sdk-js"] == ("c99e711", "manifest/frozen")
     assert pins["server-certification"] == ("4ca8326", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}

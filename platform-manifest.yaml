@@ -89,6 +89,7 @@ protocolCertification:
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:
+    repository: "https://github.com/honua-io/honua-server"
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110): the newest trunk commit whose
     # own CI is GREEN **and** which has a published, immutable multi-arch AOT image. A sha with no
@@ -346,6 +347,7 @@ components:
     dbSchema: "107"
 
   honua-console:
+    repository: "https://github.com/honua-io/honua-console"
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
     sha: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"   # branch: trunk HEAD at re-pin time
     # Public multi-architecture candidate built from this SHA by Console Container run 32369440068.
@@ -355,6 +357,7 @@ components:
     digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
 
   honua-sdk-dotnet:
+    repository: "https://github.com/honua-io/honua-sdk-dotnet"
     version: "1.6.0"                   # release tag dotnet-sdk-v1.6.0 (reachable from the sha below)
     # PIN POLICY (honua-release#102): newest trunk commit whose own CI is green, not literal trunk
     # HEAD. f6c98c5cb was literal HEAD at the last re-pin and its CI was red — NU1903 (SSH.NET
@@ -380,6 +383,7 @@ components:
     # here is the reachable release tag rather than a registry-published one.
 
   honua-sdk-js:
+    repository: "https://github.com/honua-io/honua-sdk-js"
     # Exact published release from honua-sdk-js#1537. The skipped 0.1.8-beta.0 coordinate was never
     # published; 0.1.9-beta.0 is registry-installable and its release tag resolves to the sha below.
     version: "0.1.9-beta.0"            # release tag js-sdk-v0.1.9-beta.0; published on npm
@@ -390,80 +394,35 @@ components:
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
 
   honua-sdk-python:
-    # CORRECTION 2026-08-27 — the previous claim here ("PyPI carries 0.1.10 only; tag
-    # python-sdk-v0.1.11 exists but is NOT published") is NO LONGER TRUE. 0.1.11 was published to
-    # PyPI on 2026-08-21T10:21:51, four days after that note was written:
-    #   $ curl -s https://pypi.org/pypi/honua-sdk/json | jq -r .info.version
-    #   0.1.11
-    #   releases["0.1.11"] -> honua_sdk-0.1.11-py3-none-any.whl + .tar.gz
-    # The version is deliberately NOT advanced in this refresh: moving it also requires re-reading the
-    # wheel filename and sha256 for clientArtifacts.honua-sdk-python-wheel, which is release-cut work
-    # against published bytes, not a working-snapshot sha refresh. 0.1.10 remains installable (both
-    # files still present), so the pin is stale-but-true rather than wrong. Tracked for the cut.
-    version: "0.1.10"                  # release tag python-sdk-v0.1.10; published on PyPI (0.1.11 now exists)
-    # Same pin policy as honua-sdk-dotnet above. 23e9dd3d7 was literal HEAD at the last re-pin with
-    # ephemeral-server-smoke red: the SpatialJoin join-layer fixture was applied AFTER honua-server
-    # compiled and activated its metadata-v2 snapshot, so every spatial-join submit was rejected
-    # (HTTP 403, layer-read authorization) and the lane graded 48/50. Fixed in honua-sdk-python#200;
-    # 953f2b3ba is the first trunk sha carrying it. Verified:
-    #   gh api repos/honua-io/honua-sdk-python/commits/953f2b3ba.../check-runs
-    #   -> 25 success, 1 failure (staging-smoke ONLY)
-    # staging-smoke is already classified env-gated and is red for an unrelated, pre-existing reason
-    # (the client-compat binding's expiresAt has passed, red on trunk since 2026-08-16) — tracked as
-    # honua-sdk-python#203. It is named here rather than left implicit: "green apart from a lane we
-    # already excused" is only honest if the excuse is stated at the pin.
-    # REFRESHED 2026-08-27, 953f2b3b -> 516c727d (trunk HEAD), to carry honua-sdk-python#213 "Emit
-    # truthful protocol certification identity". Ancestry proven — #213's merge commit IS this sha:
-    #   $ gh api repos/honua-io/honua-sdk-python/pulls/213 -q .merge_commit_sha
-    #   516c727dc03cae3b6b312595a9f4bfcee5f34cad   (merged=true; compare -> identical)
-    # Green apart from the SAME already-excused lane as the previous pin, restated so the excuse is
-    # never implicit:
-    #   $ gh api --paginate .../commits/516c727d.../check-runs -q '.check_runs[].conclusion'
-    #   -> 24 success, 14 skipped, 1 FAILURE  (staging-smoke ONLY — honua-sdk-python#203, env-gated)
-    sha: "516c727dc03cae3b6b312595a9f4bfcee5f34cad"   # branch: trunk HEAD (green but staging-smoke)
+    repository: "https://github.com/honua-io/honua-sdk-python"
+    # PyPI 0.1.11 was published on 2026-08-21. The wheel and immutable release tag both bind this
+    # artifact identity to f7930b6e; a later unreleased trunk head must not overwrite that fact.
+    version: "0.1.11"
+    sha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"   # release tag python-sdk-v0.1.11
     artifact: "pypi:honua-sdk"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:
-    # MERGE PRECONDITION (honua-release#41): this pin names a release that the release lead must cut
-    # FIRST. Do not merge this manifest state until BOTH geospatial-grpc tags exist, because
-    # gate-contract's proto-breaking check resolves its buf `--against` baseline as the highest `v*`
-    # tag in geospatial-grpc — pinning the post-break sha while v0.1.0-alpha.3 is still the highest
-    # tag makes that gate fail. See docs/GRPC-0.2.0-ALPHA.1-CUT.md for the ordered procedure and the
-    # one-line precondition check.
-    #   v0.2.0-alpha.1                  -> advances the buf baseline; carries the conformance-fixtures release
-    #   geospatial-grpc-v0.2.0-alpha.1  -> the ONLY trigger for publish-dotnet-protocol.yml (the NuGet package)
-    # Both namespaces are load-bearing and were NOT both cut for 0.1.0-alpha.3, which is why that
-    # release has fixtures but no `Geospatial.Grpc` package and no consumer ever moved onto it.
-    version: "0.2.0-alpha.1"           # release tag v0.2.0-alpha.1 (pre-v1 sanctioned wire break, geospatial-grpc#48/#69)
-    # REFRESHED 2026-08-27, 73fc882b -> d20abf2f (trunk HEAD), to carry geospatial-grpc#91 "test: emit
-    # normalized multi-client gRPC release evidence" — one of the evidence-producer migrations this
-    # refresh exists to unblock. Ancestry proven — #91's merge commit IS this sha:
-    #   $ gh api repos/honua-io/geospatial-grpc/pulls/91 -q .merge_commit_sha
-    #   d20abf2f1a0069e333c8bdf13b0096e915accbab   (merged=true; compare -> identical)
-    # CI fully green: 22 success, 0 failure.
-    # MERGE PRECONDITION RE-CHECKED at this refresh — the buf `--against` baseline is still satisfied,
-    # so advancing the sha does NOT re-open the gate-contract problem described above:
-    #   $ gh api repos/honua-io/geospatial-grpc/tags -q '.[].name'
-    #   v0.2.0-alpha.1  <- highest v* tag, matches `version` below
-    #   geospatial-grpc-v0.2.0-alpha.1  <- the publish-dotnet-protocol.yml trigger tag, also present
-    # Both required namespaces exist, so the precondition is MET (it was not at the time it was written).
-    sha: "d20abf2f1a0069e333c8bdf13b0096e915accbab"   # branch: trunk HEAD (green)
+    repository: "https://github.com/honua-io/geospatial-grpc"
+    artifactSourceRevision: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"
+    artifactSha256: "sha256:69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f"
+    # NuGet publishes Geospatial.Grpc 1.0.0 from this exact v1.0.0 commit. This records the current
+    # released artifact identity; the server remains pinned independently and is re-pinned AT-CUT.
+    version: "1.0.0"
+    sha: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"   # release tag v1.0.0; NuGet repository commit
+    artifact: "nuget:Geospatial.Grpc"
     contractVersions:
-      grpc: v1                         # proto package geospatial.v1 — UNCHANGED (VERSIONING.md Pre-1.0 Exception)
-    # NOTE — HALF OF THIS IS NOW RESOLVED. honua-server#3352 (in this re-pin's range) migrated the
-    # server onto this package, so at the pinned server sha the coupling is satisfied:
+      grpc: v1                         # stable proto package geospatial.v1
+    # The pinned server still consumes the prior 0.2.0-alpha.1 package:
     #   $ git grep -n Geospatial.Grpc 6b6d3b89... -- Directory.Packages.props
     #   Directory.Packages.props:42: <PackageVersion Include="Geospatial.Grpc" Version="0.2.0-alpha.1" />
-    # honua-sdk-dotnet has NOT moved — at its pin it still consumes 0.1.0-alpha.2:
+    # honua-sdk-dotnet also remains on 0.1.0-alpha.2 at its independent pin:
     #   $ git grep -n Geospatial.Grpc a5fb6f54a... -- Directory.Packages.props
     #   Directory.Packages.props:8:  <PackageVersion Include="Geospatial.Grpc" Version="0.1.0-alpha.2" />
-    # No client floor moves either way: 0.2.0-alpha.1 is a sanctioned pre-v1 wire break that keeps the
-    # proto package at geospatial.v1 (geospatial-grpc#48/#69, docs/GRPC-0.2.0-ALPHA.1-CUT.md), and the
-    # capability envelope still lists grpc/grpc-web/native-grpc WITHOUT a contractVersion — re-checked
-    # on this image, so `grpc: v1` above remains the proto-package major, not a server-emitted rollup.
+    # Neither pin moves here; both consumer re-pins and their certification belong to the release cut.
 
   geospatial-mcp:
+    repository: "https://github.com/honua-io/geospatial-mcp"
     version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha
     # REFRESHED 2026-08-27, 5e052a76 -> d5a09d13 (trunk HEAD), to carry BOTH named migrations.
     # Ancestry proven for each, not inferred from the branch:
@@ -475,11 +434,13 @@ components:
     sha: "d5a09d13c4ad541c05702e598c3679c0f42db7af"   # branch: trunk HEAD (green)
 
   honua-iac:
+    repository: "https://github.com/honua-io/honua-iac"
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
     sha: "cace70f7b592a583a478ed6f002c7de17b053282"   # branch: trunk HEAD at re-pin time (honua-iac#144: aws-eks secret-encryption toggle)
     artifact: "terraform-registry:honua"
 
   honua-helm:
+    repository: "https://github.com/honua-io/honua-helm"
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the
@@ -498,7 +459,6 @@ components:
 # Customer-installable certification inputs. These are package bytes, not deployable platform
 # components: BOM and upgrade tools intentionally continue to iterate only `components`.
 #
-# 2026-08-29 REFRESH — ONLY THE SDK-JS ARTIFACT MOVES FOR HONUA-RELEASE#206.
 # `sourceSha` here does NOT mean "current source revision"; it means "the commit the PUBLISHED BYTES
 # were built from". Advancing it in step with `components.*.sha` would assert that already-published,
 # immutable artifacts came from commits that postdate them — a false provenance claim about bytes
@@ -507,15 +467,12 @@ components:
 # manifest being honest. The file already models the split — components.honua-sdk-js.sha has moved
 # four times while this block's sourceSha has not.
 #
-# Each pin was re-verified against the actual publish provenance on 2026-08-29:
+# Each pin was re-verified against the actual publish provenance on 2026-09-01:
 #   honua-sdk-js         c99e7119 = tag js-sdk-v0.1.9-beta.0 -> commit c99e7119        MATCHES
 #   honua-mcp-server     ac29d160 = npm registry gitHead for 0.1.4-beta.0              MATCHES
-#   honua-sdk-python-wheel e28c67c8 = tag python-sdk-v0.1.10 -> commit e28c67c8        MATCHES
+#   honua-sdk-python-wheel f7930b6e = tag python-sdk-v0.1.11 -> commit f7930b6e        MATCHES
 #   honua-sdk-dotnet     a88a7fbb = annotated tag dotnet-sdk-v1.6.0 -> commit a88a7fbb MATCHES
-# DRIFT FOUND WHILE VERIFYING, DELIBERATELY NOT ACTED ON HERE: newer versions of two of these ARE now
-# published — @honua/mcp-server 0.1.8-beta.0 (npm, 2026-08-26T20:00:08Z, gitHead 883302cc) and
-# honua-sdk 0.1.11 (PyPI, 2026-08-21). Advancing either requires re-reading its integrity/digest from
-# the new bytes, which is release-cut work. Both are called out for the cut.
+# @honua/mcp-server 0.1.8-beta.0 is also published; its separate coordinate remains release-cut work.
 clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
@@ -538,11 +495,11 @@ clientArtifacts:
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: honua-sdk
-    version: "0.1.10"
-    filename: honua_sdk-0.1.10-py3-none-any.whl
-    digest: "sha256:88bb538005c3262e65584d89109d2174b6a8f78184ce3513a2fb0754f1da0c08"
+    version: "0.1.11"
+    filename: honua_sdk-0.1.11-py3-none-any.whl
+    digest: "sha256:80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9"
     repository: honua-io/honua-sdk-python
-    sourceSha: "e28c67c8e3ef99bcc86c891ecc01a6940d7d7e59"
+    sourceSha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:
@@ -653,11 +610,13 @@ evidenceSources:
 # snapshotted here for provenance only, not part of the certified deploy set.
 experimental:
   honua-mobile:
+    repository: "https://github.com/honua-io/honua-mobile"
     status: experimental               # ADR-0059 experimental+disabled (Mobile / offline)
     version: "pre-release"             # no releases/tags (.NET MAUI app); pinned by sha
     sha: "4a356a86cd4d056aa13f6cf8bc6855ab7670c2e6"   # branch: trunk HEAD at re-pin time
 
   honua-collect:
+    repository: "https://github.com/honua-io/honua-collect"
     status: experimental               # ADR-0059 experimental+disabled (Forms + field collection)
     version: "pre-release"             # no releases/tags (.NET); pinned by sha
     # CORRECTION: the previous annotation said "branch: main (note: not trunk)". honua-collect's
