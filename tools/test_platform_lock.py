@@ -60,9 +60,9 @@ def test_refuses_source_built_or_non_exact_version():
     assert_refused(lock, "exact released SemVer")
 
 
-def test_refuses_source_head_artifact_identity_conflict():
+def test_allows_artifact_provenance_to_predate_component_head():
     lock = valid_lock(); lock["components"]["sdk"]["artifacts"][0]["sourceRevision"] = "c" * 40
-    assert_refused(lock, "conflicts with component source revision")
+    assert validator.validate(lock).ok
 
 
 def test_refuses_missing_type_specific_integrity():
@@ -71,8 +71,15 @@ def test_refuses_missing_type_specific_integrity():
 
 
 def test_applies_schema_before_reporting_valid():
-    lock = valid_lock(); lock["platform"]["status"] = "approved"
+    lock = valid_lock(); lock["platform"] = None
     assert_refused(lock, "schema violation")
+
+
+def test_refuses_terraform_without_integrity():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.clear()
+    artifact.update(kind="terraform", coordinate="registry.terraform.io/honua/platform", version="1.2.3", sourceRevision=REVISION)
+    assert_refused(lock, "terraform artifacts require a sha256 hash")
 
 
 def test_generator_preserves_calendar_release_identity(tmp_path):
@@ -96,6 +103,30 @@ def test_generator_matches_matrix_contract_by_name(tmp_path):
     matrix.write_text("contracts:\n  admin:\n    version: v1\n", encoding="utf-8")
     draft = generator.generate(manifest, matrix)
     assert any("contract 'admin' version 'v1'" in item for item in draft.unresolved)
+
+
+def test_generator_accepts_calendar_release_candidates_including_rc_zero(tmp_path):
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    for release in ("2026.1", "2026.1-rc.0", "2026.1-rc.2"):
+        manifest = tmp_path / "manifest.yaml"
+        manifest.write_text(f"platformRelease: {release}\ncomponents: {{}}\n", encoding="utf-8")
+        draft = generator.generate(manifest, matrix)
+        assert draft.lock["platform"]["id"] == f"honua-{release}"
+        assert validator.validate({**valid_lock(), "platform": {"id": f"honua-{release}", "status": "rc", "supportTier": "standard"}}).ok
+
+
+def test_generator_reports_terraform_sha256(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1-rc.0\ncomponents:\n  iac:\n    sha: " + REVISION
+        + "\n    version: 1.2.3\n    artifact: terraform-registry:honua\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert "[MECHANICAL] $.components.iac.artifacts[0].sha256: package hash is not declared" in draft.unresolved
 
 
 def test_generator_reports_all_current_unresolved_release_work():
