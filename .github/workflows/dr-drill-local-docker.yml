@@ -1,6 +1,11 @@
 name: dr-drill-local-docker
 
 on:
+  pull_request:
+    paths:
+      - "e2e/dr-drill/**"
+      - "platform-manifest.yaml"
+      - ".github/workflows/dr-drill-local-docker.yml"
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * 1"
