@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def _report(overall, label="2026.1-rc.3", gates=None):
     return {"platform_label": label, "dry_run": False, "overallStatus": overall,
             "gates": gates or [{"gate": "manifest", "decided": "pass"}],
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
             "evidence_url": "https://example/run/1"}
 
 
@@ -48,13 +50,11 @@ def test_label_mismatch_is_refused():
     assert not ok and "2026.2" in why
 
 
-def test_allowed_skip_is_promotable():
-    # cloud-parity self-skipped (cloud-creds-unset) is on the allowed-skip list -> still promotable.
+def test_required_cloud_skip_is_refused():
     rep = _report("pass", gates=[{"gate": "manifest", "status": "pass"},
                                  {"gate": "cloud-parity", "status": "skipped"}])
     ok, why = fr.verify_gate_report(rep, "2026.1")
-    assert ok, why
-    assert "cloud-parity" in why
+    assert not ok and "cloud-parity" in why
 
 
 def test_skip_of_non_allowlisted_gate_is_refused():
@@ -112,7 +112,9 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "certification_mode": "live",
     }
     report = cb.bind_gate_report(
-        _report("pass"),
+        {**_report("pass"),
+         "gates": [{"gate": gate, "status": "pass"}
+                   for gate in sorted(cb.REQUIRED_RELEASE_GATES)]},
         manifest,
         matrix,
         **identity,

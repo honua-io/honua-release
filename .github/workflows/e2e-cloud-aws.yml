@@ -406,7 +406,12 @@ jobs:
           set -uo pipefail
           STATUS=skipped; WHY="cloud-creds-unset"
           if [ -z "$GH_TOKEN" ] || [ -z "$AWS_ROLE" ]; then
-            echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (set RELEASE_GH_TOKEN + HONUA_AWS_ROLE_ARN to enforce per-RC)"
+            if [ "$REQUIRE_REAL" = "true" ]; then
+              STATUS=fail; WHY="required cloud certification evidence missing: cloud-creds-unset"
+              echo "::error title=required cloud-cert missing::iac-live cannot skip on a real release cut"
+            else
+              echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (optional dry-run path)"
+            fi
           else
             REPO=honua-io/honua-iac
             WF=terraform-manual-validation.yml

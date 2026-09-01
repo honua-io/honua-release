@@ -43,6 +43,33 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert 'DRY_RUN" = "false' in commands
 
 
+def test_live_release_aggregate_fails_on_any_skipped_required_gate():
+    report = _workflow("release-train.yml")["jobs"]["report"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert '($dry=="false" and any(.[]; .status=="skipped")) then "fail"' in commands
+    assert "best-effort" not in commands
+    assert not any(_neutralised(step) for step in report["steps"])
+
+
+def test_required_cloud_cell_cannot_self_skip_on_real_cut():
+    workflow = _workflow("e2e-cloud-aws.yml")
+    run = next(step["run"] for step in workflow["jobs"]["iac-live"]["steps"] if step.get("id") == "iac")
+    assert '[ "$REQUIRE_REAL" = "true" ]' in run
+    assert 'STATUS=fail; WHY="required cloud certification evidence missing' in run
+
+
+def test_fail_closed_demo_deliberately_skips_required_cell_and_goes_red():
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"] if str(step.get("name", "")).startswith("Acceptance demo"))
+    commands = _step_text(step)
+    assert "endsWith(github.ref_name, '-red-demo')" in step["if"]
+    assert "validate_live_report" in commands
+    assert '"status": "skipped" if gate == skipped else "pass"' in commands
+    assert "raise SystemExit(1)" in commands
+    assert not _neutralised(job)
+    assert not _neutralised(step)
+
+
 def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks():
     workflow = _workflow("gate-artifact-consume.yml")
     jobs = workflow["jobs"]

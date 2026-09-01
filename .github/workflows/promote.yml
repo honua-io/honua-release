@@ -8,9 +8,8 @@
 # branch other than the protected default, or a promotion started by the required reviewer all REFUSE
 # here, before any release work. Machine-readable evidence is uploaded for the release. Within the
 # gate it FAILS CLOSED: tools/finalize_release.py refuses to finalize unless the candidate's release-train
-# gate-report is all-green — every gate `pass`, OR `skipped` while on the EXPLICIT allowed-skip list
-# (tools/finalize_release.ALLOWED_SKIP: the creds-gated cloud cert tier that self-skips when
-# HONUA_AWS_ROLE_ARN is unset). A red/blocked candidate, or a skip of any non-allow-listed gate, can
+# gate-report is fresh and all-green — every REQUIRED gate is present and `pass`. A red, blocked,
+# missing, stale, source-substituted, wrong-candidate, or skipped REQUIRED receipt can
 # never be tagged (AGENTS.md). Tagging, signing, and release creation are done by THIS workflow's OIDC
 # identity — the AI never holds keys.
 #

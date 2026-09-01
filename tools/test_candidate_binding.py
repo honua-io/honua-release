@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -30,12 +31,40 @@ def _files(root: Path, manifest: bytes = b"platformRelease: 2026.1-rc.1\n") -> t
 
 
 def _bound_report(manifest_path: Path, matrix_path: Path) -> dict:
+    gates = [{"gate": name, "status": "pass"} for name in sorted(cb.REQUIRED_RELEASE_GATES)]
     return cb.bind_gate_report(
-        {"platform_label": "2026.1-rc.1", "dry_run": False, "overallStatus": "pass", "gates": []},
+        {"platform_label": "2026.1-rc.1", "dry_run": False, "overallStatus": "pass",
+         "generatedAt": datetime.now(timezone.utc).isoformat(), "gates": gates},
         manifest_path,
         matrix_path,
         **IDENTITY,
     )
+
+
+def _live_report(now: datetime) -> dict:
+    return {"dry_run": False, "overallStatus": "pass", "generatedAt": now.isoformat(),
+            "gates": [{"gate": gate, "status": "pass"}
+                      for gate in sorted(cb.REQUIRED_RELEASE_GATES)]}
+
+
+def test_live_report_rejects_a_skipped_or_missing_required_cell():
+    now = datetime.now(timezone.utc)
+    report = _live_report(now)
+    report["gates"][0]["status"] = "skipped"
+    ok, why = cb.validate_live_report(report, now=now)
+    assert not ok and "skip/blocked/fail is RED" in why
+
+    report = _live_report(now)
+    report["gates"].pop()
+    ok, why = cb.validate_live_report(report, now=now)
+    assert not ok and "missing required gate" in why
+
+
+def test_live_report_rejects_stale_receipt():
+    now = datetime.now(timezone.utc)
+    report = _live_report(now - timedelta(hours=cb.LIVE_REPORT_MAX_AGE_HOURS + 1))
+    ok, why = cb.validate_live_report(report, now=now)
+    assert not ok and "stale" in why and "max-age" in why
 
 
 def _verify(report: dict, manifest_path: Path, matrix_path: Path, **overrides) -> tuple[bool, str]:
@@ -290,7 +319,7 @@ def test_missing_binding_is_refused(tmp_path: Path):
 def test_create_bundle_copies_exact_candidate_bytes_and_binds_copies(tmp_path: Path):
     manifest_path, matrix_path = _files(tmp_path / "input")
     report_path = tmp_path / "gate-report.json"
-    report_path.write_text(json.dumps({"dry_run": False, "overallStatus": "pass"}), encoding="utf-8")
+    report_path.write_text(json.dumps(_live_report(datetime.now(timezone.utc))), encoding="utf-8")
     out_dir = tmp_path / "certified-candidate"
 
     bound_report_path = cb.create_bundle(
