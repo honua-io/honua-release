@@ -48,3 +48,32 @@ callable by the release train as a reusable gate (`workflow_call`, input `baseli
 
 Only dependency: `pyyaml`. `semver.py` is a minimal stdlib SemVer + range implementation (no
 third-party semver lib).
+
+## Platform lock v1 (issue #231, part 1)
+
+`schemas/platform-lock.v1.schema.json` is the release-candidate identity contract. It carries the
+platform identity/status/support tier, immutable source inputs, per-component source revision and
+lifecycle, contract/schema versions, exact artifact coordinates and integrity, MCP/catalog/OKF
+digests, fixture revisions, SBOM/provenance references, and release notes.
+
+Generate an honest partial lock and its release worklist:
+
+```bash
+python3 tools/generate_platform_lock.py --output /tmp/platform-lock.v1.draft.yaml
+```
+
+The generator writes the partial draft but exits 1 while any value cannot be resolved from
+`platform-manifest.yaml` and `compatibility-matrix.yaml`. Missing values are omitted—not replaced
+with placeholders—so a non-zero result is expected until release manufacture/signing (part 2)
+supplies registry and evidence identities.
+
+Validate a manufactured lock:
+
+```bash
+python3 tools/validate_platform_lock.py platform-lock.v1.yaml
+python3 -m pytest tools/test_platform_lock.py
+```
+
+Validation refuses placeholders, floating tags, carried-forward/source-built identities, missing
+type-specific integrity, and any mismatch between a component source revision and the revision
+attested by its released artifact.
