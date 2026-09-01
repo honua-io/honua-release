@@ -21,7 +21,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[1-9][0-9]*)?$")
+PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[0-9]+)?$")
 
 
 @dataclass
@@ -136,7 +136,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sourceRevision"] = published.get("sourceSha")
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
-            elif seed["kind"] in ("nuget", "wheel"):
+            elif seed["kind"] in ("nuget", "wheel", "terraform"):
                 published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
                 published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
                 digest = component.get("artifactSha256") or published.get("digest")
@@ -165,7 +165,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     # The matrix is consumed for contract coherence, but it does not manufacture missing versions.
     for contract, body in (matrix.get("contracts") or {}).items():
         expected = str((body or {}).get("version", ""))
-        if expected and not any((c.get("contractVersions") or {}).get(contract) == expected for c in lock["components"].values()):
+        if expected and not any(
+            (component.get("contractVersions") or {}).get(contract) == expected
+            for component in lock["components"].values()
+        ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
     for message in [
         "$.contentDigests.geospatialMcp: certified content digest is not declared",
