@@ -25,6 +25,7 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+      capacity_receipt_url: { description: "HTTPS URL of the candidate capacity-soak receipt", required: true, type: string }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -255,6 +256,12 @@ jobs:
       expected_geospatial_mcp_sha: ${{ needs.freeze.outputs.geospatial_mcp_sha }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
+  gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
+    needs: freeze
+    uses: ./.github/workflows/capacity-soak.yml
+    with:
+      receipt_url: ${{ inputs.capacity_receipt_url }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -273,6 +280,7 @@ jobs:
       - gate_upgrade
       - gate_evidence
       - gate_protocol_certification
+      - gate_capacity_soak
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -318,6 +326,7 @@ jobs:
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
           S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
+          S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -339,6 +348,7 @@ jobs:
           upgrade|$S_UPGRADE
           evidence|$S_EVIDENCE
           protocol-certification|$S_PROTOCOL
+          capacity-soak|$S_CAPACITY
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}

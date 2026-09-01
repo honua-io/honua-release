@@ -33,6 +33,16 @@ def test_manifest_validate_runs_for_every_pull_request_with_stable_check_name():
     assert "validate" in workflow["jobs"]
 
 
+def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
+    workflow = _workflow("capacity-soak.yml")
+    job = workflow["jobs"]["frozen-slo"]
+    commands = "\n".join(_step_text(step) for step in job["steps"])
+    assert "capacity-envelope.v1.json" in commands
+    assert "check_capacity_soak.py" in commands
+    assert 'gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server' in commands
+    assert "continue-on-error" not in str(job)
+
+
 def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     freeze = _workflow("release-train.yml")["jobs"]["freeze"]
     commands = "\n".join(_step_text(step) for step in freeze["steps"])
