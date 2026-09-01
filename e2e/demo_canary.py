@@ -96,6 +96,27 @@ def _best_effort_candidate_sha() -> str | None:
         return None
 
 
+def _live_deployment_revision(base: str, fetch, expected_sha: str | None) -> tuple[CheckResult, str]:
+    """Read the revision from the deployment itself and bind evidence only when it matches."""
+    response = fetch(base.rstrip("/") + "/api/v1/capabilities/manifest")
+    try:
+        manifest = json.loads(response.body) if response.status == 200 else {}
+        server = manifest.get("server") if isinstance(manifest, dict) else {}
+        revision = server.get("deploymentRevision") if isinstance(server, dict) else None
+    except (TypeError, ValueError):
+        revision = None
+    evidence = {"liveDeploymentRevision": revision or "", "expectedDeploymentRevision": expected_sha or ""}
+    if not revision:
+        return CheckResult("deployment-revision", "fail",
+                           "live capability manifest does not advertise server.deploymentRevision", evidence), ""
+    if not expected_sha or revision != expected_sha:
+        return CheckResult("deployment-revision", "fail",
+                           f"live deployment revision {revision!r} does not match candidate {expected_sha!r}",
+                           evidence), revision
+    return CheckResult("deployment-revision", "pass",
+                       f"live deployment advertises candidate revision {revision}", evidence), revision
+
+
 
 CANONICAL_DEMO_HOST = "demo.honua.io"
 
@@ -123,6 +144,8 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
 
     canonical = run_canonical(base, fetch, authenticated_fetch=admin_fetch,
                               frozen_server_sha=candidate_sha, enforcement="bootstrap")
+    revision_check, live_candidate_sha = _live_deployment_revision(base, fetch, candidate_sha)
+    canonical.append(revision_check)
     canary = canary_probes.run_canary(base, fetch, admin_fetch=admin_fetch, service_id=service_id,
                                       tile_layer_id=tile_layer_id,
                                       assert_stac_non_empty=assert_stac_non_empty,
@@ -197,8 +220,8 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
         "sourceRepo": "honua-io/honua-release",
         "sourceRef": os.environ.get("GITHUB_SHA", ""),
         "sourceRunUrl": run_url,
-        # Extra (contract tolerates unknown fields): which pinned server candidate this ran against.
-        "candidateServerSha": candidate_sha or "",
+        # Extra (contract tolerates unknown fields): revision advertised by the deployment exercised.
+        "candidateServerSha": live_candidate_sha,
         "probes": probes,
     }
     return report, envelope

@@ -22,6 +22,7 @@ sys.path.insert(0, str(E2E_DIR))
 import canonical_checks as cc  # noqa: E402
 import parity as par  # noqa: E402
 import run_cloud  # noqa: E402
+import demo_canary  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 from targets.terraform_target import ecs, serverless  # noqa: E402
@@ -148,6 +149,26 @@ def test_capability_manifest_revision_match_passes():
         "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
         expected=_expected_ga([]), frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
     assert r.status == "pass"
+
+
+def test_demo_canary_binds_revision_advertised_by_live_deployment():
+    body = json.dumps({"server": {"deploymentRevision": TEST_SERVER_SHA}})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    result, revision = demo_canary._live_deployment_revision("http://x", fetch, TEST_SERVER_SHA)
+    assert result.status == "pass"
+    assert revision == TEST_SERVER_SHA
+
+
+def test_demo_canary_refuses_missing_or_stale_live_revision():
+    missing = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, "{}"))])
+    result, revision = demo_canary._live_deployment_revision("http://x", missing, TEST_SERVER_SHA)
+    assert result.status == "fail" and revision == ""
+
+    stale_sha = "b" * 40
+    stale_body = json.dumps({"server": {"deploymentRevision": stale_sha}})
+    stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, stale_body))])
+    result, revision = demo_canary._live_deployment_revision("http://x", stale, TEST_SERVER_SHA)
+    assert result.status == "fail" and revision == stale_sha
 
 
 def test_capability_manifest_stale_revision_fails_closed_by_default():

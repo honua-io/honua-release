@@ -33,6 +33,16 @@ def test_manifest_validate_runs_for_every_pull_request_with_stable_check_name():
     assert "validate" in workflow["jobs"]
 
 
+def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
+    workflow = _workflow("capacity-soak.yml")
+    job = workflow["jobs"]["frozen-slo"]
+    commands = "\n".join(_step_text(step) for step in job["steps"])
+    assert "capacity-envelope.v1.json" in commands
+    assert "check_capacity_soak.py" in commands
+    assert 'gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server' in commands
+    assert "continue-on-error" not in str(job)
+
+
 def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     freeze = _workflow("release-train.yml")["jobs"]["freeze"]
     commands = "\n".join(_step_text(step) for step in freeze["steps"])
@@ -376,9 +386,26 @@ def test_every_promote_step_that_can_refuse_is_allowed_to_refuse():
         text = _step_text(step)
         if any(
             guard in text
-            for guard in ("check_release_promotion_approval.py", "candidate_binding.py", "finalize_release.py")
+            for guard in ("check_release_promotion_approval.py", "check_promotion_readiness.py",
+                          "candidate_binding.py", "finalize_release.py")
         ):
             assert not _neutralised(step), f"guard step is neutralised: {step.get('name')}"
+
+
+def test_promotion_requires_committed_burn_evidence_and_retags_the_freeze_rc():
+    workflow = _workflow("promote.yml")
+    assert workflow["jobs"]["promote"]["environment"] == "release-promotion"
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["promotion_record"]["required"] is True
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["promote"]["steps"])
+    for required in (
+        "certification/promotions/[0-9]+", "check_promotion_readiness.py", "burnStartCommit",
+        "git log", "platform-lock.json", "strictTrains", "demoCanaries",
+        "steps.readiness.outputs.rc_train_run_id", "candidate/platform-lock.json",
+    ):
+        assert required in commands
+    assert "docker build" not in commands
+    assert "dotnet build" not in commands
+    assert "npm pack" not in commands
 
 
 def test_promotion_request_uses_the_scoped_claude_app_identity():
