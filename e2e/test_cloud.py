@@ -499,9 +499,9 @@ _CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID", "AWS_PRO
              "AWS_WEB_IDENTITY_TOKEN_FILE")
 
 
-def test_run_cloud_self_skips_without_cloud_creds(monkeypatch):
-    # No cloud/OIDC creds => SELF-SKIP (status: skipped, why: cloud-creds-unset), even under
-    # require_real — a no-cloud local cut must not be reddened by the cloud tier.
+def test_run_cloud_self_skips_only_optional_path_without_cloud_creds(monkeypatch):
+    # No cloud/OIDC creds may SELF-SKIP an optional bootstrap run, but the same missing evidence is
+    # a hard failure under require_real so the AWS matrix cannot be green without exercising AWS.
     for var in set(_AWS_ENV) | set(_CRED_ENV):
         monkeypatch.delenv(var, raising=False)
     for target in ("aws-serverless", "aws-ecs", "aws-eks"):
@@ -510,7 +510,8 @@ def test_run_cloud_self_skips_without_cloud_creds(monkeypatch):
             assert r["status"] == "skipped" and r["why"] == "cloud-creds-unset", (target, redis)
             assert r["redis"] == ("redis-on" if redis else "redis-off")
             r2 = run_cloud.run(target, require_real=True, reference_endpoint=None, redis_enabled=redis)
-            assert r2["status"] == "skipped", (target, redis)  # creds unset => cannot enforce, still skip
+            assert r2["status"] == "fail", (target, redis)
+            assert "required cloud certification evidence missing" in r2["why"], (target, redis)
 
 
 def test_run_cloud_blocked_when_creds_present_but_infra_missing(monkeypatch):
