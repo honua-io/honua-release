@@ -27,7 +27,7 @@ check:
 # Unit tests for the runner + cloud-parity verdict logic. No images/cloud needed; runs via pytest if
 # present, else the test modules' standalone runners. Server-independent, so it runs on every PR.
 test:
-	$(PY) -m pytest runner/test_runner.py test_cloud.py test_canary_probes.py -q || { $(PY) runner/test_runner.py && $(PY) test_cloud.py && $(PY) test_canary_probes.py; }
+	$(PY) -m pytest runner/test_runner.py test_cloud.py test_canary_probes.py test_formats.py -q || { $(PY) runner/test_runner.py && $(PY) test_cloud.py && $(PY) test_canary_probes.py; }
 
 e2e: deps
 	$(PY) run.py

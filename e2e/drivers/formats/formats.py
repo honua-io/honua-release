@@ -299,10 +299,12 @@ def main():
         gdal_convert("Parquet", "sample.geoparquet", ["-lco", "GEOMETRY_ENCODING=WKB"]),
     )
     emit("GeoParquet", r, "na", "na", n + " (WKB GeoParquet upload)")
+    passed += r == "pass"
 
     # FileGDB — read-capable (OpenFileGDB) but sample generation is not automated here.
     r, _, n = do_read("FileGDB", gdal_filegdb_zip())
     emit("FileGDB", r, "na", "na", n + " (.gdb.zip upload)")
+    passed += r == "pass"
     arrow, note = query_binary_output("arrow", "application/vnd.apache.arrow.stream")
     emit("GeoArrow", "na", arrow, "na", note)
     geobuf, note = query_binary_output("geobuf", "application/geobuf")
