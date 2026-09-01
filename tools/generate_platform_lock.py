@@ -22,6 +22,7 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[0-9]+)?$")
+LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
 @dataclass
@@ -50,7 +51,10 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     if not coordinate:
         return None
     prefix, _, name = str(coordinate).partition(":")
-    kinds = {"npm": "npm", "nuget": "nuget", "pypi": "wheel", "oci-chart": "oci-chart", "terraform-registry": "terraform"}
+    kinds = {
+        "npm": "npm", "nuget": "nuget", "pypi": "wheel", "oci-chart": "oci-chart",
+        "terraform-registry": "terraform", "spec": "spec", "archive": "archive",
+    }
     return {"kind": kinds.get(prefix, "other"), "coordinate": name or str(coordinate)}
 
 
@@ -61,7 +65,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     release_notes = manifest.get("artifacts", {}).get("releaseNotes") if isinstance(manifest.get("artifacts"), dict) else None
     lock: dict[str, Any] = {
         "lockVersion": "platform-lock.v1",
-        "platform": {"id": platform_id, "status": manifest.get("status")},
+        "platform": {"id": platform_id, "status": manifest.get("status"), "supportTier": "ga"},
         "sourceInputs": {
             "platformManifest": _file_identity(manifest_path),
             "compatibilityMatrix": _file_identity(matrix_path),
@@ -87,8 +91,6 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             "$.platform.id: platformManifest.platformRelease is absent or not strict "
             "YYYY.N[-rc.N]; refusing to infer the missing identity"
         )
-    refuse("$.platform.supportTier: not declared by either source input", "DECISION")
-
     combined = list((manifest.get("components") or {}).items()) + list((manifest.get("experimental") or {}).items())
     for name, component in combined:
         cpath = f"$.components.{name}"
@@ -97,6 +99,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             "contractVersions": component.get("contractVersions") or {},
             "schemaVersions": {},
             "artifacts": [],
+            "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
         }
         if component.get("dbSchema") is not None:
             entry["schemaVersions"]["database"] = str(component["dbSchema"])
@@ -106,21 +109,24 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         lock["components"][name] = entry
         if not component.get("repository"):
             refuse(f"{cpath}.source.repository: not declared by platform manifest", "MECHANICAL")
-        if component.get("status") == "experimental":
-            entry["lifecycleStatus"] = "Experimental"
+        lifecycle_status = component.get("lifecycleStatus")
+        if lifecycle_status is None and component.get("status") == "experimental":
+            lifecycle_status = "Experimental"
+        if lifecycle_status in LIFECYCLE_STATUSES:
+            entry["lifecycleStatus"] = lifecycle_status
+            entry["supportTier"] = lifecycle_status.lower()
         else:
             refuse(f"{cpath}.lifecycleStatus: exact GA/Preview/Experimental/Excluded status is not declared", "DECISION")
-        refuse(f"{cpath}.supportTier: not declared", "DECISION")
         if not component.get("contractVersions"):
             resolution = "PUBLISH" if name in {"honua-sdk-dotnet", "honua-sdk-js", "honua-sdk-python"} else "AT-CUT"
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"]:
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed:
+        if not seed and not component.get("sourcePinnedOnly"):
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
-        else:
+        elif seed:
             apath = f"{cpath}.artifacts[0]"
-            version = component.get("version")
+            version = component.get("artifactVersion") or component.get("version")
             if version and version != "pre-release":
                 seed["version"] = str(version)
             else:
@@ -136,7 +142,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sourceRevision"] = published.get("sourceSha")
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
-            elif seed["kind"] in ("nuget", "wheel", "terraform"):
+            elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive"):
                 published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
                 published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
                 digest = component.get("artifactSha256") or published.get("digest")

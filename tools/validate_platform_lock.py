@@ -77,6 +77,9 @@ def validate(lock: dict[str, Any]) -> Findings:
     _require(lock, ("lockVersion", "platform", "sourceInputs", "components", "contentDigests", "fixtures", "sbom", "provenance", "notes"), "$", f)
     if lock.get("lockVersion") != "platform-lock.v1":
         f.error("$.lockVersion", "must equal 'platform-lock.v1'")
+    platform = lock.get("platform") or {}
+    if isinstance(platform, dict) and platform.get("supportTier") != "ga":
+        f.error("$.platform.supportTier", "must equal the operator-locked platform tier 'ga'")
 
     for path, value in _walk(lock):
         if isinstance(value, str):
@@ -95,12 +98,17 @@ def validate(lock: dict[str, Any]) -> Findings:
         if not isinstance(component, dict):
             f.error(path, "must be a mapping")
             continue
-        _require(component, ("source", "lifecycleStatus", "supportTier", "contractVersions", "schemaVersions", "artifacts"), path, f)
+        _require(component, ("source", "lifecycleStatus", "supportTier", "artifactIdentityModel", "contractVersions", "schemaVersions", "artifacts"), path, f)
+        lifecycle_status = component.get("lifecycleStatus")
+        if component.get("supportTier") != str(lifecycle_status).lower():
+            f.error(f"{path}.supportTier", "must be derived from lifecycleStatus by lowercasing it")
         source = component.get("source") or {}
         revision = source.get("revision") if isinstance(source, dict) else None
         if not isinstance(revision, str) or not SHA_RE.fullmatch(revision):
             f.error(f"{path}.source.revision", "must be an immutable 40-character git revision")
         artifacts = component.get("artifacts")
+        if component.get("artifactIdentityModel") == "source-pinned" and artifacts == []:
+            continue
         if not isinstance(artifacts, list) or not artifacts:
             f.error(f"{path}.artifacts", "must contain at least one released artifact")
             continue
@@ -120,7 +128,7 @@ def validate(lock: dict[str, Any]) -> Findings:
             kind = artifact.get("kind")
             if kind == "npm" and not str(artifact.get("integrity", "")).startswith("sha512-"):
                 f.error(f"{apath}.integrity", "npm artifacts require an sha512 integrity value")
-            if kind in ("nuget", "wheel", "terraform") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
+            if kind in ("nuget", "wheel", "terraform", "spec", "archive") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
                 f.error(f"{apath}.sha256", f"{kind} artifacts require a sha256 hash")
             if kind in ("image", "oci-chart"):
                 if not DIGEST_RE.fullmatch(str(artifact.get("digest", ""))):
