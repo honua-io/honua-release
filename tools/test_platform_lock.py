@@ -107,3 +107,21 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "fixtures" in joined and "sbom" in joined and "provenance" in joined
     assert "lifecycleStatus" in joined and "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
+
+
+def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1\ncomponents:\n  honua-server:\n    repository: https://github.com/honua-io/honua-server\n    sha: "
+        + REVISION
+        + "\n    image: ghcr.io/honua-io/honua-server:candidate\n    digest: sha256:"
+        + "a" * 64
+        + "\n    contractVersions:\n      admin: v1\n    dbSchema: 1\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts:\n  admin:\n    version: v1\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert draft.deferred_until_cut
+    assert all(item in draft.unresolved for item in draft.deferred_until_cut)
+    assert any("artifacts[0].sourceRevision" in item for item in draft.deferred_until_cut)

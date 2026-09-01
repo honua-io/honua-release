@@ -89,6 +89,7 @@ protocolCertification:
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:
+    repository: "https://github.com/honua-io/honua-server"
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110): the newest trunk commit whose
     # own CI is GREEN **and** which has a published, immutable multi-arch AOT image. A sha with no
@@ -346,6 +347,7 @@ components:
     dbSchema: "107"
 
   honua-console:
+    repository: "https://github.com/honua-io/honua-console"
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
     sha: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"   # branch: trunk HEAD at re-pin time
     # Public multi-architecture candidate built from this SHA by Console Container run 32369440068.
@@ -355,6 +357,7 @@ components:
     digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
 
   honua-sdk-dotnet:
+    repository: "https://github.com/honua-io/honua-sdk-dotnet"
     version: "1.6.0"                   # release tag dotnet-sdk-v1.6.0 (reachable from the sha below)
     # PIN POLICY (honua-release#102): newest trunk commit whose own CI is green, not literal trunk
     # HEAD. f6c98c5cb was literal HEAD at the last re-pin and its CI was red — NU1903 (SSH.NET
@@ -380,6 +383,7 @@ components:
     # here is the reachable release tag rather than a registry-published one.
 
   honua-sdk-js:
+    repository: "https://github.com/honua-io/honua-sdk-js"
     # Exact published release from honua-sdk-js#1537. The skipped 0.1.8-beta.0 coordinate was never
     # published; 0.1.9-beta.0 is registry-installable and its release tag resolves to the sha below.
     version: "0.1.9-beta.0"            # release tag js-sdk-v0.1.9-beta.0; published on npm
@@ -390,6 +394,7 @@ components:
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
 
   honua-sdk-python:
+    repository: "https://github.com/honua-io/honua-sdk-python"
     # PyPI 0.1.11 was published on 2026-08-21. The wheel and immutable release tag both bind this
     # artifact identity to f7930b6e; a later unreleased trunk head must not overwrite that fact.
     version: "0.1.11"
@@ -398,6 +403,9 @@ components:
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:
+    repository: "https://github.com/honua-io/geospatial-grpc"
+    artifactSourceRevision: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"
+    artifactSha256: "sha256:69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f"
     # NuGet publishes Geospatial.Grpc 1.0.0 from this exact v1.0.0 commit. This records the current
     # released artifact identity; the server remains pinned independently and is re-pinned AT-CUT.
     version: "1.0.0"
@@ -414,6 +422,7 @@ components:
     # Neither pin moves here; both consumer re-pins and their certification belong to the release cut.
 
   geospatial-mcp:
+    repository: "https://github.com/honua-io/geospatial-mcp"
     version: "pre-release"             # spec/conformance repo; no releases/tags; pinned by sha
     # REFRESHED 2026-08-27, 5e052a76 -> d5a09d13 (trunk HEAD), to carry BOTH named migrations.
     # Ancestry proven for each, not inferred from the branch:
@@ -425,11 +434,13 @@ components:
     sha: "d5a09d13c4ad541c05702e598c3679c0f42db7af"   # branch: trunk HEAD (green)
 
   honua-iac:
+    repository: "https://github.com/honua-io/honua-iac"
     version: "pre-release"             # no releases/tags; CHANGELOG "Unreleased"; pinned by sha
     sha: "cace70f7b592a583a478ed6f002c7de17b053282"   # branch: trunk HEAD at re-pin time (honua-iac#144: aws-eks secret-encryption toggle)
     artifact: "terraform-registry:honua"
 
   honua-helm:
+    repository: "https://github.com/honua-io/honua-helm"
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the
@@ -599,11 +610,13 @@ evidenceSources:
 # snapshotted here for provenance only, not part of the certified deploy set.
 experimental:
   honua-mobile:
+    repository: "https://github.com/honua-io/honua-mobile"
     status: experimental               # ADR-0059 experimental+disabled (Mobile / offline)
     version: "pre-release"             # no releases/tags (.NET MAUI app); pinned by sha
     sha: "4a356a86cd4d056aa13f6cf8bc6855ab7670c2e6"   # branch: trunk HEAD at re-pin time
 
   honua-collect:
+    repository: "https://github.com/honua-io/honua-collect"
     status: experimental               # ADR-0059 experimental+disabled (Forms + field collection)
     version: "pre-release"             # no releases/tags (.NET); pinned by sha
     # CORRECTION: the previous annotation said "branch: main (note: not trunk)". honua-collect's
