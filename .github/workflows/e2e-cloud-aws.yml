@@ -16,9 +16,9 @@
 #              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
 #              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
 #
-# SELF-SKIP (task requirement): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and, for the
-# wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` + a clear
-# `::notice::` and exits 0 — so the local tiers of a dry-run cut still run and the train is not failed.
+# SELF-SKIP (optional bootstrap only): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and,
+# for the wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` during
+# a dry run. With require_real, missing credentials are required-evidence failures and every cell exits red.
 # It is READY to enforce per-RC from manifest-derived server and Lambda images; set HONUA_AWS_ROLE_ARN
 # (+ RELEASE_GH_TOKEN for the wrapper) on the candidate and every layer runs for real. OIDC into AWS — no
 # static creds. The aggregate `cloud-report` job assembles one machine-readable gate-report the train parses.
@@ -319,7 +319,8 @@ jobs:
       - name: Self-test the cloud parity logic
         run: python -m pytest e2e/test_cloud.py -q
 
-      # OIDC into AWS — only when a role is configured; otherwise the cell self-skips.
+      # OIDC into AWS — only when a role is configured; otherwise an optional cell self-skips and a
+      # require_real cell fails closed.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3

@@ -132,12 +132,15 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     "availability": {"ok": avail.ok, "reason": avail.reason, "missing": avail.missing}}
 
     if not avail.ok:
-        # Cloud/OIDC creds unset => SELF-SKIP (not blocked, not fail), even under require_real: without
-        # creds this tier literally cannot run, and a local cut must not be reddened by it. Enforcement
-        # is per-RC: an org wires HONUA_AWS_ROLE_ARN for a candidate and the cell then runs for real.
+        # Cloud/OIDC creds unset may self-skip only on the optional bootstrap path. A required cell
+        # without credentials is missing required evidence and must be red; otherwise every matrix
+        # cell can exit 0 without exercising AWS (honua-release#209).
         if not _cloud_creds_present():
-            report["status"] = "skipped"
-            report["why"] = "cloud-creds-unset"
+            report["status"] = "fail" if require_real else "skipped"
+            report["why"] = (
+                "required cloud certification evidence missing: cloud-creds-unset"
+                if require_real else "cloud-creds-unset"
+            )
             return report
         # Creds present but infra half-wired (no image / no IaC tree) => BLOCKED, promoted to FAIL under
         # require_real so a genuinely broken cloud path is a real red.
