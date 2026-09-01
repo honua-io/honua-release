@@ -70,6 +70,39 @@ def test_refuses_missing_type_specific_integrity():
     assert_refused(lock, "npm artifacts require")
 
 
+def test_refuses_image_maps_missing_published_architectures():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.update(
+        kind="image",
+        coordinate="ghcr.io/honua/server:1.2.3",
+        digest=DIGEST,
+        architectures=["amd64", "arm64"],
+        architectureDigests={"amd64": DIGEST},
+        awsFargateArchitectures={"amd64": {"status": "certified"}},
+    )
+    del artifact["integrity"]
+    assert_refused(lock, "architectureDigests.arm64")
+    assert_refused(lock, "awsFargateArchitectures.arm64")
+
+
+def test_refuses_image_maps_with_unpublished_architectures():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.update(
+        kind="image",
+        coordinate="ghcr.io/honua/server:1.2.3",
+        digest=DIGEST,
+        architectures=["amd64"],
+        architectureDigests={"amd64": DIGEST, "arm64": DIGEST},
+        awsFargateArchitectures={
+            "amd64": {"status": "certified"},
+            "arm64": {"status": "excluded", "reason": "not published"},
+        },
+    )
+    del artifact["integrity"]
+    assert_refused(lock, "architectureDigests.arm64")
+    assert_refused(lock, "awsFargateArchitectures.arm64")
+
+
 def test_applies_schema_before_reporting_valid():
     lock = valid_lock(); lock["platform"]["status"] = "approved"
     assert_refused(lock, "schema violation")

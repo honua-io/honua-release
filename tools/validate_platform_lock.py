@@ -126,6 +126,28 @@ def validate(lock: dict[str, Any]) -> Findings:
                     f.error(f"{apath}.digest", f"{kind} artifacts require an immutable sha256 digest")
                 if not artifact.get("architectures"):
                     f.error(f"{apath}.architectures", f"{kind} artifacts require an architecture set")
+            if kind == "image":
+                architectures = artifact.get("architectures")
+                architecture_digests = artifact.get("architectureDigests")
+                fargate_architectures = artifact.get("awsFargateArchitectures")
+                if isinstance(architectures, list):
+                    published = set(architectures)
+                    for field, values in (
+                        ("architectureDigests", architecture_digests),
+                        ("awsFargateArchitectures", fargate_architectures),
+                    ):
+                        if not isinstance(values, dict):
+                            continue
+                        for architecture in sorted(published - set(values)):
+                            f.error(
+                                f"{apath}.{field}.{architecture}",
+                                "published architecture requires an explicit entry",
+                            )
+                        for architecture in sorted(set(values) - published):
+                            f.error(
+                                f"{apath}.{field}.{architecture}",
+                                "entry refers to an unpublished architecture",
+                            )
     return f
 
 
