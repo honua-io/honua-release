@@ -96,7 +96,7 @@
       },
       "allOf": [
         {"if": {"properties": {"kind": {"const": "npm"}}}, "then": {"required": ["integrity"]}},
-        {"if": {"properties": {"kind": {"enum": ["nuget", "wheel"]}}}, "then": {"required": ["sha256"]}},
+        {"if": {"properties": {"kind": {"enum": ["nuget", "wheel", "terraform"]}}}, "then": {"required": ["sha256"]}},
         {"if": {"properties": {"kind": {"enum": ["image", "oci-chart"]}}}, "then": {"required": ["digest", "architectures"]}}
       ]
     }

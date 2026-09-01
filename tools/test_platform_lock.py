@@ -71,8 +71,15 @@ def test_refuses_missing_type_specific_integrity():
 
 
 def test_applies_schema_before_reporting_valid():
-    lock = valid_lock(); lock["platform"]["status"] = "approved"
+    lock = valid_lock(); lock["platform"] = None
     assert_refused(lock, "schema violation")
+
+
+def test_refuses_terraform_without_integrity():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.clear()
+    artifact.update(kind="terraform", coordinate="registry.terraform.io/honua/platform", version="1.2.3", sourceRevision=REVISION)
+    assert_refused(lock, "terraform artifacts require a sha256 hash")
 
 
 def test_generator_preserves_calendar_release_identity(tmp_path):
