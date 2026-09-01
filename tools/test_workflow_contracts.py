@@ -424,6 +424,27 @@ def test_contract_gate_report_cannot_be_assembled_from_survivors():
     assert '"fail"' in commands, "a missing fragment must be recorded as a failure"
 
 
+def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatibility():
+    """The kind lane must not regress to same-schema, empty-database lifecycle theatre."""
+    workflow = _workflow("gate-upgrade.yml")
+    commands = "\n".join(
+        _step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"]
+    )
+
+    assert "platform-manifest.yaml" in commands
+    assert "FIRST_RELEASE_BASELINE_IMAGE" in commands
+    assert "gh release download \"$PREV\"" in commands
+    assert "e2e/harness/seed/seed.sh" in commands
+    assert "SELECT count(*) FROM public.schema_versions" in commands
+    assert "AFTER_VERSIONS" in commands and '"-gt"' not in commands
+    assert "CANDIDATE_SCHEMA_FLOOR" in commands
+    assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
+    assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
+    assert "helm rollback honua 1" in commands
+    assert "returnCountOnly=true" in commands
+    assert "down-migration noted" not in commands
+
+
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
 #
 # A clean shipped workflow is not evidence that the check works — it is equally consistent with a
