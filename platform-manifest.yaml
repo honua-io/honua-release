@@ -52,14 +52,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-08-27"             # working-snapshot refresh for honua-server ac30266f (see header)
+snapshotDate: "2026-08-31"             # forward-migration candidate refresh for honua-server 52a56a1
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "ac30266fbd153363bebdbed13130accc8ab0c94a"
+  ref: "52a56a19a266935fccc79312708b469e92ee3cbe"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -68,11 +68,11 @@ candidate:
 protocolCertification:
   # UTC timestamp of THIS working-snapshot refresh (2026-08-27 operator decision). The previous value
   # 2026-08-21T15:13:36Z was the completion time of honua-server release-bundle run 32496444220.
-  candidateCutAt: "2026-08-27T03:54:36Z"
+  candidateCutAt: "2026-08-31T13:26:06Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "ac30266fbd153363bebdbed13130accc8ab0c94a"
+  serverCertificationProducerSha: "52a56a19a266935fccc79312708b469e92ee3cbe"
   # NOT TOUCHED BY THIS REFRESH — DELIBERATELY STALE, AND SAID SO.
   # The ledger below is byte-frozen against the OLD candidate (e3ab87ce). Re-binding it requires
   # honua-evidence to re-aggregate at this PR's squash SHA first; the ordered procedure is
@@ -221,9 +221,12 @@ components:
     #   (Cancelled: 115x the same attestation lane, 7x Prebuild repeated project / server, 3x
     #    Prebuild repeated project / geoservices.)
     # ==============================================================================================
-    sha: "ac30266fbd153363bebdbed13130accc8ab0c94a"   # newest essentially-green trunk sha with an image
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-ac30266"   # immutable per-sha tag (NOT a floating tag)
-    digest: "sha256:373aa1fdf1bd4153df9cb21e25e43dfc463c0e194fcac13b40a39c4bb390eb72"
+    # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
+    # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
+    # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
+    sha: "52a56a19a266935fccc79312708b469e92ee3cbe"
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-52a56a1"   # immutable per-sha tag (NOT a floating tag)
+    digest: "sha256:e6db39f64cd38f88ac0cb36cff63d7ef5324ef8a0f12961f6a6583fdce35a5e2"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -247,8 +250,8 @@ components:
     #   architecture = amd64
     #   org.opencontainers.image.revision = ac30266fbd153363bebdbed13130accc8ab0c94a
     #   Entrypoint = ["/var/task/Honua.Server"]
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-ac30266-amd64"
-    awsLambdaDigest: "sha256:25c23ce39e5e8749d17e7636bdc0d9d655ac6f0a1bc529f418f7d704d65d827f"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-52a56a1-amd64"
+    awsLambdaDigest: "sha256:67d5a9eb581ddbd756192797181eb6c712f6d4c23b9150fe7680a7e0cfe091bf"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -340,7 +343,7 @@ components:
     #   106_CreateManagedUsersAndScimGroups.sql
     # So no migration was added between 6b6d3b8 and ac30266f and the floor is unchanged at 106. The
     # journal-read half of the evidence above was NOT repeated at this working snapshot.
-    dbSchema: "106"
+    dbSchema: "107"
 
   honua-console:
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
