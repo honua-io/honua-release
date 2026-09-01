@@ -96,3 +96,16 @@ python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 
 Only an immutable receipt attached to the exact lock digest is reported as certification. Matching
 versions, a known release, or an absent receipt never imply compatibility or certification.
+
+Check an exact server digest (or endpoint exposing a platform lock) against a client coordinate or
+local `.nupkg`, `.whl`, or npm tarball:
+
+```bash
+python3 tools/compat_check.py sha256:<server-digest> '@honua/sdk-js@0.0.12-alpha.0'
+python3 tools/compat_check.py https://server.example path/to/Geospatial.Grpc.1.0.0.nupkg
+```
+
+The result is `CERTIFIED`, `INCOMPATIBLE`, or `NOT-CERTIFIED`. Only an exact pair receipt can yield
+the first two states. Artifact publication receipts and version matches are deliberately ignored
+when deciding server/client compatibility. Exit status is 0 only for `CERTIFIED`, 1 for either
+non-certified result, and 2 when an input or ledger cannot be resolved safely.
