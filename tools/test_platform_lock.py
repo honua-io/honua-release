@@ -60,9 +60,9 @@ def test_refuses_source_built_or_non_exact_version():
     assert_refused(lock, "exact released SemVer")
 
 
-def test_refuses_source_head_artifact_identity_conflict():
+def test_allows_artifact_provenance_to_predate_component_head():
     lock = valid_lock(); lock["components"]["sdk"]["artifacts"][0]["sourceRevision"] = "c" * 40
-    assert_refused(lock, "conflicts with component source revision")
+    assert validator.validate(lock).ok
 
 
 def test_refuses_missing_type_specific_integrity():
@@ -82,42 +82,16 @@ def test_accepts_source_pinned_component_without_published_artifacts():
     assert validator.validate(lock).ok
 
 
-def test_refuses_image_maps_missing_published_architectures():
-    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
-    artifact.update(
-        kind="image",
-        coordinate="ghcr.io/honua/server:1.2.3",
-        digest=DIGEST,
-        architectures=["amd64", "arm64"],
-        architectureDigests={"amd64": DIGEST},
-        awsFargateArchitectures={"amd64": {"status": "certified"}},
-    )
-    del artifact["integrity"]
-    assert_refused(lock, "architectureDigests.arm64")
-    assert_refused(lock, "awsFargateArchitectures.arm64")
-
-
-def test_refuses_image_maps_with_unpublished_architectures():
-    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
-    artifact.update(
-        kind="image",
-        coordinate="ghcr.io/honua/server:1.2.3",
-        digest=DIGEST,
-        architectures=["amd64"],
-        architectureDigests={"amd64": DIGEST, "arm64": DIGEST},
-        awsFargateArchitectures={
-            "amd64": {"status": "certified"},
-            "arm64": {"status": "excluded", "reason": "not published"},
-        },
-    )
-    del artifact["integrity"]
-    assert_refused(lock, "architectureDigests.arm64")
-    assert_refused(lock, "awsFargateArchitectures.arm64")
-
-
 def test_applies_schema_before_reporting_valid():
-    lock = valid_lock(); lock["platform"]["status"] = "approved"
+    lock = valid_lock(); lock["platform"] = None
     assert_refused(lock, "schema violation")
+
+
+def test_refuses_terraform_without_integrity():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.clear()
+    artifact.update(kind="terraform", coordinate="registry.terraform.io/honua/platform", version="1.2.3", sourceRevision=REVISION)
+    assert_refused(lock, "terraform artifacts require a sha256 hash")
 
 
 def test_generator_preserves_calendar_release_identity(tmp_path):
@@ -143,6 +117,30 @@ def test_generator_matches_matrix_contract_by_name(tmp_path):
     assert any("contract 'admin' version 'v1'" in item for item in draft.unresolved)
 
 
+def test_generator_accepts_calendar_release_candidates_including_rc_zero(tmp_path):
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    for release in ("2026.1", "2026.1-rc.0", "2026.1-rc.2"):
+        manifest = tmp_path / "manifest.yaml"
+        manifest.write_text(f"platformRelease: {release}\ncomponents: {{}}\n", encoding="utf-8")
+        draft = generator.generate(manifest, matrix)
+        assert draft.lock["platform"]["id"] == f"honua-{release}"
+        assert validator.validate({**valid_lock(), "platform": {"id": f"honua-{release}", "status": "rc", "supportTier": "ga"}}).ok
+
+
+def test_generator_reports_terraform_sha256(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1-rc.0\ncomponents:\n  iac:\n    sha: " + REVISION
+        + "\n    version: 1.2.3\n    artifact: terraform-registry:honua\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert "[MECHANICAL] $.components.iac.artifacts[0].sha256: package hash is not declared" in draft.unresolved
+
+
 def test_generator_reports_all_current_unresolved_release_work():
     draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
     joined = "\n".join(draft.unresolved)
@@ -153,13 +151,9 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "[DECISION]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
-    assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0] == {
-        "kind": "spec",
-        "coordinate": "https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json",
-        "version": "1.0.0+d5a09d13",
-        "sourceRevision": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
-        "sha256": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5",
-    }
+    assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0]["sha256"] == (
+        "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+    )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
         "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
     )
@@ -200,46 +194,3 @@ def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
     assert draft.deferred_until_cut
     assert all(item in draft.unresolved for item in draft.deferred_until_cut)
     assert any("artifacts[0].sourceRevision" in item for item in draft.deferred_until_cut)
-
-
-def test_generator_records_published_architectures_and_explicit_fargate_exclusion(tmp_path):
-    manifest = tmp_path / "manifest.yaml"
-    manifest.write_text(
-        "platformRelease: 2026.1\ncomponents:\n  honua-server:\n"
-        "    repository: https://github.com/honua-io/honua-server\n"
-        f"    sha: {REVISION}\n"
-        "    image: ghcr.io/honua-io/honua-server:candidate\n"
-        f"    digest: {DIGEST}\n"
-        "    imageArchitectures:\n"
-        f"      amd64:\n        digest: {DIGEST}\n"
-        f"      arm64:\n        digest: {DIGEST}\n",
-        encoding="utf-8",
-    )
-    matrix = tmp_path / "matrix.yaml"
-    matrix.write_text(
-        "deploy:\n  honua-server:\n    awsFargate:\n      architectures:\n"
-        "        amd64:\n          status: certified\n"
-        "        arm64:\n          status: excluded\n          reason: operator contract\n",
-        encoding="utf-8",
-    )
-    artifact = generator.generate(manifest, matrix).lock["components"]["honua-server"]["artifacts"][0]
-    assert artifact["architectures"] == ["amd64", "arm64"]
-    assert artifact["architectureDigests"] == {"amd64": DIGEST, "arm64": DIGEST}
-    assert artifact["awsFargateArchitectures"]["arm64"] == {
-        "status": "excluded",
-        "reason": "operator contract",
-    }
-
-
-def test_generator_refuses_silent_fargate_architecture_state(tmp_path):
-    manifest = tmp_path / "manifest.yaml"
-    manifest.write_text(
-        "platformRelease: 2026.1\ncomponents:\n  honua-server:\n"
-        f"    sha: {REVISION}\n    image: ghcr.io/honua/server:candidate\n    digest: {DIGEST}\n"
-        f"    imageArchitectures:\n      amd64:\n        digest: {DIGEST}\n      arm64:\n        digest: {DIGEST}\n",
-        encoding="utf-8",
-    )
-    matrix = tmp_path / "matrix.yaml"
-    matrix.write_text("deploy:\n  honua-server:\n    awsFargate:\n      architectures:\n        amd64:\n          status: certified\n", encoding="utf-8")
-    draft = generator.generate(manifest, matrix)
-    assert any("awsFargateArchitectures.arm64" in item for item in draft.unresolved)

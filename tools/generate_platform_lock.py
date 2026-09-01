@@ -21,7 +21,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[1-9][0-9]*)?$")
+PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[0-9]+)?$")
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -142,7 +142,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sourceRevision"] = published.get("sourceSha")
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
-            elif seed["kind"] in ("nuget", "wheel"):
+            elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive"):
                 published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
                 published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
                 digest = component.get("artifactSha256") or published.get("digest")
@@ -151,47 +151,13 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceSha")
                 else:
                     refuse(f"{apath}.sha256: package hash is not declared", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
-            elif seed["kind"] in ("spec", "archive"):
-                digest = component.get("artifactSha256")
-                if isinstance(digest, str) and digest.startswith("sha256:"):
-                    seed["sha256"] = digest
-                else:
-                    refuse(f"{apath}.sha256: artifact hash is not declared", "MECHANICAL")
             elif seed["kind"] in ("image", "oci-chart"):
                 digest = component.get("digest")
                 if isinstance(digest, str) and digest.startswith("sha256:"):
                     seed["digest"] = digest
                 else:
                     refuse(f"{apath}.digest: immutable registry digest is not declared", "PUBLISH")
-                image_architectures = component.get("imageArchitectures")
-                if seed["kind"] == "image" and isinstance(image_architectures, dict) and image_architectures:
-                    seed["architectures"] = sorted(image_architectures)
-                    seed["architectureDigests"] = {
-                        architecture: details.get("digest")
-                        for architecture, details in sorted(image_architectures.items())
-                        if isinstance(details, dict)
-                    }
-                    fargate = (((matrix.get("deploy") or {}).get(name) or {}).get("awsFargate") or {})
-                    compatibility = fargate.get("architectures") or {}
-                    seed["awsFargateArchitectures"] = {
-                        architecture: details
-                        for architecture, details in sorted(compatibility.items())
-                        if isinstance(details, dict)
-                    }
-                    for architecture in seed["architectures"]:
-                        status = (compatibility.get(architecture) or {}).get("status")
-                        if status not in {"certified", "excluded"}:
-                            refuse(
-                                f"{apath}.awsFargateArchitectures.{architecture}: compatibility matrix must declare certified or excluded",
-                                "DECISION",
-                            )
-                    for architecture in sorted(set(compatibility) - set(seed["architectures"])):
-                        refuse(
-                            f"{apath}.awsFargateArchitectures.{architecture}: compatibility declared for an unpublished architecture",
-                            "MECHANICAL",
-                        )
-                else:
-                    refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
+                refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
 
             if "sourceRevision" not in seed:
                 if name == "honua-server":
@@ -205,7 +171,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     # The matrix is consumed for contract coherence, but it does not manufacture missing versions.
     for contract, body in (matrix.get("contracts") or {}).items():
         expected = str((body or {}).get("version", ""))
-        if expected and not any((c.get("contractVersions") or {}).get(contract) == expected for c in lock["components"].values()):
+        if expected and not any(
+            (component.get("contractVersions") or {}).get(contract) == expected
+            for component in lock["components"].values()
+        ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
     for message in [
         "$.contentDigests.geospatialMcp: certified content digest is not declared",

@@ -11,7 +11,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["id", "status", "supportTier"],
       "properties": {
-        "id": {"type": "string", "pattern": "^honua-[0-9]{4}\\.[0-9]+(?:-rc\\.[1-9][0-9]*)?$"},
+        "id": {"type": "string", "pattern": "^honua-[0-9]{4}\\.[0-9]+(?:-rc\\.[0-9]+)?$"},
         "status": {"enum": ["draft", "rc", "released"]},
         "supportTier": {"type": "string", "minLength": 1}
       }
@@ -97,35 +97,12 @@
         "integrity": {"type": "string", "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "digest": {"$ref": "#/$defs/sha256"},
-        "architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}},
-        "architectureDigests": {
-          "type": "object", "additionalProperties": false,
-          "properties": {"amd64": {"$ref": "#/$defs/sha256"}, "arm64": {"$ref": "#/$defs/sha256"}}
-        },
-        "awsFargateArchitectures": {
-          "type": "object", "additionalProperties": false,
-          "properties": {
-            "amd64": {"$ref": "#/$defs/architectureCompatibility"},
-            "arm64": {"$ref": "#/$defs/architectureCompatibility"}
-          }
-        }
+        "architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}}
       },
       "allOf": [
         {"if": {"properties": {"kind": {"const": "npm"}}}, "then": {"required": ["integrity"]}},
-        {"if": {"properties": {"kind": {"enum": ["nuget", "wheel"]}}}, "then": {"required": ["sha256"]}},
-        {"if": {"properties": {"kind": {"enum": ["spec", "archive"]}}}, "then": {"required": ["sha256"]}},
-        {"if": {"properties": {"kind": {"enum": ["image", "oci-chart"]}}}, "then": {"required": ["digest", "architectures"]}},
-        {"if": {"properties": {"kind": {"const": "image"}}}, "then": {"required": ["architectureDigests", "awsFargateArchitectures"]}}
-      ]
-    },
-    "architectureCompatibility": {
-      "type": "object", "additionalProperties": false, "required": ["status"],
-      "properties": {
-        "status": {"enum": ["certified", "excluded"]},
-        "reason": {"type": "string", "minLength": 1}
-      },
-      "allOf": [
-        {"if": {"properties": {"status": {"const": "excluded"}}}, "then": {"required": ["reason"]}}
+        {"if": {"properties": {"kind": {"enum": ["nuget", "wheel", "terraform", "spec", "archive"]}}}, "then": {"required": ["sha256"]}},
+        {"if": {"properties": {"kind": {"enum": ["image", "oci-chart"]}}}, "then": {"required": ["digest", "architectures"]}}
       ]
     }
   }

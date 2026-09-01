@@ -22,6 +22,7 @@ sys.path.insert(0, str(E2E_DIR))
 import canonical_checks as cc  # noqa: E402
 import parity as par  # noqa: E402
 import run_cloud  # noqa: E402
+import demo_canary  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 from targets.terraform_target import ecs, serverless  # noqa: E402
@@ -148,6 +149,26 @@ def test_capability_manifest_revision_match_passes():
         "http://x", _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))]),
         expected=_expected_ga([]), frozen_server_sha=TEST_SERVER_SHA, enforcement="strict")
     assert r.status == "pass"
+
+
+def test_demo_canary_binds_revision_advertised_by_live_deployment():
+    body = json.dumps({"server": {"deploymentRevision": TEST_SERVER_SHA}})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    result, revision = demo_canary._live_deployment_revision("http://x", fetch, TEST_SERVER_SHA)
+    assert result.status == "pass"
+    assert revision == TEST_SERVER_SHA
+
+
+def test_demo_canary_refuses_missing_or_stale_live_revision():
+    missing = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, "{}"))])
+    result, revision = demo_canary._live_deployment_revision("http://x", missing, TEST_SERVER_SHA)
+    assert result.status == "fail" and revision == ""
+
+    stale_sha = "b" * 40
+    stale_body = json.dumps({"server": {"deploymentRevision": stale_sha}})
+    stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, stale_body))])
+    result, revision = demo_canary._live_deployment_revision("http://x", stale, TEST_SERVER_SHA)
+    assert result.status == "fail" and revision == stale_sha
 
 
 def test_capability_manifest_stale_revision_fails_closed_by_default():
@@ -478,9 +499,9 @@ _CRED_ENV = ("HONUA_AWS_ROLE_ARN", "AWS_ROLE_ARN", "AWS_ACCESS_KEY_ID", "AWS_PRO
              "AWS_WEB_IDENTITY_TOKEN_FILE")
 
 
-def test_run_cloud_self_skips_without_cloud_creds(monkeypatch):
-    # No cloud/OIDC creds => SELF-SKIP (status: skipped, why: cloud-creds-unset), even under
-    # require_real — a no-cloud local cut must not be reddened by the cloud tier.
+def test_run_cloud_self_skips_only_optional_path_without_cloud_creds(monkeypatch):
+    # No cloud/OIDC creds may SELF-SKIP an optional bootstrap run, but the same missing evidence is
+    # a hard failure under require_real so the AWS matrix cannot be green without exercising AWS.
     for var in set(_AWS_ENV) | set(_CRED_ENV):
         monkeypatch.delenv(var, raising=False)
     for target in ("aws-serverless", "aws-ecs", "aws-eks"):
@@ -489,7 +510,8 @@ def test_run_cloud_self_skips_without_cloud_creds(monkeypatch):
             assert r["status"] == "skipped" and r["why"] == "cloud-creds-unset", (target, redis)
             assert r["redis"] == ("redis-on" if redis else "redis-off")
             r2 = run_cloud.run(target, require_real=True, reference_endpoint=None, redis_enabled=redis)
-            assert r2["status"] == "skipped", (target, redis)  # creds unset => cannot enforce, still skip
+            assert r2["status"] == "fail", (target, redis)
+            assert "required cloud certification evidence missing" in r2["why"], (target, redis)
 
 
 def test_run_cloud_blocked_when_creds_present_but_infra_missing(monkeypatch):

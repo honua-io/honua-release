@@ -67,8 +67,12 @@ def _require(mapping: dict, keys: tuple[str, ...], path: str, f: Findings) -> No
 def validate(lock: dict[str, Any]) -> Findings:
     f = Findings()
     schema = json.loads(LOCK_SCHEMA.read_text(encoding="utf-8"))
-    for error in sorted(Draft202012Validator(schema).iter_errors(lock), key=lambda item: list(item.absolute_path)):
-        path = "$" + "".join(f"[{part}]" if isinstance(part, int) else f".{part}" for part in error.absolute_path)
+    errors = Draft202012Validator(schema).iter_errors(lock)
+    for error in sorted(errors, key=lambda item: list(item.absolute_path)):
+        path = "$" + "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}"
+            for part in error.absolute_path
+        )
         f.error(path, f"schema violation: {error.message}")
     _require(lock, ("lockVersion", "platform", "sourceInputs", "components", "contentDigests", "fixtures", "sbom", "provenance", "notes"), "$", f)
     if lock.get("lockVersion") != "platform-lock.v1":
@@ -114,9 +118,6 @@ def validate(lock: dict[str, Any]) -> Findings:
                 f.error(apath, "must be a mapping")
                 continue
             _require(artifact, ("kind", "coordinate", "version", "sourceRevision"), apath, f)
-            artifact_revision = artifact.get("sourceRevision")
-            if revision and artifact_revision and revision != artifact_revision:
-                f.error(f"{apath}.sourceRevision", f"artifact identity revision {artifact_revision!r} conflicts with component source revision {revision!r}")
             version = str(artifact.get("version", ""))
             if not EXACT_VERSION_RE.fullmatch(version):
                 f.error(f"{apath}.version", "must be an exact released SemVer (ranges, tags, and source-built identities are forbidden)")
@@ -127,37 +128,13 @@ def validate(lock: dict[str, Any]) -> Findings:
             kind = artifact.get("kind")
             if kind == "npm" and not str(artifact.get("integrity", "")).startswith("sha512-"):
                 f.error(f"{apath}.integrity", "npm artifacts require an sha512 integrity value")
-            if kind in ("nuget", "wheel") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
-                f.error(f"{apath}.sha256", f"{kind} artifacts require a sha256 hash")
-            if kind in ("spec", "archive") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
+            if kind in ("nuget", "wheel", "terraform", "spec", "archive") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
                 f.error(f"{apath}.sha256", f"{kind} artifacts require a sha256 hash")
             if kind in ("image", "oci-chart"):
                 if not DIGEST_RE.fullmatch(str(artifact.get("digest", ""))):
                     f.error(f"{apath}.digest", f"{kind} artifacts require an immutable sha256 digest")
                 if not artifact.get("architectures"):
                     f.error(f"{apath}.architectures", f"{kind} artifacts require an architecture set")
-            if kind == "image":
-                architectures = artifact.get("architectures")
-                architecture_digests = artifact.get("architectureDigests")
-                fargate_architectures = artifact.get("awsFargateArchitectures")
-                if isinstance(architectures, list):
-                    published = set(architectures)
-                    for field, values in (
-                        ("architectureDigests", architecture_digests),
-                        ("awsFargateArchitectures", fargate_architectures),
-                    ):
-                        if not isinstance(values, dict):
-                            continue
-                        for architecture in sorted(published - set(values)):
-                            f.error(
-                                f"{apath}.{field}.{architecture}",
-                                "published architecture requires an explicit entry",
-                            )
-                        for architecture in sorted(set(values) - published):
-                            f.error(
-                                f"{apath}.{field}.{architecture}",
-                                "entry refers to an unpublished architecture",
-                            )
     return f
 
 

@@ -229,16 +229,15 @@ components:
     sha: "4ca8326f37b3225315033ee58e1a652e231992df"
     image: "ghcr.io/honua-io/honua-server:nightly-aot-4ca8326"   # immutable per-sha tag (NOT a floating tag)
     digest: "sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508"
-    # Exact index contents re-proven 2026-09-01 with:
-    #   docker manifest inspect --verbose ghcr.io/honua-io/honua-server@sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508
-    # The unknown/unknown entries are attestations, not runnable image children. Publication and
-    # Fargate certification are deliberately separate facts: the ARM64 child exists, but the adopted
-    # 2026.1 contract excludes it from Fargate until a native task proves readiness (honua-release#98).
-    imageArchitectures:
-      amd64:
-        digest: "sha256:9c4aacd2e78d1c9de978efb3e0cbcb6d66b331a0e6eb99a85e12cb9349e65c4d"
-      arm64:
-        digest: "sha256:362eed8d4fcb8832024358b0bdb6127d8302db63d306021eb0363d0b353a8647"
+    # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
+    # The exclusion was established against the OLD pin (5cad074, index
+    # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
+    # exited 139 before readiness on native Fargate. That finding has NOT been re-established against
+    # this index's ARM64 child (sha256:f0104ea34172ac887208c910fdcf66ac7c266194a29f0628ebc45b0852fcd88e):
+    # re-testing needs a live Fargate task, i.e. the cloud-parity tier, which cannot run today
+    # (honua-release#79 / missing IAM OIDC-provider actions on the CI role). x86_64 is therefore
+    # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
+    # question stays open in honua-release#98 rather than being silently resolved either way.
     awsEcsArchitecture: "x86_64"
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest into the release account and verifies ECR preserves its digest.
