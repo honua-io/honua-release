@@ -151,7 +151,35 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["digest"] = digest
                 else:
                     refuse(f"{apath}.digest: immutable registry digest is not declared", "PUBLISH")
-                refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
+                image_architectures = component.get("imageArchitectures")
+                if seed["kind"] == "image" and isinstance(image_architectures, dict) and image_architectures:
+                    seed["architectures"] = sorted(image_architectures)
+                    seed["architectureDigests"] = {
+                        architecture: details.get("digest")
+                        for architecture, details in sorted(image_architectures.items())
+                        if isinstance(details, dict)
+                    }
+                    fargate = (((matrix.get("deploy") or {}).get(name) or {}).get("awsFargate") or {})
+                    compatibility = fargate.get("architectures") or {}
+                    seed["awsFargateArchitectures"] = {
+                        architecture: details
+                        for architecture, details in sorted(compatibility.items())
+                        if isinstance(details, dict)
+                    }
+                    for architecture in seed["architectures"]:
+                        status = (compatibility.get(architecture) or {}).get("status")
+                        if status not in {"certified", "excluded"}:
+                            refuse(
+                                f"{apath}.awsFargateArchitectures.{architecture}: compatibility matrix must declare certified or excluded",
+                                "DECISION",
+                            )
+                    for architecture in sorted(set(compatibility) - set(seed["architectures"])):
+                        refuse(
+                            f"{apath}.awsFargateArchitectures.{architecture}: compatibility declared for an unpublished architecture",
+                            "MECHANICAL",
+                        )
+                else:
+                    refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
 
             if "sourceRevision" not in seed:
                 if name == "honua-server":
