@@ -5,13 +5,14 @@
 #                  client the PRIOR release shipped (compat-matrix), and its DB schema must be forward-only.
 #   kind-upgrade   The real seed -> apply -> migrate -> health smoke, reusing the honua-helm
 #                  install -> upgrade -> rollback pattern (honua-helm CI `install-upgrade-rollback-smoke`):
-#                  a kind cluster + PostGIS + Redis, `helm install` the honua-2026.1 image, run the real
-#                  e2e seeder, `helm upgrade` to an immutable post-106 image, assert the migration journal
+#                  a kind cluster + PostGIS + Redis, `helm install` the prior release (or immutable
+#                  first-cut schema-106 baseline), run the real e2e seeder, `helm upgrade` to the
+#                  manifest candidate, assert the migration journal
 #                  advanced and seed rows survived, then `helm rollback` and query those rows through the
 #                  prior image. That last query is the expand-contract proof.
 #
 # The prior release's manifest/image is read from the latest `honua-*` GitHub Release (created by
-# promote); until one exists the cross-release half is BLOCKED (never a fake green). The kind smoke
+# promote); until one exists the immutable first-cut baseline is used. The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
 
@@ -41,10 +42,9 @@ permissions:
   packages: read
 
 env:
-  # First-release upgrade fixture. honua-2026.1 is schema 106; this immutable image is built from
-  # honua-server 52a56a19a266935fccc79312708b469e92ee3cbe and contains migration 107.
-  UPGRADE_CANDIDATE_IMAGE: ghcr.io/honua-io/honua-server:nightly-aot-52a56a1
-  UPGRADE_CANDIDATE_SCHEMA_FLOOR: "107"
+  # Immutable schema-106 baseline for the first platform cut. After the first promotion, the prior
+  # image always comes from the latest honua-* release manifest instead.
+  FIRST_RELEASE_BASELINE_IMAGE: ghcr.io/honua-io/honua-server:nightly-aot-ac30266
 
 concurrency:
   group: gate-upgrade-${{ github.ref }}-${{ inputs.platform_label }}
@@ -137,15 +137,20 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -uo pipefail
-          CAND="$UPGRADE_CANDIDATE_IMAGE"
+          CAND="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          CANDIDATE_SCHEMA_FLOOR="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('dbSchema','') or '')")"
           echo "candidate=$CAND" >> "$GITHUB_OUTPUT"
-          # This is deliberately the exact first-release prerelease, not "latest honua-*" and never
-          # a same-image fallback. A missing baseline is BLOCKED/FAIL under strict enforcement.
+          echo "candidate_schema_floor=$CANDIDATE_SCHEMA_FLOOR" >> "$GITHUB_OUTPUT"
+          # Use the latest promoted release when one exists. The first cut instead starts from the
+          # immutable schema-106 fixture, so it does not depend on the release it is trying to create.
           PRIOR=""
-          if gh release download honua-2026.1 --repo "${{ github.repository }}" \
+          PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
+                  --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
+          if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
                --pattern 'finalized-manifest.yaml' --dir _prior >/dev/null 2>&1; then
             PRIOR="$(python -c "import yaml;print((yaml.safe_load(open('_prior/finalized-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
           fi
+          [ -n "$PRIOR" ] || PRIOR="$FIRST_RELEASE_BASELINE_IMAGE"
           echo "prior=$PRIOR" >> "$GITHUB_OUTPUT"
           CROSS="$([ -n "$PRIOR" ] && [ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
           echo "cross_release=$CROSS" >> "$GITHUB_OUTPUT"
@@ -185,6 +190,7 @@ jobs:
         env:
           PRIOR: ${{ steps.images.outputs.prior }}
           CAND: ${{ steps.images.outputs.candidate }}
+          CANDIDATE_SCHEMA_FLOOR: ${{ steps.images.outputs.candidate_schema_floor }}
           ENF: ${{ inputs.enforcement }}
           CROSS: ${{ steps.images.outputs.cross_release }}
         run: |
@@ -195,7 +201,7 @@ jobs:
           elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
           elif [ "$CROSS" = "no" ]; then
-            STATUS=blocked; WHY="honua-2026.1 baseline image is missing or equals the migration candidate — real upgrade cannot run"
+            STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
           else
             CHART="$(dirname "$(find _honua-helm -name Chart.yaml | head -n1)")"
             NS=honua-upgrade
@@ -319,8 +325,8 @@ jobs:
                 AFTER_ZONING="$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;' || true)"
                 if ! [[ "$BEFORE_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" -gt "$BEFORE_VERSIONS" ]]; then
                   STATUS=fail; WHY="candidate did not advance public.schema_versions ($BEFORE_VERSIONS -> $AFTER_VERSIONS)"
-                elif ! [[ "$CANDIDATE_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" -ge "$UPGRADE_CANDIDATE_SCHEMA_FLOOR" ]]; then
-                  STATUS=fail; WHY="candidate schema $CANDIDATE_SCHEMA is below required floor $UPGRADE_CANDIDATE_SCHEMA_FLOOR"
+                elif ! [[ "$CANDIDATE_SCHEMA_FLOOR" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" -ge "$CANDIDATE_SCHEMA_FLOOR" ]]; then
+                  STATUS=fail; WHY="candidate schema $CANDIDATE_SCHEMA is below manifest floor $CANDIDATE_SCHEMA_FLOOR"
                 elif [ "$BEFORE_SRC:$BEFORE_ZONING" != "2:12" ] || [ "$AFTER_SRC:$AFTER_ZONING" != "$BEFORE_SRC:$BEFORE_ZONING" ]; then
                   STATUS=fail; WHY="seeded rows did not survive upgrade (source $BEFORE_SRC->$AFTER_SRC, zoning $BEFORE_ZONING->$AFTER_ZONING)"
                 # 3) ROLLBACK IMAGE only; retain migrated DB and query seed data through the prior app.
@@ -346,7 +352,7 @@ jobs:
                 STATUS=fail; WHY="helm upgrade to the candidate failed (forward migration / readiness)"; tail -n 60 /tmp/upgrade.log || true
               fi
             else
-              STATUS=fail; WHY="helm install of the honua-2026.1 prior image failed"; tail -n 60 /tmp/install.log || true
+              STATUS=fail; WHY="helm install of the prior baseline image failed"; tail -n 60 /tmp/install.log || true
             fi
             set +x
           fi
