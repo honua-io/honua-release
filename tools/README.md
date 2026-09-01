@@ -77,3 +77,22 @@ python3 -m pytest tools/test_platform_lock.py
 Validation refuses placeholders, floating tags, carried-forward/source-built identities, missing
 type-specific integrity, and any mismatch between a component source revision and the revision
 attested by its released artifact.
+
+## Compatibility ledger and release inspection (issue #233, part 1)
+
+`schemas/compatibility-ledger.v1.schema.json` defines digest-keyed release/artifact,
+component/release, server/client receipt, upgrade/rollback, and experimental-exclusion edges. It
+references packet 66's `platform-lock.v1` schema rather than redefining the lock contract. Lock keys
+are SHA-256 digests of UTF-8 canonical JSON (`sort_keys=True`, compact separators, no NaN).
+
+Inspect a local lock or a server (servers expose the lock at
+`/.well-known/honua/platform-lock`):
+
+```bash
+python3 tools/release_inspect.py path/to/platform-lock.v1.yaml --ledger compatibility-ledger.v1.yaml
+python3 tools/release_inspect.py https://server.example --ledger compatibility-ledger.v1.yaml
+python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
+```
+
+Only an immutable receipt attached to the exact lock digest is reported as certification. Matching
+versions, a known release, or an absent receipt never imply compatibility or certification.
