@@ -21,6 +21,7 @@ def ledger_for(lock, receipt=True):
         "ledgerVersion": "compatibility-ledger.v1",
         "platformLocks": {digest: {"platformLock": copy.deepcopy(lock), "releaseArtifacts": [], "certifications": receipts}},
         "componentReleases": {"sdk": [digest]},
+        "artifactReceipts": [],
         "clientServerCertifications": [], "upgradeEdges": [], "experimentalExclusions": [],
     }
 

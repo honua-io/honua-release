@@ -4,7 +4,7 @@
   "title": "Honua compatibility ledger v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ledgerVersion", "platformLocks", "componentReleases", "clientServerCertifications", "upgradeEdges", "experimentalExclusions"],
+  "required": ["ledgerVersion", "platformLocks", "componentReleases", "artifactReceipts", "clientServerCertifications", "upgradeEdges", "experimentalExclusions"],
   "properties": {
     "ledgerVersion": {"const": "compatibility-ledger.v1"},
     "platformLocks": {
@@ -17,6 +17,9 @@
       "additionalProperties": {
         "type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}
       }
+    },
+    "artifactReceipts": {
+      "type": "array", "items": {"$ref": "#/$defs/artifactReceipt"}
     },
     "clientServerCertifications": {
       "type": "array", "items": {"$ref": "#/$defs/clientServerCertification"}
@@ -65,12 +68,23 @@
         "identity": {"type": "string", "minLength": 1}
       }
     },
+    "artifactReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component", "coordinate", "identity", "receipt"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "coordinate": {"type": "string", "minLength": 1},
+        "identity": {"type": "string", "minLength": 1},
+        "receipt": {"$ref": "#/$defs/receipt"}
+      }
+    },
     "clientServerCertification": {
       "type": "object", "additionalProperties": false,
-      "required": ["serverDigest", "client", "receipt"],
+      "required": ["serverDigest", "client", "result", "receipt"],
       "properties": {
         "serverDigest": {"$ref": "#/$defs/sha256"},
         "client": {"$ref": "#/$defs/clientArtifact"},
+        "result": {"enum": ["certified", "incompatible"]},
         "receipt": {"$ref": "#/$defs/receipt"}
       }
     },
