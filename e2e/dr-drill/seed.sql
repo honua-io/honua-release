@@ -1,9 +1,16 @@
 \set ON_ERROR_STOP on
 
+CREATE ROLE dr_tenant_alpha NOLOGIN;
+CREATE ROLE dr_tenant_beta NOLOGIN;
 CREATE SCHEMA tenant_alpha;
 CREATE SCHEMA tenant_beta;
 CREATE TABLE tenant_alpha.customer_assets (asset_id bigint PRIMARY KEY, name text NOT NULL);
 CREATE TABLE tenant_beta.customer_assets (asset_id bigint PRIMARY KEY, name text NOT NULL);
+REVOKE ALL ON SCHEMA tenant_alpha, tenant_beta FROM PUBLIC;
+GRANT USAGE ON SCHEMA tenant_alpha TO dr_tenant_alpha;
+GRANT USAGE ON SCHEMA tenant_beta TO dr_tenant_beta;
+GRANT SELECT ON tenant_alpha.customer_assets TO dr_tenant_alpha;
+GRANT SELECT ON tenant_beta.customer_assets TO dr_tenant_beta;
 INSERT INTO tenant_alpha.customer_assets VALUES (23401, 'alpha-private-asset');
 INSERT INTO tenant_beta.customer_assets VALUES (23402, 'beta-private-asset');
 

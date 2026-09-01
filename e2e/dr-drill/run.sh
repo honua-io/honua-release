@@ -31,16 +31,30 @@ cleanup() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" down -v --remove-orp
 trap cleanup EXIT
 dc() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
 psql_db() { dc exec -T db psql -X -v ON_ERROR_STOP=1 -U honua -d honua "$@"; }
+assert_tenant_isolation() {
+  local role=$1 own_schema=$2 other_schema=$3 expected=$4 actual
+  actual=$(psql_db -Atc "SET ROLE $role; SELECT name FROM $own_schema.customer_assets;")
+  [[ "$actual" == $'SET\n'"$expected" ]] || { printf 'tenant %s own-schema read mismatch: %q\n' "$role" "$actual" >&2; return 1; }
+  if psql_db -Atc "SET ROLE $role; SELECT name FROM $other_schema.customer_assets;" >/dev/null 2>&1; then
+    printf 'tenant %s could read forbidden schema %s\n' "$role" "$other_schema" >&2
+    return 1
+  fi
+}
+assert_all_tenant_isolation() {
+  assert_tenant_isolation dr_tenant_alpha tenant_alpha tenant_beta alpha-private-asset
+  assert_tenant_isolation dr_tenant_beta tenant_beta tenant_alpha beta-private-asset
+}
 
 START_NS=$(date +%s%N)
 dc up -d --wait
 psql_db -f - < "$ROOT/e2e/dr-drill/seed.sql"
+assert_all_tenant_isolation
 SEED_NS=$(date +%s%N)
 # Quiesce application writers so the snapshot and pg_dump describe the same recovery point.
 dc stop server
 BEFORE=$(psql_db -At -f - < "$ROOT/e2e/dr-drill/snapshot.sql")
 
-dc exec -T db pg_dump -U honua -d honua --format=custom --compress=9 --no-owner --no-acl > "$OUT/backup.dump"
+dc exec -T db pg_dump -U honua -d honua --format=custom --compress=9 --no-owner > "$OUT/backup.dump"
 BACKUP_NS=$(date +%s%N)
 BACKUP_SHA=$(sha256sum "$OUT/backup.dump" | awk '{print $1}')
 MANIFEST_SHA=$(sha256sum "$ROOT/platform-manifest.yaml" | awk '{print $1}')
@@ -57,8 +71,10 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 dc exec -T db pg_isready -U honua -d honua
-dc exec -T db pg_restore -U honua -d honua --clean --if-exists --no-owner --no-acl --exit-on-error < "$OUT/backup.dump"
+psql_db -c 'CREATE ROLE dr_tenant_alpha NOLOGIN' -c 'CREATE ROLE dr_tenant_beta NOLOGIN'
+dc exec -T db pg_restore -U honua -d honua --clean --if-exists --no-owner --exit-on-error < "$OUT/backup.dump"
 AFTER=$(psql_db -At -f - < "$ROOT/e2e/dr-drill/snapshot.sql")
+assert_all_tenant_isolation
 dc up -d --wait server
 
 JOURNEY=$(curl --fail --silent --show-error "http://127.0.0.1:${PORT}/rest/services?f=json")
@@ -78,7 +94,9 @@ if f".{sys.argv[3]}_" not in str(a['schemaVersion']):
     raise SystemExit(f"schema floor mismatch: {a['schemaVersion']}")
 if any(v != 1 for k,v in a['rows'].items() if k != 'tenants') or a['rows']['tenants'] != 2:
     raise SystemExit(f"row denominator failed: {a['rows']}")
-if a['tenantIsolation']['crossTenantLeakCount'] != 0: raise SystemExit('tenant isolation failed')
+if a['tenantIsolation'] != {'alphaOwnSchema': True, 'alphaOtherSchema': False,
+                            'betaOwnSchema': True, 'betaOtherSchema': False}:
+    raise SystemExit(f"tenant isolation privilege snapshot failed: {a['tenantIsolation']}")
 PY
 
 export RELEASE CANDIDATE_SHA IMAGE_DIGEST EXPECTED_SCHEMA BACKUP_SHA MANIFEST_SHA BEFORE AFTER
@@ -101,5 +119,5 @@ if [[ ! -f "$KEY" ]]; then openssl genpkey -algorithm ED25519 -out "$KEY"; chmod
 openssl pkey -in "$KEY" -pubout -out "$OUT/receipt.pub.pem"
 openssl pkeyutl -sign -rawin -inkey "$KEY" -in "$OUT/receipt.json" -out "$OUT/receipt.json.sig"
 openssl pkeyutl -verify -rawin -pubin -inkey "$OUT/receipt.pub.pem" -in "$OUT/receipt.json" -sigfile "$OUT/receipt.json.sig"
-sha256sum "$OUT/receipt.json" "$OUT/receipt.json.sig" "$OUT/backup.dump" > "$OUT/SHA256SUMS"
+(cd "$OUT" && sha256sum receipt.json receipt.json.sig receipt.pub.pem > SHA256SUMS)
 printf 'DR drill PASS receipt=%s rpoMs=%s rtoMs=%s\n' "$OUT/receipt.json" "$RPO_MS" "$RTO_MS"
