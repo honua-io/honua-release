@@ -21,7 +21,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[1-9][0-9]*)?$")
+PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[0-9]+)?$")
 
 
 @dataclass
@@ -136,7 +136,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sourceRevision"] = published.get("sourceSha")
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
-            elif seed["kind"] in ("nuget", "wheel"):
+            elif seed["kind"] in ("nuget", "wheel", "terraform"):
                 published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
                 published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
                 digest = component.get("artifactSha256") or published.get("digest")

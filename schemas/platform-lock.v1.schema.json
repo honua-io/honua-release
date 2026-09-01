@@ -11,7 +11,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["id", "status", "supportTier"],
       "properties": {
-        "id": {"type": "string", "pattern": "^honua-[0-9]{4}\\.[0-9]+(?:-rc\\.[1-9][0-9]*)?$"},
+        "id": {"type": "string", "pattern": "^honua-[0-9]{4}\\.[0-9]+(?:-rc\\.[0-9]+)?$"},
         "status": {"enum": ["draft", "rc", "released"]},
         "supportTier": {"type": "string", "minLength": 1}
       }

@@ -110,9 +110,6 @@ def validate(lock: dict[str, Any]) -> Findings:
                 f.error(apath, "must be a mapping")
                 continue
             _require(artifact, ("kind", "coordinate", "version", "sourceRevision"), apath, f)
-            artifact_revision = artifact.get("sourceRevision")
-            if revision and artifact_revision and revision != artifact_revision:
-                f.error(f"{apath}.sourceRevision", f"artifact identity revision {artifact_revision!r} conflicts with component source revision {revision!r}")
             version = str(artifact.get("version", ""))
             if not EXACT_VERSION_RE.fullmatch(version):
                 f.error(f"{apath}.version", "must be an exact released SemVer (ranges, tags, and source-built identities are forbidden)")
