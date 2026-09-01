@@ -1,0 +1,6 @@
+ledgerVersion: compatibility-ledger.v1
+platformLocks: {}
+componentReleases: {}
+clientServerCertifications: []
+upgradeEdges: []
+experimentalExclusions: []
