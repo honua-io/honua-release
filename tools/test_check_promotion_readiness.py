@@ -36,7 +36,7 @@ def _fixture(tmp_path: Path):
     canaries = []
     for index in range(7):
         run_id = str(201 + index)
-        completed = burn + timedelta(hours=6 * (index + 1))
+        completed = burn + timedelta(hours=6 * (index + 3))
         canaries.append({"runId": run_id, "completedAt": completed.isoformat().replace("+00:00", "Z"),
                          "status": "pass", "lockDigest": digest})
         _write(tmp_path / "evidence" / "canaries" / run_id / "live-canary-evidence.json",
@@ -109,6 +109,17 @@ def test_refuses_nonconsecutive_or_wrong_lock_canary(tmp_path):
     record, lock, evidence, history = _fixture(tmp_path)
     record["demoCanaries"][3]["completedAt"] = record["demoCanaries"][4]["completedAt"]
     record["demoCanaries"][5]["lockDigest"] = "sha256:" + "f" * 64
+    decision, _ = readiness.evaluate(record, lock_path=lock, evidence_dir=evidence,
+                                     lock_history=history, now=NOW)
+    assert decision["checks"]["demo-canaries"]["status"] == "fail"
+
+
+def test_refuses_stale_canary_coverage(tmp_path):
+    record, lock, evidence, history = _fixture(tmp_path)
+    for row in record["demoCanaries"]:
+        stale = datetime.fromisoformat(row["completedAt"].replace("Z", "+00:00")) - timedelta(hours=7)
+        row["completedAt"] = stale.isoformat().replace("+00:00", "Z")
+        _write(evidence / "canaries" / row["runId"] / "run.json", {"updated_at": row["completedAt"]})
     decision, _ = readiness.evaluate(record, lock_path=lock, evidence_dir=evidence,
                                      lock_history=history, now=NOW)
     assert decision["checks"]["demo-canaries"]["status"] == "fail"

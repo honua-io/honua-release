@@ -169,7 +169,9 @@ def evaluate(
         canary_ok &= canary_times == sorted(canary_times) and canary_times[0] >= burn_start
         canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= timedelta(hours=6, minutes=30)
                          for a, b in zip(canary_times, canary_times[1:]))
-    check("demo-canaries", canary_ok, "seven distinct consecutive passing 6-hour canaries")
+        canary_ok &= timedelta(0) <= now - canary_times[-1] <= timedelta(hours=6, minutes=30)
+    check("demo-canaries", canary_ok,
+          "seven distinct consecutive passing 6-hour canaries, latest no more than 6.5h old")
 
     rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
     check("exact-rc", rc_run_id in train_ids and bool(train_ids) and rc_run_id == train_ids[0],

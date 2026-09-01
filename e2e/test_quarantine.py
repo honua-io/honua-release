@@ -127,6 +127,8 @@ def test_quarantined_probe_is_still_red_in_the_evidence_envelope(monkeypatch):
     """The load-bearing honesty property: quarantine moves the CI verdict, never the evidence."""
     monkeypatch.setattr(demo_canary, "make_fetch", lambda *a, **k: (lambda url: None))
     monkeypatch.setattr(demo_canary, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(demo_canary, "_live_deployment_revision",
+                        lambda *a, **k: (CheckResult("deployment-revision", "pass", "matched"), "a" * 40))
     monkeypatch.setattr(demo_canary.canary_probes, "run_canary",
                         lambda *a, **k: [CheckResult("stac-collections", "fail", "0 collections")])
     monkeypatch.setattr(demo_canary, "load_quarantine",
