@@ -1,0 +1,55 @@
+name: fail-closed certification demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      required_cell:
+        description: "REQUIRED release cell to deliberately mark skipped"
+        required: true
+        type: choice
+        default: cloud-parity
+        options:
+          - cloud-parity
+          - artifact-consume
+          - protocol-certification
+
+permissions:
+  contents: read
+
+jobs:
+  prove-skipped-required-cell-is-red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Deliberately skip one REQUIRED cell and require RED
+        env:
+          REQUIRED_CELL: ${{ inputs.required_cell }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from tools.candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report
+
+          import os
+
+          skipped = os.environ["REQUIRED_CELL"]
+          report = {
+              "dry_run": False,
+              "overallStatus": "pass",
+              "generatedAt": datetime.now(timezone.utc).isoformat(),
+              "gates": [
+                  {"gate": gate, "status": "skipped" if gate == skipped else "pass"}
+                  for gate in sorted(REQUIRED_RELEASE_GATES)
+              ],
+          }
+          ok, why = validate_live_report(report)
+          print(f"deliberately skipped REQUIRED cell: {skipped}")
+          print(f"validator verdict: {'GREEN (BUG)' if ok else 'RED (EXPECTED)'}: {why}")
+          if ok:
+              raise SystemExit("validator accepted a skipped REQUIRED cell")
+          # This demonstration run must itself conclude failure (RED), proving the gate signal.
+          raise SystemExit(1)
+          PY

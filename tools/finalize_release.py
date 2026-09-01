@@ -45,14 +45,9 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
-# Explicit allow-list of gates that MAY be `skipped` on a promote (task requirement: promote requires
-# every non-skipped gate green — gates[].status in {pass, skipped} — with an explicit allowed-skip
-# list). These are the creds/infra-gated tiers that self-skip (status: skipped) when their per-RC
-# secrets are unset; an org opts a label into enforcing them by wiring those secrets. A gate NOT on
-# this list may never be skipped for a promote — a skip there is a refusal, so nothing is green-washed.
-ALLOWED_SKIP: frozenset[str] = frozenset({
-    "cloud-parity",   # Slice-2 cloud cert (e2e-cloud-aws): self-skips when HONUA_AWS_ROLE_ARN is unset.
-})
+# Development/dry-run workflows may self-skip, but the adopted live GA denominator has no optional
+# release gate. Promotion therefore has no skip exception.
+ALLOWED_SKIP: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------------------------------
