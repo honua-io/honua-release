@@ -276,29 +276,15 @@ def _valid_receipt(
         if _timestamp(candidate_cut_at) is None:
             return False
         identity_fields.add("candidate_cut_at")
-    # Requirement-context binding (docs/PROTOCOL-CERTIFICATION-PLAN.md:75 invalidates
-    # evidence on a relevant maturity/requirement change). contract_revision only
-    # carries the PRODUCER revision, so a policy-side change -- preview promoted to
-    # supported, or a tier promotion -- moves the governed denominator without moving
-    # any SHA. A receipt that binds that context must bind it truthfully; a receipt
-    # that does not bind it cannot be silently accepted as if it had.
-    context_required = receipt_schema == "honua.certification-evidence-receipt/v2"
-    bound_requirement_fields = tuple(
-        field for field in ("maturity", "required_tier")
-        if context_required or (isinstance(identity, dict) and field in identity)
-    )
-    identity_fields.update(bound_requirement_fields)
-    binds_requirements_revision = context_required or (
-        isinstance(identity, dict) and "requirements_revision" in identity
-    )
-    if binds_requirements_revision:
-        identity_fields.add("requirements_revision")
+    # Receipt v2 is producer-strict: the producer owns and emits the governed
+    # requirement context. There is no v1/context-less compatibility path at the
+    # consumer boundary because such a receipt can be replayed after a maturity,
+    # tier, or requirements revision change.
+    requirement_fields = ("maturity", "required_tier", "requirements_revision")
+    identity_fields.update(requirement_fields)
     facets = receipt.get("facets")
     if (
-        receipt_schema not in {
-            "honua.certification-evidence-receipt/v1",
-            "honua.certification-evidence-receipt/v2",
-        }
+        receipt_schema != "honua.certification-evidence-receipt/v2"
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
@@ -314,11 +300,8 @@ def _valid_receipt(
             cell.get("licensed")
             and identity.get("entitlement_policy_revision") != cell.get("entitlement_policy_revision")
         )
-        or any(identity.get(field) != cell.get(field) for field in bound_requirement_fields)
-        or (
-            binds_requirements_revision
-            and identity.get("requirements_revision") != requirements_revision
-        )
+        or any(identity.get(field) != cell.get(field) for field in ("maturity", "required_tier"))
+        or identity.get("requirements_revision") != requirements_revision
         or receipt.get("result") != cell.get("result")
         or not isinstance(facets, dict)
         or set(facets) != set(cell.get("scenario_facets", []))
