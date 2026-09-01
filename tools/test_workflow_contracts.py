@@ -467,6 +467,8 @@ def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatib
     assert "CANDIDATE_SCHEMA_FLOOR" in commands
     assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
     assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
+    assert "config.env.Operations__Policy__Enabled=true" in commands
+    assert "config.env.Operations__Policy__DefaultDecision=Deny" in commands
     assert "helm rollback honua 1" in commands
     assert "returnCountOnly=true" in commands
     assert "down-migration noted" not in commands
