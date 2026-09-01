@@ -70,6 +70,39 @@ def test_refuses_missing_type_specific_integrity():
     assert_refused(lock, "npm artifacts require")
 
 
+def test_refuses_image_maps_missing_published_architectures():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.update(
+        kind="image",
+        coordinate="ghcr.io/honua/server:1.2.3",
+        digest=DIGEST,
+        architectures=["amd64", "arm64"],
+        architectureDigests={"amd64": DIGEST},
+        awsFargateArchitectures={"amd64": {"status": "certified"}},
+    )
+    del artifact["integrity"]
+    assert_refused(lock, "architectureDigests.arm64")
+    assert_refused(lock, "awsFargateArchitectures.arm64")
+
+
+def test_refuses_image_maps_with_unpublished_architectures():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.update(
+        kind="image",
+        coordinate="ghcr.io/honua/server:1.2.3",
+        digest=DIGEST,
+        architectures=["amd64"],
+        architectureDigests={"amd64": DIGEST, "arm64": DIGEST},
+        awsFargateArchitectures={
+            "amd64": {"status": "certified"},
+            "arm64": {"status": "excluded", "reason": "not published"},
+        },
+    )
+    del artifact["integrity"]
+    assert_refused(lock, "architectureDigests.arm64")
+    assert_refused(lock, "awsFargateArchitectures.arm64")
+
+
 def test_applies_schema_before_reporting_valid():
     lock = valid_lock(); lock["platform"]["status"] = "approved"
     assert_refused(lock, "schema violation")
@@ -125,3 +158,46 @@ def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
     assert draft.deferred_until_cut
     assert all(item in draft.unresolved for item in draft.deferred_until_cut)
     assert any("artifacts[0].sourceRevision" in item for item in draft.deferred_until_cut)
+
+
+def test_generator_records_published_architectures_and_explicit_fargate_exclusion(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1\ncomponents:\n  honua-server:\n"
+        "    repository: https://github.com/honua-io/honua-server\n"
+        f"    sha: {REVISION}\n"
+        "    image: ghcr.io/honua-io/honua-server:candidate\n"
+        f"    digest: {DIGEST}\n"
+        "    imageArchitectures:\n"
+        f"      amd64:\n        digest: {DIGEST}\n"
+        f"      arm64:\n        digest: {DIGEST}\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text(
+        "deploy:\n  honua-server:\n    awsFargate:\n      architectures:\n"
+        "        amd64:\n          status: certified\n"
+        "        arm64:\n          status: excluded\n          reason: operator contract\n",
+        encoding="utf-8",
+    )
+    artifact = generator.generate(manifest, matrix).lock["components"]["honua-server"]["artifacts"][0]
+    assert artifact["architectures"] == ["amd64", "arm64"]
+    assert artifact["architectureDigests"] == {"amd64": DIGEST, "arm64": DIGEST}
+    assert artifact["awsFargateArchitectures"]["arm64"] == {
+        "status": "excluded",
+        "reason": "operator contract",
+    }
+
+
+def test_generator_refuses_silent_fargate_architecture_state(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1\ncomponents:\n  honua-server:\n"
+        f"    sha: {REVISION}\n    image: ghcr.io/honua/server:candidate\n    digest: {DIGEST}\n"
+        f"    imageArchitectures:\n      amd64:\n        digest: {DIGEST}\n      arm64:\n        digest: {DIGEST}\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("deploy:\n  honua-server:\n    awsFargate:\n      architectures:\n        amd64:\n          status: certified\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert any("awsFargateArchitectures.arm64" in item for item in draft.unresolved)

@@ -74,6 +74,14 @@ contracts:
 # manifest); ranges below bound the SERVER artifact they are allowed to deploy. honua-server is
 # itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
 deploy:
+  honua-server:
+    awsFargate:
+      architectures:
+        amd64:
+          status: certified
+        arm64:
+          status: excluded
+          reason: "Published child exists, but native Fargate readiness is not certified for 2026.1 (honua-release#98)."
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
