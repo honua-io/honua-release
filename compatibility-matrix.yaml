@@ -79,11 +79,11 @@ deploy:
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
     # if it drifts. Advanced with the 2026-08-27 working-snapshot refresh (e3ab87ce -> ac30266f).
-    deploysServerImage: "sha:52a56a19a266935fccc79312708b469e92ee3cbe"
+    deploysServerImage: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-08-27 refresh.
-    appVersion: "sha:52a56a19a266935fccc79312708b469e92ee3cbe"
+    appVersion: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
 
 data:
   honua-server:
