@@ -12,6 +12,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
@@ -19,6 +22,8 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = REPO_ROOT / "compatibility-ledger.v1.yaml"
+LEDGER_SCHEMA = REPO_ROOT / "schemas/compatibility-ledger.v1.schema.json"
+PLATFORM_LOCK_SCHEMA = REPO_ROOT / "schemas/platform-lock.v1.schema.json"
 WELL_KNOWN_PATH = "/.well-known/honua/platform-lock"
 
 
@@ -65,8 +70,17 @@ def load_ledger(path: Path) -> dict[str, Any]:
         ledger = _mapping(path.read_bytes(), str(path))
     except OSError as exc:
         raise InspectError(f"{path}: cannot read compatibility ledger: {exc}") from exc
-    if ledger.get("ledgerVersion") != "compatibility-ledger.v1":
-        raise InspectError(f"{path}: ledgerVersion must be compatibility-ledger.v1")
+    ledger_schema = json.loads(LEDGER_SCHEMA.read_text())
+    lock_schema = json.loads(PLATFORM_LOCK_SCHEMA.read_text())
+    registry = Registry().with_resource(lock_schema["$id"], Resource.from_contents(lock_schema))
+    schema_errors = sorted(
+        Draft202012Validator(ledger_schema, registry=registry).iter_errors(ledger),
+        key=lambda error: list(error.absolute_path),
+    )
+    if schema_errors:
+        error = schema_errors[0]
+        location = "$" + "".join(f"[{part!r}]" for part in error.absolute_path)
+        raise InspectError(f"{path}: invalid compatibility ledger at {location}: {error.message}")
     # Imported here to keep the validator reusable without a module import cycle.
     from validate_compatibility_ledger import validate
     errors = validate(ledger)

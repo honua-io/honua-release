@@ -4,6 +4,7 @@ import copy
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import pytest
 import yaml
 
 import release_inspect
@@ -82,3 +83,22 @@ def test_schema_references_packet_66_lock_schema():
     schema = yaml.safe_load((release_inspect.REPO_ROOT / "schemas/compatibility-ledger.v1.schema.json").read_text())
     lock_ref = schema["$defs"]["platformLockRecord"]["properties"]["platformLock"]["$ref"]
     assert lock_ref == "platform-lock.v1.schema.json"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda ledger, digest: ledger["platformLocks"][digest].update(certifications=[{"bogus": True}]),
+        lambda ledger, _digest: ledger.pop("clientServerCertifications"),
+        lambda ledger, digest: ledger["platformLocks"][digest]["platformLock"].pop("components"),
+    ],
+)
+def test_load_ledger_refuses_schema_invalid_evidence(tmp_path, mutate):
+    lock = valid_lock()
+    ledger = ledger_for(lock)
+    mutate(ledger, release_inspect.canonical_digest(lock))
+    path = tmp_path / "ledger.yaml"
+    path.write_text(yaml.safe_dump(ledger))
+
+    with pytest.raises(release_inspect.InspectError, match="invalid compatibility ledger"):
+        release_inspect.load_ledger(path)
