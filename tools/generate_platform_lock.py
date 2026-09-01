@@ -130,7 +130,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     # The matrix is consumed for contract coherence, but it does not manufacture missing versions.
     for contract, body in (matrix.get("contracts") or {}).items():
         expected = str((body or {}).get("version", ""))
-        if expected and not any(expected in (c.get("contractVersions") or {}).values() for c in lock["components"].values()):
+        if expected and not any(
+            (component.get("contractVersions") or {}).get(contract) == expected
+            for component in lock["components"].values()
+        ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
     unresolved.extend([
         "$.contentDigests.geospatialMcp: certified content digest is not declared",

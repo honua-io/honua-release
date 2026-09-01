@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -13,6 +14,14 @@ try:
     import yaml
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
+
+try:
+    from jsonschema import Draft202012Validator
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("jsonschema is required: pip install jsonschema") from exc
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LOCK_SCHEMA = REPO_ROOT / "schemas" / "platform-lock.v1.schema.json"
 
 PLACEHOLDER_RE = re.compile(r"(?:^|[-_ ])(?:tbd|todo|unknown|unresolved)(?:$|[-_ :])", re.I)
 CARRIED_FORWARD_RE = re.compile(r"carried[ -]?forward|carry[ -]?forward", re.I)
@@ -57,6 +66,14 @@ def _require(mapping: dict, keys: tuple[str, ...], path: str, f: Findings) -> No
 
 def validate(lock: dict[str, Any]) -> Findings:
     f = Findings()
+    schema = json.loads(LOCK_SCHEMA.read_text(encoding="utf-8"))
+    errors = Draft202012Validator(schema).iter_errors(lock)
+    for error in sorted(errors, key=lambda item: list(item.absolute_path)):
+        path = "$" + "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}"
+            for part in error.absolute_path
+        )
+        f.error(path, f"schema violation: {error.message}")
     _require(lock, ("lockVersion", "platform", "sourceInputs", "components", "contentDigests", "fixtures", "sbom", "provenance", "notes"), "$", f)
     if lock.get("lockVersion") != "platform-lock.v1":
         f.error("$.lockVersion", "must equal 'platform-lock.v1'")
@@ -106,7 +123,7 @@ def validate(lock: dict[str, Any]) -> Findings:
             kind = artifact.get("kind")
             if kind == "npm" and not str(artifact.get("integrity", "")).startswith("sha512-"):
                 f.error(f"{apath}.integrity", "npm artifacts require an sha512 integrity value")
-            if kind in ("nuget", "wheel") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
+            if kind in ("nuget", "wheel", "terraform") and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
                 f.error(f"{apath}.sha256", f"{kind} artifacts require a sha256 hash")
             if kind in ("image", "oci-chart"):
                 if not DIGEST_RE.fullmatch(str(artifact.get("digest", ""))):

@@ -14,7 +14,15 @@ def valid_lock():
     return {
         "lockVersion": "platform-lock.v1",
         "platform": {"id": "honua-2026.1.0-rc.1", "status": "rc", "supportTier": "standard"},
-        "sourceInputs": {}, "contentDigests": {}, "fixtures": [], "sbom": [], "provenance": [], "notes": "notes/v1",
+        "sourceInputs": {
+            "platformManifest": {"path": "platform-manifest.yaml", "sha256": DIGEST},
+            "compatibilityMatrix": {"path": "compatibility-matrix.yaml", "sha256": DIGEST},
+        },
+        "contentDigests": {"geospatialMcp": DIGEST, "catalog": DIGEST, "okf": DIGEST},
+        "fixtures": [{"repository": "https://github.com/honua-io/fixtures", "revision": REVISION}],
+        "sbom": [{"component": "sdk", "uri": "https://example.test/sbom", "sha256": DIGEST}],
+        "provenance": [{"component": "sdk", "uri": "https://example.test/provenance", "sha256": DIGEST}],
+        "notes": "notes/v1",
         "components": {
             "sdk": {
                 "source": {"repository": "https://github.com/honua-io/honua-sdk", "revision": REVISION},
@@ -60,6 +68,31 @@ def test_refuses_source_head_artifact_identity_conflict():
 def test_refuses_missing_type_specific_integrity():
     lock = valid_lock(); del lock["components"]["sdk"]["artifacts"][0]["integrity"]
     assert_refused(lock, "npm artifacts require")
+
+
+def test_applies_schema_before_reporting_valid():
+    lock = valid_lock(); lock["platform"] = None
+    assert_refused(lock, "schema violation")
+
+
+def test_refuses_terraform_without_integrity():
+    lock = valid_lock(); artifact = lock["components"]["sdk"]["artifacts"][0]
+    artifact.clear()
+    artifact.update(kind="terraform", coordinate="registry.terraform.io/honua/platform", version="1.2.3", sourceRevision=REVISION)
+    assert_refused(lock, "terraform artifacts require a sha256 hash")
+
+
+def test_generator_matches_matrix_contract_by_name(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1.0\ncomponents:\n  server:\n    sha: " + REVISION
+        + "\n    contractVersions:\n      grpc: v1\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts:\n  admin:\n    version: v1\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert any("contract 'admin' version 'v1'" in item for item in draft.unresolved)
 
 
 def test_generator_reports_all_current_unresolved_release_work():
