@@ -61,6 +61,35 @@ jobs:
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
 
+      # Acceptance harness for #230. Dispatch the registered manifest workflow on a ref ending in
+      # `-red-demo`; the branch's validator must recognize the skipped REQUIRED receipt, then this
+      # step deliberately preserves that verdict as the run conclusion (failure/RED).
+      - name: Acceptance demo — skipped REQUIRED cell is RED
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.ref_name, '-red-demo')
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from tools.candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report
+
+          skipped = "cloud-parity"
+          report = {
+              "dry_run": False,
+              "overallStatus": "pass",
+              "generatedAt": datetime.now(timezone.utc).isoformat(),
+              "gates": [
+                  {"gate": gate, "status": "skipped" if gate == skipped else "pass"}
+                  for gate in sorted(REQUIRED_RELEASE_GATES)
+              ],
+          }
+          ok, why = validate_live_report(report)
+          print(f"deliberately skipped REQUIRED cell: {skipped}")
+          print(f"validator verdict: {'GREEN (BUG)' if ok else 'RED (EXPECTED)'}: {why}")
+          if ok:
+              raise SystemExit("validator accepted a skipped REQUIRED cell")
+          raise SystemExit(1)
+          PY
+
       - name: Validate complete protocol certification denominator
         env:
           GH_TOKEN: ${{ github.token }}

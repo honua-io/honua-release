@@ -59,14 +59,15 @@ def test_required_cloud_cell_cannot_self_skip_on_real_cut():
 
 
 def test_fail_closed_demo_deliberately_skips_required_cell_and_goes_red():
-    workflow = _workflow("fail-closed-certification-demo.yml")
-    job = workflow["jobs"]["prove-skipped-required-cell-is-red"]
-    commands = "\n".join(_step_text(step) for step in job["steps"])
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"] if str(step.get("name", "")).startswith("Acceptance demo"))
+    commands = _step_text(step)
+    assert "endsWith(github.ref_name, '-red-demo')" in step["if"]
     assert "validate_live_report" in commands
     assert '"status": "skipped" if gate == skipped else "pass"' in commands
     assert "raise SystemExit(1)" in commands
     assert not _neutralised(job)
-    assert not any(_neutralised(step) for step in job["steps"])
+    assert not _neutralised(step)
 
 
 def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks():
