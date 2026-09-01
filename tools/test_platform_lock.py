@@ -13,7 +13,7 @@ DIGEST = "sha256:" + "b" * 64
 def valid_lock():
     return {
         "lockVersion": "platform-lock.v1",
-        "platform": {"id": "honua-2026.1-rc.1", "status": "rc", "supportTier": "standard"},
+        "platform": {"id": "honua-2026.1-rc.1", "status": "rc", "supportTier": "ga"},
         "sourceInputs": {
             "platformManifest": {"path": "platform-manifest.yaml", "sha256": DIGEST},
             "compatibilityMatrix": {"path": "compatibility-matrix.yaml", "sha256": DIGEST},
@@ -26,7 +26,7 @@ def valid_lock():
         "components": {
             "sdk": {
                 "source": {"repository": "https://github.com/honua-io/honua-sdk", "revision": REVISION},
-                "lifecycleStatus": "GA", "supportTier": "standard", "contractVersions": {}, "schemaVersions": {},
+                "lifecycleStatus": "GA", "supportTier": "ga", "artifactIdentityModel": "published", "contractVersions": {}, "schemaVersions": {},
                 "artifacts": [{"kind": "npm", "coordinate": "@honua/sdk", "version": "1.2.3", "sourceRevision": REVISION, "integrity": "sha512-YWJjZA=="}],
             }
         },
@@ -68,6 +68,18 @@ def test_refuses_source_head_artifact_identity_conflict():
 def test_refuses_missing_type_specific_integrity():
     lock = valid_lock(); del lock["components"]["sdk"]["artifacts"][0]["integrity"]
     assert_refused(lock, "npm artifacts require")
+
+
+def test_refuses_support_tier_that_drifts_from_lifecycle():
+    lock = valid_lock(); lock["components"]["sdk"]["supportTier"] = "preview"
+    assert_refused(lock, "must be derived from lifecycleStatus")
+
+
+def test_accepts_source_pinned_component_without_published_artifacts():
+    lock = valid_lock(); component = lock["components"]["sdk"]
+    component["artifactIdentityModel"] = "source-pinned"
+    component["artifacts"] = []
+    assert validator.validate(lock).ok
 
 
 def test_refuses_image_maps_missing_published_architectures():
@@ -138,8 +150,38 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "contentDigests.catalog" in joined
     assert "contentDigests.okf" in joined
     assert "fixtures" in joined and "sbom" in joined and "provenance" in joined
-    assert "lifecycleStatus" in joined and "sourceRevision" in joined
+    assert "[DECISION]" not in joined
+    assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
+    assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0] == {
+        "kind": "spec",
+        "coordinate": "https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json",
+        "version": "1.0.0+d5a09d13",
+        "sourceRevision": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
+        "sha256": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5",
+    }
+    assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
+        "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
+    )
+
+
+def test_generator_derives_support_tier_from_lifecycle_status(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1\ncomponents:\n  sdk:\n"
+        "    repository: https://github.com/honua-io/sdk\n"
+        f"    sha: {REVISION}\n"
+        "    lifecycleStatus: Preview\n"
+        "    sourcePinnedOnly: true\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert draft.lock["platform"]["supportTier"] == "ga"
+    assert draft.lock["components"]["sdk"]["supportTier"] == "preview"
+    assert draft.lock["components"]["sdk"]["artifacts"] == []
+    assert not any("[DECISION]" in item for item in draft.unresolved)
 
 
 def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
