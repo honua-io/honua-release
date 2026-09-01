@@ -273,6 +273,8 @@ jobs:
                     --set 'secret.env.ConnectionStrings__redis=honua-redis:6379'
                     --set 'secret.env.HONUA_ADMIN_PASSWORD=UpgradeCiAdmin!2026'
                     --set 'secret.env.Security__ConnectionEncryption__MasterKey=upgrade-kind-master-key-2026-rc2-0001'
+                    --set-string 'config.env.Operations__Policy__Enabled=true'
+                    --set-string 'config.env.Operations__Policy__DefaultDecision=Deny'
                     --set image.pullPolicy=IfNotPresent)
 
             db_query() {
