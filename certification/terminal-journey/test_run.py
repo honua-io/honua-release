@@ -67,6 +67,7 @@ def build(**overrides):
         mode="build",
         target=None,
         target_path=None,
+        target_base_url=None,
         workspace=pins.ClientWorkspace(status="blocked", root=None, reason="test"),
         stage_results=None,
         notices=[],
@@ -250,6 +251,16 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(len(receipt["stages"]), 8)
         self.assertTrue(all(s["status"] == "blocked" and s["blockedBy"] for s in receipt["stages"]))
+
+    def test_live_receipt_records_effective_target_url(self):
+        receipt = build(
+            mode="live",
+            target=json.loads((HERE / "targets" / "local-docker.json").read_text()),
+            target_path=HERE / "targets" / "local-docker.json",
+            target_base_url="http://127.0.0.1:8137",
+        )
+        self.assertEqual(receipt["target"]["baseUrl"], "http://127.0.0.1:8137")
+        validate(receipt)
 
     def test_build_mode_cannot_claim_pass(self):
         receipt = build()

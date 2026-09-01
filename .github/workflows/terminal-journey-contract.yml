@@ -5,6 +5,8 @@ on:
     paths:
       - certification/terminal-journey/**
       - certification/terminal-model-canary/**
+      - artifacts/terminal-journey-*.json
+      - artifacts/terminal-journey-*.md
       - .github/workflows/terminal-journey-contract.yml
   workflow_dispatch:
 
@@ -62,6 +64,35 @@ jobs:
                   assert stage['blockedBy'], stage['stage']
           print(f"smoke receipt ok: status={receipt['status']}, "
                 f"{sum(1 for s in receipt['stages'] for c in s['checks'] if c['status'] == 'pass')} passing probes")
+          PY
+
+      # Run receipts are intentionally immutable observations, including honest
+      # red outcomes. Gate their structure and the checksum recorded alongside
+      # them without rewriting or requiring a green result.
+      - name: Validate committed terminal journey run receipts
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+
+          import jsonschema
+
+          schema = json.loads(Path('certification/terminal-journey/receipt.schema.json').read_text())
+          receipts = sorted(Path('artifacts').glob('terminal-journey-*.json'))
+          assert receipts, 'no committed terminal journey run receipts found'
+          for path in receipts:
+              raw = path.read_bytes()
+              receipt = json.loads(raw)
+              jsonschema.validate(receipt, schema)
+              summary = path.with_suffix('.md')
+              assert summary.is_file(), f'missing summary for {path}'
+              match = re.search(r'^- Receipt SHA-256: `([0-9a-f]{64})`$', summary.read_text(), re.MULTILINE)
+              assert match, f'missing receipt checksum in {summary}'
+              actual = hashlib.sha256(raw).hexdigest()
+              assert match.group(1) == actual, f'checksum mismatch for {path}'
+              print(f'run receipt ok: {path} status={receipt["status"]} sha256={actual}')
           PY
 
       # #161 fixes this adapter's path and protocol. Drift here silently breaks the
