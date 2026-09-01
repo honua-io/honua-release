@@ -23,14 +23,16 @@ def resolve_server(value: str, timeout: float = 10.0) -> str:
     if re.fullmatch(r"sha256:[0-9a-f]{64}", value):
         return value
     lock, _ = release_inspect.load_source(value, timeout)
+    server = (lock.get("components") or {}).get("honua-server") or {}
     digests = {
         artifact["digest"]
-        for component in (lock.get("components") or {}).values()
-        for artifact in component.get("artifacts") or []
+        for artifact in server.get("artifacts") or []
         if artifact.get("kind") == "image" and artifact.get("digest")
     }
     if len(digests) != 1:
-        raise CompatError(f"server endpoint resolved {len(digests)} image digests; expected exactly one")
+        raise CompatError(
+            f"server endpoint resolved {len(digests)} honua-server image digests; expected exactly one"
+        )
     return digests.pop()
 
 

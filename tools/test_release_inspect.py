@@ -70,6 +70,23 @@ def test_client_server_certification_requires_receipt_edge():
     assert result["clientServerCertifications"] == []
 
 
+def test_render_identifies_incompatible_client_server_receipt():
+    lock = valid_lock()
+    ledger = ledger_for(lock, receipt=False)
+    ledger["clientServerCertifications"] = [{
+        "serverDigest": DIGEST,
+        "client": {"component": "sdk", "coordinate": "Example.Client", "identity": "1.0.0"},
+        "result": "incompatible",
+        "receipt": {"schema": "test/v1", "uri": "https://example.invalid/receipt", "sha256": DIGEST},
+    }]
+    lock["components"]["sdk"]["artifacts"][0].update(kind="image", digest=DIGEST)
+
+    rendered = release_inspect.render(release_inspect.inspect(lock, ledger))
+
+    assert "server-client compatibility receipts:" in rendered
+    assert "Example.Client@1.0.0 [incompatible]" in rendered
+
+
 def test_ledger_validator_enforces_digest_key_and_reverse_edges():
     lock = valid_lock(); ledger = ledger_for(lock)
     assert validate_compatibility_ledger.validate(ledger) == []

@@ -160,12 +160,15 @@ def render(result: dict[str, Any]) -> str:
         lines.append("  none — not certified")
     for receipt in result["certifications"]:
         lines.append(f"  {receipt['schema']} {receipt['sha256']} {receipt['uri']}")
-    lines.append("server-client certifications:")
+    lines.append("server-client compatibility receipts:")
     if not result["clientServerCertifications"]:
         lines.append("  none — no receipt")
     for edge in result["clientServerCertifications"]:
         client, receipt = edge["client"], edge["receipt"]
-        lines.append(f"  {edge['serverDigest']} + {client['coordinate']}@{client['identity']} -> {receipt['sha256']}")
+        lines.append(
+            f"  {edge['serverDigest']} + {client['coordinate']}@{client['identity']} "
+            f"[{edge['result']}] -> {receipt['sha256']}"
+        )
     lines.append("experimental exclusions:")
     if not result["experimentalExclusions"]:
         lines.append("  none")

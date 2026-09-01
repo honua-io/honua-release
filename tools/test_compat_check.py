@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from unittest.mock import patch
 
 import compat_check
 
@@ -37,6 +38,17 @@ def test_version_match_without_pair_receipt_is_not_certified():
 
 def test_explicit_negative_receipt_is_incompatible():
     assert compat_check.check(DIGEST, {"coordinate": "Example.Client", "identity": "1.0.0"}, ledger("incompatible"))["status"] == "incompatible"
+
+
+def test_server_endpoint_selects_honua_server_image():
+    server_digest = "sha256:" + "4" * 64
+    console_digest = "sha256:" + "5" * 64
+    lock = {"components": {
+        "honua-server": {"artifacts": [{"kind": "image", "digest": server_digest}]},
+        "honua-console": {"artifacts": [{"kind": "image", "digest": console_digest}]},
+    }}
+    with patch.object(compat_check.release_inspect, "load_source", return_value=(lock, "endpoint")):
+        assert compat_check.resolve_server("https://example.invalid") == server_digest
 
 
 def test_scoped_coordinate_and_local_npm_package(tmp_path):
