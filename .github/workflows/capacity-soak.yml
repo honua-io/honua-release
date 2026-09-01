@@ -1,0 +1,42 @@
+name: capacity-soak-frozen-slo
+
+on:
+  workflow_dispatch:
+    inputs:
+      receipt_url:
+        description: HTTPS URL of the candidate soak receipt JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  attestations: read
+
+jobs:
+  frozen-slo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read frozen lock before receipt
+        id: lock
+        run: echo "sha256=$(sha256sum certification/capacity-envelope.v1.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Fetch candidate soak receipt
+        env:
+          RECEIPT_URL: ${{ inputs.receipt_url }}
+        run: |
+          set -euo pipefail
+          case "$RECEIPT_URL" in https://*) ;; *) echo "receipt_url must use HTTPS"; exit 1;; esac
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 "$RECEIPT_URL" -o "$RUNNER_TEMP/soak-receipt.json"
+      - name: Verify receipt signature from the soak producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server
+      - name: Evaluate every signal against pre-frozen thresholds
+        run: python3 tools/check_capacity_soak.py --lock certification/capacity-envelope.v1.json --receipt "$RUNNER_TEMP/soak-receipt.json"
+      - name: Preserve immutable receipt evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capacity-slo-receipt-${{ steps.lock.outputs.sha256 }}
+          path: ${{ runner.temp }}/soak-receipt.json
+          if-no-files-found: error
+          retention-days: 90
