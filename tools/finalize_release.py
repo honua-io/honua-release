@@ -117,7 +117,8 @@ def _component_artifact(comp: dict) -> str:
     return str(comp.get("image") or comp.get("artifact") or "—")
 
 
-def render_release_notes(manifest: dict, matrix: dict, label: str, evidence_url: str = "") -> str:
+def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: dict,
+                         evidence_url: str = "") -> str:
     base = _base_label(label)
     components = manifest.get("components") or {}
     lines: list[str] = []
@@ -175,8 +176,21 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, evidence_url:
 
     lines.append("## Verification & provenance")
     lines.append("")
-    lines.append("- Every wired release gate passed (manifest validity, per-repo CI on the pinned SHAs, "
-                 "artifact-consumption, cross-component seam, cross-cloud parity, cross-repo conformance).")
+    gates = gate_report.get("gates") or []
+    skipped = [gate for gate in gates if isinstance(gate, dict) and _gate_status(gate) == "skipped"]
+    if not skipped:
+        lines.append("- Every wired release gate passed.")
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        name = str(gate.get("gate") or "unnamed-gate")
+        status = _gate_status(gate)
+        if status == "pass":
+            lines.append(f"- {name}: passed")
+        elif status == "skipped" and name == "cloud-parity":
+            lines.append(f"- {name}: skipped (creds-gated; never executed)")
+        else:
+            lines.append(f"- {name}: {status or 'unknown'}")
     lines.append("- The pinned `platform-manifest.yaml` + `compatibility-matrix.yaml` are attached and "
                  "OIDC-signed; verify the signature before deploying.")
     lines.append("")
@@ -236,7 +250,8 @@ def main(argv: list[str] | None = None) -> int:
     finalized = finalize_manifest(manifest, args.label, args.released_at)
     Path(args.out_manifest).write_text(yaml.safe_dump(finalized, sort_keys=False), encoding="utf-8")
 
-    notes = render_release_notes(manifest, matrix, args.label, str(report.get("evidence_url", "")))
+    notes = render_release_notes(
+        manifest, matrix, args.label, report, str(report.get("evidence_url", "")))
     Path(args.out_notes).write_text(notes, encoding="utf-8")
 
     print(f"finalized manifest -> {args.out_manifest}")

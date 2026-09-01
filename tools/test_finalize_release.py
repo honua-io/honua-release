@@ -156,12 +156,29 @@ def _real():
 
 def test_release_notes_include_every_component_and_header():
     manifest, matrix = _real()
-    notes = fr.render_release_notes(manifest, matrix, "2026.1", "https://example/run/1")
+    notes = fr.render_release_notes(
+        manifest, matrix, "2026.1", _report("pass"), "https://example/run/1")
     assert notes.startswith("# Honua 2026.1")
     for name in (manifest.get("components") or {}):
         assert name in notes, f"{name} missing from generated notes"
     assert "Breaking changes & upgrade actions" in notes
     assert "Verification & provenance" in notes
+    assert "Every wired release gate passed" in notes
+    assert "- manifest: passed" in notes
+
+
+def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_passed():
+    manifest, matrix = _real()
+    report = _report("pass", gates=[
+        {"gate": "manifest", "status": "pass"},
+        {"gate": "cloud-parity", "status": "skipped"},
+    ])
+
+    notes = fr.render_release_notes(manifest, matrix, "2026.1", report)
+
+    assert "- manifest: passed" in notes
+    assert "- cloud-parity: skipped (creds-gated; never executed)" in notes
+    assert "Every wired release gate passed" not in notes
 
 
 if __name__ == "__main__":
