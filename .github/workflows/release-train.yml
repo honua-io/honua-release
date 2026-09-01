@@ -294,15 +294,6 @@ jobs:
           name: candidate-manifest
           path: candidate-input
 
-      - name: Collect sub-gate reports (best-effort)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          # the wired gates upload their own machine-readable reports; pull whatever exists.
-          pattern: "*gate-report*"
-          path: subreports
-          merge-multiple: true
-        continue-on-error: true
-
       - name: Assemble platform gate-report.json
         id: assemble
         env:
@@ -378,7 +369,8 @@ jobs:
                 overallStatus: (
                   if   any(.[]; .status=="fail")    then "fail"
                   elif any(.[]; .status=="blocked") then "blocked"
-                  else "pass" end)     # a `skipped` gate does not reduce overall below pass
+                  elif ($dry=="false" and any(.[]; .status=="skipped")) then "fail"
+                  else "pass" end)
               }' > out/gate-report.json
 
           # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
