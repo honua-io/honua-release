@@ -1,0 +1,49 @@
+name: dr-drill-local-docker
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: dr-drill-local-docker
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install PyYAML
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Execute destructive backup and restore drill
+        run: bash e2e/dr-drill/run.sh
+      - name: Attest signed receipt
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: artifacts/dr-drill-local-docker/receipt.json
+      - name: Upload immutable drill envelope
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dr-drill-local-docker-${{ github.sha }}
+          path: |
+            artifacts/dr-drill-local-docker/receipt.json
+            artifacts/dr-drill-local-docker/receipt.json.sig
+            artifacts/dr-drill-local-docker/receipt.pub.pem
+            artifacts/dr-drill-local-docker/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
