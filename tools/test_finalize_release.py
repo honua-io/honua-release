@@ -181,6 +181,20 @@ def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_pas
     assert "Every wired release gate passed" not in notes
 
 
+def test_release_notes_do_not_claim_all_passed_for_empty_or_red_gate_rows():
+    manifest, matrix = _real()
+    for gates in (
+        [],
+        [{"gate": "security", "status": "fail"}],
+        [{"gate": "upgrade", "status": "blocked"}],
+        [{"gate": "future", "status": "unexpected"}],
+        ["malformed-row"],
+    ):
+        report = {"overallStatus": "pass", "gates": gates}
+        notes = fr.render_release_notes(manifest, matrix, "2026.1", report)
+        assert "Every wired release gate passed" not in notes
+
+
 if __name__ == "__main__":
     import traceback
 

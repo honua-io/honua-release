@@ -178,7 +178,10 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
     lines.append("")
     gates = gate_report.get("gates") or []
     skipped = [gate for gate in gates if isinstance(gate, dict) and _gate_status(gate) == "skipped"]
-    if not skipped:
+    all_passed = bool(gates) and all(
+        isinstance(gate, dict) and _gate_status(gate) == "pass" for gate in gates
+    )
+    if all_passed:
         lines.append("- Every wired release gate passed.")
     for gate in gates:
         if not isinstance(gate, dict):
