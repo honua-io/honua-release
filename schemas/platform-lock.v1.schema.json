@@ -79,11 +79,13 @@
         "artifactIdentityModel": {"enum": ["published", "source-pinned"]},
         "contractVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
         "schemaVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        "migrationJournalSha256": {"$ref": "#/$defs/sha256"},
         "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
       },
       "allOf": [
         {"if": {"properties": {"artifactIdentityModel": {"const": "published"}}}, "then": {"properties": {"artifacts": {"minItems": 1}}}},
-        {"if": {"properties": {"artifactIdentityModel": {"const": "source-pinned"}}}, "then": {"properties": {"artifacts": {"maxItems": 0}}}}
+        {"if": {"properties": {"artifactIdentityModel": {"const": "source-pinned"}}}, "then": {"properties": {"artifacts": {"maxItems": 0}}}},
+        {"if": {"properties": {"schemaVersions": {"required": ["database"]}}}, "then": {"required": ["migrationJournalSha256"]}}
       ]
     },
     "artifact": {
@@ -97,12 +99,17 @@
         "integrity": {"type": "string", "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "digest": {"$ref": "#/$defs/sha256"},
+        "platformDigests": {
+          "type": "object", "minProperties": 1, "additionalProperties": false,
+          "properties": {"amd64": {"$ref": "#/$defs/sha256"}, "arm64": {"$ref": "#/$defs/sha256"}}
+        },
         "architectures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["amd64", "arm64"]}}
       },
       "allOf": [
         {"if": {"properties": {"kind": {"const": "npm"}}}, "then": {"required": ["integrity"]}},
         {"if": {"properties": {"kind": {"enum": ["nuget", "wheel", "terraform", "spec", "archive"]}}}, "then": {"required": ["sha256"]}},
-        {"if": {"properties": {"kind": {"enum": ["image", "oci-chart"]}}}, "then": {"required": ["digest", "architectures"]}}
+        {"if": {"properties": {"kind": {"const": "image"}}}, "then": {"required": ["digest", "platformDigests", "architectures"]}},
+        {"if": {"properties": {"kind": {"const": "oci-chart"}}}, "then": {"required": ["digest", "sha256", "architectures"]}}
       ]
     }
   }

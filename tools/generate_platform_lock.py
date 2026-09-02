@@ -103,6 +103,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         }
         if component.get("dbSchema") is not None:
             entry["schemaVersions"]["database"] = str(component["dbSchema"])
+            if component.get("migrationJournalSha256"):
+                entry["migrationJournalSha256"] = component["migrationJournalSha256"]
+            else:
+                refuse(f"{cpath}.migrationJournalSha256: exact declared migration set is not bound", "AT-CUT")
         seed = _artifact_seed(component)
         if seed:
             entry["artifacts"].append(seed)
@@ -162,6 +166,18 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["architectures"] = component["architectures"]
                 else:
                     refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
+                if seed["kind"] == "image":
+                    platform_digests = component.get("platformDigests")
+                    if isinstance(platform_digests, dict) and platform_digests:
+                        seed["platformDigests"] = platform_digests
+                    else:
+                        refuse(f"{apath}.platformDigests: platform-specific image digests are not declared", "AT-CUT")
+                else:
+                    package_sha = component.get("artifactSha256")
+                    if isinstance(package_sha, str) and package_sha.startswith("sha256:"):
+                        seed["sha256"] = package_sha
+                    else:
+                        refuse(f"{apath}.sha256: pulled chart package checksum is not declared", "PUBLISH")
 
             if "sourceRevision" not in seed:
                 if name == "honua-server":
