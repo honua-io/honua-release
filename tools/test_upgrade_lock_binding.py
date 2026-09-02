@@ -15,7 +15,7 @@ def _digest(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
 
-def _lock(path: Path, name: str, image: str, source: str, schema: str = "107") -> dict:
+def _lock(path: Path, name: str, image: str, source: str, schema: str = "107", chart_version: str = "1.4.0") -> dict:
     value = {
         "components": {
             "honua-server": {"schemaVersions": {"database": schema}, "migrationJournalSha256": _digest("journal"), "artifacts": [{
@@ -23,8 +23,8 @@ def _lock(path: Path, name: str, image: str, source: str, schema: str = "107") -
                 "digest": image, "platformDigests": {"amd64": image}, "sourceRevision": source,
             }]},
             "honua-helm": {"artifacts": [{
-                "kind": "oci-chart", "coordinate": "ghcr.io/honua-io/charts/honua", "version": "1.4.0",
-                "digest": _digest("chart-manifest"), "sha256": _digest("chart-package"), "sourceRevision": "c" * 40,
+                "kind": "oci-chart", "coordinate": "ghcr.io/honua-io/charts/honua", "version": chart_version,
+                "digest": _digest(f"chart-manifest-{chart_version}"), "sha256": _digest(f"chart-package-{chart_version}"), "sourceRevision": "c" * 40,
             }]},
         }
     }
@@ -35,12 +35,12 @@ def _lock(path: Path, name: str, image: str, source: str, schema: str = "107") -
 def _case(tmp_path: Path):
     prior_path, candidate_path = tmp_path / "a.json", tmp_path / "b.json"
     a_img, b_img = _digest("image-a"), _digest("image-b")
-    a, b = _lock(prior_path, "a", a_img, "a" * 40), _lock(candidate_path, "b", b_img, "b" * 40)
-    chart = binding.chart_binding(b)
+    a, b = _lock(prior_path, "a", a_img, "a" * 40), _lock(candidate_path, "b", b_img, "b" * 40, chart_version="1.5.0")
+    charts = {"install": binding.chart_binding(a), "candidate": binding.chart_binding(b)}
     evidence = {
         "architecture": "amd64", "priorLockDigest": binding.bytes_digest(prior_path),
         "candidateLockDigest": binding.bytes_digest(candidate_path),
-        "lockValidation": {"prior": "verified", "candidate": "verified"}, "chart": chart,
+        "lockValidation": {"prior": "verified", "candidate": "verified"}, "charts": charts,
         "phases": {
             "install": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}},
             "candidate": {"imageID": f"docker-pullable://x@{b_img}", "runtimeIdentity": {"imageDigest": b_img, "sourceRevision": "b" * 40, "observedVersion": "1.0.0+bbbbbbbb", "platformLockDigest": binding.bytes_digest(candidate_path)}},
@@ -82,7 +82,7 @@ def test_understated_schema_fails_instead_of_using_a_floor(tmp_path):
 
 def test_default_branch_chart_drift_fails_package_binding(tmp_path):
     prior, candidate, evidence = _case(tmp_path)
-    evidence["chart"]["sha256"] = _digest("floating-head-package")
+    evidence["charts"]["candidate"]["sha256"] = _digest("floating-head-package")
     with pytest.raises(binding.BindingError, match="chart"):
         binding.verify(prior, candidate, evidence)
 

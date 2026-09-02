@@ -75,9 +75,7 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
         "candidate": image_binding(candidate, architecture),
         "rollback": image_binding(prior, architecture),
     }
-    expected_chart = chart_binding(candidate)
-    if chart_binding(prior) != expected_chart:
-        raise BindingError("prior and candidate locks do not bind the same chart package")
+    expected_charts = {"install": chart_binding(prior), "candidate": chart_binding(candidate)}
     if evidence.get("candidateLockDigest") != bytes_digest(candidate_path):
         raise BindingError("candidate lock digest does not match exact lock bytes")
     if evidence.get("priorLockDigest") != bytes_digest(prior_path):
@@ -85,8 +83,8 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
     signatures = evidence.get("lockValidation") or {}
     if signatures.get("prior") != "verified" or signatures.get("candidate") != "verified":
         raise BindingError("both platform-lock signatures must be verified")
-    if evidence.get("chart") != expected_chart:
-        raise BindingError("observed chart version/package bytes are not lock-bound")
+    if evidence.get("charts") != expected_charts:
+        raise BindingError("observed install/candidate chart version or package bytes are not lock-bound")
     phases = evidence.get("phases") or {}
     for phase in PHASES:
         observed = phases.get(phase) or {}
@@ -120,7 +118,7 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
         "fromLockDigest": evidence["priorLockDigest"],
         "toLockDigest": evidence["candidateLockDigest"],
         "lockValidation": signatures,
-        "chart": expected_chart,
+        "charts": expected_charts,
         "phases": phases,
         "schemaBinding": journal,
         "seededData": evidence["seededData"],

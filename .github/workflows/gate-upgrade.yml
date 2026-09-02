@@ -144,6 +144,11 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
 
+      - name: Attest candidate platform lock
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: platform-lock.json
+
       - name: Resolve exact signed locks, images, schema, and chart package
         id: images
         env:
@@ -176,13 +181,13 @@ jobs:
           matrix_digest = b.bytes_digest(__import__('pathlib').Path('compatibility-matrix.yaml'))
           if z['sourceInputs']['platformManifest']['sha256'] != manifest_digest or z['sourceInputs']['compatibilityMatrix']['sha256'] != matrix_digest:
               raise SystemExit('candidate lock source-input bytes do not match this checkout')
-          prior, candidate, chart = b.image_binding(a, 'amd64'), b.image_binding(z, 'amd64'), b.chart_binding(z)
-          if b.chart_binding(a) != chart:
-              raise SystemExit('prior/candidate chart package mismatch')
+          prior, candidate = b.image_binding(a, 'amd64'), b.image_binding(z, 'amd64')
+          prior_chart, candidate_chart = b.chart_binding(a), b.chart_binding(z)
           values = {'PRIOR':prior['reference'], 'CAND':candidate['reference'], 'CANDIDATE_SCHEMA':z['components']['honua-server']['schemaVersions']['database'],
                     'PRIOR_SOURCE_REVISION':prior['sourceRevision'], 'CANDIDATE_SOURCE_REVISION':candidate['sourceRevision'],
                     'DECLARED_JOURNAL_SHA':z['components']['honua-server']['migrationJournalSha256'],
-                    'CHART_COORDINATE':chart['coordinate'], 'CHART_VERSION':chart['version'], 'CHART_DIGEST':chart['digest'], 'CHART_SHA256':chart['sha256'],
+                    'PRIOR_CHART_COORDINATE':prior_chart['coordinate'], 'PRIOR_CHART_VERSION':prior_chart['version'], 'PRIOR_CHART_DIGEST':prior_chart['digest'], 'PRIOR_CHART_SHA256':prior_chart['sha256'],
+                    'CANDIDATE_CHART_COORDINATE':candidate_chart['coordinate'], 'CANDIDATE_CHART_VERSION':candidate_chart['version'], 'CANDIDATE_CHART_DIGEST':candidate_chart['digest'], 'CANDIDATE_CHART_SHA256':candidate_chart['sha256'],
                     'PRIOR_LOCK_DIGEST':b.bytes_digest(__import__('pathlib').Path('_locks/prior.json')), 'CANDIDATE_LOCK_DIGEST':b.bytes_digest(__import__('pathlib').Path('_locks/candidate.json'))}
           print(';'.join(f'{key}={shlex.quote(str(value))}' for key,value in values.items()))
           PY
@@ -194,10 +199,13 @@ jobs:
           echo "declared_journal_sha=${DECLARED_JOURNAL_SHA:-}" >> "$GITHUB_OUTPUT"
           echo "prior_source_revision=${PRIOR_SOURCE_REVISION:-}" >> "$GITHUB_OUTPUT"
           echo "candidate_source_revision=${CANDIDATE_SOURCE_REVISION:-}" >> "$GITHUB_OUTPUT"
-          echo "chart_coordinate=${CHART_COORDINATE:-}" >> "$GITHUB_OUTPUT"
-          echo "chart_version=${CHART_VERSION:-}" >> "$GITHUB_OUTPUT"
-          echo "chart_digest=${CHART_DIGEST:-}" >> "$GITHUB_OUTPUT"
-          echo "chart_sha256=${CHART_SHA256:-}" >> "$GITHUB_OUTPUT"
+          for PHASE in PRIOR CANDIDATE; do
+            phase="$(printf '%s' "$PHASE" | tr '[:upper:]' '[:lower:]')"
+            eval "echo ${phase}_chart_coordinate=\${${PHASE}_CHART_COORDINATE:-}"
+            eval "echo ${phase}_chart_version=\${${PHASE}_CHART_VERSION:-}"
+            eval "echo ${phase}_chart_digest=\${${PHASE}_CHART_DIGEST:-}"
+            eval "echo ${phase}_chart_sha256=\${${PHASE}_CHART_SHA256:-}"
+          done >> "$GITHUB_OUTPUT"
           echo "prior_lock_digest=${PRIOR_LOCK_DIGEST:-}" >> "$GITHUB_OUTPUT"
           echo "candidate_lock_digest=${CANDIDATE_LOCK_DIGEST:-}" >> "$GITHUB_OUTPUT"
           echo "verified=$VERIFIED" >> "$GITHUB_OUTPUT"
@@ -205,19 +213,31 @@ jobs:
           echo "cross_release=$CROSS" >> "$GITHUB_OUTPUT"
           echo "candidate=${CAND:-} prior=${PRIOR:-} signed-locks=$VERIFIED cross_release=$CROSS"
 
-      - name: Pull lock-bound Helm chart package
+      - name: Pull lock-bound Helm chart packages
         id: chart
         if: steps.images.outputs.verified == '1'
+        env:
+          PRIOR_CHART_COORDINATE: ${{ steps.images.outputs.prior_chart_coordinate }}
+          PRIOR_CHART_VERSION: ${{ steps.images.outputs.prior_chart_version }}
+          PRIOR_CHART_SHA256: ${{ steps.images.outputs.prior_chart_sha256 }}
+          CANDIDATE_CHART_COORDINATE: ${{ steps.images.outputs.candidate_chart_coordinate }}
+          CANDIDATE_CHART_VERSION: ${{ steps.images.outputs.candidate_chart_version }}
+          CANDIDATE_CHART_SHA256: ${{ steps.images.outputs.candidate_chart_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p _chart
-          helm pull "oci://${{ steps.images.outputs.chart_coordinate }}" \
-            --version "${{ steps.images.outputs.chart_version }}" --destination _chart >/tmp/chart-pull.log 2>&1
-          PACKAGE="$(find _chart -maxdepth 1 -name '*.tgz' -type f -print -quit)"
-          test -n "$PACKAGE"
-          test "sha256:$(sha256sum "$PACKAGE" | awk '{print $1}')" = "${{ steps.images.outputs.chart_sha256 }}"
-          tar -xzf "$PACKAGE" -C _chart
-          echo "path=$(dirname "$(find _chart -name Chart.yaml -type f -print -quit)")" >> "$GITHUB_OUTPUT"
+          for PHASE in prior candidate; do
+            mkdir -p "_chart/$PHASE"
+            upper="$(printf '%s' "$PHASE" | tr '[:lower:]' '[:upper:]')"
+            eval "coordinate=\${${upper}_CHART_COORDINATE}"
+            eval "version=\${${upper}_CHART_VERSION}"
+            eval "expected=\${${upper}_CHART_SHA256}"
+            helm pull "oci://$coordinate" --version "$version" --destination "_chart/$PHASE" >"/tmp/${PHASE}-chart-pull.log" 2>&1
+            PACKAGE="$(find "_chart/$PHASE" -maxdepth 1 -name '*.tgz' -type f -print -quit)"
+            test -n "$PACKAGE"
+            test "sha256:$(sha256sum "$PACKAGE" | awk '{print $1}')" = "$expected"
+            tar -xzf "$PACKAGE" -C "_chart/$PHASE"
+            echo "$PHASE=$(dirname "$(find "_chart/$PHASE" -name Chart.yaml -type f -print -quit)")"
+          done >> "$GITHUB_OUTPUT"
 
       - name: Pre-pull images (separates infra-absence=blocked from real upgrade failure=fail)
         id: pull
@@ -265,7 +285,8 @@ jobs:
           elif [ "$CROSS" = "no" ]; then
             STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
           else
-            CHART="${{ steps.chart.outputs.path }}"
+            PRIOR_CHART="${{ steps.chart.outputs.prior }}"
+            CANDIDATE_CHART="${{ steps.chart.outputs.candidate }}"
             NS=honua-upgrade
             kubectl create namespace "$NS" || true
             # PostGIS + Redis (persistent backing so the schema seeded pre-upgrade survives the upgrade).
@@ -322,7 +343,8 @@ jobs:
           YAML
             kubectl rollout status deployment/honua-postgis -n "$NS" --timeout=180s || true
             kubectl rollout status deployment/honua-redis -n "$NS" --timeout=180s || true
-            helm dependency build "$CHART" || helm dependency update "$CHART" || true
+            helm dependency build "$PRIOR_CHART" || helm dependency update "$PRIOR_CHART" || true
+            helm dependency build "$CANDIDATE_CHART" || helm dependency update "$CANDIDATE_CHART" || true
 
             # Load images into kind so the cluster doesn't need registry creds at pod-pull time.
             kind load docker-image "$PRIOR" --name honua-upgrade || true
@@ -430,7 +452,7 @@ jobs:
 
             set -x
             # 1) INSTALL prior — startup migrations seed the PRIOR schema.
-            if helm install honua "$CHART" --set image.repository="${PRIOR%@*}" --set image.tag='' --set image.digest="${PRIOR##*@}" \
+            if helm install honua "$PRIOR_CHART" --set image.repository="${PRIOR%@*}" --set image.tag='' --set image.digest="${PRIOR##*@}" \
               --set-string config.env.Deployment__ImageDigest="${PRIOR##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$PRIOR_LOCK_DIGEST" \
               "${COMMON[@]}" >/tmp/install.log 2>&1; then
               BEFORE_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/before-db.log || true)"
@@ -472,7 +494,7 @@ jobs:
                   ;;
                 *) STATUS=fail; WHY="unknown recovery failure scenario: $FAILURE_SCENARIO" ;;
               esac
-              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
+              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CANDIDATE_CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
                 --set-string config.env.Deployment__ImageDigest="${CAND##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$CANDIDATE_LOCK_DIGEST" \
                 "${UPGRADE_EXTRA[@]}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
                 helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
@@ -602,20 +624,27 @@ jobs:
             jq -n \
               --arg arch amd64 --arg priorLock "${{ steps.images.outputs.prior_lock_digest }}" \
               --arg candidateLock "${{ steps.images.outputs.candidate_lock_digest }}" \
-              --arg coordinate "${{ steps.images.outputs.chart_coordinate }}" --arg version "${{ steps.images.outputs.chart_version }}" \
-              --arg chartDigest "${{ steps.images.outputs.chart_digest }}" --arg chartSha "${{ steps.images.outputs.chart_sha256 }}" \
+              --arg priorCoordinate "${{ steps.images.outputs.prior_chart_coordinate }}" --arg priorVersion "${{ steps.images.outputs.prior_chart_version }}" \
+              --arg priorChartDigest "${{ steps.images.outputs.prior_chart_digest }}" --arg priorChartSha "${{ steps.images.outputs.prior_chart_sha256 }}" \
+              --arg candidateCoordinate "${{ steps.images.outputs.candidate_chart_coordinate }}" --arg candidateVersion "${{ steps.images.outputs.candidate_chart_version }}" \
+              --arg candidateChartDigest "${{ steps.images.outputs.candidate_chart_digest }}" --arg candidateChartSha "${{ steps.images.outputs.candidate_chart_sha256 }}" \
               --arg schema "${{ steps.images.outputs.candidate_schema }}" --arg journal "$JOURNAL_SHA" \
               --arg declaredJournal "${{ steps.images.outputs.declared_journal_sha }}" \
               --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --arg commit "$GITHUB_SHA" \
               --slurpfile install /tmp/install-identity.json --slurpfile candidate /tmp/candidate-identity.json --slurpfile rollback /tmp/rollback-identity.json \
               '{architecture:$arch,priorLockDigest:$priorLock,candidateLockDigest:$candidateLock,lockValidation:{prior:"verified",candidate:"verified"},
-                chart:{coordinate:$coordinate,version:$version,digest:$chartDigest,sha256:$chartSha},
+                charts:{install:{coordinate:$priorCoordinate,version:$priorVersion,digest:$priorChartDigest,sha256:$priorChartSha},
+                        candidate:{coordinate:$candidateCoordinate,version:$candidateVersion,digest:$candidateChartDigest,sha256:$candidateChartSha}},
                 phases:{install:$install[0],candidate:$candidate[0],rollback:$rollback[0]},
                 schema:{observed:$schema,journalSha256:$journal,declaredJournalSha256:$declaredJournal},
                 seededData:{checksumsMatched:true,rollbackQueryPassed:true},timings:{},workflow:{run:$run,commit:$commit}}' \
               > /tmp/upg/exact-lock-evidence.json
-            python tools/upgrade_lock_binding.py --prior-lock _locks/prior.json --candidate-lock _locks/candidate.json \
-              --evidence /tmp/upg/exact-lock-evidence.json --output /tmp/upg/exact-lock-receipt.json
+            if ! python tools/upgrade_lock_binding.py --prior-lock _locks/prior.json --candidate-lock _locks/candidate.json \
+              --evidence /tmp/upg/exact-lock-evidence.json --output /tmp/upg/exact-lock-receipt.json; then
+              echo "status=fail" >> "$GITHUB_ENV"
+              echo "why=exact-lock receipt verification failed" >> "$GITHUB_ENV"
+              exit 1
+            fi
           fi
 
       - name: Upload evidence
