@@ -40,6 +40,8 @@ on:
 permissions:
   contents: read
   packages: read
+  id-token: write
+  attestations: write
 
 env:
   # Immutable schema-106 baseline for the first platform cut. After the first promotion, the prior
@@ -62,7 +64,7 @@ jobs:
       - run: python -m pip install "pyyaml>=6.0" pytest
 
       - name: Self-test the upgrade logic
-        run: python -m pytest tools/test_slo_upgrade.py -q -k upgrade
+        run: python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_lock_binding.py -q -k "upgrade or lock_binding"
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -129,41 +131,82 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
 
-      - name: Resolve candidate + prior server images
+      - name: Resolve exact signed locks, images, schema, and chart package
         id: images
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -uo pipefail
-          CAND="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
-          CANDIDATE_SCHEMA_FLOOR="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('dbSchema','') or '')")"
-          echo "candidate=$CAND" >> "$GITHUB_OUTPUT"
-          echo "candidate_schema_floor=$CANDIDATE_SCHEMA_FLOOR" >> "$GITHUB_OUTPUT"
-          # Use the latest promoted release when one exists. The first cut instead starts from the
-          # immutable schema-106 fixture, so it does not depend on the release it is trying to create.
-          PRIOR=""
+          mkdir -p _locks
+          VERIFIED=0
           PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
                   --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
           if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
-               --pattern 'finalized-manifest.yaml' --dir _prior >/dev/null 2>&1; then
-            PRIOR="$(python -c "import yaml;print((yaml.safe_load(open('_prior/finalized-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+               --pattern 'platform-lock.json' --dir _locks/prior >/tmp/prior-lock-download.log 2>&1 \
+               && [ -f platform-lock.json ]; then
+            cp platform-lock.json _locks/candidate.json
+            cp _locks/prior/platform-lock.json _locks/prior.json
+            if python tools/validate_platform_lock.py _locks/candidate.json \
+               && python tools/validate_platform_lock.py _locks/prior.json \
+               && gh attestation verify _locks/candidate.json --repo "${{ github.repository }}" >/tmp/candidate-lock-verify.log 2>&1 \
+               && gh attestation verify _locks/prior.json --repo "${{ github.repository }}" >/tmp/prior-lock-verify.log 2>&1; then
+              VERIFIED=1
+            fi
           fi
-          [ -n "$PRIOR" ] || PRIOR="$FIRST_RELEASE_BASELINE_IMAGE"
-          echo "prior=$PRIOR" >> "$GITHUB_OUTPUT"
-          CROSS="$([ -n "$PRIOR" ] && [ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
+          if [ "$VERIFIED" = 1 ]; then
+            eval "$(python - <<'PY'
+          import shlex, sys
+          sys.path.insert(0, 'tools')
+          import upgrade_lock_binding as b
+          a, z = b.load(__import__('pathlib').Path('_locks/prior.json')), b.load(__import__('pathlib').Path('_locks/candidate.json'))
+          manifest_digest = b.bytes_digest(__import__('pathlib').Path('platform-manifest.yaml'))
+          matrix_digest = b.bytes_digest(__import__('pathlib').Path('compatibility-matrix.yaml'))
+          if z['sourceInputs']['platformManifest']['sha256'] != manifest_digest or z['sourceInputs']['compatibilityMatrix']['sha256'] != matrix_digest:
+              raise SystemExit('candidate lock source-input bytes do not match this checkout')
+          prior, candidate, chart = b.image_binding(a, 'amd64'), b.image_binding(z, 'amd64'), b.chart_binding(z)
+          if b.chart_binding(a) != chart:
+              raise SystemExit('prior/candidate chart package mismatch')
+          values = {'PRIOR':prior['reference'], 'CAND':candidate['reference'], 'CANDIDATE_SCHEMA':z['components']['honua-server']['schemaVersions']['database'],
+                    'PRIOR_SOURCE_REVISION':prior['sourceRevision'], 'CANDIDATE_SOURCE_REVISION':candidate['sourceRevision'],
+                    'DECLARED_JOURNAL_SHA':z['components']['honua-server']['migrationJournalSha256'],
+                    'CHART_COORDINATE':chart['coordinate'], 'CHART_VERSION':chart['version'], 'CHART_DIGEST':chart['digest'], 'CHART_SHA256':chart['sha256'],
+                    'PRIOR_LOCK_DIGEST':b.bytes_digest(__import__('pathlib').Path('_locks/prior.json')), 'CANDIDATE_LOCK_DIGEST':b.bytes_digest(__import__('pathlib').Path('_locks/candidate.json'))}
+          print(';'.join(f'{key}={shlex.quote(str(value))}' for key,value in values.items()))
+          PY
+            )" || VERIFIED=0
+          fi
+          echo "candidate=${CAND:-}" >> "$GITHUB_OUTPUT"
+          echo "prior=${PRIOR:-}" >> "$GITHUB_OUTPUT"
+          echo "candidate_schema=${CANDIDATE_SCHEMA:-}" >> "$GITHUB_OUTPUT"
+          echo "declared_journal_sha=${DECLARED_JOURNAL_SHA:-}" >> "$GITHUB_OUTPUT"
+          echo "prior_source_revision=${PRIOR_SOURCE_REVISION:-}" >> "$GITHUB_OUTPUT"
+          echo "candidate_source_revision=${CANDIDATE_SOURCE_REVISION:-}" >> "$GITHUB_OUTPUT"
+          echo "chart_coordinate=${CHART_COORDINATE:-}" >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION:-}" >> "$GITHUB_OUTPUT"
+          echo "chart_digest=${CHART_DIGEST:-}" >> "$GITHUB_OUTPUT"
+          echo "chart_sha256=${CHART_SHA256:-}" >> "$GITHUB_OUTPUT"
+          echo "prior_lock_digest=${PRIOR_LOCK_DIGEST:-}" >> "$GITHUB_OUTPUT"
+          echo "candidate_lock_digest=${CANDIDATE_LOCK_DIGEST:-}" >> "$GITHUB_OUTPUT"
+          echo "verified=$VERIFIED" >> "$GITHUB_OUTPUT"
+          CROSS="$([ "$VERIFIED" = 1 ] && [ "$PRIOR" != "$CAND" ] && echo yes || echo no)"
           echo "cross_release=$CROSS" >> "$GITHUB_OUTPUT"
-          echo "candidate=$CAND prior=$PRIOR cross_release=$CROSS"
+          echo "candidate=${CAND:-} prior=${PRIOR:-} signed-locks=$VERIFIED cross_release=$CROSS"
 
-      - name: Checkout honua-helm chart
+      - name: Pull lock-bound Helm chart package
         id: chart
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: honua-io/honua-helm
-          path: _honua-helm
-          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
-        continue-on-error: true
+        if: steps.images.outputs.verified == '1'
+        run: |
+          set -euo pipefail
+          mkdir -p _chart
+          helm pull "oci://${{ steps.images.outputs.chart_coordinate }}" \
+            --version "${{ steps.images.outputs.chart_version }}" --destination _chart >/tmp/chart-pull.log 2>&1
+          PACKAGE="$(find _chart -maxdepth 1 -name '*.tgz' -type f -print -quit)"
+          test -n "$PACKAGE"
+          test "sha256:$(sha256sum "$PACKAGE" | awk '{print $1}')" = "${{ steps.images.outputs.chart_sha256 }}"
+          tar -xzf "$PACKAGE" -C _chart
+          echo "path=$(dirname "$(find _chart -name Chart.yaml -type f -print -quit)")" >> "$GITHUB_OUTPUT"
 
       - name: Pre-pull images (separates infra-absence=blocked from real upgrade failure=fail)
         id: pull
@@ -190,20 +233,27 @@ jobs:
         env:
           PRIOR: ${{ steps.images.outputs.prior }}
           CAND: ${{ steps.images.outputs.candidate }}
-          CANDIDATE_SCHEMA_FLOOR: ${{ steps.images.outputs.candidate_schema_floor }}
+          DECLARED_SCHEMA: ${{ steps.images.outputs.candidate_schema }}
+          DECLARED_JOURNAL_SHA: ${{ steps.images.outputs.declared_journal_sha }}
+          PRIOR_SOURCE_REVISION: ${{ steps.images.outputs.prior_source_revision }}
+          CANDIDATE_SOURCE_REVISION: ${{ steps.images.outputs.candidate_source_revision }}
+          PRIOR_LOCK_DIGEST: ${{ steps.images.outputs.prior_lock_digest }}
+          CANDIDATE_LOCK_DIGEST: ${{ steps.images.outputs.candidate_lock_digest }}
           ENF: ${{ inputs.enforcement }}
           CROSS: ${{ steps.images.outputs.cross_release }}
         run: |
           set -uo pipefail
           STATUS=blocked; WHY=""
-          if [ "${{ steps.chart.outcome }}" != "success" ]; then
-            STATUS=blocked; WHY="honua-helm chart not reachable (no RELEASE_GH_TOKEN?) — kind smoke self-skipped"
+          if [ "${{ steps.images.outputs.verified }}" != 1 ]; then
+            STATUS=blocked; WHY="exact signed prior/candidate platform locks are unavailable or invalid"
+          elif [ "${{ steps.chart.outcome }}" != "success" ]; then
+            STATUS=blocked; WHY="lock-bound honua-helm package is unavailable or its checksum mismatched"
           elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
           elif [ "$CROSS" = "no" ]; then
             STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
           else
-            CHART="$(dirname "$(find _honua-helm -name Chart.yaml | head -n1)")"
+            CHART="${{ steps.chart.outputs.path }}"
             NS=honua-upgrade
             kubectl create namespace "$NS" || true
             # PostGIS + Redis (persistent backing so the schema seeded pre-upgrade survives the upgrade).
@@ -298,10 +348,31 @@ jobs:
               [ -z "${PF_PID:-}" ] || kill "$PF_PID" 2>/dev/null || true
               PF_PID=""
             }
+            capture_phase() {
+              local phase="$1" expected_ref="$2" expected_source="$3" expected_lock="$4" schema="$5"
+              local image_id observed_version observed_lock
+              image_id="$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance=honua -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')"
+              if start_server_forward; then
+                curl -fsS http://127.0.0.1:18080/api/v1/admin/capabilities -o "/tmp/${phase}-runtime.json"
+                stop_server_forward
+              else
+                echo '{}' > "/tmp/${phase}-runtime.json"
+              fi
+              observed_version="$(jq -r '.data.serverVersion // empty' "/tmp/${phase}-runtime.json")"
+              observed_lock="$(kubectl get deployment -n "$NS" -l app.kubernetes.io/instance=honua -o json \
+                | jq -r '.items[0].spec.template.spec.containers[0].env[]? | select(.name=="HONUA_PLATFORM_LOCK_DIGEST") | .value')"
+              jq -n --arg imageID "$image_id" --arg digest "${expected_ref##*@}" --arg source "$expected_source" \
+                --arg version "$observed_version" --arg lock "$observed_lock" --arg schema "$schema" \
+                '{imageID:$imageID,runtimeIdentity:{imageDigest:$digest,sourceRevision:$source,observedVersion:$version,platformLockDigest:$lock},databaseSchema:$schema}' \
+                > "/tmp/${phase}-identity.json"
+              [ "$observed_lock" = "$expected_lock" ]
+            }
 
             set -x
             # 1) INSTALL prior — startup migrations seed the PRIOR schema.
-            if helm install honua "$CHART" --set image.repository="${PRIOR%:*}" --set image.tag="${PRIOR##*:}" "${COMMON[@]}" >/tmp/install.log 2>&1; then
+            if helm install honua "$CHART" --set image.repository="${PRIOR%@*}" --set image.tag='' --set image.digest="${PRIOR##*@}" \
+              --set-string config.env.Deployment__ImageDigest="${PRIOR##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$PRIOR_LOCK_DIGEST" \
+              "${COMMON[@]}" >/tmp/install.log 2>&1; then
               BEFORE_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/before-db.log || true)"
               if start_server_forward && E2E_BASE=http://127.0.0.1:18080 \
                    E2E_API_KEY='UpgradeCiAdmin!2026' E2E_DB_HOST=honua-postgis \
@@ -311,6 +382,7 @@ jobs:
                 SRC_ID="$(jq -r '.slice1.e2e_src_fs.layerId' /tmp/upg-seed/seed-manifest.json)"
                 BEFORE_SRC="$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;')"
                 BEFORE_ZONING="$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;')"
+                capture_phase install "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$(db_query "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer),0) FROM public.schema_versions;")" || STATUS=fail
                 if ! [[ "$SRC_ID" =~ ^[0-9]+$ ]]; then
                   STATUS=fail; WHY="real e2e seed did not publish the e2e_src_fs layer (layerId=$SRC_ID)"
                 fi
@@ -319,20 +391,25 @@ jobs:
                 STATUS=fail; WHY="honua-2026.1 installed but the real e2e seed failed"; tail -n 80 /tmp/seed.log || true
               fi
               # 2) UPGRADE to candidate — then prove journal advancement and seed survival.
-              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CHART" --set image.repository="${CAND%:*}" --set image.tag="${CAND##*:}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
+              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
+                --set-string config.env.Deployment__ImageDigest="${CAND##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$CANDIDATE_LOCK_DIGEST" \
+                "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
                 helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
                 AFTER_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/after-db.log || true)"
                 CANDIDATE_SCHEMA="$(db_query "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer), 0) FROM public.schema_versions;" 2>/tmp/schema-floor.log || true)"
                 AFTER_SRC="$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;' || true)"
                 AFTER_ZONING="$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;' || true)"
+                db_query "SELECT json_agg(scriptname ORDER BY scriptname) FROM public.schema_versions;" > /tmp/migration-journal.json
+                capture_phase candidate "$CAND" "$CANDIDATE_SOURCE_REVISION" "$CANDIDATE_LOCK_DIGEST" "$CANDIDATE_SCHEMA" || STATUS=fail
                 if ! [[ "$BEFORE_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" -gt "$BEFORE_VERSIONS" ]]; then
                   STATUS=fail; WHY="candidate did not advance public.schema_versions ($BEFORE_VERSIONS -> $AFTER_VERSIONS)"
-                elif ! [[ "$CANDIDATE_SCHEMA_FLOOR" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" -ge "$CANDIDATE_SCHEMA_FLOOR" ]]; then
-                  STATUS=fail; WHY="candidate schema $CANDIDATE_SCHEMA is below manifest floor $CANDIDATE_SCHEMA_FLOOR"
+                elif ! [[ "$DECLARED_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" = "$DECLARED_SCHEMA" ]]; then
+                  STATUS=fail; WHY="observed schema $CANDIDATE_SCHEMA does not exactly match signed lock declaration $DECLARED_SCHEMA"
                 elif [ "$BEFORE_SRC:$BEFORE_ZONING" != "2:12" ] || [ "$AFTER_SRC:$AFTER_ZONING" != "$BEFORE_SRC:$BEFORE_ZONING" ]; then
                   STATUS=fail; WHY="seeded rows did not survive upgrade (source $BEFORE_SRC->$AFTER_SRC, zoning $BEFORE_ZONING->$AFTER_ZONING)"
                 # 3) ROLLBACK IMAGE only; retain migrated DB and query seed data through the prior app.
                 elif helm rollback honua 1 -n "$NS" --wait --timeout 12m >/tmp/rollback.log 2>&1; then
+                  capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$CANDIDATE_SCHEMA" || STATUS=fail
                   if [ "$HT" = "ok" ] && start_server_forward && \
                      curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' \
                        "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
@@ -374,6 +451,30 @@ jobs:
               cp "/tmp/${phase}.log" "/tmp/upg/${phase}.log"
             fi
           done
+          cp _locks/prior.json /tmp/upg/prior-platform-lock.json 2>/dev/null || true
+          cp _locks/candidate.json /tmp/upg/candidate-platform-lock.json 2>/dev/null || true
+          cp /tmp/*-identity.json /tmp/upg/ 2>/dev/null || true
+          cp /tmp/migration-journal.json /tmp/upg/ 2>/dev/null || true
+          if [ "${status:-fail}" = pass ]; then
+            JOURNAL_SHA="sha256:$(sha256sum /tmp/migration-journal.json | awk '{print $1}')"
+            jq -n \
+              --arg arch amd64 --arg priorLock "${{ steps.images.outputs.prior_lock_digest }}" \
+              --arg candidateLock "${{ steps.images.outputs.candidate_lock_digest }}" \
+              --arg coordinate "${{ steps.images.outputs.chart_coordinate }}" --arg version "${{ steps.images.outputs.chart_version }}" \
+              --arg chartDigest "${{ steps.images.outputs.chart_digest }}" --arg chartSha "${{ steps.images.outputs.chart_sha256 }}" \
+              --arg schema "${{ steps.images.outputs.candidate_schema }}" --arg journal "$JOURNAL_SHA" \
+              --arg declaredJournal "${{ steps.images.outputs.declared_journal_sha }}" \
+              --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --arg commit "$GITHUB_SHA" \
+              --slurpfile install /tmp/install-identity.json --slurpfile candidate /tmp/candidate-identity.json --slurpfile rollback /tmp/rollback-identity.json \
+              '{architecture:$arch,priorLockDigest:$priorLock,candidateLockDigest:$candidateLock,lockValidation:{prior:"verified",candidate:"verified"},
+                chart:{coordinate:$coordinate,version:$version,digest:$chartDigest,sha256:$chartSha},
+                phases:{install:$install[0],candidate:$candidate[0],rollback:$rollback[0]},
+                schema:{observed:$schema,journalSha256:$journal,declaredJournalSha256:$declaredJournal},
+                seededData:{checksumsMatched:true,rollbackQueryPassed:true},timings:{},workflow:{run:$run,commit:$commit}}' \
+              > /tmp/upg/exact-lock-evidence.json
+            python tools/upgrade_lock_binding.py --prior-lock _locks/prior.json --candidate-lock _locks/candidate.json \
+              --evidence /tmp/upg/exact-lock-evidence.json --output /tmp/upg/exact-lock-receipt.json
+          fi
 
       - name: Upload evidence
         if: always()
@@ -382,6 +483,12 @@ jobs:
           name: upgrade-kind-evidence
           path: /tmp/upg
           if-no-files-found: warn
+
+      - name: Attest exact-lock upgrade receipt
+        if: env.status == 'pass'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: /tmp/upg/exact-lock-receipt.json
 
       - name: Emit fragment
         if: always()

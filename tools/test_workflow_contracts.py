@@ -478,20 +478,27 @@ def test_contract_gate_report_cannot_be_assembled_from_survivors():
     assert '"fail"' in commands, "a missing fragment must be recorded as a failure"
 
 
-def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatibility():
-    """The kind lane must not regress to same-schema, empty-database lifecycle theatre."""
+def test_upgrade_gate_proves_exact_lock_bytes_seeded_migration_and_prior_compatibility():
+    """The kind lane must not regress to tags, floating charts, schema floors, or empty data."""
     workflow = _workflow("gate-upgrade.yml")
     commands = "\n".join(
         _step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"]
     )
 
     assert "platform-manifest.yaml" in commands
-    assert "FIRST_RELEASE_BASELINE_IMAGE" in commands
+    assert "platform-lock.json" in commands
+    assert "validate_platform_lock.py" in commands
+    assert "gh attestation verify" in commands
+    assert "source-input bytes do not match this checkout" in commands
     assert "gh release download \"$PREV\"" in commands
     assert "e2e/harness/seed/seed.sh" in commands
     assert "SELECT count(*) FROM public.schema_versions" in commands
     assert "AFTER_VERSIONS" in commands and '"-gt"' not in commands
-    assert "CANDIDATE_SCHEMA_FLOOR" in commands
+    assert '"$CANDIDATE_SCHEMA" = "$DECLARED_SCHEMA"' in commands
+    assert "image.digest" in commands and "imageID" in commands
+    assert "HONUA_PLATFORM_LOCK_DIGEST" in commands
+    assert "chart_sha256" in commands and "upgrade_lock_binding.py" in commands
+    assert "Checkout honua-helm chart" not in commands
     assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
     assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
     assert "config.env.Operations__Policy__Enabled=true" in commands
