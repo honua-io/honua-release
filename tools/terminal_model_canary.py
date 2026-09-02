@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the harness for an OpenAI-compatible terminal-model canary.
+"""Run the genuine-model harness only through a candidate Honua AI proxy.
 
 The live journey adapter is owned by honua-release#123. Until that adapter is available, this tool
 emits an honest skipped/blocked receipt and cannot claim model execution.
@@ -7,10 +7,12 @@ emits an honest skipped/blocked receipt and cannot claim model execution.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -23,6 +25,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +62,11 @@ class CanaryError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _new_run_nonce() -> str:
+    """Return an unpredictable run-scoped nonce for signed candidate calls."""
+    return secrets.token_urlsafe(32)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -211,6 +220,7 @@ class EndpointConfig:
     runtime: str | None
     quantization: str | None
     require_api_key: bool = False
+    signing_manifest_sha256: str | None = None
 
     @classmethod
     def from_environment(
@@ -223,6 +233,7 @@ class EndpointConfig:
         quantization: str | None = None,
         use_api_key: bool = True,
         require_api_key: bool = False,
+        signing_manifest_sha256: str | None = None,
     ) -> "EndpointConfig":
         return cls(
             base_url=(base_url if base_url is not None else os.getenv("TERMINAL_MODEL_BASE_URL")) or None,
@@ -237,6 +248,12 @@ class EndpointConfig:
             )
             or None,
             require_api_key=require_api_key,
+            signing_manifest_sha256=(
+                signing_manifest_sha256
+                if signing_manifest_sha256 is not None
+                else os.getenv("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
+            )
+            or None,
         )
 
     @property
@@ -250,6 +267,8 @@ class EndpointConfig:
             missing.append("TERMINAL_MODEL_BASE_URL")
         if not self.model:
             missing.append("TERMINAL_MODEL_NAME")
+        if not self.signing_manifest_sha256:
+            missing.append("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
         return missing
 
     def validated_base_url(self) -> str:
@@ -262,9 +281,11 @@ class EndpointConfig:
             raise CanaryError("model endpoint URL must not contain credentials, query parameters, or fragments")
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
-    def chat_completions_url(self) -> str:
+    def proxy_chat_url(self) -> str:
         base = self.validated_base_url()
-        return base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+        if "/chat/completions" in base or base.rstrip("/").endswith("/v1"):
+            raise CanaryError("direct-provider and OpenAI-compatible URLs are non-certifying")
+        return base if base.endswith("/v1/studio/ai/chat") else f"{base}/v1/studio/ai/chat"
 
     def evidence(self) -> dict[str, Any]:
         base_url = self.validated_base_url() if self.base_url else None
@@ -274,6 +295,7 @@ class EndpointConfig:
             "model": self.model,
             "runtime": self.runtime,
             "quantization": self.quantization,
+            "signingManifestSha256": self.signing_manifest_sha256,
             "authentication": {
                 "mode": "bearer-env" if self.api_key else "none",
                 "credentialReference": f"env:{self.api_key_env}" if self.api_key else None,
@@ -394,6 +416,7 @@ class ReceiptBuilder:
             ],
             "actions": [],
             "transcript": {"redacted": True, "entries": []},
+            "provenance": {"verifiedCalls": []},
             "errorInjection": {
                 "id": "recoverable-error-1",
                 "stageId": injection_stage,
@@ -611,42 +634,174 @@ class ReceiptBuilder:
         return self.receipt
 
 
-class OpenAICompatibleClient:
-    """Small dependency-free Chat Completions client for hosted or local compatible endpoints."""
+class CandidateProxyClient:
+    """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
     def __init__(self, config: EndpointConfig, *, timeout_seconds: int = 120):
         if not config.configured:
             raise CanaryError("model endpoint configuration is incomplete")
         self.config = config
         self.timeout_seconds = timeout_seconds
+        self._consumed_digests: set[str] = set()
 
-    def complete(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any], int]:
-        payload = json.dumps(
-            {"model": self.config.model, "messages": messages, "temperature": 0, "stream": False}
-        ).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
+    def _manifest(self, headers: dict[str, str]) -> dict[str, Any]:
+        base = self.config.validated_base_url()
+        url = base if base.endswith("/v1/studio/ai/capabilities") else f"{base}/v1/studio/ai/capabilities"
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CanaryError(f"candidate signing manifest request failed: {exc}") from exc
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+            payload = payload["data"]
+        manifest = payload.get("transcriptSigning") if isinstance(payload, dict) else None
+        if not isinstance(manifest, dict) or manifest.get("requiredForCertification") is not True:
+            raise CanaryError("candidate did not publish a required transcript-signing manifest")
+        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        actual_digest = hashlib.sha256(canonical).hexdigest()
+        expected_digest = str(self.config.signing_manifest_sha256 or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_digest) or actual_digest != expected_digest:
+            raise CanaryError("candidate signing manifest does not match the platform-controlled digest")
+        return manifest
+
+    def _verify_provenance(
+        self,
+        signed: dict[str, Any],
+        transcript: dict[str, Any],
+        manifest: dict[str, Any],
+        request_body: dict[str, Any],
+        provider_events: list[dict[str, Any]],
+    ) -> str:
+        try:
+            transcript_bytes = base64.b64decode(signed["canonicalTranscript"], validate=True)
+            signature = base64.b64decode(signed["signature"], validate=True)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise CanaryError("candidate proxy provenance envelope is malformed") from exc
+        digest = hashlib.sha256(transcript_bytes).hexdigest()
+        if digest != str(signed.get("transcriptDigest", "")).lower():
+            raise CanaryError("candidate proxy transcript digest verification failed")
+        if digest in self._consumed_digests:
+            raise CanaryError("candidate proxy transcript replay was rejected")
+        keys = manifest.get("keys")
+        key = next((item for item in keys or [] if item.get("keyId") == signed.get("keyId")), None)
+        if not isinstance(key, dict) or key.get("revoked") is True or key.get("algorithm") != "Ed25519":
+            raise CanaryError("candidate provenance signing key is unknown or revoked")
+        now = datetime.now(timezone.utc)
+        for field, lower in (("notBefore", True), ("notAfter", False)):
+            if key.get(field):
+                boundary = datetime.fromisoformat(str(key[field]).replace("Z", "+00:00"))
+                if (lower and now < boundary) or (not lower and now > boundary):
+                    raise CanaryError("candidate provenance signing key is outside its validity window")
+        expires = datetime.fromisoformat(str(transcript.get("expiresAt", "")).replace("Z", "+00:00"))
+        issued = datetime.fromisoformat(str(transcript.get("issuedAt", "")).replace("Z", "+00:00"))
+        if now < issued or now > expires:
+            raise CanaryError("candidate proxy provenance envelope is expired or not yet valid")
+        public_key = base64.b64decode(key.get("publicKey", ""), validate=True)
+        if f"sha256:{hashlib.sha256(public_key).hexdigest()}" != str(key.get("fingerprint", "")).lower():
+            raise CanaryError("candidate signing-key fingerprint verification failed")
+        try:
+            Ed25519PublicKey.from_public_bytes(public_key).verify(signature, transcript_bytes)
+        except (ValueError, InvalidSignature) as exc:
+            raise CanaryError("candidate transcript signature verification failed") from exc
+        canonical_request = json.dumps(request_body, sort_keys=True, separators=(",", ":")).encode()
+        canonical_events = json.dumps(provider_events, sort_keys=True, separators=(",", ":")).encode()
+        if base64.b64decode(transcript.get("request", ""), validate=True) != canonical_request:
+            raise CanaryError("signed request bytes do not match the candidate request")
+        if base64.b64decode(transcript.get("providerEvents", ""), validate=True) != canonical_events:
+            raise CanaryError("signed provider events do not match the terminal SSE events")
+        if base64.b64decode(transcript.get("terminalResultDigest", ""), validate=True) != hashlib.sha256(canonical_events).digest():
+            raise CanaryError("signed terminal-event digest verification failed")
+        self._consumed_digests.add(digest)
+        return digest
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        certification: dict[str, str],
+    ) -> tuple[str, dict[str, Any], int, dict[str, Any]]:
+        request_body = {
+                "model": self.config.model,
+                "messages": messages,
+                "temperature": 0,
+                "certification": certification,
+            }
+        payload = json.dumps(request_body).encode("utf-8")
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
+        manifest = self._manifest({key: value for key, value in headers.items() if key != "Content-Type"})
         request = urllib.request.Request(
-            self.config.chat_completions_url(), data=payload, headers=headers, method="POST"
+            self.config.proxy_chat_url(), data=payload, headers=headers, method="POST"
         )
         started = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                result = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise CanaryError(f"OpenAI-compatible model request failed: {exc}") from exc
+                body = response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
+            raise CanaryError(f"candidate Studio proxy request failed: {exc}") from exc
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        if not isinstance(result, dict):
-            raise CanaryError("model response must be a JSON object")
+        events: list[tuple[str, dict[str, Any]]] = []
+        event_name = ""
+        data_lines: list[str] = []
+        for line in [*body.splitlines(), ""]:
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].strip())
+            elif not line and event_name:
+                try:
+                    event = json.loads("\n".join(data_lines))
+                except json.JSONDecodeError as exc:
+                    raise CanaryError("candidate proxy emitted malformed SSE JSON") from exc
+                if not isinstance(event, dict):
+                    raise CanaryError("candidate proxy SSE data must be an object")
+                events.append((event_name, event))
+                event_name, data_lines = "", []
+        provenance = [event for name, event in events if name == "transcript_provenance"]
+        terminals = [name for name, _ in events if name in {"message_stop", "error"}]
+        if len(provenance) != 1 or len(terminals) != 1 or events[-1][0] != "transcript_provenance":
+            raise CanaryError("candidate proxy omitted the unique terminal signed provenance event")
+        if terminals[0] != "message_stop":
+            raise CanaryError("candidate proxy ended the certified call with an error")
+        signed = provenance[0].get("provenance")
+        if not isinstance(signed, dict) or not signed.get("signature") or not signed.get("canonicalTranscript"):
+            raise CanaryError("candidate proxy provenance envelope is incomplete")
         try:
-            content = result["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise CanaryError("model response does not contain choices[0].message.content") from exc
+            transcript = json.loads(base64.b64decode(signed["canonicalTranscript"], validate=True))
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise CanaryError("candidate proxy provenance envelope is malformed") from exc
+        if any(transcript.get(key) != value for key, value in certification.items()):
+            raise CanaryError("candidate proxy provenance binding does not match the requested candidate action")
+        if transcript.get("model") != self.config.model:
+            raise CanaryError("candidate proxy reported a model other than the requested model")
+        provider_events = [
+            {"event": name, "data": event}
+            for name, event in events
+            if name != "transcript_provenance"
+        ]
+        verified_digest = self._verify_provenance(signed, transcript, manifest, request_body, provider_events)
+        content = "".join(event.get("text", "") for name, event in events if name == "text_delta")
         if not isinstance(content, str) or not content.strip():
             raise CanaryError("model response content is empty")
-        usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
-        return content, usage, elapsed_ms
+        stop = next(event for name, event in events if name == "message_stop")
+        usage = {
+            "prompt_tokens": stop.get("promptTokens", 0),
+            "completion_tokens": stop.get("completionTokens", 0),
+            "total_tokens": int(stop.get("promptTokens", 0) or 0) + int(stop.get("completionTokens", 0) or 0),
+        }
+        evidence = {
+            "transcriptDigest": verified_digest,
+            "keyId": signed["keyId"],
+            "manifestDigest": hashlib.sha256(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "provider": transcript.get("provider"),
+            "reportedModel": transcript.get("model"),
+            "verifierVerdict": "pass",
+            "replayVerdict": "consumed",
+            "bindings": certification,
+        }
+        return content, usage, elapsed_ms, evidence
 
 
 class DriverAdapter:
@@ -791,7 +946,8 @@ def execute_live(
     max_actions_per_stage: int,
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
-    client = OpenAICompatibleClient(endpoint)
+    client = CandidateProxyClient(endpoint)
+    run_nonce = _new_run_nonce()
     driver = DriverAdapter(driver_command, builder.protocol)
     receipt = builder.receipt
     receipt["scope"]["executionToGreen"] = "attempted"
@@ -900,9 +1056,20 @@ def execute_live(
                 )
                 builder.capture_transcript("system", system, stage_id=stage_id)
                 builder.capture_transcript("user", user_content, stage_id=stage_id)
-                content, usage, elapsed_ms = client.complete(
-                    [{"role": "system", "content": system}, {"role": "user", "content": user_content}]
+                content, usage, elapsed_ms, provenance_evidence = client.complete(
+                    [{"role": "system", "content": system}, {"role": "user", "content": user_content}],
+                    {
+                        "candidateId": receipt["candidate"]["components"]["honua-server"]["digest"],
+                        "releaseId": receipt["candidate"]["platformRelease"],
+                        "endpointIdentity": endpoint.validated_base_url(),
+                        "actionId": stage_id,
+                        "runNonce": (
+                            f"{run_nonce}:{workspace_id}:{stage_id}:"
+                            f"{receipt['totals']['modelCalls'] + 1}"
+                        ),
+                    },
                 )
+                receipt["provenance"]["verifiedCalls"].append(provenance_evidence)
                 assistant_sequence = builder.capture_transcript("assistant", content, stage_id=stage_id)
                 builder.add_usage(usage, elapsed_ms)
                 kind, model_action = parse_model_action(content)
@@ -1011,6 +1178,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model")
     parser.add_argument("--runtime")
     parser.add_argument("--quantization")
+    parser.add_argument("--signing-manifest-sha256")
     parser.add_argument("--api-key-env", default="TERMINAL_MODEL_API_KEY")
     authentication = parser.add_mutually_exclusive_group()
     authentication.add_argument("--no-api-key", action="store_true")
@@ -1031,6 +1199,7 @@ def main(argv: list[str] | None = None) -> int:
         quantization=args.quantization,
         use_api_key=not args.no_api_key,
         require_api_key=args.require_api_key,
+        signing_manifest_sha256=args.signing_manifest_sha256,
     )
     try:
         builder = build_receipt_builder(
@@ -1075,24 +1244,13 @@ def main(argv: list[str] | None = None) -> int:
         receipt = builder.validated_receipt(schema)
         write_receipt(args.output, receipt)
         status = receipt["status"]
-        if status == "skipped":
-            print(
-                "::notice title=Terminal model canary skipped::Required endpoint or hosted "
-                "credential configuration is absent; see the redacted receipt"
-            )
-            print("terminal model canary: skipped")
-            return 0
-        if status == "blocked":
-            print(
-                "::notice title=Terminal model canary blocked::A required live dependency is "
-                "absent; see the redacted receipt"
-            )
-            print("terminal model canary: blocked")
-            return 0
         if status == "pass":
+            if receipt["totals"]["modelCalls"] <= 0:
+                print("terminal model canary: fail (zero model calls)")
+                return 1
             print("terminal model canary: pass")
             return 0
-        print("terminal model canary: fail")
+        print(f"terminal model canary: fail ({status})")
         return 1
     except CanaryError as exc:
         print(f"terminal model canary harness error: {exc}", file=sys.stderr)

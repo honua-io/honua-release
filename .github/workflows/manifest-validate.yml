@@ -54,7 +54,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install deps
-        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" pytest
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
 
       # The tools/ gates' own tests must pass — they prove the manifest/matrix validator and the
       # release finalizer both redden on a bad input (a gate that can't fail is worse than no gate).
