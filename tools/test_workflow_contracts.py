@@ -522,11 +522,11 @@ def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicens
     assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
 
 
-def test_upgrade_gate_attests_candidate_and_fails_closed_on_receipt_verification():
+def test_upgrade_gate_consumes_verified_candidate_and_fails_closed_on_receipt_verification():
     steps = _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
-    attestation = next(step for step in steps if step.get("name") == "Attest candidate platform lock")
-    assert "actions/attest-build-provenance@" in attestation["uses"]
-    assert attestation["with"]["subject-path"] == "platform-lock.json"
+    resolve = next(step for step in steps if step.get("name") == "Resolve exact signed locks, images, schema, and chart package")["run"]
+    assert "gh attestation verify _locks/candidate.json" in resolve
+    assert not any(step.get("name") == "Attest candidate platform lock" for step in steps)
 
     capture = next(step for step in steps if step.get("name") == "Capture evidence")["run"]
     assert "if ! python tools/upgrade_lock_binding.py" in capture

@@ -144,11 +144,6 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
 
-      - name: Attest candidate platform lock
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
-        with:
-          subject-path: platform-lock.json
-
       - name: Resolve exact signed locks, images, schema, and chart package
         id: images
         env:
