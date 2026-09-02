@@ -120,7 +120,9 @@ jobs:
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            platform-lock.json
             release-evidence-pins.json
+          if-no-files-found: error
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 

@@ -1,4 +1,7 @@
 import json
+import hashlib
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,16 +36,23 @@ def _fixture(tmp_path: Path, compatible=True, name="prod"):
         "schema": "107", "rollbackCompatibility": {"schemaVersions": ["107"]},
     }
     a, b = _write(tmp_path / f"{name}-a.json", lock_a), _write(tmp_path / f"{name}-b.json", lock_b)
+    planes = [
+        {"id": "serving-east", "kind": "serving", "providerId": "deploy/east", "lockPath": "/components/server/artifact"},
+        {"id": "serving-west", "kind": "serving", "providerId": "deploy/west", "lockPath": "/components/server/artifact"},
+        {"id": "worker-default", "kind": "worker", "providerId": "queue/default", "lockPath": "/components/worker/artifact"},
+        {"id": "config", "kind": "config", "providerId": "projection/config", "lockPath": "/contentDigests/config"},
+        {"id": "capability", "kind": "capability", "providerId": "projection/capability", "lockPath": "/contentDigests/capability"},
+    ]
+    state = {"planes": {plane["providerId"]: {"kind": plane["kind"], "value": rollback.pointer(lock_b, plane["lockPath"])} for plane in planes}, "mutations": {}}
+    state["planes"]["database"] = {"kind": "schema", "value": lock_b["schema"]}
+    state_path = _write(tmp_path / f"{name}-provider.json", state)
+    provider = Path(__file__).resolve().parent / "rollback_local_provider.py"
     env = {
         "name": name, "currentLockDigest": rollback.digest(b),
-        "planes": [
-            {"id": "serving-east", "kind": "serving", "providerId": "deploy/east", "lockPath": "/components/server/artifact", "current": lock_b["components"]["server"]["artifact"]},
-            {"id": "serving-west", "kind": "serving", "providerId": "deploy/west", "lockPath": "/components/server/artifact", "current": lock_b["components"]["server"]["artifact"]},
-            {"id": "worker-default", "kind": "worker", "providerId": "queue/default", "lockPath": "/components/worker/artifact", "current": lock_b["components"]["worker"]["artifact"]},
-            {"id": "config", "kind": "config", "providerId": "projection/config", "lockPath": "/contentDigests/config", "current": lock_b["contentDigests"]["config"]},
-            {"id": "capability", "kind": "capability", "providerId": "projection/capability", "lockPath": "/contentDigests/capability", "current": lock_b["contentDigests"]["capability"]},
-        ],
-        "schema": {"lockPath": "/schema"},
+        "planes": planes,
+        "schema": {"lockPath": "/schema", "providerId": "database", "compatibleVersions": ["107"] if compatible else ["106"]},
+        "provider": {"command": [os.sys.executable, str(provider), "--state", str(state_path)]},
+        "sourceInputs": {"candidateManifest": "sha256:" + "3" * 64, "compatibilityMatrix": "sha256:" + "4" * 64},
     }
     return a, b, _write(tmp_path / f"{name}-env.json", env)
 
@@ -89,7 +99,10 @@ def test_existing_operation_cannot_be_retargeted(tmp_path):
 
 def test_target_failure_is_explicit_mixed_state_with_recovery(tmp_path):
     a, b, env = _fixture(tmp_path)
-    result = _run(tmp_path, a, b, env, fail_plane="serving-west")
+    value = json.loads(env.read_text())
+    value["provider"]["command"][4:4] = ["--fail-provider", "deploy/west"]
+    _write(env, value)
+    result = _run(tmp_path, a, b, env)
     assert result["status"] == "ManualInterventionRequired"
     failed = next(c for c in result["children"] if c["id"] == "serving-west")
     assert failed["state"] == "Failed" and failed["recovery"]
@@ -125,3 +138,60 @@ def test_receipt_is_bound_to_both_exact_lock_digests(tmp_path):
     assert receipt["fromLockDigest"] == rollback.digest(b)
     assert receipt["toLockDigest"] == rollback.digest(a)
     assert receipt["rollbackClock"]["terminalAt"]
+    assert receipt["sourceInputs"]["candidateManifest"].startswith("sha256:")
+
+
+def test_provider_is_actuated_and_observed_before_success(tmp_path):
+    a, b, env = _fixture(tmp_path)
+    result = _run(tmp_path, a, b, env)
+    assert all(child["providerEvidence"] for child in result["children"])
+    provider_state = json.loads((tmp_path / "prod-provider.json").read_text())
+    assert len(provider_state["mutations"]) == 5
+    assert all(evidence["ok"] for evidence in result["functionalSmokeEvidence"].values())
+
+
+def test_failed_functional_probe_cannot_claim_success(tmp_path):
+    a, b, env = _fixture(tmp_path)
+    value = json.loads(env.read_text())
+    value["provider"]["command"][4:4] = ["--fail-probe", "worker"]
+    _write(env, value)
+    result = _run(tmp_path, a, b, env)
+    assert result["status"] == "ManualInterventionRequired"
+    assert result["functionalSmoke"]["worker"] is False
+    assert next(child for child in result["children"] if child["kind"] == "worker")["state"] == "Failed"
+
+
+def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
+    manifest = tmp_path / "platform-manifest.yaml"
+    matrix = tmp_path / "compatibility-matrix.yaml"
+    manifest.write_text("platformRelease: 2026.1\n", encoding="utf-8")
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+
+    def sha(path):
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def exact_lock(image, schema):
+        return {
+            "sourceInputs": {
+                "platformManifest": {"path": manifest.name, "sha256": sha(manifest)},
+                "compatibilityMatrix": {"path": matrix.name, "sha256": sha(matrix)},
+            },
+            "components": {"honua-server": {
+                "schemaVersions": {"database": schema},
+                "artifacts": [{"kind": "image", "platformDigests": {"amd64": image}}],
+            }},
+        }
+
+    retained = _write(tmp_path / "retained.json", exact_lock("sha256:" + "a" * 64, "107"))
+    candidate = _write(tmp_path / "candidate.json", exact_lock("sha256:" + "b" * 64, "107"))
+    output = tmp_path / "certification"
+    script = Path(__file__).resolve().parent / "certify_release_rollback.py"
+    result = subprocess.run([
+        os.sys.executable, str(script), "--output", str(output), "--from-lock", str(retained),
+        "--to-lock", str(candidate), "--candidate-manifest", str(manifest),
+        "--compatibility-matrix", str(matrix),
+    ], check=False, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr + result.stdout
+    receipt = json.loads((output / "success-receipt.json").read_text())
+    assert receipt["sourceInputs"]["platformManifest"] == sha(manifest)
+    assert receipt["sourceInputs"]["compatibilityMatrix"] == sha(matrix)
