@@ -56,6 +56,8 @@ jobs:
       TERMINAL_MODEL_NAME: ${{ inputs.model || vars.TERMINAL_MODEL_NAME }}
       TERMINAL_MODEL_RUNTIME: ${{ inputs.runtime || vars.TERMINAL_MODEL_RUNTIME }}
       TERMINAL_MODEL_QUANTIZATION: ${{ inputs.quantization || vars.TERMINAL_MODEL_QUANTIZATION }}
+      # Trust anchor is platform-controlled, never discovered from the candidate endpoint itself.
+      TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
       TERMINAL_MODEL_API_KEY: ${{ secrets.TERMINAL_MODEL_API_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

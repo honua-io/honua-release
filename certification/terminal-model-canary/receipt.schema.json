@@ -66,13 +66,19 @@
     "endpoint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["configured", "baseUrl", "model", "runtime", "quantization", "authentication"],
+      "required": ["configured", "baseUrl", "model", "runtime", "quantization", "signingManifestSha256", "authentication"],
       "properties": {
         "configured": {"type": "boolean"},
         "baseUrl": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"]},
         "runtime": {"type": ["string", "null"]},
         "quantization": {"type": ["string", "null"]},
+        "signingManifestSha256": {
+          "anyOf": [
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            {"type": "null"}
+          ]
+        },
         "authentication": {
           "type": "object",
           "additionalProperties": false,

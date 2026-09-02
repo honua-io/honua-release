@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -61,6 +62,11 @@ class CanaryError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _new_run_nonce() -> str:
+    """Return an unpredictable run-scoped nonce for signed candidate calls."""
+    return secrets.token_urlsafe(32)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -214,6 +220,7 @@ class EndpointConfig:
     runtime: str | None
     quantization: str | None
     require_api_key: bool = False
+    signing_manifest_sha256: str | None = None
 
     @classmethod
     def from_environment(
@@ -226,6 +233,7 @@ class EndpointConfig:
         quantization: str | None = None,
         use_api_key: bool = True,
         require_api_key: bool = False,
+        signing_manifest_sha256: str | None = None,
     ) -> "EndpointConfig":
         return cls(
             base_url=(base_url if base_url is not None else os.getenv("TERMINAL_MODEL_BASE_URL")) or None,
@@ -240,6 +248,12 @@ class EndpointConfig:
             )
             or None,
             require_api_key=require_api_key,
+            signing_manifest_sha256=(
+                signing_manifest_sha256
+                if signing_manifest_sha256 is not None
+                else os.getenv("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
+            )
+            or None,
         )
 
     @property
@@ -253,6 +267,8 @@ class EndpointConfig:
             missing.append("TERMINAL_MODEL_BASE_URL")
         if not self.model:
             missing.append("TERMINAL_MODEL_NAME")
+        if not self.signing_manifest_sha256:
+            missing.append("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
         return missing
 
     def validated_base_url(self) -> str:
@@ -279,6 +295,7 @@ class EndpointConfig:
             "model": self.model,
             "runtime": self.runtime,
             "quantization": self.quantization,
+            "signingManifestSha256": self.signing_manifest_sha256,
             "authentication": {
                 "mode": "bearer-env" if self.api_key else "none",
                 "credentialReference": f"env:{self.api_key_env}" if self.api_key else None,
@@ -640,6 +657,11 @@ class CandidateProxyClient:
         manifest = payload.get("transcriptSigning") if isinstance(payload, dict) else None
         if not isinstance(manifest, dict) or manifest.get("requiredForCertification") is not True:
             raise CanaryError("candidate did not publish a required transcript-signing manifest")
+        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        actual_digest = hashlib.sha256(canonical).hexdigest()
+        expected_digest = str(self.config.signing_manifest_sha256 or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_digest) or actual_digest != expected_digest:
+            raise CanaryError("candidate signing manifest does not match the platform-controlled digest")
         return manifest
 
     def _verify_provenance(
@@ -750,7 +772,13 @@ class CandidateProxyClient:
             raise CanaryError("candidate proxy provenance envelope is malformed") from exc
         if any(transcript.get(key) != value for key, value in certification.items()):
             raise CanaryError("candidate proxy provenance binding does not match the requested candidate action")
-        provider_events = [event for name, event in events if name != "transcript_provenance"]
+        if transcript.get("model") != self.config.model:
+            raise CanaryError("candidate proxy reported a model other than the requested model")
+        provider_events = [
+            {"event": name, "data": event}
+            for name, event in events
+            if name != "transcript_provenance"
+        ]
         verified_digest = self._verify_provenance(signed, transcript, manifest, request_body, provider_events)
         content = "".join(event.get("text", "") for name, event in events if name == "text_delta")
         if not isinstance(content, str) or not content.strip():
@@ -919,6 +947,7 @@ def execute_live(
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
     client = CandidateProxyClient(endpoint)
+    run_nonce = _new_run_nonce()
     driver = DriverAdapter(driver_command, builder.protocol)
     receipt = builder.receipt
     receipt["scope"]["executionToGreen"] = "attempted"
@@ -1034,7 +1063,10 @@ def execute_live(
                         "releaseId": receipt["candidate"]["platformRelease"],
                         "endpointIdentity": endpoint.validated_base_url(),
                         "actionId": stage_id,
-                        "runNonce": f"{workspace_id}:{stage_id}:{receipt['totals']['modelCalls'] + 1}",
+                        "runNonce": (
+                            f"{run_nonce}:{workspace_id}:{stage_id}:"
+                            f"{receipt['totals']['modelCalls'] + 1}"
+                        ),
                     },
                 )
                 receipt["provenance"]["verifiedCalls"].append(provenance_evidence)
@@ -1146,6 +1178,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model")
     parser.add_argument("--runtime")
     parser.add_argument("--quantization")
+    parser.add_argument("--signing-manifest-sha256")
     parser.add_argument("--api-key-env", default="TERMINAL_MODEL_API_KEY")
     authentication = parser.add_mutually_exclusive_group()
     authentication.add_argument("--no-api-key", action="store_true")
@@ -1166,6 +1199,7 @@ def main(argv: list[str] | None = None) -> int:
         quantization=args.quantization,
         use_api_key=not args.no_api_key,
         require_api_key=args.require_api_key,
+        signing_manifest_sha256=args.signing_manifest_sha256,
     )
     try:
         builder = build_receipt_builder(

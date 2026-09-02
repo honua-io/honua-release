@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import copy
+import base64
+import hashlib
 import json
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 import yaml
 from jsonschema import Draft202012Validator
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -360,6 +365,102 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
         "required": True,
     }
     assert "top-secret-key" not in json.dumps(hosted.evidence())
+
+
+def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    public = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    manifest = {
+        "requiredForCertification": True,
+        "keys": [{
+            "keyId": "candidate-1",
+            "algorithm": "Ed25519",
+            "publicKey": base64.b64encode(public).decode(),
+            "fingerprint": f"sha256:{hashlib.sha256(public).hexdigest()}",
+        }],
+    }
+    manifest_digest = hashlib.sha256(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    endpoint = replace(
+        _endpoint(),
+        base_url="http://127.0.0.1:8000/api",
+        signing_manifest_sha256=manifest_digest,
+    )
+    certification = {
+        "candidateId": "sha256:candidate",
+        "releaseId": "2026.1",
+        "endpointIdentity": endpoint.validated_base_url(),
+        "actionId": "publish",
+        "runNonce": "random-run-nonce",
+    }
+    request_body = {
+        "model": endpoint.model,
+        "messages": [{"role": "user", "content": "advance"}],
+        "temperature": 0,
+        "certification": certification,
+    }
+    provider_events = [
+        {"event": "text_delta", "data": {"text": "{}"}},
+        {"event": "message_stop", "data": {"promptTokens": 1, "completionTokens": 1}},
+    ]
+    canonical_events = json.dumps(provider_events, sort_keys=True, separators=(",", ":")).encode()
+    transcript = {
+        **certification,
+        "model": endpoint.model,
+        "provider": "candidate-proxy",
+        "issuedAt": (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(),
+        "expiresAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "request": base64.b64encode(
+            json.dumps(request_body, sort_keys=True, separators=(",", ":")).encode()
+        ).decode(),
+        "providerEvents": base64.b64encode(canonical_events).decode(),
+        "terminalResultDigest": base64.b64encode(hashlib.sha256(canonical_events).digest()).decode(),
+    }
+    transcript_bytes = json.dumps(transcript, sort_keys=True, separators=(",", ":")).encode()
+    signed = {
+        "keyId": "candidate-1",
+        "canonicalTranscript": base64.b64encode(transcript_bytes).decode(),
+        "transcriptDigest": hashlib.sha256(transcript_bytes).hexdigest(),
+        "signature": base64.b64encode(key.sign(transcript_bytes)).decode(),
+    }
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self):
+            return self.payload
+
+    sse = "\n\n".join(
+        [
+            "event: text_delta\ndata: {\"text\":\"{}\"}",
+            "event: message_stop\ndata: {\"promptTokens\":1,\"completionTokens\":1}",
+            f"event: transcript_provenance\ndata: {json.dumps({'provenance': signed})}",
+        ]
+    ).encode()
+    responses = iter([Response(json.dumps({"transcriptSigning": manifest}).encode()), Response(sse)])
+    monkeypatch.setattr(canary.urllib.request, "urlopen", lambda *args, **kwargs: next(responses))
+
+    _, _, _, evidence = canary.CandidateProxyClient(endpoint).complete(
+        request_body["messages"], certification
+    )
+
+    assert evidence["manifestDigest"] == manifest_digest
+    assert evidence["reportedModel"] == endpoint.model
+
+
+def test_run_nonces_are_random_and_run_scoped():
+    first = canary._new_run_nonce()
+    second = canary._new_run_nonce()
+    assert first != second
+    assert len(first) >= 40 and len(second) >= 40
 
 
 def test_local_authentication_mode_does_not_read_a_present_hosted_key(monkeypatch):
