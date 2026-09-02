@@ -653,28 +653,6 @@ experimental:
     # file were re-verified against `refs/heads/trunk` at re-pin time.
     sha: "7eb948b5e80680e3a4f33c69c671804eebc370fb"   # branch: trunk HEAD at re-pin time
 
-platformLockEvidence:
-  sbom:
-    - component: honua-platform
-      uri: "https://api.github.com/repos/honua-io/honua-release/actions/artifacts/9796163459/zip"
-      sha256: "sha256:d7e156f4414c84f78e4e0350c9704af33e5b7d78f4687e4ba16c70ced1e19510"
-    - component: honua-server
-      uri: "https://api.github.com/repos/honua-io/honua-release/actions/artifacts/9796169542/zip"
-      sha256: "sha256:c3617e8a2fe268cbf64ec3c675f50b23ea308750e69ea6fff629ff64da22c21f"
-  provenance:
-    - component: honua-server-amd64
-      uri: "oci://ghcr.io/honua-io/honua-server@sha256:6abbd2b43cfdd9478df17b0ef027a39914c7cd6a834c9ab869b6cc25a3ca9130"
-      sha256: "sha256:6abbd2b43cfdd9478df17b0ef027a39914c7cd6a834c9ab869b6cc25a3ca9130"
-    - component: honua-server-arm64
-      uri: "oci://ghcr.io/honua-io/honua-server@sha256:b580e3e1e0a0dda22d5a016a74667a4465f087c6d33d29a31ce19e9b3e70038e"
-      sha256: "sha256:b580e3e1e0a0dda22d5a016a74667a4465f087c6d33d29a31ce19e9b3e70038e"
-    - component: honua-console-amd64
-      uri: "oci://ghcr.io/honua-io/honua-console@sha256:a8b93aa705e8f5f511ffe436c15dee133cc686c36c3eb3738a83cad85d4f8a1a"
-      sha256: "sha256:a8b93aa705e8f5f511ffe436c15dee133cc686c36c3eb3738a83cad85d4f8a1a"
-    - component: honua-console-arm64
-      uri: "oci://ghcr.io/honua-io/honua-console@sha256:232bce6d33524b8ab83bd58b16589f4880ffe40ebddb3d593d07928465cae21a"
-      sha256: "sha256:232bce6d33524b8ab83bd58b16589f4880ffe40ebddb3d593d07928465cae21a"
-
 # Filled at promote: aggregated SBOM digest, provenance attestation, release-notes ref.
 artifacts:
   sbom: "TBD"                          # TODO(Phase 3): aggregated CycloneDX/SPDX digest

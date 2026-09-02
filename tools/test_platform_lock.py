@@ -141,14 +141,27 @@ def test_generator_reports_terraform_sha256(tmp_path):
     assert "[MECHANICAL] $.components.iac.artifacts[0].sha256: package hash is not declared" in draft.unresolved
 
 
+def test_generator_does_not_accept_unbound_evidence_references(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "platformRelease: 2026.1\ncomponents: {}\nplatformLockEvidence:\n"
+        "  sbom:\n    - {component: sdk, uri: 'https://example.test/sbom', sha256: '" + DIGEST + "'}\n"
+        "  provenance:\n    - {component: sdk, uri: 'oci://example.test/provenance', sha256: '" + DIGEST + "'}\n",
+        encoding="utf-8",
+    )
+    matrix = tmp_path / "matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    draft = generator.generate(manifest, matrix)
+    assert sum("not mechanically bound" in item for item in draft.deferred_until_cut) == 2
+
+
 def test_generator_reports_all_current_unresolved_release_work():
     draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
     joined = "\n".join(draft.unresolved)
     assert "contentDigests.geospatialMcp" in joined
     assert "contentDigests.catalog" in joined
     assert "contentDigests.okf" in joined
-    assert "fixtures" in joined
-    assert "$.sbom:" not in joined and "$.provenance:" not in joined
+    assert "fixtures" in joined and "$.sbom:" in joined and "$.provenance:" in joined
     assert "[DECISION]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
@@ -163,8 +176,8 @@ def test_generator_reports_all_current_unresolved_release_work():
         component["supportTier"] == component["lifecycleStatus"].lower()
         for component in draft.lock["components"].values()
     )
-    assert len(draft.lock["sbom"]) == 2
-    assert len(draft.lock["provenance"]) == 4
+    assert draft.lock["sbom"] == []
+    assert draft.lock["provenance"] == []
 
 
 def test_generator_derives_support_tier_from_lifecycle_status(tmp_path):

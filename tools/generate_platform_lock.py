@@ -192,9 +192,13 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         "$.notes: immutable release-notes content/reference is not declared",
     ]:
         refuse(message, "AT-CUT")
-    if not lock["sbom"]:
+    if lock["sbom"]:
+        refuse("$.sbom: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
+    else:
         refuse("$.sbom: immutable SBOM references and hashes are not declared", "AT-CUT")
-    if not lock["provenance"]:
+    if lock["provenance"]:
+        refuse("$.provenance: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
+    else:
         refuse("$.provenance: immutable provenance references and hashes are not declared", "AT-CUT")
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
 
