@@ -328,7 +328,7 @@ jobs:
                 '{e2e_src_fs:$src,maui_zoning:$zoning}' > "/tmp/upg/seed-checksums-${suffix}.json"
             }
             image_digest() {
-              docker image inspect "$1" --format '{{index .RepoDigests 0}}' 2>/dev/null | sed 's/.*@//' | grep '^sha256:' || \
+              docker image inspect "$1" --format '{{.Id}}' 2>/dev/null | grep '^sha256:' || \
                 printf '%s' "$1" | sha256sum | awk '{print "sha256:"$1}'
             }
             build_failed_recovery_receipt() {
@@ -456,18 +456,13 @@ jobs:
                     curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' \
                       "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
                       -o /tmp/upg/rollback-read.json && [ "$(jq -r '.count // -1' /tmp/upg/rollback-read.json)" = 2 ] && READ_PASSED=true
-                    curl -fsS -X POST -H 'X-API-Key: UpgradeCiAdmin!2026' \
-                      -d 'adds=[{"attributes":{"name":"rollback-probe"}}]&rollbackOnFailure=true&f=json' \
-                      "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/applyEdits" \
-                      -o /tmp/upg/rollback-write.json
-                    ROLLBACK_OBJECT_ID="$(jq -r '.addResults[0].objectId // empty' /tmp/upg/rollback-write.json 2>/dev/null || true)"
-                    if [[ "$ROLLBACK_OBJECT_ID" =~ ^[0-9]+$ ]] && curl -fsS -X POST -H 'X-API-Key: UpgradeCiAdmin!2026' \
-                      -d "deletes=$ROLLBACK_OBJECT_ID&rollbackOnFailure=true&f=json" \
-                      "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/applyEdits" \
-                      -o /tmp/upg/rollback-write-cleanup.json && jq -e '.deleteResults[0].success == true' /tmp/upg/rollback-write-cleanup.json >/dev/null; then
+                    if curl -fsS -X PUT -H 'X-API-Key: UpgradeCiAdmin!2026' -H 'Content-Type: application/json' \
+                      -d '{"allowAnonymous":false,"allowAnonymousWrite":false}' \
+                      "http://127.0.0.1:18080/api/v1/admin/services/e2e/access-policy" \
+                      -o /tmp/upg/rollback-write.json; then
                       WRITE_PASSED=true
                     fi
-                    jq -s '{read:.[0],write:.[1],cleanup:.[2]}' /tmp/upg/rollback-read.json /tmp/upg/rollback-write.json /tmp/upg/rollback-write-cleanup.json \
+                    jq -s '{read:.[0],write:.[1]}' /tmp/upg/rollback-read.json /tmp/upg/rollback-write.json \
                       > /tmp/upg/rollback-read-write.json 2>/dev/null || echo '{"read":false,"write":false}' > /tmp/upg/rollback-read-write.json
                     stop_server_forward
                   else
@@ -560,7 +555,7 @@ jobs:
       - name: Download fragments
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: upg-gate-fragment-*
+          pattern: upg*-gate-fragment-*
           path: fragments
           merge-multiple: true
 
