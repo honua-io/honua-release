@@ -195,3 +195,17 @@ def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
     receipt = json.loads((output / "success-receipt.json").read_text())
     assert receipt["sourceInputs"]["platformManifest"] == sha(manifest)
     assert receipt["sourceInputs"]["compatibilityMatrix"] == sha(matrix)
+
+    retained_value = json.loads(retained.read_text())
+    retained_value["components"]["honua-server"]["schemaVersions"]["database"] = "106"
+    _write(retained, retained_value)
+    incompatible_output = tmp_path / "incompatible-certification"
+    incompatible = subprocess.run([
+        os.sys.executable, str(script), "--output", str(incompatible_output), "--from-lock", str(retained),
+        "--to-lock", str(candidate), "--candidate-manifest", str(manifest),
+        "--compatibility-matrix", str(matrix),
+    ], check=False, text=True, capture_output=True)
+    assert incompatible.returncode == 1
+    refused = json.loads((incompatible_output / "success-receipt.json").read_text())
+    assert refused["status"] == "ManualInterventionRequired"
+    assert next(child for child in refused["children"] if child["kind"] == "schema")["state"] == "Failed"

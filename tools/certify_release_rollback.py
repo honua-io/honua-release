@@ -55,7 +55,9 @@ def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_in
     command = [sys.executable, str(provider), "--state", str(state_path)]
     if fail_provider:
         command += ["--fail-provider", fail_provider]
-    compatible = [str(rollback.pointer(b, schema_path))]
+    target_schema = str(rollback.pointer(a, schema_path))
+    forward_schema = str(rollback.pointer(b, schema_path))
+    compatible = [forward_schema] if target_schema == forward_schema else []
     value = {
         "name": name, "currentLockDigest": rollback.digest(root / "candidate-lock.json"),
         "planes": planes, "schema": {"lockPath": schema_path, "providerId": "database", "compatibleVersions": compatible},
