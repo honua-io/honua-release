@@ -508,6 +508,28 @@ def test_upgrade_gate_proves_exact_lock_bytes_seeded_migration_and_prior_compati
     assert "down-migration noted" not in commands
 
 
+def test_upgrade_gate_attests_candidate_and_fails_closed_on_receipt_verification():
+    steps = _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    attestation = next(step for step in steps if step.get("name") == "Attest candidate platform lock")
+    assert "actions/attest-build-provenance@" in attestation["uses"]
+    assert attestation["with"]["subject-path"] == "platform-lock.json"
+
+    capture = next(step for step in steps if step.get("name") == "Capture evidence")["run"]
+    assert "if ! python tools/upgrade_lock_binding.py" in capture
+    assert 'echo "status=fail" >> "$GITHUB_ENV"' in capture
+    assert 'echo "why=exact-lock receipt verification failed" >> "$GITHUB_ENV"' in capture
+
+
+def test_upgrade_gate_uses_each_locks_exact_chart_across_the_edge():
+    commands = "\n".join(
+        _step_text(step) for step in _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    )
+    assert 'helm install honua "$PRIOR_CHART"' in commands
+    assert 'helm upgrade honua "$CANDIDATE_CHART"' in commands
+    assert "prior_chart_sha256" in commands
+    assert "candidate_chart_sha256" in commands
+
+
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
 #
 # A clean shipped workflow is not evidence that the check works — it is equally consistent with a
