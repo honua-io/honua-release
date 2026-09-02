@@ -466,7 +466,11 @@ components:
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
-    lifecycleStatus: Excluded
+    # Preview per the 2026-09-02 release#210 deployment-target amendment. This
+    # supersedes the Excluded decision applied by release#251; best-effort/no SLA,
+    # with the security floor retained.
+    # https://github.com/honua-io/honua-release/issues/210#issuecomment-5503276774
+    lifecycleStatus: Preview
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the
