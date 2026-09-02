@@ -120,7 +120,9 @@ jobs:
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            platform-lock.json
             release-evidence-pins.json
+          if-no-files-found: error
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -223,6 +225,10 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
+    needs: freeze
+    uses: ./.github/workflows/rollback-certification.yml
+
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
                                  # matrix backing #59's capability-key claims must be about this
                                  # candidate's pinned honua-server sha and not stale. Wired at freeze.
@@ -278,6 +284,7 @@ jobs:
       - gate_observability
       - gate_docs
       - gate_upgrade
+      - gate_one_operation_rollback
       - gate_evidence
       - gate_protocol_certification
       - gate_capacity_soak
@@ -324,6 +331,7 @@ jobs:
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
           S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
+          S_ROLLBACK: ${{ needs.gate_one_operation_rollback.outputs.overall_status || needs.gate_one_operation_rollback.result }}
           S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
@@ -346,6 +354,7 @@ jobs:
           observability|$S_OBS
           docs|$S_DOCS
           upgrade|$S_UPGRADE
+          one-operation-rollback|$S_ROLLBACK
           evidence|$S_EVIDENCE
           protocol-certification|$S_PROTOCOL
           capacity-soak|$S_CAPACITY
