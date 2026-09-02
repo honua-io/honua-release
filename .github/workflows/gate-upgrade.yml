@@ -323,8 +323,8 @@ jobs:
               local suffix="$1"
               db_query "SELECT json_agg(row_to_json(v) ORDER BY scriptname) FROM public.schema_versions v;" \
                 > "/tmp/upg/migration-journal-${suffix}.json" 2>/dev/null || echo '[]' > "/tmp/upg/migration-journal-${suffix}.json"
-              jq -n --arg src "$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;' 2>/dev/null || echo unavailable)" \
-                --arg zoning "$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;' 2>/dev/null || echo unavailable)" \
+              jq -n --arg src "$(db_query "SELECT md5(COALESCE(string_agg(to_jsonb(v)::text, E'\\n' ORDER BY to_jsonb(v)::text), '')) FROM honua_data.e2e_src_fs v;" 2>/dev/null || echo unavailable)" \
+                --arg zoning "$(db_query "SELECT md5(COALESCE(string_agg(to_jsonb(v)::text, E'\\n' ORDER BY to_jsonb(v)::text), '')) FROM honua_data.maui_zoning v;" 2>/dev/null || echo unavailable)" \
                 '{e2e_src_fs:$src,maui_zoning:$zoning}' > "/tmp/upg/seed-checksums-${suffix}.json"
             }
             image_digest() {
@@ -442,7 +442,8 @@ jobs:
                 recovery_phase candidate-failed
                 [ -z "$MIGRATION_FAULT_PID" ] || kill "$MIGRATION_FAULT_PID" 2>/dev/null || true
                 if [ "$FAILURE_SCENARIO" = rollback-failure ]; then
-                  kubectl delete secret -n "$NS" -l owner=helm,name=honua >> /tmp/upg/candidate.log 2>&1 || true
+                  kubectl delete secret -n "$NS" -l owner=helm,name=honua \
+                    > /tmp/upg/rollback-fault-injection.log 2>&1 || true
                 fi
                 recovery_phase recovery-started
                 if helm rollback honua 1 -n "$NS" --wait --timeout 12m > /tmp/upg/rollback.log 2>&1; then
