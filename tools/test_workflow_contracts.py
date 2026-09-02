@@ -494,11 +494,25 @@ def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatib
     assert "CANDIDATE_SCHEMA_FLOOR" in commands
     assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
     assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
+    assert "string_agg(to_jsonb(v)::text" in commands
+    assert "ORDER BY to_jsonb(v)::text" in commands
+    assert "/tmp/upg/rollback-fault-injection.log" in commands
+    assert ">> /tmp/upg/candidate.log" not in commands
     assert "config.env.Operations__Policy__Enabled=true" in commands
     assert "config.env.Operations__Policy__DefaultDecision=Deny" in commands
     assert "helm rollback honua 1" in commands
     assert "returnCountOnly=true" in commands
     assert "down-migration noted" not in commands
+
+
+def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
+    workflow = _workflow("gate-upgrade.yml")
+    kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
+    report_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["report"]["steps"])
+    assert "upg*-gate-fragment-*" in str(workflow["jobs"]["report"])
+    assert "/api/v1/admin/services/e2e/access-policy" in kind_commands
+    assert "FeatureServer/$SRC_ID/applyEdits" not in kind_commands
+    assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
 
 
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
