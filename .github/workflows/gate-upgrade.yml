@@ -26,10 +26,17 @@ on:
     inputs:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
+      failure_scenario:
+        description: "Deterministic recovery game day (rollback-failure is an expected red negative)"
+        required: false
+        type: choice
+        options: [normal, post-migration-readiness, bad-config, migration-boundary, rollback-failure]
+        default: normal
   workflow_call:
     inputs:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
+      failure_scenario: { required: false, type: string, default: normal }
     secrets:
       RELEASE_GH_TOKEN: { required: false }
     outputs:
@@ -40,6 +47,8 @@ on:
 permissions:
   contents: read
   packages: read
+  id-token: write
+  attestations: write
 
 env:
   # Immutable schema-106 baseline for the first platform cut. After the first promotion, the prior
@@ -62,7 +71,7 @@ jobs:
       - run: python -m pip install "pyyaml>=6.0" pytest
 
       - name: Self-test the upgrade logic
-        run: python -m pytest tools/test_slo_upgrade.py -q -k upgrade
+        run: python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py -q -k "upgrade or recovery"
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -121,6 +130,10 @@ jobs:
   # ── kind smoke: seed prior schema -> helm upgrade to candidate -> health -> rollback ─────────────
   kind-upgrade:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["normal","post-migration-readiness","bad-config","migration-boundary"]' || format('["{0}"]', inputs.failure_scenario || 'normal')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -193,6 +206,7 @@ jobs:
           CANDIDATE_SCHEMA_FLOOR: ${{ steps.images.outputs.candidate_schema_floor }}
           ENF: ${{ inputs.enforcement }}
           CROSS: ${{ steps.images.outputs.cross_release }}
+          FAILURE_SCENARIO: ${{ matrix.scenario }}
         run: |
           set -uo pipefail
           STATUS=blocked; WHY=""
@@ -298,6 +312,54 @@ jobs:
               [ -z "${PF_PID:-}" ] || kill "$PF_PID" 2>/dev/null || true
               PF_PID=""
             }
+            recovery_phase() {
+              mkdir -p /tmp/upg
+              jq --arg name "$1" --arg at "$(date -u +%FT%TZ)" '. + {($name):$at}' \
+                /tmp/upg/phase-times.json 2>/dev/null > /tmp/upg/phase-times.next.json || \
+                jq -n --arg name "$1" --arg at "$(date -u +%FT%TZ)" '{($name):$at}' > /tmp/upg/phase-times.next.json
+              mv /tmp/upg/phase-times.next.json /tmp/upg/phase-times.json
+            }
+            capture_recovery_state() {
+              local suffix="$1"
+              db_query "SELECT json_agg(row_to_json(v) ORDER BY scriptname) FROM public.schema_versions v;" \
+                > "/tmp/upg/migration-journal-${suffix}.json" 2>/dev/null || echo '[]' > "/tmp/upg/migration-journal-${suffix}.json"
+              jq -n --arg src "$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;' 2>/dev/null || echo unavailable)" \
+                --arg zoning "$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;' 2>/dev/null || echo unavailable)" \
+                '{e2e_src_fs:$src,maui_zoning:$zoning}' > "/tmp/upg/seed-checksums-${suffix}.json"
+            }
+            image_digest() {
+              docker image inspect "$1" --format '{{index .RepoDigests 0}}' 2>/dev/null | sed 's/.*@//' | grep '^sha256:' || \
+                printf '%s' "$1" | sha256sum | awk '{print "sha256:"$1}'
+            }
+            build_failed_recovery_receipt() {
+              local scenario="$1" schema_compatible="$2" rollback_succeeded="$3" prior_ready="$4" image_matched="$5" read_passed="$6" write_passed="$7"
+              capture_recovery_state after
+              kubectl get pods -n "$NS" -l app.kubernetes.io/instance=honua -o json \
+                | jq '[.items[]|{pod:.metadata.name,imageIDs:[.status.containerStatuses[]?.imageID]}]' > /tmp/upg/imageids.json 2>/dev/null || echo '[]' > /tmp/upg/imageids.json
+              recovery_phase recovery-terminal
+              local checksums=false
+              [ "$(cat /tmp/upg/seed-checksums-before.json)" = "$(cat /tmp/upg/seed-checksums-after.json)" ] && checksums=true
+              jq -n --argjson rb "$rollback_succeeded" --argjson compat "$schema_compatible" \
+                --argjson ready "$prior_ready" --argjson matched "$image_matched" \
+                --argjson read "$read_passed" --argjson write "$write_passed" --argjson checksums "$checksums" \
+                --arg journal "$(cat /tmp/upg/migration-journal-after.json)" \
+                '{rollbackAttempted:true,rollbackSucceeded:$rb,schemaCompatible:$compat,priorReady:$ready,priorImageMatched:$matched,seedChecksumsMatched:$checksums,boundedReadPassed:$read,boundedWritePassed:$write,schemaJournal:$journal}' \
+                > /tmp/upg/observation.json
+              CAND_LOCK="sha256:$(sha256sum platform-manifest.yaml | awk '{print $1}')"
+              if [ -f _prior/finalized-manifest.yaml ]; then
+                PRIOR_LOCK="sha256:$(sha256sum _prior/finalized-manifest.yaml | awk '{print $1}')"
+              else
+                PRIOR_LOCK="$(printf '%s' "$PRIOR" | sha256sum | awk '{print "sha256:"$1}')"
+              fi
+              python tools/upgrade_recovery.py build \
+                --scenario "$scenario" --candidate-lock-digest "$CAND_LOCK" --prior-lock-digest "$PRIOR_LOCK" \
+                --candidate-image-digest "$(image_digest "$CAND")" --prior-image-digest "$(image_digest "$PRIOR")" \
+                --workflow-commit "$GITHUB_SHA" --workflow-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+                --evidence-dir /tmp/upg --observation /tmp/upg/observation.json --phase-times /tmp/upg/phase-times.json \
+                --rollback-command "helm rollback honua 1 -n $NS --wait --timeout 12m" \
+                --recovery-instructions "preserve the database and evidence; restore the pre-upgrade snapshot or deploy a schema-compatible retained lock" \
+                --rollback-budget-seconds 720 --output /tmp/upg/recovery-receipt.json
+            }
 
             set -x
             # 1) INSTALL prior — startup migrations seed the PRIOR schema.
@@ -311,6 +373,8 @@ jobs:
                 SRC_ID="$(jq -r '.slice1.e2e_src_fs.layerId' /tmp/upg-seed/seed-manifest.json)"
                 BEFORE_SRC="$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;')"
                 BEFORE_ZONING="$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;')"
+                recovery_phase prior-ready
+                capture_recovery_state before
                 if ! [[ "$SRC_ID" =~ ^[0-9]+$ ]]; then
                   STATUS=fail; WHY="real e2e seed did not publish the e2e_src_fs layer (layerId=$SRC_ID)"
                 fi
@@ -319,13 +383,34 @@ jobs:
                 STATUS=fail; WHY="honua-2026.1 installed but the real e2e seed failed"; tail -n 80 /tmp/seed.log || true
               fi
               # 2) UPGRADE to candidate — then prove journal advancement and seed survival.
-              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CHART" --set image.repository="${CAND%:*}" --set image.tag="${CAND##*:}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
+              UPGRADE_EXTRA=()
+              MIGRATION_FAULT_PID=""
+              case "$FAILURE_SCENARIO" in
+                normal) ;;
+                post-migration-readiness|rollback-failure)
+                  UPGRADE_EXTRA+=(--post-renderer tools/inject_upgrade_failure.py)
+                  ;;
+                bad-config)
+                  UPGRADE_EXTRA+=(--set-string 'secret.env.ConnectionStrings__DefaultConnection=Host=127.0.0.1;Port=1;Database=honua;Username=honua;Password=invalid')
+                  ;;
+                migration-boundary)
+                  kubectl exec -n "$NS" deployment/honua-postgis -- env PGPASSWORD=honua \
+                    psql -U honua -d honua -c 'BEGIN; LOCK TABLE public.schema_versions IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(780);' \
+                    > /tmp/migration-fault.log 2>&1 &
+                  MIGRATION_FAULT_PID=$!
+                  sleep 2
+                  ;;
+                *) STATUS=fail; WHY="unknown recovery failure scenario: $FAILURE_SCENARIO" ;;
+              esac
+              if [ "$STATUS" != "fail" ] && helm upgrade honua "$CHART" --set image.repository="${CAND%:*}" --set image.tag="${CAND##*:}" "${UPGRADE_EXTRA[@]}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
                 helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
                 AFTER_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/after-db.log || true)"
                 CANDIDATE_SCHEMA="$(db_query "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer), 0) FROM public.schema_versions;" 2>/tmp/schema-floor.log || true)"
                 AFTER_SRC="$(db_query 'SELECT count(*) FROM honua_data.e2e_src_fs;' || true)"
                 AFTER_ZONING="$(db_query 'SELECT count(*) FROM honua_data.maui_zoning;' || true)"
-                if ! [[ "$BEFORE_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" -gt "$BEFORE_VERSIONS" ]]; then
+                if [ "$FAILURE_SCENARIO" != normal ]; then
+                  STATUS=fail; WHY="deterministic $FAILURE_SCENARIO injection did not fail the candidate upgrade"
+                elif ! [[ "$BEFORE_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" =~ ^[0-9]+$ && "$AFTER_VERSIONS" -gt "$BEFORE_VERSIONS" ]]; then
                   STATUS=fail; WHY="candidate did not advance public.schema_versions ($BEFORE_VERSIONS -> $AFTER_VERSIONS)"
                 elif ! [[ "$CANDIDATE_SCHEMA_FLOOR" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" =~ ^[0-9]+$ && "$CANDIDATE_SCHEMA" -ge "$CANDIDATE_SCHEMA_FLOOR" ]]; then
                   STATUS=fail; WHY="candidate schema $CANDIDATE_SCHEMA is below manifest floor $CANDIDATE_SCHEMA_FLOOR"
@@ -351,7 +436,58 @@ jobs:
                   --all-containers --prefix --tail=500 > /tmp/candidate.log 2>&1 || true
                 kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua \
                   --all-containers --prefix --previous --tail=500 > /tmp/candidate-previous.log 2>&1 || true
-                STATUS=fail; WHY="helm upgrade to the candidate failed (forward migration / readiness)"; tail -n 60 /tmp/upgrade.log || true
+                mkdir -p /tmp/upg
+                cp /tmp/candidate.log /tmp/upg/candidate.log
+                helm history honua -n "$NS" > /tmp/upg/helm-history.log 2>&1 || true
+                recovery_phase candidate-failed
+                [ -z "$MIGRATION_FAULT_PID" ] || kill "$MIGRATION_FAULT_PID" 2>/dev/null || true
+                if [ "$FAILURE_SCENARIO" = rollback-failure ]; then
+                  kubectl delete secret -n "$NS" -l owner=helm,name=honua >> /tmp/upg/candidate.log 2>&1 || true
+                fi
+                recovery_phase recovery-started
+                if helm rollback honua 1 -n "$NS" --wait --timeout 12m > /tmp/upg/rollback.log 2>&1; then
+                  PRIOR_READY=false; IMAGE_MATCHED=false; READ_PASSED=false; WRITE_PASSED=false
+                  kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=120s \
+                    > /tmp/upg/prior-readiness.json 2>&1 && PRIOR_READY=true
+                  OBSERVED_IMAGE="$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance=honua -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null || true)"
+                  case "$OBSERVED_IMAGE" in *"$(image_digest "$PRIOR" | cut -d: -f2)"*) IMAGE_MATCHED=true;; esac
+                  if start_server_forward; then
+                    curl -fsS -H 'X-API-Key: UpgradeCiAdmin!2026' \
+                      "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/query?where=1%3D1&returnCountOnly=true&f=json" \
+                      -o /tmp/upg/rollback-read.json && [ "$(jq -r '.count // -1' /tmp/upg/rollback-read.json)" = 2 ] && READ_PASSED=true
+                    curl -fsS -X POST -H 'X-API-Key: UpgradeCiAdmin!2026' \
+                      -d 'adds=[{"attributes":{"name":"rollback-probe"}}]&rollbackOnFailure=true&f=json' \
+                      "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/applyEdits" \
+                      -o /tmp/upg/rollback-write.json
+                    ROLLBACK_OBJECT_ID="$(jq -r '.addResults[0].objectId // empty' /tmp/upg/rollback-write.json 2>/dev/null || true)"
+                    if [[ "$ROLLBACK_OBJECT_ID" =~ ^[0-9]+$ ]] && curl -fsS -X POST -H 'X-API-Key: UpgradeCiAdmin!2026' \
+                      -d "deletes=$ROLLBACK_OBJECT_ID&rollbackOnFailure=true&f=json" \
+                      "http://127.0.0.1:18080/rest/services/e2e/FeatureServer/$SRC_ID/applyEdits" \
+                      -o /tmp/upg/rollback-write-cleanup.json && jq -e '.deleteResults[0].success == true' /tmp/upg/rollback-write-cleanup.json >/dev/null; then
+                      WRITE_PASSED=true
+                    fi
+                    jq -s '{read:.[0],write:.[1],cleanup:.[2]}' /tmp/upg/rollback-read.json /tmp/upg/rollback-write.json /tmp/upg/rollback-write-cleanup.json \
+                      > /tmp/upg/rollback-read-write.json 2>/dev/null || echo '{"read":false,"write":false}' > /tmp/upg/rollback-read-write.json
+                    stop_server_forward
+                  else
+                    echo '{"read":false,"write":false}' > /tmp/upg/rollback-read-write.json
+                  fi
+                  RECEIPT_SCENARIO="$FAILURE_SCENARIO"
+                  [ "$RECEIPT_SCENARIO" = normal ] && RECEIPT_SCENARIO=post-migration-readiness
+                  build_failed_recovery_receipt "$RECEIPT_SCENARIO" true true "$PRIOR_READY" "$IMAGE_MATCHED" "$READ_PASSED" "$WRITE_PASSED" || true
+                  CLASS="$(jq -r '.classification // "rollback-failed"' /tmp/upg/recovery-receipt.json 2>/dev/null || echo rollback-failed)"
+                  if [ "$FAILURE_SCENARIO" != normal ] && [ "$CLASS" = recovered ]; then
+                    STATUS=pass; WHY="deterministic $FAILURE_SCENARIO failure recovered within the rollback clock"
+                  else
+                    STATUS=fail; WHY="candidate failed readiness; recovery attempted and classified $CLASS"
+                  fi
+                else
+                  echo '{"ready":false}' > /tmp/upg/prior-readiness.json
+                  echo '{"read":false,"write":false}' > /tmp/upg/rollback-read-write.json
+                  build_failed_recovery_receipt rollback-failure true false false false false false || true
+                  STATUS=fail; WHY="candidate failed and bounded rollback failed; manual recovery required"
+                fi
+                tail -n 60 /tmp/upgrade.log || true
               fi
             else
               STATUS=fail; WHY="helm install of the prior baseline image failed"; tail -n 60 /tmp/install.log || true
@@ -360,6 +496,11 @@ jobs:
           fi
           echo "status=$STATUS" >> "$GITHUB_ENV"
           echo "why=$WHY"       >> "$GITHUB_ENV"
+          if [ -f /tmp/upg/recovery-receipt.json ]; then
+            echo "recovery_receipt=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recovery_receipt=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "$WHY"
 
       - name: Capture evidence
@@ -374,25 +515,38 @@ jobs:
               cp "/tmp/${phase}.log" "/tmp/upg/${phase}.log"
             fi
           done
+          if [ "${{ steps.smoke.outputs.recovery_receipt }}" = true ]; then
+            python tools/upgrade_recovery.py validate \
+              --receipt /tmp/upg/recovery-receipt.json --evidence-dir /tmp/upg
+          elif grep -qE 'UPGRADE FAILED|timed out waiting for the condition|context deadline exceeded' /tmp/upgrade.log 2>/dev/null; then
+            echo "::error::candidate failure has no candidate-bound recovery receipt"
+            exit 1
+          fi
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: upgrade-kind-evidence
+          name: upgrade-kind-evidence-${{ matrix.scenario }}
           path: /tmp/upg
           if-no-files-found: warn
+
+      - name: Attest candidate-bound recovery receipt
+        if: always() && steps.smoke.outputs.recovery_receipt == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: /tmp/upg/recovery-receipt.json
 
       - name: Emit fragment
         if: always()
         uses: ./.github/actions/gate-fragment
         with:
-          gate: upgrade-kind-smoke
+          gate: upgrade-kind-smoke-${{ matrix.scenario }}
           status: ${{ env.status || 'fail' }}
           source: kind
           why: ${{ env.why || 'job crashed before recording a result' }}
           enforcement: ${{ inputs.enforcement }}
-          prefix: upg-
+          prefix: upg-${{ matrix.scenario }}-
 
   # ── report — aggregate the upg- fragments; fail per enforcement ──────────────────────────────────
   report:
