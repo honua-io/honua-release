@@ -147,7 +147,8 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "contentDigests.geospatialMcp" in joined
     assert "contentDigests.catalog" in joined
     assert "contentDigests.okf" in joined
-    assert "fixtures" in joined and "sbom" in joined and "provenance" in joined
+    assert "fixtures" in joined
+    assert "$.sbom:" not in joined and "$.provenance:" not in joined
     assert "[DECISION]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
@@ -157,6 +158,13 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
         "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
     )
+    assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
+    assert all(
+        component["supportTier"] == component["lifecycleStatus"].lower()
+        for component in draft.lock["components"].values()
+    )
+    assert len(draft.lock["sbom"]) == 2
+    assert len(draft.lock["provenance"]) == 4
 
 
 def test_generator_derives_support_tier_from_lifecycle_status(tmp_path):

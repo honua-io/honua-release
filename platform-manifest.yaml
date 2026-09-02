@@ -357,6 +357,8 @@ components:
     # and promoted the same digest to immutable and floating nightly tags.
     image: "ghcr.io/honua-io/honua-console:candidate-2cd3a73a6b10-32369440068-1"
     digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
+    artifactSourceRevision: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+    architectures: [amd64, arm64]
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
@@ -381,6 +383,8 @@ components:
     #   -> 30 success, 1 skipped, 0 failure
     sha: "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"   # branch: trunk HEAD (green)
     artifact: "nuget:Honua.Sdk"
+    contractVersions:
+      sdk-certification: "v1"
     # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
     # resolves it from the staging feed and otherwise `dotnet pack`s this exact sha, so the version
     # here is the reachable release tag rather than a registry-published one.
@@ -394,6 +398,8 @@ components:
     # npm registry gitHead and the immutable js-sdk-v0.1.9-beta.0 tag both resolve to this commit.
     sha: "c99e71197dd940ed952aecb024c6de273456f2ae"   # release tag js-sdk-v0.1.9-beta.0
     artifact: "npm:@honua/sdk-js"
+    contractVersions:
+      connect-parity: "1.0"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
     # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
 
@@ -405,6 +411,8 @@ components:
     version: "0.1.11"
     sha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"   # release tag python-sdk-v0.1.11
     artifact: "pypi:honua-sdk"
+    contractVersions:
+      protocol-factories: "1"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
 
   geospatial-grpc:
@@ -419,6 +427,9 @@ components:
     artifact: "nuget:Geospatial.Grpc"
     contractVersions:
       grpc: v1                         # stable proto package geospatial.v1
+    pendingPublishedClients:
+      python: "https://github.com/honua-io/geospatial-grpc/issues/88"
+      typescript: "https://github.com/honua-io/geospatial-grpc/issues/88"
     # The pinned server still consumes the prior 0.2.0-alpha.1 package:
     #   $ git grep -n Geospatial.Grpc 6b6d3b89... -- Directory.Packages.props
     #   Directory.Packages.props:42: <PackageVersion Include="Geospatial.Grpc" Version="0.2.0-alpha.1" />
@@ -641,6 +652,28 @@ experimental:
     # `main` does not exist. Every honua-io repo defaults to trunk, and all 11 components in this
     # file were re-verified against `refs/heads/trunk` at re-pin time.
     sha: "7eb948b5e80680e3a4f33c69c671804eebc370fb"   # branch: trunk HEAD at re-pin time
+
+platformLockEvidence:
+  sbom:
+    - component: honua-platform
+      uri: "https://api.github.com/repos/honua-io/honua-release/actions/artifacts/9796163459/zip"
+      sha256: "sha256:d7e156f4414c84f78e4e0350c9704af33e5b7d78f4687e4ba16c70ced1e19510"
+    - component: honua-server
+      uri: "https://api.github.com/repos/honua-io/honua-release/actions/artifacts/9796169542/zip"
+      sha256: "sha256:c3617e8a2fe268cbf64ec3c675f50b23ea308750e69ea6fff629ff64da22c21f"
+  provenance:
+    - component: honua-server-amd64
+      uri: "oci://ghcr.io/honua-io/honua-server@sha256:6abbd2b43cfdd9478df17b0ef027a39914c7cd6a834c9ab869b6cc25a3ca9130"
+      sha256: "sha256:6abbd2b43cfdd9478df17b0ef027a39914c7cd6a834c9ab869b6cc25a3ca9130"
+    - component: honua-server-arm64
+      uri: "oci://ghcr.io/honua-io/honua-server@sha256:b580e3e1e0a0dda22d5a016a74667a4465f087c6d33d29a31ce19e9b3e70038e"
+      sha256: "sha256:b580e3e1e0a0dda22d5a016a74667a4465f087c6d33d29a31ce19e9b3e70038e"
+    - component: honua-console-amd64
+      uri: "oci://ghcr.io/honua-io/honua-console@sha256:a8b93aa705e8f5f511ffe436c15dee133cc686c36c3eb3738a83cad85d4f8a1a"
+      sha256: "sha256:a8b93aa705e8f5f511ffe436c15dee133cc686c36c3eb3738a83cad85d4f8a1a"
+    - component: honua-console-arm64
+      uri: "oci://ghcr.io/honua-io/honua-console@sha256:232bce6d33524b8ab83bd58b16589f4880ffe40ebddb3d593d07928465cae21a"
+      sha256: "sha256:232bce6d33524b8ab83bd58b16589f4880ffe40ebddb3d593d07928465cae21a"
 
 # Filled at promote: aggregated SBOM digest, provenance attestation, release-notes ref.
 artifacts:

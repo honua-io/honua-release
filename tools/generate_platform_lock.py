@@ -73,8 +73,8 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         "components": {},
         "contentDigests": {},
         "fixtures": [],
-        "sbom": [],
-        "provenance": [],
+        "sbom": list((manifest.get("platformLockEvidence") or {}).get("sbom") or []),
+        "provenance": list((manifest.get("platformLockEvidence") or {}).get("provenance") or []),
     }
     if isinstance(release_notes, str) and "tbd" not in release_notes.lower():
         lock["notes"] = release_notes
@@ -150,14 +150,18 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     seed["sha256"] = digest
                     seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceSha")
                 else:
-                    refuse(f"{apath}.sha256: package hash is not declared", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
+                    blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
+                    refuse(f"{apath}.sha256: package hash is not declared{blocker}", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
             elif seed["kind"] in ("image", "oci-chart"):
                 digest = component.get("digest")
                 if isinstance(digest, str) and digest.startswith("sha256:"):
                     seed["digest"] = digest
                 else:
                     refuse(f"{apath}.digest: immutable registry digest is not declared", "PUBLISH")
-                refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
+                if component.get("architectures"):
+                    seed["architectures"] = component["architectures"]
+                else:
+                    refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
 
             if "sourceRevision" not in seed:
                 if name == "honua-server":
@@ -166,7 +170,11 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     resolution = "PUBLISH"
                 else:
                     resolution = "MECHANICAL"
-                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision", resolution)
+                blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
+                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision{blocker}", resolution)
+
+        for client, blocker in (component.get("pendingPublishedClients") or {}).items():
+            refuse(f"{cpath}.artifacts[{client}]: published package coordinate is pending {blocker}", "PUBLISH")
 
     # The matrix is consumed for contract coherence, but it does not manufacture missing versions.
     for contract, body in (matrix.get("contracts") or {}).items():
@@ -181,11 +189,13 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         "$.contentDigests.catalog: catalog digest is not declared",
         "$.contentDigests.okf: OKF digest is not declared",
         "$.fixtures: fixture repository revisions are not declared",
-        "$.sbom: immutable SBOM references and hashes are not declared",
-        "$.provenance: immutable provenance references and hashes are not declared",
         "$.notes: immutable release-notes content/reference is not declared",
     ]:
         refuse(message, "AT-CUT")
+    if not lock["sbom"]:
+        refuse("$.sbom: immutable SBOM references and hashes are not declared", "AT-CUT")
+    if not lock["provenance"]:
+        refuse("$.provenance: immutable provenance references and hashes are not declared", "AT-CUT")
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
 
 
