@@ -1,0 +1,59 @@
+name: rollback-certification
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      overall_status:
+        description: "pass | fail"
+        value: ${{ jobs.certify.outputs.overall_status }}
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.verdict.outputs.overall_status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Prove durable one-operation semantics
+        run: python -m pytest tools/test_release_rollback.py -q
+
+      - name: Execute lock B to retained lock A with restart and mixed-state injection
+        run: python tools/certify_release_rollback.py --output out/rollback-certification
+
+      - name: Assert terminal receipts and candidate bindings
+        id: verdict
+        run: |
+          set -euo pipefail
+          jq -e '.status == "Succeeded" and .fromLockDigest != .toLockDigest and (.functionalSmoke | all)' \
+            out/rollback-certification/success-receipt.json >/dev/null
+          jq -e '.status == "ManualInterventionRequired" and ([.children[] | select(.state == "Failed")] | length) > 0' \
+            out/rollback-certification/mixed-state-receipt.json >/dev/null
+          jq -e '.restartCount == 1' out/rollback-certification/success-receipt.json >/dev/null
+          echo "overall_status=pass" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable rollback packet
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: one-operation-rollback-receipts
+          path: out/rollback-certification
+          if-no-files-found: error
+
+      - name: Sign successful rollback receipt
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: out/rollback-certification/success-receipt.json
+
+      - name: Sign injected mixed-state negative receipt
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: out/rollback-certification/mixed-state-receipt.json

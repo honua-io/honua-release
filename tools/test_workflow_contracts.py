@@ -501,6 +501,27 @@ def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatib
     assert "down-migration noted" not in commands
 
 
+def test_release_train_requires_signed_one_operation_rollback_certification():
+    workflow = _workflow("release-train.yml")
+    assert "gate_one_operation_rollback" in workflow["jobs"]
+    rollback = workflow["jobs"]["gate_one_operation_rollback"]
+    assert rollback["uses"] == "./.github/workflows/rollback-certification.yml"
+    report = workflow["jobs"]["report"]
+    assert "gate_one_operation_rollback" in report["needs"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert "one-operation-rollback|$S_ROLLBACK" in commands
+
+
+def test_rollback_certification_signs_success_and_mixed_state_receipts():
+    workflow = _workflow("rollback-certification.yml")
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "test_release_rollback.py" in commands
+    assert "certify_release_rollback.py" in commands
+    assert "Succeeded" in commands and "ManualInterventionRequired" in commands
+    rendered = str(workflow["jobs"]["certify"])
+    assert rendered.count("actions/attest-build-provenance@") == 2
+
+
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
 #
 # A clean shipped workflow is not evidence that the check works — it is equally consistent with a
