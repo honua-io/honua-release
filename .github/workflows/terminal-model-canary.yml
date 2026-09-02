@@ -12,7 +12,7 @@ on:
           - ubuntu-latest
           - self-hosted
       base_url:
-        description: OpenAI-compatible base URL; empty uses the repository variable and otherwise records a skip
+        description: Candidate Honua API base URL; direct provider URLs and empty values fail certification
         required: false
         type: string
       model:
@@ -63,7 +63,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install harness dependencies
-        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0"
       - name: Run harness against the imported #123 journey contract
         shell: bash
         env:

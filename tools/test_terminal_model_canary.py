@@ -203,7 +203,7 @@ def test_model_and_harness_actions_have_distinct_provable_attribution():
         )
 
 
-def test_endpoint_absent_is_a_visible_skip_and_never_a_pass(tmp_path: Path, monkeypatch, capsys):
+def test_endpoint_absent_is_a_visible_failed_gate_and_never_a_pass(tmp_path: Path, monkeypatch, capsys):
     for name in (
         "TERMINAL_MODEL_BASE_URL",
         "TERMINAL_MODEL_NAME",
@@ -217,13 +217,13 @@ def test_endpoint_absent_is_a_visible_skip_and_never_a_pass(tmp_path: Path, monk
     rc = canary.main(["--output", str(output)])
 
     receipt = json.loads(output.read_text(encoding="utf-8"))
-    assert rc == 0
+    assert rc == 1
     assert receipt["status"] == "skipped"
     assert receipt["scope"]["executionToGreen"] == "blocked"
     assert all(stage["status"] == "skipped" for stage in receipt["stages"])
     assert "never passed" in receipt["notices"][0]
     output_text = capsys.readouterr().out
-    assert "::notice title=Terminal model canary skipped" in output_text
+    assert "terminal model canary: fail (skipped)" in output_text
     assert "TERMINAL_MODEL" not in output_text
 
 
@@ -327,10 +327,17 @@ def test_recoverable_error_bookkeeping_rejects_an_unrelated_success():
         )
 
 
-def test_local_no_key_and_hosted_bearer_configuration_share_the_same_interface():
-    local = _endpoint()
+def test_candidate_proxy_configuration_rejects_direct_provider_urls():
+    local = canary.EndpointConfig(
+        base_url="http://127.0.0.1:8080/api",
+        model="claude-sonnet",
+        api_key=None,
+        api_key_env="TERMINAL_MODEL_API_KEY",
+        runtime="candidate",
+        quantization="provider-managed",
+    )
     hosted = canary.EndpointConfig(
-        base_url="https://models.example.test/v1",
+        base_url="https://models.example.test/v1/chat/completions",
         model="hosted-model",
         api_key="top-secret-key",
         api_key_env="TERMINAL_MODEL_API_KEY",
@@ -339,13 +346,14 @@ def test_local_no_key_and_hosted_bearer_configuration_share_the_same_interface()
         require_api_key=True,
     )
 
-    assert local.chat_completions_url() == "http://127.0.0.1:8000/v1/chat/completions"
+    assert local.proxy_chat_url() == "http://127.0.0.1:8080/api/v1/studio/ai/chat"
     assert local.evidence()["authentication"] == {
         "mode": "none",
         "credentialReference": None,
         "required": False,
     }
-    assert hosted.chat_completions_url() == "https://models.example.test/v1/chat/completions"
+    with pytest.raises(canary.CanaryError, match="direct-provider"):
+        hosted.proxy_chat_url()
     assert hosted.evidence()["authentication"] == {
         "mode": "bearer-env",
         "credentialReference": "env:TERMINAL_MODEL_API_KEY",

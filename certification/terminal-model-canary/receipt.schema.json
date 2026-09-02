@@ -18,6 +18,7 @@
     "stages",
     "actions",
     "transcript",
+    "provenance",
     "errorInjection",
     "totals",
     "assertions",
@@ -177,6 +178,42 @@
               "stageId": {"type": ["string", "null"]},
               "role": {"enum": ["system", "user", "assistant", "driver"]},
               "content": {}
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifiedCalls"],
+      "properties": {
+        "verifiedCalls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["transcriptDigest", "keyId", "manifestDigest", "provider", "reportedModel", "verifierVerdict", "replayVerdict", "bindings"],
+            "properties": {
+              "transcriptDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "keyId": {"type": "string", "minLength": 1},
+              "manifestDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "provider": {"type": "string", "minLength": 1},
+              "reportedModel": {"type": "string", "minLength": 1},
+              "verifierVerdict": {"const": "pass"},
+              "replayVerdict": {"const": "consumed"},
+              "bindings": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidateId", "releaseId", "endpointIdentity", "actionId", "runNonce"],
+                "properties": {
+                  "candidateId": {"type": "string", "minLength": 1},
+                  "releaseId": {"type": "string", "minLength": 1},
+                  "endpointIdentity": {"type": "string", "minLength": 1},
+                  "actionId": {"type": "string", "minLength": 1},
+                  "runNonce": {"type": "string", "minLength": 1}
+                }
+              }
             }
           }
         }
