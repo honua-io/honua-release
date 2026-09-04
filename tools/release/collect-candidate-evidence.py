@@ -57,11 +57,17 @@ def validate_receipt(meta: dict[str, Any], receipt: Any, *, digest: str, source_
     if conflicting:
         errors.append(f"receipt contains a conflicting digest at {', '.join(conflicting)}")
 
-    source_values = [value for _, value in values_at(receipt, SOURCE_KEYS)]
+    source_values = list(values_at(receipt, SOURCE_KEYS))
     if not source_values:
         errors.append("receipt has no candidate source revision")
-    elif source_sha not in source_values:
+    elif source_sha not in [value for _, value in source_values]:
         errors.append(f"receipt source revision does not name candidate {source_sha}")
+    conflicting_sources = [path for path, value in source_values if value != source_sha]
+    if conflicting_sources:
+        errors.append(
+            "receipt contains conflicting candidate source revision at "
+            + ", ".join(conflicting_sources)
+        )
     timestamps = [value for _, value in values_at(receipt, TIME_KEYS)]
     if not timestamps:
         errors.append("receipt has no generated timestamp")

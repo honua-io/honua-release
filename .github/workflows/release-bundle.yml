@@ -104,12 +104,34 @@ jobs:
             reused=true
           else
             metadata=""
-            if metadata="$(docker buildx imagetools inspect "$candidate_tag" --format '{{json .}}' 2>/dev/null)"; then
+            inspect_candidate_tag() {
+              local inspect_output inspect_rc
+              set +e
+              inspect_output="$(docker buildx imagetools inspect "$candidate_tag" --format '{{json .}}' 2>&1)"
+              inspect_rc=$?
+              set -e
+              if [[ "$inspect_rc" -eq 0 ]]; then
+                printf '%s\n' "$inspect_output"
+                return 0
+              fi
+              # Only registry responses that explicitly identify a missing
+              # manifest may enter the build path. Auth, timeout, and other
+              # transport failures must stop the train before it can publish.
+              if grep -Eiq 'manifest unknown|MANIFEST_UNKNOWN|name unknown|NAME_UNKNOWN|(^|[^0-9])404([^0-9]|$)|(^|[[:space:]:])not found([[:space:]]|$)' <<< "$inspect_output"; then
+                return 2
+              fi
+              echo "::error::unable to inspect candidate tag; refusing to build: $inspect_output" >&2
+              return 1
+            }
+
+            if metadata="$(inspect_candidate_tag)"; then
               digest="$(jq -er '.manifest.digest' <<< "$metadata")"
               image_ref="${CANDIDATE_REPOSITORY}@${digest}"
               reused=true
               echo "Reusing existing candidate tag $candidate_tag -> $image_ref"
             else
+              inspect_rc=$?
+              [[ "$inspect_rc" -eq 2 ]] || exit "$inspect_rc"
               echo "No candidate tag exists for $SERVER_REVISION; building it exactly once"
               docker buildx build \
                 --file server/docker/Dockerfile.aot \
@@ -184,6 +206,34 @@ jobs:
       - name: Check out release coordinator
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve frozen evidence producer revisions
+        id: producer_pins
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet "pyyaml>=6.0,<7"
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import yaml
+
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          components = manifest.get("components") or {}
+          pins = {
+              "sdk_js_sha": "honua-sdk-js",
+              "sdk_python_sha": "honua-sdk-python",
+              "grpc_sha": "geospatial-grpc",
+              "mcp_sha": "geospatial-mcp",
+          }
+          for output, component in pins.items():
+              sha = str((components.get(component) or {}).get("sha", ""))
+              if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise SystemExit(f"components.{component}.sha is not a full lowercase SHA")
+              print(f"{output}={sha}")
+          PY
+
       - name: Dispatch every required producer against the candidate digest
         env:
           CANDIDATE_IMAGE: ${{ needs.candidate.outputs.image }}
@@ -202,7 +252,8 @@ jobs:
             --workflow-name "Realtime Cross-Transport Conformance" \
             --artifact-name 'realtime-cross-transport-conformance-{run_id}' \
             --receipt-name realtime-live-conformance-evidence.json \
-            --out-dir evidence/realtime --ref trunk \
+            --out-dir evidence/realtime --ref "${{ steps.producer_pins.outputs.sdk_js_sha }}" \
+            --expected-head-sha "${{ steps.producer_pins.outputs.sdk_js_sha }}" \
             --input base_url="$CANDIDATE_ENVIRONMENT" \
             --input server_revision="$SERVER_REVISION" \
             --input allow_degraded=false
@@ -213,7 +264,8 @@ jobs:
             --workflow-name "Python SDK Conformance" \
             --artifact-name 'python-sdk-conformance-{run_id}-{run_attempt}' \
             --receipt-name protocol-certification-fragment.json \
-            --out-dir evidence/sdk-python --ref trunk \
+            --out-dir evidence/sdk-python --ref "${{ steps.producer_pins.outputs.sdk_python_sha }}" \
+            --expected-head-sha "${{ steps.producer_pins.outputs.sdk_python_sha }}" \
             --input server_image="$CANDIDATE_IMAGE" \
             --input server_seed_ref="$SERVER_REVISION" \
             --input candidate_cut_at="$CANDIDATE_CUT" \
@@ -225,7 +277,8 @@ jobs:
             --workflow-name "gRPC protocol certification" \
             --artifact-name 'grpc-protocol-certification-release-{run_id}' \
             --receipt-name protocol-certification-fragment.json \
-            --out-dir evidence/protocol-grpc --ref trunk \
+            --out-dir evidence/protocol-grpc --ref "${{ steps.producer_pins.outputs.grpc_sha }}" \
+            --expected-head-sha "${{ steps.producer_pins.outputs.grpc_sha }}" \
             --input tier=release --input server_image="$CANDIDATE_IMAGE" \
             --input server_source_sha="$SERVER_REVISION" --input release_cut="$CANDIDATE_CUT"
           ./tools/release/dispatch-and-collect.sh \
@@ -235,7 +288,8 @@ jobs:
             --workflow-name "MCP Protocol Certification" \
             --artifact-name 'mcp-protocol-certification-{run_id}-{run_attempt}' \
             --receipt-name protocol-certification-fragment.json \
-            --out-dir evidence/protocol-mcp --ref trunk \
+            --out-dir evidence/protocol-mcp --ref "${{ steps.producer_pins.outputs.mcp_sha }}" \
+            --expected-head-sha "${{ steps.producer_pins.outputs.mcp_sha }}" \
             --input tier=release --input server_image="$CANDIDATE_IMAGE" \
             --input server_source_sha="$SERVER_REVISION" --input server_seed_ref="$SERVER_REVISION" \
             --input release_cut="$CANDIDATE_CUT"

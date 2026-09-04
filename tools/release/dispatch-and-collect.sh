@@ -15,6 +15,7 @@ REF="trunk"
 ARTIFACT_TEMPLATE=""
 RECEIPT_NAME=""
 OUT_DIR=""
+EXPECTED_HEAD_SHA=""
 declare -a INPUTS=()
 
 usage() {
@@ -26,6 +27,7 @@ Usage: dispatch-and-collect.sh --id ID --repo OWNER/REPO --workflow FILE
   --receipt-name NAME        exact file expected in the artifact (required)
   --out-dir DIR              directory for the downloaded receipt (required)
   --ref REF                  workflow ref (default: trunk)
+  --expected-head-sha SHA    exact producer commit expected in the created run (required)
   --input k=v                workflow_dispatch input (repeatable)
 EOF
   exit 2
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --receipt-name) RECEIPT_NAME="$2"; shift 2 ;;
     --out-dir) OUT_DIR="$2"; shift 2 ;;
     --ref) REF="$2"; shift 2 ;;
+    --expected-head-sha) EXPECTED_HEAD_SHA="$2"; shift 2 ;;
     --input) INPUTS+=("$2"); shift 2 ;;
     -h|--help) usage ;;
     *) echo "[ERROR] unknown argument: $1" >&2; usage ;;
@@ -49,7 +52,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$ID" && -n "$REPO" && -n "$WORKFLOW" && -n "$WORKFLOW_PATH" && -n "$WORKFLOW_NAME" \
-  && -n "$ARTIFACT_TEMPLATE" && -n "$RECEIPT_NAME" && -n "$OUT_DIR" ]] || usage
+  && -n "$ARTIFACT_TEMPLATE" && -n "$RECEIPT_NAME" && -n "$OUT_DIR" && -n "$EXPECTED_HEAD_SHA" ]] || usage
+[[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "[ERROR] expected head SHA must be a full lowercase SHA" >&2; exit 1; }
 command -v gh >/dev/null || { echo "[ERROR] gh is required" >&2; exit 1; }
 command -v jq >/dev/null || { echo "[ERROR] jq is required" >&2; exit 1; }
 
@@ -77,27 +81,14 @@ gh_retry() {
   done
 }
 
-before="$(gh_retry run list -R "$REPO" --workflow "$WORKFLOW" --limit 1 \
-  --json databaseId --jq '.[0].databaseId // 0')"
-dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 dispatch_args=(workflow run "$WORKFLOW" -R "$REPO" --ref "$REF")
 for input in "${INPUTS[@]}"; do dispatch_args+=(-f "$input"); done
-gh_retry "${dispatch_args[@]}" >/dev/null
-
-run_id=""
-deadline=$(( $(date +%s) + 120 ))
-while [[ -z "$run_id" && $(date +%s) -lt "$deadline" ]]; do
-  sleep 5
-  runs="$(gh_retry run list -R "$REPO" --workflow "$WORKFLOW" --limit 20 \
-    --json databaseId,createdAt,event,headBranch --jq '.')"
-  run_id="$(jq -r --arg before "$before" --arg since "$dispatched_at" --arg ref "$REF" '
-    [.[] | select(.event == "workflow_dispatch")
-      | select(.headBranch == $ref)
-      | select(.createdAt >= $since)
-      | select((.databaseId|tonumber) > ($before|tonumber))]
-    | sort_by(.databaseId|tonumber) | last | .databaseId // empty' <<<"$runs")"
-done
-[[ -n "$run_id" ]] || { echo "[ERROR] no dispatched run found for $REPO/$WORKFLOW" >&2; exit 1; }
+dispatch_response="$(gh_retry "${dispatch_args[@]}")"
+run_id="$(grep -oE '/actions/runs/[0-9]+' <<< "$dispatch_response" | tail -n 1 | cut -d/ -f4 || true)"
+[[ -n "$run_id" ]] || {
+  echo "[ERROR] gh workflow run did not return the created run URL; refusing to guess from concurrent runs" >&2
+  exit 1
+}
 
 set +e
 gh_retry run watch "$run_id" -R "$REPO" --interval 10 --exit-status >&2
@@ -106,6 +97,10 @@ set -e
 
 run="$(gh_retry api "repos/$REPO/actions/runs/$run_id")"
 conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+[[ "$(jq -r '.event // ""' <<<"$run")" == "workflow_dispatch" ]] \
+  || { echo "[ERROR] run $run_id was not created by workflow_dispatch" >&2; exit 1; }
+[[ "$(jq -r '.head_sha // ""' <<<"$run")" == "$EXPECTED_HEAD_SHA" ]] \
+  || { echo "[ERROR] run $run_id head SHA does not match expected producer pin $EXPECTED_HEAD_SHA" >&2; exit 1; }
 [[ "$(jq -r '.path // ""' <<<"$run")" == "$WORKFLOW_PATH" ]] \
   || { echo "[ERROR] run $run_id reported an unexpected workflow path" >&2; exit 1; }
 [[ "$(jq -r '.name // ""' <<<"$run")" == "$WORKFLOW_NAME" ]] \
