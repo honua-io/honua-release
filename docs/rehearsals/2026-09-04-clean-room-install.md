@@ -151,15 +151,27 @@ and Redis images without force; preserved preexisting database and other images.
 The unique local storage volume was explicitly reported removed. No remote
 resources, uploads, published layers, or customer connection records were created.
 
-Fresh directory deletion and final PR gate receipts are recorded below when
-complete. The two isolated review worktrees and pushed branches are retained as
-requested deliverables, not running customer resources.
+At 11:20:01 HST the exact fresh directory was deleted after verifying its resolved
+absolute path stayed inside the authorized workspace. `Test-Path` returned false.
+This removed disposable secrets, the dataset, SDK installation, isolated npm/Docker
+caches and temporary PR/issue bodies. No known rehearsal resources remain.
+The two isolated review worktrees and pushed branches are retained as requested
+deliverables, not running customer resources.
 
 Site PR: <https://github.com/honua-io/honua-site/pull/267> (non-draft, base `trunk`).
 Native focused validation: `node scripts/validate-internal-links.mjs` passed for
 140 pages, then checkpoint `baa78a41644269ef041039fb26b117669647cc45` was pushed.
-Full site CI is still under review; do not interpret focused validation as a green
-full gate. Report branch checkpoint `abbb8b7` was pushed after Compose validation.
+The initial site gate rejected the new phrase “source evaluation” under its
+existing vocabulary check. Changed it to “a source build” and corrected HTML
+container nesting; the gate was not weakened. Focused link validation passed
+after each correction and checkpoints were pushed immediately. Latest site head:
+`ae217c9` (full CI pending at this record update). Report branch checkpoint
+`abbb8b7` was pushed after Compose validation and `47b1f89` preserved the runtime
+findings. Author and committer on every checkpoint are Mike McDougall
+<mike@honua.io>, without attribution trailers.
+
+Record PR: <https://github.com/honua-io/honua-release/pull/273> (non-draft, base
+`trunk`). Final head-specific gate results must be checked before handoff.
 
 ## Exact-candidate repeat
 
