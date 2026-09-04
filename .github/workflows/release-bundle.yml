@@ -1,0 +1,269 @@
+name: Release Bundle (candidate-first compatibility train)
+
+# The release bundle is the coordinator-owned entry point. It creates or
+# resolves one digest before it dispatches any evidence producer. No producer
+# identity is accepted from dispatch-time inputs: the realtime run, SDK run,
+# protocol runs, and their artifacts are discovered after candidate exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "Human release label, for example 2026.1-rc.2 or 269-dry-run"
+        required: true
+        type: string
+      server_revision:
+        description: "Full honua-server commit whose image is the candidate"
+        required: true
+        type: string
+      candidate_environment:
+        description: "Reviewed URL/environment serving the candidate image for realtime evidence"
+        required: true
+        type: string
+      candidate_image:
+        description: "Optional existing immutable honua-server image to reuse (image@sha256:digest)"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Run candidate/evidence/gates without promotion"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  # The tag is keyed only by source revision, so a rerun or a different release
+  # label cannot create a second candidate for the same source.
+  group: release-bundle-${{ inputs.server_revision }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.RELEASE_BUNDLE_TOKEN || github.token }}
+  CANDIDATE_REPOSITORY: ghcr.io/honua-io/honua-server
+
+jobs:
+  candidate:
+    name: Build or reuse one immutable candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      image: ${{ steps.candidate_identity.outputs.image }}
+      digest: ${{ steps.candidate_identity.outputs.digest }}
+      source_sha: ${{ steps.candidate_identity.outputs.source_sha }}
+      cut_at: ${{ steps.candidate_identity.outputs.cut_at }}
+      reused: ${{ steps.candidate_identity.outputs.reused }}
+    steps:
+      - name: Check out release coordinator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the exact server source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: ${{ inputs.server_revision }}
+          path: server
+          token: ${{ secrets.RELEASE_BUNDLE_TOKEN || github.token }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.RELEASE_BUNDLE_TOKEN || github.token }}
+
+      - name: Resolve or build the candidate, then emit its digest
+        id: candidate_identity
+        env:
+          SERVER_REVISION: ${{ inputs.server_revision }}
+          REQUESTED_IMAGE: ${{ inputs.candidate_image }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SERVER_REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::server_revision must be a full lowercase SHA"; exit 1; }
+          [[ "$RELEASE_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::release_id contains unsafe characters"; exit 1; }
+          candidate_tag="${CANDIDATE_REPOSITORY}:release-candidate-${SERVER_REVISION}"
+          image_ref="$REQUESTED_IMAGE"
+          reused=false
+
+          if [[ -n "$image_ref" ]]; then
+            [[ "$image_ref" =~ ^ghcr\.io/honua-io/honua-server@sha256:[0-9a-f]{64}$ ]] || {
+              echo "::error::candidate_image must be an immutable governed image reference"; exit 1;
+            }
+            reused=true
+          else
+            metadata=""
+            if metadata="$(docker buildx imagetools inspect "$candidate_tag" --format '{{json .}}' 2>/dev/null)"; then
+              digest="$(jq -er '.manifest.digest' <<< "$metadata")"
+              image_ref="${CANDIDATE_REPOSITORY}@${digest}"
+              reused=true
+              echo "Reusing existing candidate tag $candidate_tag -> $image_ref"
+            else
+              echo "No candidate tag exists for $SERVER_REVISION; building it exactly once"
+              docker buildx build \
+                --file server/docker/Dockerfile.aot \
+                --platform linux/amd64 \
+                --push \
+                --tag "$candidate_tag" \
+                --build-arg "HONUA_GIT_SHA=$SERVER_REVISION" \
+                --secret "id=github_actor,env=GITHUB_ACTOR" \
+                --secret "id=github_token,env=GH_TOKEN" \
+                --provenance=true \
+                --sbom=true \
+                server
+              metadata="$(docker buildx imagetools inspect "$candidate_tag" --format '{{json .}}')"
+              digest="$(jq -er '.manifest.digest' <<< "$metadata")"
+              image_ref="${CANDIDATE_REPOSITORY}@${digest}"
+            fi
+          fi
+
+          [[ "$image_ref" =~ ^ghcr\.io/honua-io/honua-server@sha256:([0-9a-f]{64})$ ]] || {
+            echo "::error::candidate image is not digest-pinned"; exit 1;
+          }
+          digest="${image_ref##*@}"
+          metadata="$(docker buildx imagetools inspect "$image_ref" --format '{{json .}}')"
+          resolved="$(jq -er '.manifest.digest' <<< "$metadata")"
+          [[ "$resolved" == "$digest" ]] || { echo "::error::candidate digest did not resolve exactly"; exit 1; }
+          label="$(jq -er '.image["linux/amd64"].config.Labels["org.opencontainers.image.revision"] // .image.config.Labels["org.opencontainers.image.revision"]' <<< "$metadata")"
+          [[ "$label" == "$SERVER_REVISION" ]] || {
+            echo "::error::candidate image revision $label does not match $SERVER_REVISION"; exit 1;
+          }
+          cut_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "image=$image_ref"
+            echo "digest=$digest"
+            echo "source_sha=$SERVER_REVISION"
+            echo "cut_at=$cut_at"
+            echo "reused=$reused"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pull and verify the exact candidate boundary
+        env:
+          CANDIDATE_IMAGE: ${{ steps.candidate_identity.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker pull "$CANDIDATE_IMAGE"
+          python3 server/scripts/ci/verify-serving-image-boundary.py --serving-image "$CANDIDATE_IMAGE"
+
+      - name: Scan the exact candidate image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.candidate_identity.outputs.image }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: table
+
+      - name: Attest a newly built candidate
+        if: steps.candidate_identity.outputs.reused != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/honua-io/honua-server
+          subject-digest: ${{ steps.candidate_identity.outputs.digest }}
+          push-to-registry: true
+
+  evidence:
+    name: Dispatch and collect post-candidate evidence
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Check out release coordinator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dispatch every required producer against the candidate digest
+        env:
+          CANDIDATE_IMAGE: ${{ needs.candidate.outputs.image }}
+          CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+          SERVER_REVISION: ${{ needs.candidate.outputs.source_sha }}
+          CANDIDATE_CUT: ${{ needs.candidate.outputs.cut_at }}
+          CANDIDATE_ENVIRONMENT: ${{ inputs.candidate_environment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          ./tools/release/dispatch-and-collect.sh \
+            --id realtime --repo honua-io/honua-sdk-js \
+            --workflow realtime-live-conformance.yml \
+            --workflow-path .github/workflows/realtime-live-conformance.yml \
+            --workflow-name "Realtime Cross-Transport Conformance" \
+            --artifact-name 'realtime-cross-transport-conformance-{run_id}' \
+            --receipt-name realtime-live-conformance-evidence.json \
+            --out-dir evidence/realtime --ref trunk \
+            --input base_url="$CANDIDATE_ENVIRONMENT" \
+            --input server_revision="$SERVER_REVISION" \
+            --input allow_degraded=false
+          ./tools/release/dispatch-and-collect.sh \
+            --id sdk-python --repo honua-io/honua-sdk-python \
+            --workflow conformance.yml \
+            --workflow-path .github/workflows/conformance.yml \
+            --workflow-name "Python SDK Conformance" \
+            --artifact-name 'python-sdk-conformance-{run_id}-{run_attempt}' \
+            --receipt-name protocol-certification-fragment.json \
+            --out-dir evidence/sdk-python --ref trunk \
+            --input server_image="$CANDIDATE_IMAGE" \
+            --input server_seed_ref="$SERVER_REVISION" \
+            --input candidate_cut_at="$CANDIDATE_CUT" \
+            --input certification_tier=release
+          ./tools/release/dispatch-and-collect.sh \
+            --id protocol-grpc --repo honua-io/geospatial-grpc \
+            --workflow protocol-certification.yml \
+            --workflow-path .github/workflows/protocol-certification.yml \
+            --workflow-name "gRPC protocol certification" \
+            --artifact-name 'grpc-protocol-certification-release-{run_id}' \
+            --receipt-name protocol-certification-fragment.json \
+            --out-dir evidence/protocol-grpc --ref trunk \
+            --input tier=release --input server_image="$CANDIDATE_IMAGE" \
+            --input server_source_sha="$SERVER_REVISION" --input release_cut="$CANDIDATE_CUT"
+          ./tools/release/dispatch-and-collect.sh \
+            --id protocol-mcp --repo honua-io/geospatial-mcp \
+            --workflow protocol-certification.yml \
+            --workflow-path .github/workflows/protocol-certification.yml \
+            --workflow-name "MCP Protocol Certification" \
+            --artifact-name 'mcp-protocol-certification-{run_id}-{run_attempt}' \
+            --receipt-name protocol-certification-fragment.json \
+            --out-dir evidence/protocol-mcp --ref trunk \
+            --input tier=release --input server_image="$CANDIDATE_IMAGE" \
+            --input server_source_sha="$SERVER_REVISION" --input server_seed_ref="$SERVER_REVISION" \
+            --input release_cut="$CANDIDATE_CUT"
+          python3 tools/release/collect-candidate-evidence.py \
+            --evidence-dir evidence --candidate-digest "$CANDIDATE_DIGEST" \
+            --candidate-source-sha "$SERVER_REVISION" --output evidence/candidate-evidence.json
+
+      - name: Upload candidate-bound evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 180
+
+  gate:
+    name: Exact-candidate evidence gate
+    needs: [candidate, evidence]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the candidate and all post-candidate receipts
+        env:
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RESULT" == success ]] || { echo "::error::candidate job did not pass"; exit 1; }
+          [[ "$EVIDENCE_RESULT" == success ]] || { echo "::error::post-candidate evidence collection did not pass"; exit 1; }
+          echo "candidate digest was emitted before SDK/realtime/protocol evidence and all exact-candidate gates passed"
