@@ -134,9 +134,10 @@ no bundle export or post-recovery health pass is claimed.
 | F06 | [Operations](https://honua.io/operations.html), “Open the operations docs” | CTA leads back to generic docs hub rather than deployment/operations runbooks. | [Site PR #267](https://github.com/honua-io/honua-site/pull/267) links directly to the published operations guide. |
 | F07 | [First dataset, Import the file / Publish the table / Query](https://honua.gitbook.io/honuaio/get-started/first-dataset#id-2.-import-the-file) | Supplied dataset was created, but upload, publication, actual feature query and post-restart data persistence could not run because startup never completed. Upload guide itself acknowledges no high-level SDK wrapper and requires the local API explorer. | Not tested; blocked by [#4302](https://github.com/honua-io/honua-server/issues/4302), not treated as separate unobserved runtime defects. |
 | F08 | [Troubleshooting, Emergency procedures](https://honua.gitbook.io/honuaio/guides/deploy-and-operate/troubleshooting#emergency-procedures) | Captured logs and attempted graceful recovery, but no matching remedy for approval-mapper failure. No authenticated health/bundle export possible while server is down. | Recovery not achieved; [#4302](https://github.com/honua-io/honua-server/issues/4302). |
-
 | F09 | [Geoprocessing, Set it up → Admin API](https://honua.io/docs/geoprocessing/#set-it-up) | Existing gap link points to closed server #3275, so the live issue gate fails. Open site #235 explicitly owns this missing setup documentation. Replaced only the link and regenerated Markdown/HTML; capability state unchanged. | [Site PR #267](https://github.com/honua-io/honua-site/pull/267); existing [site #235](https://github.com/honua-io/honua-site/issues/235). |
 | F10 | [Site AGENTS.md, Commands / Capability-slice docs](https://github.com/honua-io/honua-site/blob/06d3ab8d8555b0888841072eafba334dabbe8566/AGENTS.md) | Direct native Windows generator/validator commands silently exit 0 without executing because their entry guards compare a POSIX file URL against Windows argv. Detected by unchanged generated files. Read the site tooling entry guards for this documentation validation failure (not for customer installation), then used a native Node path adapter. Initial silent exits are invalid evidence. | [Site #268](https://github.com/honua-io/honua-site/issues/268); no tooling code changed in the docs PR. |
+| F11 | [Docs, Current packages](https://honua.io/docs.html#status-heading); [Current SDK availability](https://honua.io/client-compatibility.html); [producer versions.json](https://honua-io.github.io/honua-sdk-js/versions.json) | npm `/latest` reports SDK/compat `0.1.9-beta.0`; producer documentation still declares `0.1.7-beta.0`. Site CI requires equality with both. Updating the site alone cannot satisfy the independent registry/provenance gates. The rehearsed install remains the documented `0.1.7-beta.0`, not an untested new version. | **Gate blocker:** [site #269](https://github.com/honua-io/honua-site/issues/269). |
+
 Auxiliary Windows evidence-tool corrections: Docker's quoted Go-template label
 lookup failed under PowerShell argument handling; a full **image metadata** JSON
 read (not container environment) supplied the OCI revision. Windows PowerShell's
@@ -167,7 +168,7 @@ The initial site gate rejected the new phrase “source evaluation” under its
 existing vocabulary check. Changed it to “a source build” and corrected HTML
 container nesting; the gate was not weakened. Focused link validation passed
 after each correction and checkpoints were pushed immediately. Latest site head:
-`5b3b08e` (full CI pending at this record update). Report branch checkpoint
+`5b3b08e` (full CI blocked by F11). Report branch checkpoint
 `abbb8b7` was pushed after Compose validation and `47b1f89` preserved the runtime
 findings. Author and committer on every checkpoint are Mike McDougall
 <mike@honua.io>, without attribution trailers.
@@ -179,8 +180,15 @@ Release-record CI at `9377657` passed: validate (3m35s), commit hygiene and all
 CodeQL analyses. Site CI at `ae217c9` passed the corrected vocabulary check but
 failed on the closed issue reference (F09):
 <https://github.com/honua-io/honua-site/actions/runs/33920666959>.
-The reference repair and generated pages are now at site `5b3b08e`; this record
-update still requires its own final-head CI verification.
+The reference repair and generated pages at site `5b3b08e` passed generated
+bundle checks, all 83 Node tests, docs provenance checks, and CodeQL. The full
+validate gate then failed on the publication mismatch F11:
+<https://github.com/honua-io/honua-site/actions/runs/33921259247>.
+This is an unresolved external publication blocker, not a green gate.
+Rechecked the public producer manifest on 2026-09-04: `latestRelease` and
+`development.packageBaseline` are still `0.1.7-beta.0` while npm reports
+`0.1.9-beta.0` for both packages. No availability or provenance value was
+fabricated to bypass the disagreement. Site #269 owns the publication repair.
 
 Actual native validation after detecting F10: 10 generated files match; 17
 Markdown files / 44 relative links and fragments resolve; 1 slice, 109 capability
