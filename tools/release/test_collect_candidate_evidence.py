@@ -47,6 +47,20 @@ def test_wrong_digest_fails_closed(tmp_path):
     assert any("does not name candidate digest" in error for error in row["errors"])
 
 
+def test_conflicting_source_revision_fails_closed(tmp_path):
+    for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
+        _write(tmp_path, name)
+    receipt_path = tmp_path / "realtime" / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["cells"] = [{"source_sha": "c" * 40}]
+    receipt_path.write_text(json.dumps(receipt) + "\n")
+
+    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    row = next(row for row in result["evidence"] if row["id"] == "realtime")
+    assert result["status"] == "fail"
+    assert any("cells[0].source_sha" in error for error in row["errors"])
+
+
 def test_missing_receipt_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc"):
         _write(tmp_path, name)
