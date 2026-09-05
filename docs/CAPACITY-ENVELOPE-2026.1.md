@@ -21,7 +21,7 @@ eight signals are required; a skipped, null, non-finite, stale, or revision-mism
 ## Freeze and allowance
 
 The thresholds were frozen at `2026-09-01T10:05:00Z`, before the candidate soak. They are based on
-the unskipped Production baseline from packet 68: server revision `2a98428eâ€¦`, workflow run
+the unskipped Production baseline from packet 68: server revision `2a98428e…`, workflow run
 `33492138360`. That run completed 1,470,402 requests with zero failures, about 1,885 successful
 requests/second aggregate, worst-scenario p95 553.98 ms, and worst-scenario p99 578.56 ms.
 

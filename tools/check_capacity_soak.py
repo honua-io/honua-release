@@ -455,7 +455,7 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS â€” exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
+    print("capacity-soak: PASS — exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
     return 0
 
 
