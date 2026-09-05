@@ -128,6 +128,9 @@ def fetch_retained_owner(owner):
 def classify(issue, rules):
     key = issue_key(issue)
     labels = set(issue['labels'])
+    unknown_buckets = {s for s in labels if s.startswith('bucket/')} - LABELS
+    if unknown_buckets:
+        raise ValueError(f'{key}: unclassified: unknown bucket labels {sorted(unknown_buckets)}')
     priorities = {s for s in labels if s.startswith('priority/')}
     if len(priorities) > 1 or priorities - {'priority/P0', 'priority/P1', 'priority/P2', 'priority/P3'}:
         raise ValueError(f'{key}: unclassified: ambiguous/unknown priority {sorted(priorities)}')
@@ -149,8 +152,10 @@ def classify(issue, rules):
             if review['named_promise']:
                 return 'must-fix-before-cut', 'First-release gate body names an existing release promise: ' + review['reason']
             return 'post-cut-hardening', 'No named existing release promise; 2026-09-04 admission rule.'
-    if 'release/2026.2' in labels or 'type/feature' in labels or 'slice/3d' in labels:
+    if labels & {'release/2026.2', 'type/feature', 'enhancement', 'slice/3d', 'feature'}:
         return '2026.2', 'Feature/3D/later-release label; outside the 2026.1 supported scope.'
+    if labels & {'qualification', 'evidence', 'certification', 'type/qualification', 'type/evidence'}:
+        return 'prove-against-candidate', 'Qualification/evidence label requires a receipt bound to the candidate.'
     if 'priority/P1' in labels:
         family = issue.get('family')
         hunt = any(re.fullmatch(r'bug-hunt/(?:.*-)?2026-09-0[34]', s) for s in labels)
@@ -298,6 +303,12 @@ def render(data, rows):
     return '\n'.join(content)
 
 
+def compact_snapshot(data):
+    metadata = {k:v for k,v in data.items() if k != 'issues'}
+    prefix = json.dumps(metadata, indent=2).rstrip()[:-1].rstrip()
+    return prefix + ',\n  \"issues\": [\n' + ',\n'.join('    ' + json.dumps(r, ensure_ascii=False) for r in data['issues']) + '\n  ]\n}\n'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--refresh', action='store_true')
@@ -322,9 +333,9 @@ def main():
         verify_labels(rows, rules)
     elif args.verify_live:
         verify_labels(rows, rules)
-    artifacts = {RECORD: render(data, rows), LEDGER: json.dumps({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows}, indent=2) + '\n'}
+    artifacts = {RECORD: render(data, rows), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
-        artifacts[INPUTS] = json.dumps(data, indent=2) + '\n'
+        artifacts[INPUTS] = compact_snapshot(data)
     for path, text in artifacts.items():
         if args.check:
             if not path.exists() or path.read_text() != text:

@@ -58,6 +58,9 @@ jobs:
 
       # The tools/ gates' own tests must pass — they prove the manifest/matrix validator and the
       # release finalizer both redden on a bad input (a gate that can't fail is worse than no gate).
+      - name: Verify regenerated release decision
+        run: python3 tools/release_decision_record.py --check
+
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
 

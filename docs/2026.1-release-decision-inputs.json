@@ -4846,5 +4846,81 @@
       "family": null
     }
   ],
-  "implementation_owners": []
+  "implementation_owners": [
+    {
+      "issue": "honua-release#231",
+      "evidence_gate": "Signed atomic lock, exact artifacts/schema/catalog/fixtures \u2192 identity / manifest-validate",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#269",
+      "evidence_gate": "Build once, reuse retries, promote same digest \u2192 candidate-first release-train / promote",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#230",
+      "evidence_gate": "Reject missing/skipped/stale/source-built/wrong-candidate \u2192 certification / strict release-train",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#157",
+      "evidence_gate": "CITE + canonical clients + claims equal receipts \u2192 gate-protocol-certification / gate-docs",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#7",
+      "evidence_gate": "Registry JS/wheel/NuGet/gRPC + TLS/canonical fixtures \u2192 installed-client / gate-artifact-consume",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#123",
+      "evidence_gate": "Clean-room install; bounded terminal/MCP and focused Console \u2192 terminal-journey-certification / local Docker",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#161",
+      "evidence_gate": "Genuine model, bounded tools, independent approval \u2192 terminal-model-canary",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-server#3809",
+      "evidence_gate": "Every GA GP operation input\u2192decoded output; worker/queue/output failure proofs \u2192 GP reliability / capacity-soak",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#257",
+      "evidence_gate": "All enabled durable stores + restart recovery + measured RPO/RTO \u2192 dr-drill / gate-upgrade",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#258",
+      "evidence_gate": "Frozen thresholds + real query/workload provenance \u2192 capacity-soak / gate-observability",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#129",
+      "evidence_gate": "ECS apply/handoff/smoke/upgrade/rollback/destroy; no skips \u2192 e2e-cloud-aws / gate-upgrade",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#210",
+      "evidence_gate": "Reachable Critical/High mitigation; RBAC/tenant denials; lifecycle truth \u2192 gate-security / gate-docs",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#233",
+      "evidence_gate": "Generated compatibility/upgrade edges and truthful rollback boundary \u2192 manifest-validate / gate-contract",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-support#5",
+      "evidence_gate": "Staffed intake, incident/patch rehearsal, identity and independent fixed-version control \u2192 \u00a714 support approval",
+      "state": "unknown"
+    },
+    {
+      "issue": "honua-release#232",
+      "evidence_gate": "Three strict trains + unchanged burn-in/canaries + all independent approvals \u2192 release-train / promote",
+      "state": "unknown"
+    }
+  ]
 }
