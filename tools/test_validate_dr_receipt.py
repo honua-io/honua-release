@@ -1,4 +1,3 @@
-import copy
 import hashlib
 import json
 import subprocess
@@ -14,7 +13,7 @@ FIXTURES = HERE / "fixtures" / "dr"
 
 
 def complete():
-    return json.loads((FIXTURES / "complete.json").read_text())
+    return json.loads((FIXTURES / "complete.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("fixture,code,message", [
@@ -76,7 +75,7 @@ def test_rejects_invalid_restart_proof(field, value, message):
 
 
 def candidate_file(tmp_path, config, receipt):
-    candidate = json.loads((FIXTURES / "candidate.json").read_text())
+    candidate = json.loads((FIXTURES / "candidate.json").read_text(encoding="utf-8"))
     candidate["disasterRecovery"] = config
     path = tmp_path / "candidate.json"
     path.write_text(json.dumps(candidate), encoding="utf-8")
@@ -85,7 +84,7 @@ def candidate_file(tmp_path, config, receipt):
 
 
 def config():
-    return json.loads((FIXTURES / "candidate.json").read_text())["disasterRecovery"]
+    return json.loads((FIXTURES / "candidate.json").read_text(encoding="utf-8"))["disasterRecovery"]
 
 
 @pytest.mark.parametrize("value", [None, {}, {"topology": "fixture-all-stores"}])
@@ -168,3 +167,43 @@ def test_measurements_cannot_lie(value):
     receipt["measurements"]["rtoMs"] = value
     with pytest.raises(ReceiptError, match="rtoMs"):
         validate(FIXTURES / "candidate.json", receipt)
+
+
+def test_full_platform_gate_is_required_for_promotion():
+    from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report
+    from datetime import datetime, timezone
+
+    assert "dr" in REQUIRED_RELEASE_GATES
+    report = {
+        "dry_run": False, "overallStatus": "pass",
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "gates": [{"gate": name, "status": "pass"}
+                  for name in sorted(REQUIRED_RELEASE_GATES - {"dr"})],
+    }
+    ok, reason = validate_live_report(report)
+    assert not ok and "dr" in reason
+
+
+def test_release_and_scheduled_workflows_enforce_validator():
+    import yaml
+
+    root = HERE.parent
+    gate = yaml.safe_load((root / ".github/workflows/gate-dr.yml").read_text(encoding="utf-8"))
+    # PyYAML's YAML 1.1 loader maps the Actions 'on' key to True.
+    assert "schedule" in gate[True]
+    steps = gate["jobs"]["receipt"]["steps"]
+    validate_step = next(step for step in steps if "tools/validate_dr_receipt.py" in step.get("run", ""))
+    assert "--candidate $candidatePath" in validate_step["run"]
+    assert "candidate-input/platform-manifest.yaml" in validate_step["run"]
+    assert not validate_step.get("continue-on-error")
+    train = yaml.safe_load((root / ".github/workflows/release-train.yml").read_text(encoding="utf-8"))
+    assert train["jobs"]["gate_dr"]["with"]["candidate_bundle"] is True
+    assert "gate_dr" in train["jobs"]["report"]["needs"]
+    assert "dr|$S_DR" in (root / ".github/workflows/release-train.yml").read_text(encoding="utf-8")
+
+
+def test_legacy_producer_cannot_claim_full_platform_dr():
+    script = (HERE.parent / "e2e/dr-drill/run.sh").read_text(encoding="utf-8")
+    assert "'schema':'honua.postgresql-restore-receipt/v1'" in script
+    assert "'scope':'postgresql-restore'" in script
+    assert "'schema':'honua.dr-drill-receipt/" not in script

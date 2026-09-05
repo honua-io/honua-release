@@ -5,6 +5,7 @@
   "type": "object",
   "required": ["platformRelease", "status", "candidate", "protocolCertification", "components", "clientArtifacts", "evidenceSources"],
   "properties": {
+    "disasterRecovery": {"$ref": "#/$defs/disasterRecovery"},
     "platformRelease": {"type": "string", "minLength": 1},
     "status": {"enum": ["draft", "rc", "released"]},
     "candidate": {
@@ -40,6 +41,37 @@
     }
   },
   "$defs": {
+    "disasterRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topology",
+        "substrates"
+      ],
+      "properties": {
+        "topology": {
+          "type": "string",
+          "minLength": 1
+        },
+        "substrates": {
+          "type": "object",
+          "required": [
+            "postgresql",
+            "redis",
+            "object-storage",
+            "job-queue",
+            "transactional-outbox",
+            "workflow-cursors"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
     "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "clientArtifact": {
