@@ -64,9 +64,9 @@ def main() -> int:
     try:
         files = extract(args.bundle, args.output)
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
-        print(f"capacity-evidence-extract: FAIL â€” {exc}")
+        print(f"capacity-evidence-extract: FAIL — {exc}")
         return 1
-    print(f"capacity-evidence-extract: PASS â€” {len(files)} bounded regular files")
+    print(f"capacity-evidence-extract: PASS — {len(files)} bounded regular files")
     return 0
 
 

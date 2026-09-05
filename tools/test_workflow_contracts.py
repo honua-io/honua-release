@@ -257,7 +257,7 @@ def test_convergence_activation_is_merge_bound_and_sets_all_three_variables():
 def _step_text(step: dict) -> str:
     """Everything a step can DO: its shell, the action it invokes, and that action's inputs.
 
-    Scanning only `run:` was the flaw in the previous version of these contracts â€” a release performed
+    Scanning only `run:` was the flaw in the previous version of these contracts — a release performed
     by a `uses:` action, or a gate neutralised by `continue-on-error`, was invisible to them.
     """
     parts = [str(step.get("run", "")), str(step.get("uses", "")), str(step.get("with", ""))]
@@ -597,9 +597,9 @@ def test_rollback_certification_signs_success_and_mixed_state_receipts():
     assert rendered.count("actions/attest-build-provenance@") == 2
 
 
-# â”€â”€ the read-only scanner must itself be proven, not assumed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
 #
-# A clean shipped workflow is not evidence that the check works â€” it is equally consistent with a
+# A clean shipped workflow is not evidence that the check works — it is equally consistent with a
 # check that never fires. These cases exercise the scanner directly, including the two evasions that
 # survived the first version of it.
 
@@ -648,9 +648,9 @@ def test_logical_lines_join_continuations():
     assert joined == ['gh api --method PUT "repos/o/r"']
 
 
-# â”€â”€ the committed registers must load through the checkers that consume them â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── the committed registers must load through the checkers that consume them ────────────────────
 #
-# A policy file that the checker would refuse is otherwise only discovered at promote time â€” during a
+# A policy file that the checker would refuse is otherwise only discovered at promote time — during a
 # release, which is the worst possible moment to find out.
 
 SHIPPED_REGISTERS = {
