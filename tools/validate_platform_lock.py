@@ -135,6 +135,13 @@ def validate(lock: dict[str, Any]) -> Findings:
                     f.error(f"{apath}.digest", f"{kind} artifacts require an immutable sha256 digest")
                 if not artifact.get("architectures"):
                     f.error(f"{apath}.architectures", f"{kind} artifacts require an architecture set")
+            if kind == "image":
+                platform_digests = artifact.get("platformDigests") or {}
+                for architecture in artifact.get("architectures") or []:
+                    if not DIGEST_RE.fullmatch(str(platform_digests.get(architecture, ""))):
+                        f.error(f"{apath}.platformDigests.{architecture}", "image requires an exact platform-specific digest")
+            if kind == "oci-chart" and not DIGEST_RE.fullmatch(str(artifact.get("sha256", ""))):
+                f.error(f"{apath}.sha256", "oci-chart requires the exact pulled package checksum")
     return f
 
 

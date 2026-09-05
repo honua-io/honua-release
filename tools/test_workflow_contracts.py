@@ -484,20 +484,27 @@ def test_contract_gate_report_cannot_be_assembled_from_survivors():
     assert '"fail"' in commands, "a missing fragment must be recorded as a failure"
 
 
-def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatibility():
-    """The kind lane must not regress to same-schema, empty-database lifecycle theatre."""
+def test_upgrade_gate_proves_exact_lock_bytes_seeded_migration_and_prior_compatibility():
+    """The kind lane must not regress to tags, floating charts, schema floors, or empty data."""
     workflow = _workflow("gate-upgrade.yml")
     commands = "\n".join(
         _step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"]
     )
 
     assert "platform-manifest.yaml" in commands
-    assert "FIRST_RELEASE_BASELINE_IMAGE" in commands
+    assert "platform-lock.json" in commands
+    assert "validate_platform_lock.py" in commands
+    assert "gh attestation verify" in commands
+    assert "source-input bytes do not match this checkout" in commands
     assert "gh release download \"$PREV\"" in commands
     assert "e2e/harness/seed/seed.sh" in commands
     assert "SELECT count(*) FROM public.schema_versions" in commands
     assert "AFTER_VERSIONS" in commands and '"-gt"' not in commands
-    assert "CANDIDATE_SCHEMA_FLOOR" in commands
+    assert '"$CANDIDATE_SCHEMA" = "$DECLARED_SCHEMA"' in commands
+    assert "image.digest" in commands and "imageID" in commands
+    assert "HONUA_PLATFORM_LOCK_DIGEST" in commands
+    assert "chart_sha256" in commands and "upgrade_lock_binding.py" in commands
+    assert "Checkout honua-helm chart" not in commands
     assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
     assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
     assert "string_agg(to_jsonb(v)::text" in commands
@@ -511,14 +518,82 @@ def test_upgrade_gate_proves_a_seeded_forward_migration_and_prior_image_compatib
     assert "down-migration noted" not in commands
 
 
+def test_release_train_requires_signed_one_operation_rollback_certification():
+    workflow = _workflow("release-train.yml")
+    assert "gate_one_operation_rollback" in workflow["jobs"]
+    rollback = workflow["jobs"]["gate_one_operation_rollback"]
+    assert rollback["uses"] == "./.github/workflows/rollback-certification.yml"
+    report = workflow["jobs"]["report"]
+    assert "gate_one_operation_rollback" in report["needs"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert "one-operation-rollback|$S_ROLLBACK" in commands
+
+
+def test_rollback_certification_signs_success_and_mixed_state_receipts():
+    workflow = _workflow("rollback-certification.yml")
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "test_release_rollback.py" in commands
+    assert "certify_release_rollback.py" in commands
+    assert "Succeeded" in commands and "ManualInterventionRequired" in commands
+    assert "candidate-manifest" in commands
+    assert "gh attestation verify _candidate/platform-lock.json" in commands
+    assert "gh attestation verify _retained/platform-lock.json" in commands
+    assert "--candidate-manifest _candidate/platform-manifest.yaml" in commands
+    assert "--compatibility-matrix _candidate/compatibility-matrix.yaml" in commands
+    rendered = str(workflow["jobs"]["certify"])
+    assert rendered.count("actions/attest-build-provenance@") == 2
+
+
 def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
     workflow = _workflow("gate-upgrade.yml")
     kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
-    report_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["report"]["steps"])
     assert "upg*-gate-fragment-*" in str(workflow["jobs"]["report"])
     assert "/api/v1/admin/services/e2e/access-policy" in kind_commands
     assert "FeatureServer/$SRC_ID/applyEdits" not in kind_commands
     assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
+
+
+def test_upgrade_gate_consumes_verified_candidate_and_fails_closed_on_receipt_verification():
+    steps = _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    resolve = next(step for step in steps if step.get("name") == "Resolve exact signed locks, images, schema, and chart package")["run"]
+    assert "gh attestation verify _locks/candidate.json" in resolve
+    assert not any(step.get("name") == "Attest candidate platform lock" for step in steps)
+
+    capture = next(step for step in steps if step.get("name") == "Capture evidence")["run"]
+    assert "if ! python tools/upgrade_lock_binding.py" in capture
+    assert 'echo "status=fail" >> "$GITHUB_ENV"' in capture
+    assert 'echo "why=exact-lock receipt verification failed" >> "$GITHUB_ENV"' in capture
+
+
+def test_upgrade_gate_uses_each_locks_exact_chart_across_the_edge():
+    commands = "\n".join(
+        _step_text(step) for step in _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    )
+    assert 'helm install honua "$PRIOR_CHART"' in commands
+    assert 'helm upgrade honua "$CANDIDATE_CHART"' in commands
+    assert "prior_chart_sha256" in commands
+    assert "candidate_chart_sha256" in commands
+
+
+def test_release_train_requires_signed_one_operation_rollback_certification():
+    workflow = _workflow("release-train.yml")
+    assert "gate_one_operation_rollback" in workflow["jobs"]
+    rollback = workflow["jobs"]["gate_one_operation_rollback"]
+    assert rollback["uses"] == "./.github/workflows/rollback-certification.yml"
+    report = workflow["jobs"]["report"]
+    assert "gate_one_operation_rollback" in report["needs"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert "one-operation-rollback|$S_ROLLBACK" in commands
+
+
+def test_rollback_certification_signs_success_and_mixed_state_receipts():
+    workflow = _workflow("rollback-certification.yml")
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "test_release_rollback.py" in commands
+    assert "certify_release_rollback.py" in commands
+    assert "Succeeded" in commands and "ManualInterventionRequired" in commands
+    rendered = str(workflow["jobs"]["certify"])
+    assert rendered.count("actions/attest-build-provenance@") == 2
 
 
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
