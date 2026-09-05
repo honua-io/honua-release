@@ -1,7 +1,5 @@
 """Decision classifier rejection, coverage, label safety, and retry behavior."""
-import copy
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -102,7 +100,7 @@ def test_snapshot_and_generated_record_are_complete_and_current():
         assert row['bucket'] in decision.BUCKETS
         assert 'body' not in row  # issue bodies / raw API responses never enter the repo
         if row['state']=='open' and row['bucket']=='must-fix-before-cut':
-            assert decision.link(decision.issue_key(row)) in table
+            assert f"https://github.com/honua-io/{row['repo']}/issues/{row['number']}" in table
     assert decision.RECORD.read_text() == decision.render(data, rows)
     ledger = json.loads(decision.LEDGER.read_text())
     assert ledger['issues'] == rows
