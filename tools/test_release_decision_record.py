@@ -125,6 +125,36 @@ def test_403_sleeps_then_retries_without_authentication():
         assert run.call_args_list[0] == run.call_args_list[1]
 
 
+@pytest.mark.parametrize('errors', [
+    ['HTTP 403'],
+    ['error connecting to api.github.com', 'HTTP 403'],
+    ['HTTP 403', 'error connecting to api.github.com'],
+])
+def test_403_and_transient_failures_share_one_retry_budget(errors):
+    failures = [type('Result', (), {'returncode':1, 'stderr':error, 'stdout':''})()
+                for error in errors] * 10
+    success = type('Result', (), {'returncode':0, 'stderr':'', 'stdout':'[]'})()
+    # A final success ensures the old unbounded loop fails this test without hanging.
+    with patch.object(decision.subprocess, 'run', side_effect=[*failures, success]) as run, \
+            patch.object(decision.time, 'sleep') as sleep:
+        with pytest.raises(ValueError, match='300-second'):
+            decision.gh('api', 'repos/honua-io/honua-release/labels', '--method', 'POST',
+                        payload={'name':'bucket/2026.2'})
+        assert sum(call.args[0] for call in sleep.call_args_list) == 300
+        assert all(call.args[0] > 0 for call in sleep.call_args_list)
+        assert run.call_count == sleep.call_count + 1
+        assert all(call == run.call_args_list[0] for call in run.call_args_list)
+
+
+def test_403_can_recover_on_final_budgeted_attempt():
+    forbidden = type('Result', (), {'returncode':1, 'stderr':'HTTP 403', 'stdout':''})()
+    success = type('Result', (), {'returncode':0, 'stderr':'', 'stdout':'[]'})()
+    with patch.object(decision.subprocess, 'run', side_effect=[forbidden] * 5 + [success]), \
+            patch.object(decision.time, 'sleep') as sleep:
+        assert decision.gh('api', 'orgs/honua-io/repos') == []
+        assert sum(call.args[0] for call in sleep.call_args_list) == 300
+
+
 def test_interrupted_apply_retains_new_cohort_before_removing_release_label(tmp_path, monkeypatch):
     original = {'observed_at':'2026-09-05T00:00:00Z','candidate_digest':'not yet cut','issues':[]}
     fresh = {**original, 'issues':[issue('type/feature','release/2026.1')]}
