@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sdk_baselines import SDK_COMPONENTS, content_digest
+
 import generate_platform_lock as generator
 import validate_platform_lock as validator
 
@@ -10,8 +12,30 @@ REVISION = "a" * 40
 DIGEST = "sha256:" + "b" * 64
 
 
-def valid_lock():
+def component():
+    evidence = {"uri": "https://example.test/introduction", "sha256": DIGEST}
+    content = {"capabilities": {
+        "admin.read": {"minimumServerVersion": "1.0.0", "versionModel": "semver", "evidence": evidence},
+        "admin.write": {"minimumServerVersion": "1.2.0", "versionModel": "semver", "evidence": evidence},
+        "optional": {"minimumServerVersion": "9.0.0", "versionModel": "semver", "evidence": evidence},
+    }}
     return {
+        "source": {"revision": REVISION},
+        "artifacts": [],
+        "serverCompatibility": {
+            "minimumServerVersion": "1.2.0",
+            "manifests": [{
+                "source": {"repository": "https://github.com/honua-io/honua-server", "revision": REVISION, "path": "capabilities.json"},
+                "content": content, "sha256": content_digest(content),
+                "requiredCapabilities": ["admin.read", "admin.write"],
+            }],
+            "declarations": [{"revision": REVISION, "path": "compatibility.json", "sha256": DIGEST, "minimumServerVersion": "1.2.0"}],
+        },
+    }
+
+
+def valid_lock():
+    lock = {
         "lockVersion": "platform-lock.v1",
         "platform": {"id": "honua-2026.1-rc.1", "status": "rc", "supportTier": "ga"},
         "sourceInputs": {
@@ -31,6 +55,14 @@ def valid_lock():
             }
         },
     }
+
+    for name in SDK_COMPONENTS:
+        lock["components"][name] = {
+            **lock["components"]["sdk"], **component(),
+            "source": {"repository": f"https://github.com/honua-io/{name}", "revision": REVISION},
+            "artifactIdentityModel": "source-pinned",
+        }
+    return lock
 
 
 def assert_refused(lock, text):

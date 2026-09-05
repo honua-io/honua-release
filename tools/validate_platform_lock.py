@@ -95,6 +95,10 @@ def validate(lock: dict[str, Any]) -> Findings:
         f.error("$.components", "must be a non-empty mapping")
         return f
 
+    for name in SDK_COMPONENTS:
+        if name not in components:
+            f.error(f"$.components.{name}", "required official SDK component is missing")
+
     for name, component in components.items():
         path = f"$.components.{name}"
         if not isinstance(component, dict):

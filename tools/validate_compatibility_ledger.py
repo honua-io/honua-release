@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import release_inspect
+from validate_platform_lock import validate as validate_lock
 
 
 def validate(ledger: dict[str, Any]) -> list[str]:
@@ -22,6 +23,8 @@ def validate(ledger: dict[str, Any]) -> list[str]:
         if not isinstance(lock, dict):
             errors.append(f"$.platformLocks.{digest}.platformLock: must be a mapping")
             continue
+        errors.extend(f"$.platformLocks.{digest}.platformLock{error[1:]}"
+                      for error in validate_lock(lock).errors)
         actual = release_inspect.canonical_digest(lock)
         if digest != actual:
             errors.append(f"$.platformLocks.{digest}: key does not match canonical platform-lock digest {actual}")
