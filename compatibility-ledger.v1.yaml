@@ -1,0 +1,31 @@
+ledgerVersion: compatibility-ledger.v1
+platformLocks: {}
+componentReleases: {}
+artifactReceipts:
+  - component: geospatial-grpc
+    coordinate: Geospatial.Grpc
+    identity: 1.0.0
+    receipt:
+      schema: honua.publication-receipt/v1
+      uri: https://github.com/honua-io/geospatial-grpc/releases/download/v1.0.0/release-receipt.json
+      sha256: sha256:4acea959105c89e0994420031eb9459e02a79858700430be0dc3e9e8fdf3c4b2
+  - component: honua-esri-compat
+    coordinate: ArcGISPro
+    identity: "3.7"
+    receipt:
+      schema: honua.esri-certification-manifest/v1
+      uri: https://github.com/honua-io/honua-esri-compat/blob/ece4c3a2f68557fe8329e9932de36193d0732894/evidence/certified/2026.1-rc.2/artifact-manifest.json
+      sha256: sha256:831019eab2c195c3a252f15911201159a166e3cd94ef40ab7164de278bd3105c
+clientServerCertifications:
+  - serverDigest: sha256:080d7e87f7b1e4c36a917adddb567bfe7148d47e7d2d016480fb4e39187515db
+    client:
+      component: honua-sdk-js
+      coordinate: "@honua/sdk-js"
+      identity: 0.0.12-alpha.0
+    result: certified
+    receipt:
+      schema: github-actions-run/v1
+      uri: https://github.com/honua-io/honua-sdk-js/actions/runs/26846920096
+      sha256: sha256:480e91eba97d54a448ad3acca631166283e45d840553409de6f6bf2d78f5483b
+upgradeEdges: []
+experimentalExclusions: []
