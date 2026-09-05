@@ -4,6 +4,8 @@
 
 Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:68118bca53e77ef07f4baa1c6fc76bf4fea46f3609e3d0496fda5b37b9b88917`.
 
+Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
+
 This table reports declared protocol requirements. A version floor is not a certified
 SDK/server pairing. Certification requires an exact artifact-pair receipt in the compatibility ledger.
 

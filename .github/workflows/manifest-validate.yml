@@ -64,6 +64,9 @@ jobs:
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
 
+      - name: Check compatibility documentation against its committed lock draft
+        run: python tools/generate_compatibility_table.py docs/platform-lock.v1.draft.yaml --check-output
+
       # Acceptance harness for #230. Dispatch the registered manifest workflow on a ref ending in
       # `-red-demo`; the branch's validator must recognize the skipped REQUIRED receipt, then this
       # step deliberately preserves that verdict as the run conclusion (failure/RED).

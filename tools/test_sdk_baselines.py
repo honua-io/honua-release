@@ -8,6 +8,7 @@ import yaml
 from generate_compatibility_table import main, render
 from sdk_baselines import check_component, content_digest, derive, findings
 from test_platform_lock import DIGEST, REVISION, valid_lock
+from validate_platform_lock import validate
 
 
 def component():
@@ -86,6 +87,16 @@ def test_declaration_must_bind_source():
 
 def test_empty_lock_cannot_pass_by_omitting_sdk_roster():
     assert len(findings({})) == 4
+
+
+def test_complete_lock_validator_requires_official_sdk_baseline():
+    lock = valid_lock()
+    lock["components"]["honua-sdk-js"] = lock["components"].pop("sdk")
+    assert any("serverCompatibility" in error for error in validate(lock).errors)
+    lock["components"]["honua-sdk-js"]["serverCompatibility"] = component()["serverCompatibility"]
+    assert validate(lock).ok
+    lock["components"]["honua-sdk-js"]["serverCompatibility"]["minimumServerVersion"] = "0.1.0"
+    assert any("floor" in error for error in validate(lock).errors)
 
 
 def test_table_is_deterministic_and_does_not_imply_upgrade_support():

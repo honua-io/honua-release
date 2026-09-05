@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sdk_baselines import SDK_COMPONENTS, check_component
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
@@ -103,6 +105,11 @@ def validate(lock: dict[str, Any]) -> Findings:
         if component.get("supportTier") != str(lifecycle_status).lower():
             f.error(f"{path}.supportTier", "must be derived from lifecycleStatus by lowercasing it")
         source = component.get("source") or {}
+        if name in SDK_COMPONENTS:
+            try:
+                check_component(component)
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                f.error(f"{path}.serverCompatibility", str(exc))
         revision = source.get("revision") if isinstance(source, dict) else None
         if not isinstance(revision, str) or not SHA_RE.fullmatch(revision):
             f.error(f"{path}.source.revision", "must be an immutable 40-character git revision")

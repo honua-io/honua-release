@@ -88,6 +88,14 @@ attested by its released artifact.
 
 ## Compatibility ledger and release inspection (issue #233, part 1)
 
+SDK minimum-server derivation and unresolved publisher requirements are documented
+in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
+[customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
+`python tools/generate_compatibility_table.py <lock>`. `--check` fails on absent
+capability introduction evidence or declaration/lock drift. `--check-output` only
+checks documentation freshness and does not qualify a release. The complete lock
+validator also requires the derived baseline for each official SDK/protocol entry.
+
 `schemas/compatibility-ledger.v1.schema.json` defines digest-keyed release/artifact,
 component/release, server/client receipt, upgrade/rollback, and experimental-exclusion edges. It
 references packet 66's `platform-lock.v1` schema rather than redefining the lock contract. Lock keys
