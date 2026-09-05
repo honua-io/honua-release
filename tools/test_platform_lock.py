@@ -247,3 +247,27 @@ def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
     assert draft.deferred_until_cut
     assert all(item in draft.unresolved for item in draft.deferred_until_cut)
     assert any("artifacts[0].sourceRevision" in item for item in draft.deferred_until_cut)
+
+
+def test_generator_preserves_deployment_owned_dr_inventory(tmp_path):
+    import yaml
+    from validate_dr_receipt import expected_substrates
+
+    manifest = yaml.safe_load((ROOT / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    inventory = {
+        "topology": "single-tenant-test",
+        "substrates": {"postgresql": True, "redis": True, "object-storage": True,
+                       "job-queue": True, "transactional-outbox": False, "workflow-cursors": False},
+    }
+    manifest["disasterRecovery"] = inventory
+    path = tmp_path / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    draft = generator.generate(path, ROOT / "compatibility-matrix.yaml")
+    assert draft.lock["disasterRecovery"] == inventory
+    assert expected_substrates(draft.lock) == ("single-tenant-test", {"postgresql", "redis", "object-storage", "job-queue"})
+
+
+def test_lock_schema_checks_dr_enablement():
+    lock = valid_lock()
+    lock["disasterRecovery"] = {"topology": "test", "substrates": {"postgresql": True}}
+    assert_refused(lock, "redis")

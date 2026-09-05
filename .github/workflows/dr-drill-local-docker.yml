@@ -1,4 +1,4 @@
-name: dr-drill-local-docker
+name: postgresql-restore-local-docker
 
 on:
   pull_request:
@@ -35,7 +35,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Execute destructive backup and restore drill
+      - name: Execute scoped PostgreSQL backup and restore drill
         run: bash e2e/dr-drill/run.sh
       - name: Attest signed receipt
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0

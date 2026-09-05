@@ -1,5 +1,6 @@
 contracts/baselines/**/*.json text eol=lf
 certification/release-controls/** text eol=lf
+tools/fixtures/dr/*.json text eol=lf
 
 # First-publication receipts. Default to NO content conversion so that retained
 # package bytes (.nupkg/.snupkg/.zip/.tar.gz, and anything not enumerated below)

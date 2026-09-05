@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["lockVersion", "platform", "sourceInputs", "components", "contentDigests", "fixtures", "sbom", "provenance", "notes"],
   "properties": {
+    "disasterRecovery": {"$ref": "#/$defs/disasterRecovery"},
     "lockVersion": {"const": "platform-lock.v1"},
     "platform": {
       "type": "object", "additionalProperties": false,
@@ -43,6 +44,37 @@
     "notes": {"type": "string", "minLength": 1}
   },
   "$defs": {
+    "disasterRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topology",
+        "substrates"
+      ],
+      "properties": {
+        "topology": {
+          "type": "string",
+          "minLength": 1
+        },
+        "substrates": {
+          "type": "object",
+          "required": [
+            "postgresql",
+            "redis",
+            "object-storage",
+            "job-queue",
+            "transactional-outbox",
+            "workflow-cursors"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "gitRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "digest": {"$ref": "#/$defs/sha256"},
