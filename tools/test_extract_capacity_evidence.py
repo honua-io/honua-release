@@ -29,7 +29,7 @@ def test_extracts_receipt_and_raw_artifacts(tmp_path):
     assert {item.name for item in extracted} == {gate.RECEIPT_NAME, "requests.json"}
 
 
-@pytest.mark.parametrize("name", ["../escape", "/absolute", "nested/file"])
+@pytest.mark.parametrize("name", ["../escape", "/absolute", "nested/file", "..\\escape", "C:escape", "NUL.json", "CON", "trailing."])
 def test_rejects_path_traversal_and_nested_members(tmp_path, name):
     value = bundle(
         tmp_path / "evidence.zip",
@@ -55,3 +55,9 @@ def test_receipt_is_mandatory(tmp_path):
     value = bundle(tmp_path / "evidence.zip", {"metrics.json": b"{}"})
     with pytest.raises(ValueError, match=gate.RECEIPT_NAME):
         gate.extract(value, tmp_path / "out")
+
+
+def test_rejects_case_collisions_on_windows(tmp_path):
+    value = bundle(tmp_path / 'evidence.zip', {gate.RECEIPT_NAME: b'{}', 'DATA.json': b'1', 'data.json': b'2'})
+    with pytest.raises(ValueError, match='unsafe'):
+        gate.extract(value, tmp_path / 'out')

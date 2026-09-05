@@ -1,4 +1,4 @@
-﻿"""Recompute capacity SLIs from attested collector observations, never receipt values.
+"""Recompute capacity SLIs from attested collector observations, never receipt values.
 
 Request observations are lossless joint histograms of duration and outcome, partitioned
 by replica/incarnation and UTC bucket. Counts are disjoint interval deltas (not cumulative
@@ -141,6 +141,7 @@ def _validate(lock, receipt, root):
         _equal(workload['candidateIdentity'], receipt['candidateIdentity'], f'{name} candidate')
         _equal(workload['window'], receipt['window'], f'{name} window')
         _equal(workload['sampleCount'], len(workloads), f'{name} population')
+        _equal(workload['observationPopulation'], {'kind': 'ratio', 'numerator': len(workloads), 'denominator': len(workloads), 'sampleCount': len(workloads)}, f'{name} observed workload population')
         if artifact['id'] not in workload['rawArtifactIds']:
             raise ValueError(f'{name} does not reference source observations')
 

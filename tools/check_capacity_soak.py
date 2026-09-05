@@ -202,6 +202,8 @@ def _validate_workloads(
 
     for name, target in expected.items():
         workload = _mapping(workloads.get(name))
+        if workload.get("query") != _mapping(lock.get("workloadQueries")).get(name) or not workload.get("query"):
+            failures.append(f"{name}: workload query differs from the frozen query")
         if workload.get("status") != "exercised":
             failures.append(f"{name}: workload was not exercised")
         if workload.get("proxy") is not False or workload.get("executionMode") != "candidate-topology":
@@ -355,6 +357,15 @@ def evaluate(
 ) -> list[str]:
     """Return every contract failure; an empty list is the only green result."""
     failures: list[str] = []
+    if not isinstance(lock, dict) or not isinstance(receipt, dict):
+        return ["lock and receipt must be objects"]
+    expected_ga = {"tenants", "services", "layersPerService", "featuresPerLayer", "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth"}
+    if set(_mapping(lock.get("supportedEnvelope"))) != expected_ga:
+        failures.append("frozen envelope must cover all eight GA dimensions")
+    if lock.get("excludedPreviewDimensions") != {name: {"status": "preview", "requiredForGa": False} for name in ("activeSubscriptions", "alertEvaluationsPerSecond")}:
+        failures.append("both excluded Preview dimensions must be accounted for")
+    if set(_mapping(lock.get("soak")).get("requiredSignals", [])) != {"availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps", "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds"}:
+        failures.append("frozen contract must retain all eight SLIs")
     receipt_contract = _mapping(lock.get("receiptContract"))
     approved = _mapping(receipt_contract.get("approvedProducer"))
     if (
@@ -444,7 +455,7 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS — exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
+    print("capacity-soak: PASS â€” exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
     return 0
 
 

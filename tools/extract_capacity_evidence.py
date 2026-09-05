@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import stat
+import re
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -31,17 +32,20 @@ def extract(bundle: Path, output: Path) -> list[Path]:
             path = PurePosixPath(member.filename)
             mode = member.external_attr >> 16
             if (
-                member.is_dir()
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", member.filename)
+                or path.name.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(10)), *(f"LPT{i}" for i in range(10))}
+                or path.name.endswith(".")
+                or member.is_dir()
                 or member.flag_bits & 0x1
                 or path.is_absolute()
                 or len(path.parts) != 1
                 or path.name in {"", ".", ".."}
-                or path.name in names
+                or path.name.casefold() in names
                 or member.file_size > MAX_FILE_BYTES
                 or stat.S_ISLNK(mode)
             ):
                 raise ValueError(f"unsafe capacity evidence archive member: {member.filename}")
-            names.add(path.name)
+            names.add(path.name.casefold())
             target = output / path.name
             with archive.open(member) as source, target.open("xb") as destination:
                 while chunk := source.read(1024 * 1024):
@@ -60,9 +64,9 @@ def main() -> int:
     try:
         files = extract(args.bundle, args.output)
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
-        print(f"capacity-evidence-extract: FAIL — {exc}")
+        print(f"capacity-evidence-extract: FAIL â€” {exc}")
         return 1
-    print(f"capacity-evidence-extract: PASS — {len(files)} bounded regular files")
+    print(f"capacity-evidence-extract: PASS â€” {len(files)} bounded regular files")
     return 0
 
 

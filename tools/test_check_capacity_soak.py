@@ -194,7 +194,9 @@ def receipt(artifact_root: Path):
             signal['observationPopulation']['sampleCount'] = len(times)*3
         elif name == 'recoveryTimeSeconds':
             signal['observationPopulation']['sampleCount'] = 3
-    for workload in workloads.values():
+    for name, workload in workloads.items():
+        workload["query"] = copy.deepcopy(LOCK["workloadQueries"][name])
+        workload["observationPopulation"] = dict(kind="ratio", numerator=len(times), denominator=len(times), sampleCount=len(times))
         workload.update(candidateIdentity=copy.deepcopy(candidate), window=copy.deepcopy(WINDOW), sampleCount=len(times), rawArtifactIds=['observations'])
     for component in signals['saturationRatio']['saturationComponents'].values():
         component.update(sampleCount=len(times), rawArtifactIds=['observations'])
@@ -377,3 +379,23 @@ def test_preview_dimensions_cannot_be_reintroduced_as_ga_workloads(tmp_path):
     assert len(LOCK['supportedEnvelope']) == 8
     value['workloads']['activeSubscriptions'] = copy.deepcopy(value['workloads']['services'])
     assert any('outside the frozen envelope' in item for item in failures(value, tmp_path))
+
+
+@pytest.mark.parametrize('dimension', list(LOCK['supportedEnvelope']))
+def test_each_ga_workload_requires_frozen_query_and_population(tmp_path, dimension):
+    value = receipt(tmp_path)
+    value['workloads'][dimension].pop('query')
+    assert any(dimension+': workload query' in item for item in failures(value, tmp_path))
+    value = receipt(tmp_path)
+    value['workloads'][dimension]['observationPopulation']['denominator'] -= 1
+    assert any('source observations' in item for item in failures(value, tmp_path))
+
+
+@pytest.mark.parametrize('signal', LOCK['soak']['requiredSignals'])
+def test_each_signal_value_and_population_must_be_recomputed(tmp_path, signal):
+    value = receipt(tmp_path)
+    value['signals'][signal]['value'] += .00001
+    assert any('source observations' in item for item in failures(value, tmp_path))
+    value = receipt(tmp_path)
+    value['signals'][signal]['observationPopulation']['sampleCount'] += 1
+    assert any('source observations' in item for item in failures(value, tmp_path))

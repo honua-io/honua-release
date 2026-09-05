@@ -152,5 +152,55 @@
       "expression": "max(recoveries[seconds(recoveredAt - injectedAt)])",
       "sha256": "3e7b8e1a0613131609d285fe2bf2dc2c2dbd110fb37c73d947a5e254ea7b03cc"
     }
+  },
+  "workloadQueries": {
+    "tenants": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.tenants] == 1)",
+      "sha256": "781bb88d57bdef3c307e96d58fb4e455243b5f42ede418e64b337f8a51eea62d"
+    },
+    "services": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.services] == 1)",
+      "sha256": "4c2374bc5cfc72251cdc60b6581a80593d3a0a1c231ce3fc54100d513577e072"
+    },
+    "layersPerService": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.layersPerService] == 4)",
+      "sha256": "6f2291250af7ec22190ba5030b499df970cca6747b279ca87be8dd1867498470"
+    },
+    "featuresPerLayer": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.featuresPerLayer] == 10000)",
+      "sha256": "ed87c1df55c251c72b480b5d9034cc742dd5e3e5ae06dfcad98a4ec60d2f7944"
+    },
+    "maximumFeaturePayloadBytes": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.maximumFeaturePayloadBytes] == 1048576)",
+      "sha256": "00673308445f7ef420503e5da268fc244f56fec0f69969d16ce02d40364dbb2b"
+    },
+    "concurrentVirtualUsers": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.concurrentVirtualUsers] == 170)",
+      "sha256": "72973364bba05326bd2cb4559f175d93250b66add29b8b2caa0c1a747fbbc082"
+    },
+    "gpWorkers": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.gpWorkers] == 1)",
+      "sha256": "52f6f8818c9c5b3f1845e2aa0c79eb71964e5c3a2dcfa22d9cccc295f2f810e6"
+    },
+    "gpQueueDepth": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "all(workloads[dimensions.gpQueueDepth] == 100)",
+      "sha256": "82d11f84c14f7f88933d306c5744cbcc0f3f9a3a0d9dc4625eec401cff3ccdef"
+    }
   }
 }
