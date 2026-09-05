@@ -1,0 +1,163 @@
+{
+  "schema": "honua.dr-drill-receipt/v2",
+  "scope": "full-platform",
+  "status": "pass",
+  "candidateLockDigest": "sha256:5a794540f35c4d3fc79ff5f6a2b62598c7ce894db19a3e39d773a8b327463a69",
+  "topology": "fixture-all-stores",
+  "startedAt": "2026-09-04T00:00:00Z",
+  "completedAt": "2026-09-04T00:05:00Z",
+  "measurements": {
+    "rpoMs": 100,
+    "rtoMs": 2000
+  },
+  "substrates": {
+    "postgresql": {
+      "backup": {
+        "id": "fixture-backup-postgresql",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      },
+      "restartRecovery": {
+        "writtenBeforeRestart": {
+          "stateId": "postgresql-sentinel",
+          "sha256": "sha256:a478b4566be5cb007a5d8ae532c7eeac2cd3be26ad639a65c1dd11b3bf95c51b",
+          "count": 1,
+          "runtimeSurface": "fixture://postgresql/write",
+          "observedAt": "2026-09-04T00:01:00Z"
+        },
+        "readAfterRestart": {
+          "stateId": "postgresql-sentinel",
+          "sha256": "sha256:a478b4566be5cb007a5d8ae532c7eeac2cd3be26ad639a65c1dd11b3bf95c51b",
+          "count": 1,
+          "runtimeSurface": "fixture://postgresql/read",
+          "observedAt": "2026-09-04T00:04:00Z"
+        },
+        "stoppedAt": "2026-09-04T00:02:00Z",
+        "readyAt": "2026-09-04T00:03:00Z",
+        "instanceBefore": "postgresql-old",
+        "instanceAfter": "postgresql-new"
+      }
+    },
+    "redis": {
+      "backup": {
+        "id": "fixture-backup-redis",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      },
+      "restartRecovery": {
+        "writtenBeforeRestart": {
+          "stateId": "redis-sentinel",
+          "sha256": "sha256:34fb46c847bb9df96e5205a39d382f648a6e8dce1e014cd85b4ca6a88d88ed03",
+          "count": 1,
+          "runtimeSurface": "fixture://redis/write",
+          "observedAt": "2026-09-04T00:01:00Z"
+        },
+        "readAfterRestart": {
+          "stateId": "redis-sentinel",
+          "sha256": "sha256:34fb46c847bb9df96e5205a39d382f648a6e8dce1e014cd85b4ca6a88d88ed03",
+          "count": 1,
+          "runtimeSurface": "fixture://redis/read",
+          "observedAt": "2026-09-04T00:04:00Z"
+        },
+        "stoppedAt": "2026-09-04T00:02:00Z",
+        "readyAt": "2026-09-04T00:03:00Z",
+        "instanceBefore": "redis-old",
+        "instanceAfter": "redis-new"
+      }
+    },
+    "object-storage": {
+      "backup": {
+        "id": "fixture-backup-object-storage",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      },
+      "restartRecovery": {
+        "writtenBeforeRestart": {
+          "stateId": "object-storage-sentinel",
+          "sha256": "sha256:f68b9b65b8ff86eca368c674679928e737ee395defc1159eda9fb10d8aada4f7",
+          "count": 1,
+          "runtimeSurface": "fixture://object-storage/write",
+          "observedAt": "2026-09-04T00:01:00Z"
+        },
+        "readAfterRestart": {
+          "stateId": "object-storage-sentinel",
+          "sha256": "sha256:f68b9b65b8ff86eca368c674679928e737ee395defc1159eda9fb10d8aada4f7",
+          "count": 1,
+          "runtimeSurface": "fixture://object-storage/read",
+          "observedAt": "2026-09-04T00:04:00Z"
+        },
+        "stoppedAt": "2026-09-04T00:02:00Z",
+        "readyAt": "2026-09-04T00:03:00Z",
+        "instanceBefore": "object-storage-old",
+        "instanceAfter": "object-storage-new"
+      }
+    },
+    "job-queue": {
+      "backup": {
+        "id": "fixture-backup-job-queue",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      }
+    },
+    "transactional-outbox": {
+      "backup": {
+        "id": "fixture-backup-transactional-outbox",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      },
+      "restartRecovery": {
+        "writtenBeforeRestart": {
+          "stateId": "transactional-outbox-sentinel",
+          "sha256": "sha256:2e6e833d995d5b8ad7b8e0ebc0eb756aa651d88f360652c3c82d5a5aec3a9439",
+          "count": 1,
+          "runtimeSurface": "fixture://transactional-outbox/write",
+          "observedAt": "2026-09-04T00:01:00Z"
+        },
+        "readAfterRestart": {
+          "stateId": "transactional-outbox-sentinel",
+          "sha256": "sha256:2e6e833d995d5b8ad7b8e0ebc0eb756aa651d88f360652c3c82d5a5aec3a9439",
+          "count": 1,
+          "runtimeSurface": "fixture://transactional-outbox/read",
+          "observedAt": "2026-09-04T00:04:00Z"
+        },
+        "stoppedAt": "2026-09-04T00:02:00Z",
+        "readyAt": "2026-09-04T00:03:00Z",
+        "instanceBefore": "transactional-outbox-old",
+        "instanceAfter": "transactional-outbox-new"
+      }
+    },
+    "workflow-cursors": {
+      "backup": {
+        "id": "fixture-backup-workflow-cursors",
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primaryStateDestroyed": true,
+        "restoredIntoCleanStore": true
+      },
+      "restartRecovery": {
+        "writtenBeforeRestart": {
+          "stateId": "workflow-cursors-sentinel",
+          "sha256": "sha256:82aad9d7a89ee62e5481202c1cf4d550328c9976e88911eddf82f80eb27854eb",
+          "count": 1,
+          "runtimeSurface": "fixture://workflow-cursors/write",
+          "observedAt": "2026-09-04T00:01:00Z"
+        },
+        "readAfterRestart": {
+          "stateId": "workflow-cursors-sentinel",
+          "sha256": "sha256:82aad9d7a89ee62e5481202c1cf4d550328c9976e88911eddf82f80eb27854eb",
+          "count": 1,
+          "runtimeSurface": "fixture://workflow-cursors/read",
+          "observedAt": "2026-09-04T00:04:00Z"
+        },
+        "stoppedAt": "2026-09-04T00:02:00Z",
+        "readyAt": "2026-09-04T00:03:00Z",
+        "instanceBefore": "workflow-cursors-old",
+        "instanceAfter": "workflow-cursors-new"
+      }
+    }
+  }
+}
