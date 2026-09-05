@@ -276,6 +276,12 @@ def tables(rows):
     return '\n'.join(lines)
 
 
+def decision_tables(rows):
+    counts, blockers = tables(rows).split('\n\n', 1)
+    count = sum(r['state']=='open' and r['bucket']=='must-fix-before-cut' for r in rows)
+    return counts + f'\n\n<details>\n<summary>{count} pre-cut blockers — every issue, owning packet, implementation and qualification</summary>\n\n' + blockers + '\n\n</details>'
+
+
 def render(data, rows):
     active = [r for r in rows if r['state'] == 'open']
     p0_unowned = [link(issue_key(r)) for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut' and (not r.get('family') or r['family']['status']=='parked')]
@@ -284,8 +290,8 @@ def render(data, rows):
         '# 2026.1 release decision record', '',
         f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
-        tables(rows), '',
-        '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + ' P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
+        decision_tables(rows), '',
+        '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '| Supported scope | Denominator / accepted limitations | Accountable owner |', '|---|---|---|',
         f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")} |',
         f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Lambda; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
