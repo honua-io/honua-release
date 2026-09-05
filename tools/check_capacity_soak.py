@@ -118,6 +118,8 @@ def _validate_raw_artifacts(
             failures.append(f"{label}: raw artifact kind is missing")
         if not _artifact_url(item.get("uri")):
             failures.append(f"{label}: raw artifact URI is not an immutable Actions artifact URL")
+        elif urlparse(item["uri"]).path.split("/")[5] != str(_mapping(receipt.get("producer")).get("runId")):
+            failures.append(f"{label}: raw artifact comes from a different producer run")
         if not HASH_PATTERN.fullmatch(str(item.get("sha256", ""))):
             failures.append(f"{label}: raw artifact SHA-256 is invalid")
         if not _positive_count(item.get("observationCount")):

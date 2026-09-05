@@ -399,3 +399,9 @@ def test_each_signal_value_and_population_must_be_recomputed(tmp_path, signal):
     value = receipt(tmp_path)
     value['signals'][signal]['observationPopulation']['sampleCount'] += 1
     assert any('source observations' in item for item in failures(value, tmp_path))
+
+
+def test_raw_artifact_cannot_be_borrowed_from_another_run(tmp_path):
+    value = receipt(tmp_path)
+    value['rawArtifacts'][0]['uri'] = 'https://github.com/honua-io/honua-server/actions/runs/999999/artifacts/100'
+    assert any('different producer run' in item for item in failures(value, tmp_path))
