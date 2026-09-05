@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "installed-client-fixture-v1",
+  "configRevision": "installed-client-config-v1",
+  "authPolicyRevision": "installed-client-auth-v1",
+  "cells": [
+    {"id": "npm-node-geoservices-error", "artifact": "honua-sdk-js", "driver": "npm", "scenario": "geoservices-error-surfacing", "status": "active"},
+    {"id": "npm-mcp-tools-list", "artifact": "honua-mcp-server", "driver": "npm-mcp", "scenario": "mcp-tools-list", "status": "active"},
+    {"id": "pypi-python-geoservices-error", "artifact": "honua-sdk-python-wheel", "driver": "pypi", "scenario": "geoservices-error-surfacing", "status": "active"},
+    {"id": "nuget-net8-geoservices-error", "artifact": "honua-sdk-dotnet", "driver": "nuget", "scenario": "geoservices-error-surfacing", "status": "blocked", "blockedBy": "https://github.com/honua-io/honua-release/issues/57"}
+  ]
+}
