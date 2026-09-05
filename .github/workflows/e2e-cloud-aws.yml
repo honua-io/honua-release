@@ -3,19 +3,23 @@
 # Two complementary layers, both AWS-first, both creds-gated so a no-cloud local cut is never reddened:
 #
 #   parity     Deploys honua-server on each AWS target (serverless / ecs / eks) x Redis on/off via the
-#              honua-iac example roots, runs the canonical (slim) HTTP parity set + the EXTENDED seam
-#              scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. The
-#              extended scenarios are BLOCKED until the cloud harness image (honua-release#35) drives
-#              the real drivers against the cloud endpoint — require_real promotes that to FAIL so cloud
-#              MCP/Studio/GP/demo cert is genuinely gated, not assumed.
+#              honua-iac example roots, runs the canonical (slim) HTTP parity set — now including the
+#              live capability-manifest check (honua-release#61) — plus the canary probe set
+#              (e2e/canary_probes.py, GENERIC/no-seed-id mode: reachability-only probes run for real,
+#              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
+#              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
+#              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
+#              harness image (honua-release#35) to drive the real drivers against the cloud endpoint —
+#              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
+#              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
 #   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
 #              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
 #              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
 #
-# SELF-SKIP (task requirement): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and, for the
-# wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` + a clear
-# `::notice::` and exits 0 — so the local tiers of a dry-run cut still run and the train is not failed.
-# It is READY to enforce per-RC: set HONUA_AWS_ROLE_ARN (OIDC role) + HONUA_LAMBDA_IMAGE_URI/HONUA_ECS_IMAGE
+# SELF-SKIP (optional bootstrap only): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and,
+# for the wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` during
+# a dry run. With require_real, missing credentials are required-evidence failures and every cell exits red.
+# It is READY to enforce per-RC from manifest-derived server and Lambda images; set HONUA_AWS_ROLE_ARN
 # (+ RELEASE_GH_TOKEN for the wrapper) on the candidate and every layer runs for real. OIDC into AWS — no
 # static creds. The aggregate `cloud-report` job assembles one machine-readable gate-report the train parses.
 
@@ -30,11 +34,34 @@ on:
         description: "Promote BLOCKED/parity-divergence/not-certified scenarios to FAIL (per-RC, with creds wired)"
         type: boolean
         default: false
+      target:
+        description: "AWS runtime target to validate"
+        type: choice
+        options: [all, aws-serverless, aws-ecs, aws-eks]
+        default: all
+      redis_mode:
+        description: "Redis mode(s) to validate"
+        type: choice
+        options: [both, "off", "on"]
+        default: both
+      run_iac_live:
+        description: "Also dispatch the full honua-iac live AWS harness"
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       require_real:
         type: boolean
         default: false
+      target:
+        type: string
+        default: all
+      redis_mode:
+        type: string
+        default: both
+      run_iac_live:
+        type: boolean
+        default: true
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -53,67 +80,275 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  candidate:
+    name: "Resolve manifest cloud candidates"
+    runs-on: ubuntu-latest
+    outputs:
+      iac_ref: ${{ steps.pins.outputs.iac_ref }}
+      helm_ref: ${{ steps.pins.outputs.helm_ref }}
+      server_ref: ${{ steps.pins.outputs.server_ref }}
+      server_image: ${{ steps.pins.outputs.server_image }}
+      ecs_architecture: ${{ steps.pins.outputs.ecs_architecture }}
+      lambda_image: ${{ steps.lambda-ecr.outputs.lambda_image }}
+      lambda_architecture: ${{ steps.pins.outputs.lambda_architecture }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Read exact cloud component SHAs from the platform manifest
+        id: pins
+        env:
+          # Presence of the OIDC role decides whether the pending-ecr-mirror sentinel is acceptable:
+          # with no role nothing is mirrored (the cell self-skips), so an unknown post-mirror digest
+          # is honest. With a role configured the mirror DOES run and the sentinel is a hard failure.
+          HONUA_AWS_ROLE_ARN: ${{ vars.HONUA_AWS_ROLE_ARN }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import yaml
+
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          components = manifest.get("components") or {}
+          server = components.get("honua-server") or {}
+          pins = {
+              "iac_ref": str((components.get("honua-iac") or {}).get("sha", "")),
+              "helm_ref": str((components.get("honua-helm") or {}).get("sha", "")),
+              "server_ref": str(server.get("sha", "")),
+          }
+          for name, value in pins.items():
+              if not re.fullmatch(r"[0-9a-f]{40}", value):
+                  raise SystemExit(f"{name} is not an exact 40-character commit SHA: {value!r}")
+          image = str(server.get("image", ""))
+          digest = str(server.get("digest", ""))
+          if not image or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+              raise SystemExit("honua-server image and exact sha256 digest are required")
+          pins["server_image"] = f"{image}@{digest}"
+          ecs_architecture = str(server.get("awsEcsArchitecture", ""))
+          if ecs_architecture not in {"arm64", "x86_64"}:
+              raise SystemExit("honua-server awsEcsArchitecture must be arm64 or x86_64")
+          pins["ecs_architecture"] = ecs_architecture
+          lambda_image = str(server.get("awsLambdaImage", ""))
+          lambda_digest = str(server.get("awsLambdaDigest", ""))
+          lambda_ecr_digest = str(server.get("awsLambdaEcrDigest", ""))
+          lambda_architecture = str(server.get("awsLambdaArchitecture", ""))
+          if not lambda_image.startswith("ghcr.io/honua-io/honua-server:"):
+              raise SystemExit("honua-server awsLambdaImage must be an exact Honua GHCR tag")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_digest):
+              raise SystemExit("honua-server awsLambdaDigest must be an exact sha256 digest")
+          # honua-release#99: the post-mirror ECR digest is only knowable by actually pushing to ECR
+          # (ECR re-serialises the OCI manifest as Docker schema 2, so it differs from the GHCR
+          # digest and cannot be reproduced by a stock registry). On a re-pin the new value is
+          # therefore unknown until this job runs once. The manifest may say so with exactly one
+          # documented sentinel — never a stale digest from a previous pin, never an invented one.
+          # The mirror step below still runs on the sentinel: it pushes, resolves the real digest,
+          # asserts ECR preserved the source config, and then FAILS with the value to record. So the
+          # sentinel buys a bootstrap round-trip, not a skipped verification.
+          pending_ecr_mirror = "pending-ecr-mirror"
+          if lambda_ecr_digest != pending_ecr_mirror and not re.fullmatch(r"sha256:[0-9a-f]{64}", lambda_ecr_digest):
+              raise SystemExit(
+                  "honua-server awsLambdaEcrDigest must be an exact sha256 digest or the literal "
+                  f"{pending_ecr_mirror!r} sentinel (honua-release#99)"
+              )
+          if lambda_architecture not in {"arm64", "x86_64"}:
+              raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
+          pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
+          pins["lambda_source_digest"] = lambda_digest
+          pins["lambda_ecr_digest"] = lambda_ecr_digest
+          pins["lambda_architecture"] = lambda_architecture
+          pins["lambda_ecr_tag"] = f"rc-{manifest['platformRelease']}-lambda-aot-{pins['server_ref'][:7]}-{lambda_architecture}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for name, value in pins.items():
+                  output.write(f"{name}={value}\n")
+          PY
+
+      - name: Configure AWS credentials for the candidate Lambda mirror
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Mirror the exact Lambda candidate into same-region ECR
+        id: lambda-ecr
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        env:
+          SOURCE_IMAGE: ${{ steps.pins.outputs.lambda_source }}
+          SOURCE_DIGEST: ${{ steps.pins.outputs.lambda_source_digest }}
+          EXPECTED_ECR_DIGEST: ${{ steps.pins.outputs.lambda_ecr_digest }}
+          SOURCE_ARCHITECTURE: ${{ steps.pins.outputs.lambda_architecture }}
+          TARGET_TAG: ${{ steps.pins.outputs.lambda_ecr_tag }}
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          REPOSITORY="honua-server"
+          TARGET="${REGISTRY}/${REPOSITORY}:${TARGET_TAG}"
+
+          SOURCE_MANIFEST="$(docker buildx imagetools inspect --raw "$SOURCE_IMAGE")"
+          SOURCE_CONFIG="$(jq -er '.config.digest' <<<"$SOURCE_MANIFEST")"
+
+          aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
+          EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+            --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)"
+
+          # honua-release#99 bootstrap: on a fresh honua-server pin the post-mirror ECR digest is not
+          # yet knowable, so the manifest carries the pending-ecr-mirror sentinel. Mirror anyway,
+          # verify ECR preserved the source config, then FAIL with the digest to record — the pin is
+          # not certified until the manifest declares it up front, but you only need one round trip.
+          if [ "$EXPECTED_ECR_DIGEST" = "pending-ecr-mirror" ]; then
+            if [ -z "$EXISTING" ] || [ "$EXISTING" = "None" ]; then
+              aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+              docker pull --platform "linux/${SOURCE_ARCHITECTURE/x86_64/amd64}" "$SOURCE_IMAGE"
+              docker tag "$SOURCE_IMAGE" "$TARGET"
+              docker push "$TARGET"
+              EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+            fi
+            BOOT_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+              --image-ids imageDigest="$EXISTING" \
+              --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0].imageManifest' --output text)"
+            BOOT_CONFIG="$(jq -er '.config.digest' <<<"$BOOT_MANIFEST")"
+            if [ "$BOOT_CONFIG" != "$SOURCE_CONFIG" ]; then
+              echo "::error::ECR Lambda config $BOOT_CONFIG does not match source config $SOURCE_CONFIG"
+              exit 1
+            fi
+            echo "::error::awsLambdaEcrDigest is the pending-ecr-mirror sentinel. ECR preserved the source config; record this in platform-manifest.yaml and re-run (honua-release#99): $EXISTING"
+            exit 1
+          fi
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ] && [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::immutable Lambda candidate tag $TARGET_TAG already points at $EXISTING, expected $EXPECTED_ECR_DIGEST"
+            exit 1
+          fi
+          if [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
+            PLATFORM_ARCH="${SOURCE_ARCHITECTURE/x86_64/amd64}"
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+            docker pull --platform "linux/${PLATFORM_ARCH}" "$SOURCE_IMAGE"
+            docker tag "$SOURCE_IMAGE" "$TARGET"
+            docker push "$TARGET"
+          fi
+
+          RESOLVED="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+            --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          if [ "$RESOLVED" != "$EXPECTED_ECR_DIGEST" ]; then
+            echo "::error::ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST"
+            exit 1
+          fi
+          ECR_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+            --image-ids imageDigest="$RESOLVED" \
+            --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+            --query 'images[0].imageManifest' --output text)"
+          ECR_CONFIG="$(jq -er '.config.digest' <<<"$ECR_MANIFEST")"
+          if [ "$ECR_CONFIG" != "$SOURCE_CONFIG" ]; then
+            echo "::error::ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG"
+            exit 1
+          fi
+          echo "lambda_image=${REGISTRY}/${REPOSITORY}@${RESOLVED}" >> "$GITHUB_OUTPUT"
+
   parity:
+    needs: candidate
     # The deploy-target x Redis matrix: all 3 AWS targets, each with Redis on and off, so the platform
     # is proven to behave identically everywhere and with/without its cache. Each cell is independent
     # (fail-fast off) so one skipped/blocked/red cell doesn't hide the others.
     strategy:
       fail-fast: false
+      # VPC QUOTA, not throughput tuning. Every cell stands up its own VPC in AWS_REGION, and the
+      # full matrix is 3 targets x 2 redis modes = 6 cells. With the account's default VPC that needs
+      # 7 VPC slots against a default per-region quota of 5 (L-F678F1CE), so an unthrottled matrix
+      # cannot pass in a stock account: the cells that lose the race die on
+      #   Error: creating EC2 VPC: api error VpcLimitExceeded: The maximum number of VPCs has been reached.
+      # which reads like a broken cell rather than a capacity ceiling. Observed on run 32193955519,
+      # where four cells took slots and the rest failed.
+      #
+      # max-parallel keeps concurrent VPC demand at 2 + the default VPC, leaving headroom for the
+      # demo VPC and any validation cell that has not been reaped yet (honua-iac#142). Raising the
+      # quota is the other half of the fix and is tracked separately; this is the half that does not
+      # depend on an AWS support ticket, and it stays correct afterwards.
+      max-parallel: 2
       matrix:
-        target: [aws-serverless, aws-ecs, aws-eks]
-        redis: ["off", "on"]
+        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     runs-on: ubuntu-latest
     env:
       AWS_REGION: "us-east-1"
-      # Set as repo/org variables to enable a real deploy; empty => the cell self-skips honestly.
-      HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}
-      HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}
+      # Both deployable artifacts are resolved from the frozen platform manifest by the candidate job.
+      HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}
+      HONUA_LAMBDA_ARCHITECTURE: ${{ needs.candidate.outputs.lambda_architecture }}
+      HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
+      HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Checkout honua-iac (terraform tree)
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
+          ref: ${{ needs.candidate.outputs.iac_ref }}
           path: _honua-iac
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
 
       - name: Checkout honua-helm (chart for the EKS cell)
         if: matrix.target == 'aws-eks'
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-helm
+          ref: ${{ needs.candidate.outputs.helm_ref }}
           path: _honua-helm
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
-      - run: python -m pip install pytest
+      - name: Install cloud runner dependencies
+        # PyYAML (canary quarantine, the EKS cell's chart dependency resolution) is a declared runner
+        # dependency, so install the declared set rather than assuming the runner image carries it.
+        run: python -m pip install -r e2e/requirements.txt pytest
 
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic
         run: python -m pytest e2e/test_cloud.py -q
 
-      # OIDC into AWS — only when a role is configured; otherwise the cell self-skips.
+      # OIDC into AWS — only when a role is configured; otherwise an optional cell self-skips and a
+      # require_real cell fails closed.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
+
+      - name: Resolve the ephemeral runner's own /32
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        run: |
+          set -euo pipefail
+          export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,os; ipaddress.IPv4Address(os.environ["RUNNER_IP"])'
+          # serverless/ECS: PostGIS bootstrap reaches RDS from here.
+          echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          # EKS: the runner drives kubectl/helm from outside the VPC, so the cluster's public API
+          # endpoint and the chart's load balancer are opened to THIS runner and nothing else.
+          # ECS: same address, same reason, for the ALB security group — the aws-ecs module defaults
+          # to VPC-only HTTP ingress, which silently made every probe on that cell unreachable
+          # (honua-release#128). The probes run from this runner, so this is the address that must
+          # get in, and it is the only one that does.
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
 
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
@@ -128,22 +363,23 @@ jobs:
         if: always()
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
         run: |
-          # run_cloud already tears down; belt-and-suspenders so nothing lingers on credits even if the
-          # cell was cancelled mid-apply. Sweep every AWS example root.
-          if [ -n "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
-            for ROOT in "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws \
-                        "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws-serverless \
-                        "$HONUA_IAC_DIR"/infrastructure/terraform/examples/aws-eks; do
-              [ -d "$ROOT/.terraform" ] && terraform -chdir="$ROOT" destroy -auto-approve -no-color -input=false || true
-            done
-          else
+          # run_cloud already tears down; reconstruct this exact matrix cell's variables so the backstop
+          # can safely destroy partial state after cancellation without prompting for required inputs.
+          # It is FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step
+          # goes red instead of leaving an orphaned VPC/cluster billing (honua-iac#142).
+          if [ -f "$HONUA_CLOUD_PROVISION_MARKER" ]; then
+            python e2e/reap_cloud.py --target "${{ matrix.target }}" --redis "${{ matrix.redis }}"
+          elif [ -z "${{ vars.HONUA_AWS_ROLE_ARN }}" ]; then
             echo "::notice title=cloud-cert self-skipped::no HONUA_AWS_ROLE_ARN — nothing was deployed to reap"
+          else
+            echo "::notice title=cloud-cert not provisioned::provisioning never started — nothing was deployed to reap"
           fi
 
       - name: Upload cloud gate-report (per cell)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: e2e/gate-report-cloud.json
@@ -152,6 +388,8 @@ jobs:
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:
     name: "iac-live (terraform-manual-validation, run_live=aws)"
+    needs: candidate
+    if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
@@ -162,19 +400,28 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || '' }}
           AWS_ROLE: ${{ vars.HONUA_AWS_ROLE_ARN }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
+          IAC_REF: ${{ needs.candidate.outputs.iac_ref }}
+          SERVER_REF: ${{ needs.candidate.outputs.server_ref }}
+          ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
         run: |
           set -uo pipefail
           STATUS=skipped; WHY="cloud-creds-unset"
           if [ -z "$GH_TOKEN" ] || [ -z "$AWS_ROLE" ]; then
-            echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (set RELEASE_GH_TOKEN + HONUA_AWS_ROLE_ARN to enforce per-RC)"
+            if [ "$REQUIRE_REAL" = "true" ]; then
+              STATUS=fail; WHY="required cloud certification evidence missing: cloud-creds-unset"
+              echo "::error title=required cloud-cert missing::iac-live cannot skip on a real release cut"
+            else
+              echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (optional dry-run path)"
+            fi
           else
             REPO=honua-io/honua-iac
             WF=terraform-manual-validation.yml
             REF=trunk
-            echo "dispatching $WF on $REPO ($REF) with run_live=true cloud=aws"
+            echo "dispatching $WF from $REPO/$REF against IAC $IAC_REF and server $SERVER_REF with run_live=true cloud=aws"
             # Record the dispatch time so we can find the run we just triggered.
             SINCE="$(date -u +%FT%TZ)"
             gh workflow run "$WF" --repo "$REPO" --ref "$REF" \
+              -f candidate_ref="$IAC_REF" -f honua_server_ref="$SERVER_REF" -f aws_ecs_image="$ECS_IMAGE" \
               -f cloud=aws -f deployment_profile=ephemeral -f run_live=true \
               -f run_k8s=false -f run_aks=false -f run_eks=false -f run_drift=false \
               >/tmp/iac-dispatch.log 2>&1 || { STATUS=fail; WHY="failed to dispatch $WF (token scope? branch $REF?)"; cat /tmp/iac-dispatch.log; }
@@ -192,8 +439,8 @@ jobs:
                 echo "watching honua-iac run $RUN_ID"
                 gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/tmp/iac-watch.log 2>&1 && CONC=success || CONC=failure
                 URL="$(gh run view "$RUN_ID" --repo "$REPO" --json url --jq .url 2>/dev/null || echo '')"
-                if [ "$CONC" = "success" ]; then STATUS=pass; WHY="honua-iac live AWS validation passed ($URL)";
-                else STATUS=fail; WHY="honua-iac live AWS validation failed ($URL)"; fi
+                if [ "$CONC" = "success" ]; then STATUS=pass; WHY="honua-iac $IAC_REF live AWS validation passed ($URL)";
+                else STATUS=fail; WHY="honua-iac $IAC_REF live AWS validation failed ($URL)"; fi
               fi
             fi
           fi
@@ -206,7 +453,7 @@ jobs:
 
       - name: Upload iac-live report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-iac-live-report
           path: out/gate-report-cloud.json
@@ -214,14 +461,14 @@ jobs:
 
   # ── cloud-report: assemble ONE machine-readable gate-report the train parses (never scrape logs) ─────
   cloud-report:
-    needs: [parity, iac-live]
+    needs: [candidate, parity, iac-live]
     if: always()
     runs-on: ubuntu-latest
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download all cloud reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: "*cloud*report*"
           path: reports
@@ -232,12 +479,28 @@ jobs:
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          PARITY_RESULT: ${{ needs.parity.result }}
+          IAC_LIVE_RESULT: ${{ needs.iac-live.result }}
+          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') && inputs.run_iac_live)) && 'true' || 'false' }}
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+          REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
         run: |
           set -euo pipefail
           mkdir -p out
           FILES=$(find reports -name 'gate-report-cloud.json' 2>/dev/null || true)
-          if [ -z "$FILES" ]; then
-            echo '{"gate":"cloud-parity","status":"skipped","why":"no cloud cell reports produced (self-skipped)","cells":[]}' > merged.json
+          if [ "$CANDIDATE_RESULT" != "success" ]; then
+            jq -n --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$PARITY_RESULT" != "success" ]; then
+            jq -n --arg why "parity prerequisite ended $PARITY_RESULT" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ "$FULL_SCOPE" = "true" ] && [ "$IAC_LIVE_RESULT" != "success" ]; then
+            jq -n --arg why "iac-live prerequisite ended $IAC_LIVE_RESULT during a full-scope run" \
+              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
+          elif [ -z "$FILES" ]; then
+            echo '{"gate":"cloud-parity","status":"fail","why":"no cloud cell reports produced","cells":[]}' > merged.json
           else
             # Each cell/wrapper report contributes a {status,why,...}. Overall verdict:
             #   fail    if any cell failed
@@ -250,15 +513,53 @@ jobs:
                 cells: [ .[] | {gate:(.gate//"cloud-cell"), cell:(.cell//.gate//"?"), target:.target,
                                 redis:.redis, status:.status, why:.why} ],
                 scenarioCoverage: ( [ .[] | (.scenarioCoverage // [])[] ] | unique_by(.name) ),
+                canaryProbes: ( [ .[] | (.canaryProbes // [])[] ] | unique_by(.name) ),
                 status: ( [ .[].status ] as $s
                   | if   ($s|any(.=="fail"))    then "fail"
                     elif ($s|any(.=="blocked")) then "blocked"
                     elif ($s|all(.=="skipped")) then "skipped"
                     else "pass" end ) }' $FILES > merged.json
           fi
-          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" \
-             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601)}' \
+          jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" --arg full "$FULL_SCOPE" \
+             --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
+             --arg iac "$REQUESTED_IAC_LIVE" \
+             '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
+                    certifying:false,
+                    certifyingScope:($full == "true"),
+                    requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
+              | if .status == "pass" and $full != "true" then
+                  .status = "blocked"
+                  | .why = "focused dispatch is diagnostic only; full AWS target x Redis scope plus iac-live is required for certification"
+                else . end' \
              merged.json > out/gate-report-cloud.json
+
+          # A full certification requires all six target/cache cells plus the IaC live wrapper. A
+          # successful job that failed to upload one of those reports must fail closed.
+          if [ "$FULL_SCOPE" = "true" ] && [ "$(jq -r .status out/gate-report-cloud.json)" != "fail" ]; then
+            EXPECTED='["aws-serverless/redis-off","aws-serverless/redis-on","aws-ecs/redis-off","aws-ecs/redis-on","aws-eks/redis-off","aws-eks/redis-on","cloud-iac-live"]'
+            MISSING="$(jq -c --argjson expected "$EXPECTED" \
+              '$expected - [.cells[].cell]' out/gate-report-cloud.json)"
+            if [ "$MISSING" != "[]" ]; then
+              jq --arg missing "$MISSING" \
+                '.status="fail" | .why=("full-scope cloud reports missing required cells: " + $missing)' \
+                out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+              mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+            elif [ "$(jq -r .status out/gate-report-cloud.json)" = "pass" ]; then
+              NON_PASS="$(jq -c --argjson expected "$EXPECTED" \
+                '[.cells[] | select(.cell as $cell | $expected | index($cell))
+                  | select(.status != "pass") | {cell,status}]' out/gate-report-cloud.json)"
+              if [ "$NON_PASS" != "[]" ]; then
+                jq --arg nonpass "$NON_PASS" \
+                  '.status="fail" | .why=("full-scope cloud reports did not all pass: " + $nonpass)' \
+                  out/gate-report-cloud.json > out/gate-report-cloud.checked.json
+                mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
+              fi
+            fi
+          fi
+          jq --arg full "$FULL_SCOPE" --arg enf "$REQUIRE_REAL" \
+            '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' \
+            out/gate-report-cloud.json > out/gate-report-cloud.certification.json
+          mv out/gate-report-cloud.certification.json out/gate-report-cloud.json
           cat out/gate-report-cloud.json
           OVERALL="$(jq -r .status out/gate-report-cloud.json)"
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
@@ -268,12 +569,15 @@ jobs:
             echo "| cell | status | why |"; echo "|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo)";
+            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#35)";
             jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
+            echo "";
+            echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";
+            jq -r '.canaryProbes[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-gate-report
           path: out/gate-report-cloud.json

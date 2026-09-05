@@ -1,571 +1,71 @@
 {
-  "components": {
-    "schemas": {
-      "BatchOperation": {
-        "properties": {
-          "feature": {
-            "$ref": "#/components/schemas/GeoJsonFeature"
-          },
-          "featureId": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "CREATE",
-              "UPDATE",
-              "DELETE"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type"
-        ],
-        "type": "object"
-      },
-      "BatchOperationResponse": {
-        "properties": {
-          "hasErrors": {
-            "type": "boolean"
-          },
-          "processedCount": {
-            "type": "integer"
-          },
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/BatchOperationResult"
-            },
-            "type": "array"
-          },
-          "successCount": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "results",
-          "hasErrors",
-          "processedCount",
-          "successCount"
-        ],
-        "type": "object"
-      },
-      "BatchOperationResult": {
-        "properties": {
-          "errorMessage": {
-            "type": "string"
-          },
-          "featureId": {
-            "type": "string"
-          },
-          "isSuccess": {
-            "type": "boolean"
-          },
-          "operationId": {
-            "type": "string"
-          },
-          "statusCode": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "isSuccess",
-          "statusCode"
-        ],
-        "type": "object"
-      },
-      "BatchRequest": {
-        "properties": {
-          "failFast": {
-            "default": false,
-            "type": "boolean"
-          },
-          "operations": {
-            "items": {
-              "$ref": "#/components/schemas/BatchOperation"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "operations"
-        ],
-        "type": "object"
-      },
-      "CollectionInfo": {
-        "properties": {
-          "crs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "description": {
-            "type": "string"
-          },
-          "extent": {
-            "$ref": "#/components/schemas/Extent"
-          },
-          "id": {
-            "type": "string"
-          },
-          "itemType": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "storageCrs": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "Collections": {
-        "properties": {
-          "collections": {
-            "items": {
-              "$ref": "#/components/schemas/CollectionInfo"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "ConformanceDeclaration": {
-        "properties": {
-          "conformsTo": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "Extent": {
-        "properties": {
-          "spatial": {
-            "$ref": "#/components/schemas/SpatialExtent"
-          },
-          "temporal": {
-            "$ref": "#/components/schemas/TemporalExtent"
-          }
-        },
-        "type": "object"
-      },
-      "FeatureCollection": {
-        "properties": {
-          "features": {
-            "items": {
-              "$ref": "#/components/schemas/GeoJsonFeature"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "numberMatched": {
-            "type": "integer"
-          },
-          "numberReturned": {
-            "type": "integer"
-          },
-          "timeStamp": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "type": {
-            "enum": [
-              "FeatureCollection"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "GeoJsonFeature": {
-        "properties": {
-          "geometry": {
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/GeoJsonGeometry"
-              }
-            ]
-          },
-          "id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ]
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "properties": {
-            "type": "object"
-          },
-          "type": {
-            "enum": [
-              "Feature"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "GeoJsonFeatureMergePatch": {
-        "additionalProperties": true,
-        "description": "Sparse GeoJSON Feature merge patch. Omitted members remain unchanged.",
-        "properties": {
-          "geometry": {
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/GeoJsonGeometry"
-              }
-            ]
-          },
-          "id": {
-            "type": "integer"
-          },
-          "properties": {
-            "nullable": true,
-            "type": "object"
-          },
-          "type": {
-            "enum": [
-              "Feature"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "GeoJsonGeometry": {
-        "discriminator": {
-          "propertyName": "type"
-        },
-        "properties": {
-          "coordinates": {
-            "description": "Coordinate array whose structure depends on the geometry type (RFC 7946)"
-          },
-          "geometries": {
-            "description": "Child geometries (GeometryCollection only)",
-            "items": {
-              "$ref": "#/components/schemas/GeoJsonGeometry"
-            },
-            "type": "array"
-          },
-          "type": {
-            "enum": [
-              "Point",
-              "MultiPoint",
-              "LineString",
-              "MultiLineString",
-              "Polygon",
-              "MultiPolygon",
-              "GeometryCollection"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type"
-        ],
-        "type": "object"
-      },
-      "LandingPage": {
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "Link": {
-        "properties": {
-          "href": {
-            "type": "string"
-          },
-          "rel": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "href",
-          "rel"
-        ],
-        "type": "object"
-      },
-      "QueryablesSchema": {
-        "type": "object"
-      },
-      "SpatialAnalyticsFeatureCollection": {
-        "properties": {
-          "features": {
-            "items": {
-              "$ref": "#/components/schemas/GeoJsonFeature"
-            },
-            "type": "array"
-          },
-          "metadata": {
-            "$ref": "#/components/schemas/SpatialAnalyticsMetadata"
-          },
-          "numberReturned": {
-            "type": "integer"
-          },
-          "type": {
-            "enum": [
-              "FeatureCollection"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "features",
-          "numberReturned",
-          "metadata"
-        ],
-        "type": "object"
-      },
-      "SpatialAnalyticsMetadata": {
-        "properties": {
-          "inputTruncated": {
-            "type": "boolean"
-          },
-          "maxInputFeatures": {
-            "type": "integer"
-          },
-          "maxOutputRows": {
-            "nullable": true,
-            "type": "integer"
-          },
-          "operation": {
-            "type": "string"
-          },
-          "resultTruncated": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "operation",
-          "inputTruncated",
-          "resultTruncated",
-          "maxInputFeatures"
-        ],
-        "type": "object"
-      },
-      "SpatialExtent": {
-        "properties": {
-          "bbox": {
-            "items": {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "TemporalExtent": {
-        "properties": {
-          "interval": {
-            "items": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      }
-    },
-    "securitySchemes": {
-      "ApiKeyAuth": {
-        "in": "header",
-        "name": "X-API-Key",
-        "type": "apiKey"
-      },
-      "BearerAuth": {
-        "bearerFormat": "JWT",
-        "scheme": "bearer",
-        "type": "http"
-      }
-    }
-  },
+  "openapi": "3.0.3",
   "info": {
+    "title": "Honua OGC API Features",
+    "description": "OGC API Features implementation for geospatial data access\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
+    "version": "1.0.0",
     "contact": {
       "name": "Honua Server"
     },
-    "description": "OGC API Features implementation for geospatial data access\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
-    "title": "Honua OGC API Features",
-    "version": "1.0.0",
     "x-honua-cite-compliance": {
-      "authoritativeSource": "docs/cite-status.md",
-      "evidenceWorkflow": "https://github.com/honua-io/honua-server/actions/workflows/cite-evidence-report.yml",
-      "lastEvidenceRun": "2026-05-17",
-      "suites": [
-        {
-          "passRate": "100%",
-          "passed": 137,
-          "profile": "default",
-          "suite": "OGC API Features 1.0",
-          "total": 137
-        },
-        {
-          "passRate": "100%",
-          "passed": 16,
-          "profile": "default",
-          "suite": "OGC API Tiles 1.0",
-          "total": 16
-        },
-        {
-          "passRate": "100%",
-          "passed": 31,
-          "profile": "applicable",
-          "suite": "GeoPackage 1.2",
-          "total": 31
-        },
-        {
-          "passRate": "100%",
-          "passed": 17,
-          "profile": "applicable",
-          "suite": "GML 3.2",
-          "total": 17
-        },
-        {
-          "passRate": "100%",
-          "passed": 42,
-          "profile": "applicable",
-          "suite": "KML 2.2",
-          "total": 42
-        },
-        {
-          "passRate": "100%",
-          "passed": 162,
-          "profile": "basic",
-          "suite": "WFS 1.0",
-          "total": 162
-        },
-        {
-          "passRate": "100%",
-          "passed": 39,
-          "profile": "basic",
-          "suite": "WFS 1.1",
-          "total": 39
-        },
-        {
-          "passRate": "100%",
-          "passed": 167,
-          "profile": "basic",
-          "suite": "WFS 2.0",
-          "total": 167
-        },
-        {
-          "passRate": "100%",
-          "passed": 82,
-          "profile": "core",
-          "suite": "WCS 2.0",
-          "total": 82
-        },
-        {
-          "passRate": "100%",
-          "passed": 199,
-          "profile": "default",
-          "suite": "WMS 1.3",
-          "total": 199
-        },
-        {
-          "passRate": "100%",
-          "passed": 60,
-          "profile": "default",
-          "suite": "WMTS 1.0",
-          "total": 60
-        }
-      ],
-      "summary": "All 11 conformance suites pass at 100% on trunk.",
+      "summary": "All 13 conformance suites pass at 100% on trunk.",
       "totals": {
-        "cantTell": 0,
+        "passed": 1117,
         "failed": 0,
-        "passed": 952,
-        "skipped": 0
-      }
+        "skipped": 0,
+        "cantTell": 0
+      },
+      "lastEvidenceRun": "2026-07-27",
+      "evidenceWorkflow": "https://github.com/honua-io/honua-server/actions/workflows/cite-evidence-report.yml",
+      "authoritativeSource": "docs/cite-status.md",
+      "suites": [
+        { "suite": "OGC API Features 1.0", "profile": "default", "passed": 137, "total": 137, "passRate": "100%" },
+        { "suite": "OGC API Tiles 1.0", "profile": "default", "passed": 16, "total": 16, "passRate": "100%" },
+        { "suite": "GeoPackage 1.2", "profile": "applicable", "passed": 31, "total": 31, "passRate": "100%" },
+        { "suite": "GML 3.2", "profile": "applicable", "passed": 17, "total": 17, "passRate": "100%" },
+        { "suite": "KML 2.2", "profile": "applicable", "passed": 42, "total": 42, "passRate": "100%" },
+        { "suite": "WFS 1.0", "profile": "basic", "passed": 162, "total": 162, "passRate": "100%" },
+        { "suite": "WFS 1.1", "profile": "basic", "passed": 39, "total": 39, "passRate": "100%" },
+        { "suite": "WFS 2.0", "profile": "basic", "passed": 167, "total": 167, "passRate": "100%" },
+        { "suite": "WFS 2.0 Transactional", "profile": "transactional", "passed": 25, "total": 25, "passRate": "100%" },
+        { "suite": "WCS 2.0", "profile": "core", "passed": 82, "total": 82, "passRate": "100%" },
+        { "suite": "WMS 1.1.1", "profile": "default", "passed": 126, "total": 126, "passRate": "100%" },
+        { "suite": "WMS 1.3", "profile": "default", "passed": 213, "total": 213, "passRate": "100%" },
+        { "suite": "WMTS 1.0", "profile": "default", "passed": 60, "total": 60, "passRate": "100%" }
+      ]
     }
   },
-  "openapi": "3.0.3",
+  "servers": [
+    {
+      "url": "/ogc/features"
+    }
+  ],
   "paths": {
     "/": {
       "get": {
+        "summary": "Get OGC API Features landing page",
         "description": "The landing page provides links to the API definition and other resources",
+        "tags": [
+          "OGC API Features"
+        ],
         "parameters": [
           {
-            "description": "Output format (json or html)",
-            "in": "query",
             "name": "f",
+            "in": "query",
             "required": false,
+            "description": "Output format (json or html)",
             "schema": {
+              "type": "string",
               "enum": [
                 "json",
                 "html"
-              ],
-              "type": "string"
+              ]
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "Landing page information",
             "content": {
               "application/json": {
                 "schema": {
@@ -577,60 +77,127 @@
                   "type": "string"
                 }
               }
-            },
-            "description": "Landing page information"
+            }
           }
-        },
-        "summary": "Get OGC API Features landing page",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       }
     },
     "/api": {
       "get": {
+        "summary": "Get OpenAPI 3.0 specification for OGC API Features",
         "description": "Alias for the OpenAPI specification at /openapi.json",
+        "tags": [
+          "OGC API Features"
+        ],
         "responses": {
           "200": {
+            "description": "OpenAPI specification document",
             "content": {
               "application/vnd.oai.openapi+json;version=3.0": {
                 "schema": {
                   "type": "object"
                 }
               }
-            },
-            "description": "OpenAPI specification document"
+            }
           },
           "404": {
             "description": "Specification not found"
           }
-        },
-        "summary": "Get OpenAPI 3.0 specification for OGC API Features",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       }
     },
-    "/collections": {
+    "/schemas/honua-ogcapi-features.xsd": {
       "get": {
-        "description": "Lists all available feature collections",
+        "summary": "Get OGC API Features GML application schema",
+        "description": "Returns the XML Schema document used by Honua OGC API Features GML responses.",
+        "tags": [
+          "OGC API Features"
+        ],
+        "responses": {
+          "200": {
+            "description": "GML application schema",
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conformance": {
+      "get": {
+        "summary": "Get OGC API Features conformance declaration",
+        "description": "Conformance classes that this API conforms to",
+        "tags": [
+          "OGC API Features"
+        ],
         "parameters": [
           {
-            "description": "Output format (json or html)",
-            "in": "query",
             "name": "f",
+            "in": "query",
             "required": false,
+            "description": "Output format (json or html)",
             "schema": {
+              "type": "string",
               "enum": [
                 "json",
                 "html"
-              ],
-              "type": "string"
+              ]
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "Conformance declaration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConformanceDeclaration"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collections": {
+      "get": {
+        "summary": "Get OGC API Features collections",
+        "description": "Lists all available feature collections",
+        "tags": [
+          "OGC API Features"
+        ],
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "html"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Collections list",
             "content": {
               "application/json": {
                 "schema": {
@@ -642,556 +209,35 @@
                   "type": "string"
                 }
               }
-            },
-            "description": "Collections list"
-          }
-        },
-        "summary": "Get OGC API Features collections",
-        "tags": [
-          "OGC API Features"
-        ]
-      }
-    },
-    "/collections/{collectionId}": {
-      "get": {
-        "description": "Get detailed metadata for a specific collection",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
             }
           }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionInfo"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Collection metadata"
-          },
-          "404": {
-            "description": "Collection not found"
-          }
-        },
-        "summary": "Get OGC API Features collection metadata",
-        "tags": [
-          "OGC API Features"
-        ]
-      }
-    },
-    "/collections/{collectionId}/buffer-aggregate": {
-      "post": {
-        "description": "Buffers features by a configurable radius and optionally dissolves overlapping buffers, groups by attributes, and emits aggregate statistics. `outStatistics` requires `dissolve=true` (the aggregate columns only exist in the dissolved group-by path); supplying both `dissolve=false` and `outStatistics` returns HTTP 400. Pro-tier feature gated by ADR-0024.",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "dissolve": {
-                    "default": true,
-                    "description": "Union overlapping buffers within each group. Must be true when outStatistics is supplied — the aggregate columns are only emitted in the dissolved GROUP BY path.",
-                    "type": "boolean"
-                  },
-                  "distance": {
-                    "description": "Buffer radius. Interpreted in the supplied unit (default meters). The server enforces an operator-configured maximum after unit conversion.",
-                    "type": "number"
-                  },
-                  "geometry": {
-                    "description": "GeoServices geometry filter applied before buffer aggregation. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "geometryType": {
-                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon).",
-                    "type": "string"
-                  },
-                  "groupByFields": {
-                    "description": "Comma-separated list of field names to group buffers by before dissolving.",
-                    "type": "string"
-                  },
-                  "inSR": {
-                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
-                    "oneOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "objectIds": {
-                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before buffer aggregation.",
-                    "type": "string"
-                  },
-                  "outStatistics": {
-                    "items": {
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "spatialRel": {
-                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific.",
-                    "type": "string"
-                  },
-                  "time": {
-                    "description": "FeatureServer time filter interval applied before buffer aggregation.",
-                    "type": "string"
-                  },
-                  "timeRelation": {
-                    "description": "FeatureServer temporal relationship used with the time filter.",
-                    "type": "string"
-                  },
-                  "unit": {
-                    "default": "meters",
-                    "description": "Unit of measure for distance. Aliases m/km/ft/mi are also accepted.",
-                    "enum": [
-                      "meters",
-                      "kilometers",
-                      "feet",
-                      "miles"
-                    ],
-                    "type": "string"
-                  },
-                  "where": {
-                    "description": "ArcGIS SQL filter applied before the buffer aggregate operation.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "distance"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "description": "Buffer aggregate request payload (distance, unit, dissolve flag, optional groupByFields, outStatistics, and shared filters)",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
-                }
-              }
-            },
-            "description": "Buffered features as GeoJSON FeatureCollection"
-          },
-          "400": {
-            "description": "Invalid buffer parameters"
-          },
-          "402": {
-            "description": "Pro-tier license required"
-          },
-          "404": {
-            "description": "Collection not found"
-          },
-          "501": {
-            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
-          }
-        },
-        "summary": "Buffer + aggregate for a collection (Pro)",
-        "tags": [
-          "OGC API Features",
-          "Spatial Analytics"
-        ]
-      }
-    },
-    "/collections/{collectionId}/clusters": {
-      "post": {
-        "description": "Runs DBSCAN or K-Means clustering over the collection features and returns either per-feature cluster assignments or per-cluster convex hulls. `outStatistics` requires `returnHullPerCluster=true` (the aggregate columns only exist in the GROUP BY cluster-hull path); supplying both `returnHullPerCluster=false` and `outStatistics` returns HTTP 400. Pro-tier feature gated by ADR-0024.",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "algorithm": {
-                    "default": "dbscan",
-                    "description": "Clustering algorithm. When omitted, defaults to 'dbscan'.",
-                    "enum": [
-                      "dbscan",
-                      "kmeans"
-                    ],
-                    "type": "string"
-                  },
-                  "eps": {
-                    "description": "DBSCAN neighborhood distance in meters. Required when algorithm is 'dbscan'.",
-                    "type": "number"
-                  },
-                  "geometry": {
-                    "description": "GeoServices geometry filter applied before clustering. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "geometryType": {
-                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon).",
-                    "type": "string"
-                  },
-                  "inSR": {
-                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
-                    "oneOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "k": {
-                    "description": "K-Means cluster count. Required when algorithm is 'kmeans'.",
-                    "type": "integer"
-                  },
-                  "minPoints": {
-                    "description": "DBSCAN minimum cluster size. Required when algorithm is 'dbscan'.",
-                    "type": "integer"
-                  },
-                  "objectIds": {
-                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before clustering.",
-                    "type": "string"
-                  },
-                  "outStatistics": {
-                    "description": "Optional statistic definitions evaluated per cluster. Only honored when returnHullPerCluster=true; supplying outStatistics with returnHullPerCluster=false returns HTTP 400.",
-                    "items": {
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "returnHullPerCluster": {
-                    "default": false,
-                    "description": "Return per-cluster convex hulls instead of per-feature assignments. Must be true when outStatistics is supplied — aggregate columns are only emitted in the hull-per-cluster GROUP BY path.",
-                    "type": "boolean"
-                  },
-                  "spatialRel": {
-                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific.",
-                    "type": "string"
-                  },
-                  "time": {
-                    "description": "FeatureServer time filter interval applied before clustering.",
-                    "type": "string"
-                  },
-                  "timeRelation": {
-                    "description": "FeatureServer temporal relationship used with the time filter.",
-                    "type": "string"
-                  },
-                  "where": {
-                    "description": "ArcGIS SQL filter applied before clustering.",
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          },
-          "description": "Clustering request payload (algorithm, parameters, and optional shared filters)",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
-                }
-              }
-            },
-            "description": "Cluster assignments or hulls as GeoJSON FeatureCollection"
-          },
-          "400": {
-            "description": "Invalid clustering parameters or filter syntax"
-          },
-          "402": {
-            "description": "Pro-tier license required"
-          },
-          "404": {
-            "description": "Collection not found"
-          },
-          "501": {
-            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
-          }
-        },
-        "summary": "Spatial clustering for a collection (Pro)",
-        "tags": [
-          "OGC API Features",
-          "Spatial Analytics"
-        ]
-      }
-    },
-    "/collections/{collectionId}/density": {
-      "post": {
-        "description": "Bins features into a hexagonal or square grid at a configurable cell size and returns counts or weighted sums per cell. Pro-tier feature gated by ADR-0024.",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "cellSize": {
-                    "description": "Cell size in meters. Bounded by the operator-configured min/max density cell size.",
-                    "type": "number"
-                  },
-                  "geometry": {
-                    "description": "GeoServices geometry filter applied before density binning. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "geometryType": {
-                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon).",
-                    "type": "string"
-                  },
-                  "inSR": {
-                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
-                    "oneOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "additionalProperties": true,
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "mode": {
-                    "default": "hex",
-                    "description": "Grid type. Aliases 'hexgrid', 'hex-grid', 'squaregrid', 'square-grid' are also accepted.",
-                    "enum": [
-                      "hex",
-                      "square"
-                    ],
-                    "type": "string"
-                  },
-                  "objectIds": {
-                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before density binning.",
-                    "type": "string"
-                  },
-                  "spatialRel": {
-                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific.",
-                    "type": "string"
-                  },
-                  "time": {
-                    "description": "FeatureServer time filter interval applied before density binning.",
-                    "type": "string"
-                  },
-                  "timeRelation": {
-                    "description": "FeatureServer temporal relationship used with the time filter.",
-                    "type": "string"
-                  },
-                  "weightField": {
-                    "description": "Optional numeric field summed per cell instead of feature counts.",
-                    "type": "string"
-                  },
-                  "where": {
-                    "description": "ArcGIS SQL filter applied before density binning.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "cellSize"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "description": "Density request payload (grid mode, cell size, optional weight field, and shared filters)",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
-                }
-              }
-            },
-            "description": "Density bins as GeoJSON FeatureCollection"
-          },
-          "400": {
-            "description": "Invalid density parameters"
-          },
-          "402": {
-            "description": "Pro-tier license required"
-          },
-          "404": {
-            "description": "Collection not found"
-          },
-          "501": {
-            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
-          }
-        },
-        "summary": "Density binning for a collection (Pro)",
-        "tags": [
-          "OGC API Features",
-          "Spatial Analytics"
-        ]
-      }
-    },
-    "/collections/{collectionId}/h3": {
-      "get": {
-        "description": "Groups collection features into H3 cells at a configurable resolution and returns GeoJSON features with aggregate statistics per cell",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "H3 resolution level (0-15)",
-            "in": "query",
-            "name": "resolution",
-            "required": true,
-            "schema": {
-              "maximum": 15,
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeatureCollection"
-                }
-              }
-            },
-            "description": "H3 aggregation as GeoJSON FeatureCollection"
-          },
-          "400": {
-            "description": "Invalid parameters"
-          },
-          "404": {
-            "description": "Collection not found"
-          },
-          "501": {
-            "description": "H3 extension not available — the h3-pg PostgreSQL extension is not installed"
-          },
-          "503": {
-            "description": "H3 capability check failed — the database may be temporarily unreachable"
-          }
-        },
-        "summary": "H3 hexagonal grid aggregation for a collection",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       }
     },
     "/collections/{collectionId}/items": {
       "get": {
+        "summary": "Get features from a collection",
         "description": "Get features from a collection with optional filtering",
+        "tags": [
+          "OGC API Features"
+        ],
         "parameters": [
           {
-            "description": "Collection identifier",
-            "in": "path",
             "name": "collectionId",
+            "in": "path",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Output format (json, geojson, gml, xml, csv, or html)",
-            "in": "query",
             "name": "f",
+            "in": "query",
             "required": false,
+            "description": "Output format (json, geojson, gml, xml, csv, or html)",
             "schema": {
+              "type": "string",
               "enum": [
                 "json",
                 "geojson",
@@ -1199,118 +245,123 @@
                 "xml",
                 "csv",
                 "html"
-              ],
-              "type": "string"
+              ]
             }
           },
           {
-            "description": "Maximum number of features to return",
-            "explode": false,
-            "in": "query",
             "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 1000,
-              "maximum": 2000,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Number of features to skip",
             "in": "query",
-            "name": "offset",
             "required": false,
+            "description": "Maximum number of features to return",
+            "style": "form",
+            "explode": false,
             "schema": {
-              "minimum": 0,
-              "type": "integer"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000,
+              "default": 1000
             }
           },
           {
-            "description": "Bounding box filter (minx,miny,maxx,maxy or minx,miny,minz,maxx,maxy,maxz)",
-            "explode": false,
+            "name": "offset",
             "in": "query",
-            "name": "bbox",
             "required": false,
+            "description": "Number of features to skip",
             "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "bbox",
+            "in": "query",
+            "required": false,
+            "description": "Bounding box filter (minx,miny,maxx,maxy or minx,miny,minz,maxx,maxy,maxz)",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
               "items": {
                 "type": "number"
               },
-              "maxItems": 6,
               "minItems": 4,
-              "type": "array"
-            },
-            "style": "form"
+              "maxItems": 6
+            }
           },
           {
-            "description": "CRS for the bbox coordinates",
-            "in": "query",
             "name": "bbox-crs",
+            "in": "query",
             "required": false,
+            "description": "CRS for the bbox coordinates",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           },
           {
-            "description": "Coordinate reference system URI for response geometry",
-            "in": "query",
             "name": "crs",
+            "in": "query",
             "required": false,
+            "description": "Coordinate reference system URI for response geometry",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           },
           {
-            "description": "Temporal filter (RFC 3339 instant or interval)",
-            "explode": false,
-            "in": "query",
             "name": "datetime",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "CQL2 filter expression",
             "in": "query",
-            "name": "filter",
             "required": false,
+            "description": "Temporal filter (RFC 3339 instant or interval)",
+            "style": "form",
+            "explode": false,
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Filter language (default cql2-text)",
+            "name": "filter",
             "in": "query",
-            "name": "filter-lang",
             "required": false,
+            "description": "CQL2 filter expression",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filter-lang",
+            "in": "query",
+            "required": false,
+            "description": "Filter language (default cql2-text)",
+            "schema": {
+              "type": "string",
               "enum": [
                 "cql2-text",
                 "cql2-json"
-              ],
-              "type": "string"
+              ]
             }
           },
           {
-            "description": "CRS for filter geometries",
-            "in": "query",
             "name": "filter-crs",
+            "in": "query",
             "required": false,
+            "description": "CRS for filter geometries",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "FeatureCollection",
             "content": {
               "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureCollection"
+                }
+              },
+              "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FeatureCollection"
                 }
@@ -1318,11 +369,6 @@
               "application/gml+xml;version=3.2": {
                 "schema": {
                   "type": "string"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeatureCollection"
                 }
               },
               "text/csv": {
@@ -1335,8 +381,7 @@
                   "type": "string"
                 }
               }
-            },
-            "description": "FeatureCollection"
+            }
           },
           "400": {
             "description": "Invalid request"
@@ -1344,36 +389,46 @@
           "404": {
             "description": "Collection not found"
           }
-        },
-        "summary": "Get features from a collection",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       },
       "post": {
+        "summary": "Create a new feature in a collection",
         "description": "Add a new feature to the specified collection",
+        "tags": [
+          "OGC API Features",
+          "Transactions"
+        ],
         "parameters": [
           {
-            "description": "Collection identifier",
-            "in": "path",
             "name": "collectionId",
+            "in": "path",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
-            "in": "header",
             "name": "Content-Crs",
+            "in": "header",
             "required": false,
+            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           }
         ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/geo+json": {
               "schema": {
@@ -1385,23 +440,16 @@
                 "$ref": "#/components/schemas/GeoJsonFeature"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GeoJsonFeature"
-                }
-              }
-            },
             "description": "Feature created",
             "headers": {
-              "Content-Crs": {
+              "Location": {
                 "schema": {
-                  "type": "string"
+                  "type": "string",
+                  "format": "uri"
                 }
               },
               "ETag": {
@@ -1409,10 +457,16 @@
                   "type": "string"
                 }
               },
-              "Location": {
+              "Content-Crs": {
                 "schema": {
-                  "format": "uri",
                   "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoJsonFeature"
                 }
               }
             }
@@ -1420,19 +474,51 @@
           "400": {
             "description": "Invalid request"
           },
+          "404": {
+            "description": "Collection not found"
+          },
           "401": {
             "description": "Authentication required"
           },
           "403": {
             "description": "Authenticated caller is not authorized to create features in this collection"
           },
-          "404": {
-            "description": "Collection not found"
-          },
           "409": {
             "description": "Conflict"
           }
-        },
+        }
+      }
+    },
+    "/collections/{collectionId}/items/batch": {
+      "post": {
+        "summary": "Execute batch feature operations",
+        "description": "Perform multiple create, update, or delete operations in a single request",
+        "tags": [
+          "OGC API Features",
+          "Transactions",
+          "Batch"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Content-Crs",
+            "in": "header",
+            "required": false,
+            "description": "Coordinate reference system URI applied to every GeoJSON feature in the batch payload. Must be one of the collection-advertised CRSs.",
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        ],
         "security": [
           {
             "ApiKeyAuth": []
@@ -1441,67 +527,36 @@
             "BearerAuth": []
           }
         ],
-        "summary": "Create a new feature in a collection",
-        "tags": [
-          "OGC API Features",
-          "Transactions"
-        ]
-      }
-    },
-    "/collections/{collectionId}/items/batch": {
-      "post": {
-        "description": "Perform multiple create, update, or delete operations in a single request",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Coordinate reference system URI applied to every GeoJSON feature in the batch payload. Must be one of the collection-advertised CRSs.",
-            "in": "header",
-            "name": "Content-Crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/BatchRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
+            "description": "Batch operation completed",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchOperationResponse"
                 }
               }
-            },
-            "description": "Batch operation completed"
+            }
           },
           "207": {
+            "description": "Batch operation completed with mixed results",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchOperationResponse"
                 }
               }
-            },
-            "description": "Batch operation completed with mixed results"
+            }
           },
           "400": {
             "description": "Invalid request"
@@ -1515,104 +570,155 @@
           "404": {
             "description": "Collection not found"
           }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Execute batch feature operations",
-        "tags": [
-          "OGC API Features",
-          "Transactions",
-          "Batch"
-        ]
+        }
       }
     },
-    "/collections/{collectionId}/items/{featureId}": {
-      "delete": {
-        "description": "Remove a feature from the specified collection",
+    "/collections/{collectionId}": {
+      "get": {
+        "summary": "Get OGC API Features collection metadata",
+        "description": "Get detailed metadata for a specific collection",
+        "tags": [
+          "OGC API Features"
+        ],
         "parameters": [
           {
-            "description": "Collection identifier",
-            "in": "path",
             "name": "collectionId",
+            "in": "path",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Feature identifier",
-            "in": "path",
-            "name": "featureId",
-            "required": true,
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "json",
+                "html"
+              ]
             }
           }
         ],
         "responses": {
-          "204": {
-            "description": "Feature deleted"
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Authenticated caller is not authorized to delete this feature"
+          "200": {
+            "description": "Collection metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionInfo"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
-            "description": "Feature not found"
+            "description": "Collection not found"
           }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Delete a feature from a collection",
-        "tags": [
-          "OGC API Features",
-          "Transactions"
-        ]
-      },
+        }
+      }
+    },
+    "/collections/{collectionId}/queryables": {
       "get": {
-        "description": "Get a specific feature by its ID from a collection",
+        "summary": "Get queryable properties for a collection",
+        "description": "Get JSON Schema describing queryable properties for filtering",
+        "tags": [
+          "OGC API Features"
+        ],
         "parameters": [
           {
-            "description": "Collection identifier",
-            "in": "path",
             "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Feature identifier",
             "in": "path",
-            "name": "featureId",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Output format (json, geojson, gml, xml, csv, or html)",
-            "in": "query",
             "name": "f",
+            "in": "query",
             "required": false,
+            "description": "Output format (json, schemajson, schema+json, or html)",
             "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "schemajson",
+                "schema+json",
+                "html"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queryables schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryablesSchema"
+                }
+              },
+              "application/schema+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryablesSchema"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Collection not found"
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}/items/{featureId}": {
+      "get": {
+        "summary": "Get a specific feature from a collection",
+        "description": "Get a specific feature by its ID from a collection",
+        "tags": [
+          "OGC API Features"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureId",
+            "in": "path",
+            "required": true,
+            "description": "Feature identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json, geojson, gml, xml, csv, or html)",
+            "schema": {
+              "type": "string",
               "enum": [
                 "json",
                 "geojson",
@@ -1620,25 +726,30 @@
                 "xml",
                 "csv",
                 "html"
-              ],
-              "type": "string"
+              ]
             }
           },
           {
-            "description": "Coordinate reference system URI for response geometry",
-            "in": "query",
             "name": "crs",
+            "in": "query",
             "required": false,
+            "description": "Coordinate reference system URI for response geometry",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           }
         ],
         "responses": {
           "200": {
+            "description": "Feature",
             "content": {
               "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoJsonFeature"
+                }
+              },
+              "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GeoJsonFeature"
                 }
@@ -1646,11 +757,6 @@
               "application/gml+xml;version=3.2": {
                 "schema": {
                   "type": "string"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GeoJsonFeature"
                 }
               },
               "text/csv": {
@@ -1663,118 +769,59 @@
                   "type": "string"
                 }
               }
-            },
-            "description": "Feature"
+            }
           },
           "404": {
             "description": "Feature not found"
           }
-        },
-        "summary": "Get a specific feature from a collection",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       },
-      "patch": {
-        "description": "Apply a JSON Merge Patch document to update feature properties and/or geometry",
+      "put": {
+        "summary": "Update an existing feature",
+        "description": "Replace an existing feature with new data",
+        "tags": [
+          "OGC API Features",
+          "Transactions"
+        ],
         "parameters": [
           {
-            "description": "Collection identifier",
-            "in": "path",
             "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Feature identifier",
             "in": "path",
-            "name": "featureId",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
-            "in": "header",
+            "name": "featureId",
+            "in": "path",
+            "required": true,
+            "description": "Feature identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "Content-Crs",
+            "in": "header",
             "required": false,
+            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
             "schema": {
-              "format": "uri",
-              "type": "string"
+              "type": "string",
+              "format": "uri"
             }
           },
           {
-            "description": "Strong ETag from a prior GET item response for optimistic concurrency control.",
-            "in": "header",
             "name": "If-Match",
+            "in": "header",
             "required": false,
+            "description": "Strong ETag from a prior GET item response for optimistic concurrency control.",
             "schema": {
               "type": "string"
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/geo+json": {
-              "schema": {
-                "$ref": "#/components/schemas/GeoJsonFeature"
-              }
-            },
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GeoJsonFeature"
-              }
-            },
-            "application/merge-patch+json": {
-              "schema": {
-                "$ref": "#/components/schemas/GeoJsonFeatureMergePatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GeoJsonFeature"
-                }
-              }
-            },
-            "description": "Feature updated",
-            "headers": {
-              "Content-Crs": {
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ETag": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "Authenticated caller is not authorized to patch this feature"
-          },
-          "404": {
-            "description": "Feature not found"
-          },
-          "412": {
-            "description": "ETag precondition failed - the feature has been modified since the provided ETag"
-          }
-        },
         "security": [
           {
             "ApiKeyAuth": []
@@ -1783,54 +830,8 @@
             "BearerAuth": []
           }
         ],
-        "summary": "Partially update an existing feature",
-        "tags": [
-          "OGC API Features",
-          "Transactions"
-        ]
-      },
-      "put": {
-        "description": "Replace an existing feature with new data",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Feature identifier",
-            "in": "path",
-            "name": "featureId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
-            "in": "header",
-            "name": "Content-Crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Strong ETag from a prior GET item response for optimistic concurrency control.",
-            "in": "header",
-            "name": "If-Match",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/geo+json": {
               "schema": {
@@ -1842,28 +843,27 @@
                 "$ref": "#/components/schemas/GeoJsonFeature"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
-            "content": {
-              "application/geo+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GeoJsonFeature"
-                }
-              }
-            },
             "description": "Feature updated",
             "headers": {
-              "Content-Crs": {
+              "ETag": {
                 "schema": {
                   "type": "string"
                 }
               },
-              "ETag": {
+              "Content-Crs": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoJsonFeature"
                 }
               }
             }
@@ -1883,7 +883,54 @@
           "412": {
             "description": "ETag precondition failed - the feature has been modified since the provided ETag"
           }
-        },
+        }
+      },
+      "patch": {
+        "summary": "Partially update an existing feature",
+        "description": "Apply a JSON Merge Patch document to update feature properties and/or geometry",
+        "tags": [
+          "OGC API Features",
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureId",
+            "in": "path",
+            "required": true,
+            "description": "Feature identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Content-Crs",
+            "in": "header",
+            "required": false,
+            "description": "Coordinate reference system URI for request geometry. Must be one of the collection-advertised CRSs.",
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "description": "Strong ETag from a prior GET item response for optimistic concurrency control.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [
           {
             "ApiKeyAuth": []
@@ -1892,115 +939,255 @@
             "BearerAuth": []
           }
         ],
-        "summary": "Update an existing feature",
-        "tags": [
-          "OGC API Features",
-          "Transactions"
-        ]
-      }
-    },
-    "/collections/{collectionId}/queryables": {
-      "get": {
-        "description": "Get JSON Schema describing queryable properties for filtering",
-        "parameters": [
-          {
-            "description": "Collection identifier",
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Output format (json, schemajson, schema+json, or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "schemajson",
-                "schema+json",
-                "html"
-              ],
-              "type": "string"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/geo+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoJsonFeature"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoJsonFeature"
+              }
+            },
+            "application/merge-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoJsonFeatureMergePatch"
+              }
             }
           }
-        ],
+        },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
+            "description": "Feature updated",
+            "headers": {
+              "ETag": {
                 "schema": {
-                  "$ref": "#/components/schemas/QueryablesSchema"
+                  "type": "string"
                 }
               },
-              "application/schema+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QueryablesSchema"
-                }
-              },
-              "text/html": {
+              "Content-Crs": {
                 "schema": {
                   "type": "string"
                 }
               }
             },
-            "description": "Queryables schema"
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoJsonFeature"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Authenticated caller is not authorized to patch this feature"
+          },
+          "404": {
+            "description": "Feature not found"
+          },
+          "412": {
+            "description": "ETag precondition failed - the feature has been modified since the provided ETag"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a feature from a collection",
+        "description": "Remove a feature from the specified collection",
+        "tags": [
+          "OGC API Features",
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "featureId",
+            "in": "path",
+            "required": true,
+            "description": "Feature identifier",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Feature deleted"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Authenticated caller is not authorized to delete this feature"
+          },
+          "404": {
+            "description": "Feature not found"
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}/h3": {
+      "get": {
+        "summary": "H3 hexagonal grid aggregation for a collection",
+        "description": "Groups collection features into H3 cells at a configurable resolution and returns GeoJSON features with aggregate statistics per cell",
+        "tags": [
+          "OGC API Features"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resolution",
+            "in": "query",
+            "required": true,
+            "description": "H3 resolution level (0-15)",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "H3 aggregation as GeoJSON FeatureCollection",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters"
           },
           "404": {
             "description": "Collection not found"
+          },
+          "501": {
+            "description": "H3 extension not available — the h3-pg PostgreSQL extension is not installed"
+          },
+          "503": {
+            "description": "H3 capability check failed — the database may be temporarily unreachable"
           }
-        },
-        "summary": "Get queryable properties for a collection",
-        "tags": [
-          "OGC API Features"
-        ]
+        }
       }
     },
-    "/collections/{collectionId}/spatial-join": {
+    "/collections/{collectionId}/clusters": {
       "post": {
-        "description": "Joins features from the source collection against a join collection using a spatial predicate (intersects, contains, within, dwithin) and optionally aggregates carry fields and statistics. The join layer is identified by its integer layer id (the same value used as the OGC collection id). Pro-tier feature gated by ADR-0024.",
+        "summary": "Spatial clustering for a collection (Pro)",
+        "description": "Runs DBSCAN or K-Means clustering over the collection features and returns either per-feature cluster assignments or per-cluster convex hulls. `outStatistics` requires `returnHullPerCluster=true` (the aggregate columns only exist in the GROUP BY cluster-hull path); supplying both `returnHullPerCluster=false` and `outStatistics` returns HTTP 400. Pro-tier feature gated by ADR-0024.",
+        "tags": [
+          "OGC API Features",
+          "Spatial Analytics"
+        ],
         "parameters": [
           {
-            "description": "Source (target) collection identifier",
-            "in": "path",
             "name": "collectionId",
+            "in": "path",
             "required": true,
+            "description": "Collection identifier",
             "schema": {
               "type": "string"
             }
           }
         ],
         "requestBody": {
+          "required": true,
+          "description": "Clustering request payload (algorithm, parameters, and optional shared filters)",
           "content": {
             "application/json": {
               "schema": {
+                "type": "object",
                 "properties": {
-                  "carryFields": {
-                    "description": "Comma-separated list of join-layer field names to aggregate onto each target row.",
-                    "type": "string"
+                  "algorithm": {
+                    "type": "string",
+                    "enum": ["dbscan", "kmeans"],
+                    "default": "dbscan",
+                    "description": "Clustering algorithm. When omitted, defaults to 'dbscan'."
                   },
-                  "distance": {
-                    "description": "Distance in meters. Required when predicate is 'dwithin'.",
-                    "type": "number"
+                  "eps": {
+                    "type": "number",
+                    "description": "DBSCAN neighborhood distance in meters. Required when algorithm is 'dbscan'."
+                  },
+                  "minPoints": {
+                    "type": "integer",
+                    "description": "DBSCAN minimum cluster size. Required when algorithm is 'dbscan'."
+                  },
+                  "k": {
+                    "type": "integer",
+                    "description": "K-Means cluster count. Required when algorithm is 'kmeans'."
+                  },
+                  "returnHullPerCluster": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Return per-cluster convex hulls instead of per-feature assignments. Must be true when outStatistics is supplied — aggregate columns are only emitted in the hull-per-cluster GROUP BY path."
+                  },
+                  "outStatistics": {
+                    "type": "array",
+                    "description": "Optional statistic definitions evaluated per cluster. Only honored when returnHullPerCluster=true; supplying outStatistics with returnHullPerCluster=false returns HTTP 400.",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "where": {
+                    "type": "string",
+                    "description": "ArcGIS SQL filter applied before clustering."
+                  },
+                  "objectIds": {
+                    "type": "string",
+                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before clustering."
                   },
                   "geometry": {
-                    "description": "GeoServices geometry filter applied before the spatial join. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
+                    "description": "GeoServices geometry filter applied before clustering. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
                     "oneOf": [
                       {
                         "type": "string"
                       },
                       {
-                        "additionalProperties": true,
-                        "type": "object"
+                        "type": "object",
+                        "additionalProperties": true
                       }
                     ]
                   },
                   "geometryType": {
-                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon).",
-                    "type": "string"
+                    "type": "string",
+                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon)."
                   },
                   "inSR": {
                     "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
@@ -2012,72 +1199,171 @@
                         "type": "string"
                       },
                       {
-                        "additionalProperties": true,
-                        "type": "object"
+                        "type": "object",
+                        "additionalProperties": true
                       }
                     ]
                   },
-                  "joinLayerId": {
-                    "description": "Integer id of the layer to join against. Must differ from the source collection id.",
-                    "type": "integer"
-                  },
-                  "objectIds": {
-                    "description": "Comma-separated list of integer feature identifiers used to restrict the target input set before the spatial join.",
-                    "type": "string"
-                  },
-                  "outStatistics": {
-                    "items": {
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "predicate": {
-                    "default": "intersects",
-                    "enum": [
-                      "intersects",
-                      "contains",
-                      "within",
-                      "dwithin"
-                    ],
-                    "type": "string"
-                  },
                   "spatialRel": {
-                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific.",
-                    "type": "string"
+                    "type": "string",
+                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific."
                   },
                   "time": {
-                    "description": "FeatureServer time filter interval applied before the spatial join.",
-                    "type": "string"
+                    "type": "string",
+                    "description": "FeatureServer time filter interval applied before clustering."
                   },
                   "timeRelation": {
-                    "description": "FeatureServer temporal relationship used with the time filter.",
-                    "type": "string"
-                  },
-                  "where": {
-                    "description": "ArcGIS SQL filter applied before the spatial join.",
-                    "type": "string"
+                    "type": "string",
+                    "description": "FeatureServer temporal relationship used with the time filter."
                   }
-                },
-                "required": [
-                  "joinLayerId"
-                ],
-                "type": "object"
+                }
               }
             }
-          },
-          "description": "Spatial join request payload (join layer id, predicate, optional distance, carry fields, outStatistics, and shared filters)",
-          "required": true
+          }
         },
         "responses": {
           "200": {
+            "description": "Cluster assignments or hulls as GeoJSON FeatureCollection",
             "content": {
               "application/geo+json": {
                 "schema": {
                   "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
                 }
               }
-            },
-            "description": "Joined features as GeoJSON FeatureCollection"
+            }
+          },
+          "400": {
+            "description": "Invalid clustering parameters or filter syntax"
+          },
+          "402": {
+            "description": "Pro-tier license required"
+          },
+          "404": {
+            "description": "Collection not found"
+          },
+          "501": {
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}/spatial-join": {
+      "post": {
+        "summary": "Spatial join against a target collection (Pro)",
+        "description": "Joins features from the source collection against a join collection using a spatial predicate (intersects, contains, within, dwithin) and optionally aggregates carry fields and statistics. The join layer is identified by its integer layer id (the same value used as the OGC collection id). Pro-tier feature gated by ADR-0024.",
+        "tags": [
+          "OGC API Features",
+          "Spatial Analytics"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Source (target) collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Spatial join request payload (join layer id, predicate, optional distance, carry fields, outStatistics, and shared filters)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["joinLayerId"],
+                "properties": {
+                  "joinLayerId": {
+                    "type": "integer",
+                    "description": "Integer id of the layer to join against. Must differ from the source collection id."
+                  },
+                  "predicate": {
+                    "type": "string",
+                    "default": "intersects",
+                    "enum": ["intersects", "contains", "within", "dwithin"]
+                  },
+                  "distance": {
+                    "type": "number",
+                    "description": "Distance in meters. Required when predicate is 'dwithin'."
+                  },
+                  "carryFields": {
+                    "type": "string",
+                    "description": "Comma-separated list of join-layer field names to aggregate onto each target row."
+                  },
+                  "outStatistics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "where": {
+                    "type": "string",
+                    "description": "ArcGIS SQL filter applied before the spatial join."
+                  },
+                  "objectIds": {
+                    "type": "string",
+                    "description": "Comma-separated list of integer feature identifiers used to restrict the target input set before the spatial join."
+                  },
+                  "geometry": {
+                    "description": "GeoServices geometry filter applied before the spatial join. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "geometryType": {
+                    "type": "string",
+                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon)."
+                  },
+                  "inSR": {
+                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "spatialRel": {
+                    "type": "string",
+                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific."
+                  },
+                  "time": {
+                    "type": "string",
+                    "description": "FeatureServer time filter interval applied before the spatial join."
+                  },
+                  "timeRelation": {
+                    "type": "string",
+                    "description": "FeatureServer temporal relationship used with the time filter."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Joined features as GeoJSON FeatureCollection",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
+                }
+              }
+            }
           },
           "400": {
             "description": "Invalid join parameters"
@@ -2091,85 +1377,709 @@
           "501": {
             "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
           }
-        },
-        "summary": "Spatial join against a target collection (Pro)",
+        }
+      }
+    },
+    "/collections/{collectionId}/buffer-aggregate": {
+      "post": {
+        "summary": "Buffer + aggregate for a collection (Pro)",
+        "description": "Buffers features by a configurable radius and optionally dissolves overlapping buffers, groups by attributes, and emits aggregate statistics. `outStatistics` requires `dissolve=true` (the aggregate columns only exist in the dissolved group-by path); supplying both `dissolve=false` and `outStatistics` returns HTTP 400. Pro-tier feature gated by ADR-0024.",
         "tags": [
           "OGC API Features",
           "Spatial Analytics"
-        ]
-      }
-    },
-    "/conformance": {
-      "get": {
-        "description": "Conformance classes that this API conforms to",
+        ],
         "parameters": [
           {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
             "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
               "type": "string"
             }
           }
         ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConformanceDeclaration"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
+        "requestBody": {
+          "required": true,
+          "description": "Buffer aggregate request payload (distance, unit, dissolve flag, optional groupByFields, outStatistics, and shared filters)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["distance"],
+                "properties": {
+                  "distance": {
+                    "type": "number",
+                    "description": "Buffer radius. Interpreted in the supplied unit (default meters). The server enforces an operator-configured maximum after unit conversion."
+                  },
+                  "unit": {
+                    "type": "string",
+                    "default": "meters",
+                    "enum": ["meters", "kilometers", "feet", "miles"],
+                    "description": "Unit of measure for distance. Aliases m/km/ft/mi are also accepted."
+                  },
+                  "dissolve": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Union overlapping buffers within each group. Must be true when outStatistics is supplied — the aggregate columns are only emitted in the dissolved GROUP BY path."
+                  },
+                  "groupByFields": {
+                    "type": "string",
+                    "description": "Comma-separated list of field names to group buffers by before dissolving."
+                  },
+                  "outStatistics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "where": {
+                    "type": "string",
+                    "description": "ArcGIS SQL filter applied before the buffer aggregate operation."
+                  },
+                  "objectIds": {
+                    "type": "string",
+                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before buffer aggregation."
+                  },
+                  "geometry": {
+                    "description": "GeoServices geometry filter applied before buffer aggregation. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "geometryType": {
+                    "type": "string",
+                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon)."
+                  },
+                  "inSR": {
+                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "spatialRel": {
+                    "type": "string",
+                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific."
+                  },
+                  "time": {
+                    "type": "string",
+                    "description": "FeatureServer time filter interval applied before buffer aggregation."
+                  },
+                  "timeRelation": {
+                    "type": "string",
+                    "description": "FeatureServer temporal relationship used with the time filter."
+                  }
                 }
               }
-            },
-            "description": "Conformance declaration"
+            }
           }
         },
-        "summary": "Get OGC API Features conformance declaration",
-        "tags": [
-          "OGC API Features"
-        ]
+        "responses": {
+          "200": {
+            "description": "Buffered features as GeoJSON FeatureCollection",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid buffer parameters"
+          },
+          "402": {
+            "description": "Pro-tier license required"
+          },
+          "404": {
+            "description": "Collection not found"
+          },
+          "501": {
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+          }
+        }
       }
     },
-    "/schemas/honua-ogcapi-features.xsd": {
-      "get": {
-        "description": "Returns the XML Schema document used by Honua OGC API Features GML responses.",
-        "responses": {
-          "200": {
-            "content": {
-              "application/xml": {
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "text/xml": {
-                "schema": {
-                  "type": "string"
+    "/collections/{collectionId}/density": {
+      "post": {
+        "summary": "Density binning for a collection (Pro)",
+        "description": "Bins features into a hexagonal or square grid at a configurable cell size and returns counts or weighted sums per cell. Pro-tier feature gated by ADR-0024.",
+        "tags": [
+          "OGC API Features",
+          "Spatial Analytics"
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "description": "Collection identifier",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Density request payload (grid mode, cell size, optional weight field, and shared filters)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["cellSize"],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "default": "hex",
+                    "enum": ["hex", "square"],
+                    "description": "Grid type. Aliases 'hexgrid', 'hex-grid', 'squaregrid', 'square-grid' are also accepted."
+                  },
+                  "cellSize": {
+                    "type": "number",
+                    "description": "Cell size in meters. Bounded by the operator-configured min/max density cell size."
+                  },
+                  "weightField": {
+                    "type": "string",
+                    "description": "Optional numeric field summed per cell instead of feature counts."
+                  },
+                  "where": {
+                    "type": "string",
+                    "description": "ArcGIS SQL filter applied before density binning."
+                  },
+                  "objectIds": {
+                    "type": "string",
+                    "description": "Comma-separated list of integer feature identifiers used to restrict the input set before density binning."
+                  },
+                  "geometry": {
+                    "description": "GeoServices geometry filter applied before density binning. May be supplied as a GeoServices geometry JSON object or the equivalent serialized JSON string.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "geometryType": {
+                    "type": "string",
+                    "description": "GeoServices geometry type for the geometry filter (for example esriGeometryPoint, esriGeometryEnvelope, or esriGeometryPolygon)."
+                  },
+                  "inSR": {
+                    "description": "Spatial reference for the geometry filter, expressed as a WKID, well-known text string, or spatial-reference JSON object understood by the FeatureServer spatial-reference resolver.",
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    ]
+                  },
+                  "spatialRel": {
+                    "type": "string",
+                    "description": "GeoServices spatial relationship applied with geometry. Distance-based relationships are not supported on analytics endpoints because distance is operation-specific."
+                  },
+                  "time": {
+                    "type": "string",
+                    "description": "FeatureServer time filter interval applied before density binning."
+                  },
+                  "timeRelation": {
+                    "type": "string",
+                    "description": "FeatureServer temporal relationship used with the time filter."
+                  }
                 }
               }
-            },
-            "description": "GML application schema"
+            }
           }
         },
-        "summary": "Get OGC API Features GML application schema",
-        "tags": [
-          "OGC API Features"
-        ]
+        "responses": {
+          "200": {
+            "description": "Density bins as GeoJSON FeatureCollection",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpatialAnalyticsFeatureCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid density parameters"
+          },
+          "402": {
+            "description": "Pro-tier license required"
+          },
+          "404": {
+            "description": "Collection not found"
+          },
+          "501": {
+            "description": "Spatial analytics backend not available — the active feature-store provider does not ship a spatial analytics reader (for example, the DuckDB read-only provider). Permanent condition until providers are switched; not a transient failure."
+          }
+        }
       }
     }
   },
-  "servers": [
-    {
-      "url": "/ogc/features"
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "LandingPage": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "ConformanceDeclaration": {
+        "type": "object",
+        "properties": {
+          "conformsTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "Collections": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionInfo"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "CollectionInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "extent": {
+            "$ref": "#/components/schemas/Extent"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "crs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "storageCrs": {
+            "type": "string"
+          }
+        }
+      },
+      "FeatureCollection": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "FeatureCollection"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeoJsonFeature"
+            }
+          },
+          "numberMatched": {
+            "type": "integer"
+          },
+          "numberReturned": {
+            "type": "integer"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          },
+          "timeStamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SpatialAnalyticsFeatureCollection": {
+        "type": "object",
+        "required": [
+          "type",
+          "features",
+          "numberReturned",
+          "metadata"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "FeatureCollection"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeoJsonFeature"
+            }
+          },
+          "numberReturned": {
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/SpatialAnalyticsMetadata"
+          }
+        }
+      },
+      "SpatialAnalyticsMetadata": {
+        "type": "object",
+        "required": [
+          "operation",
+          "inputTruncated",
+          "resultTruncated",
+          "maxInputFeatures"
+        ],
+        "properties": {
+          "operation": {
+            "type": "string"
+          },
+          "inputTruncated": {
+            "type": "boolean"
+          },
+          "resultTruncated": {
+            "type": "boolean"
+          },
+          "maxInputFeatures": {
+            "type": "integer"
+          },
+          "maxOutputRows": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "BatchRequest": {
+        "type": "object",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchOperation"
+            }
+          },
+          "failFast": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      },
+      "BatchOperation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "CREATE",
+              "UPDATE",
+              "DELETE"
+            ]
+          },
+          "featureId": {
+            "type": "string"
+          },
+          "feature": {
+            "$ref": "#/components/schemas/GeoJsonFeature"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "BatchOperationResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchOperationResult"
+            }
+          },
+          "hasErrors": {
+            "type": "boolean"
+          },
+          "processedCount": {
+            "type": "integer"
+          },
+          "successCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "results",
+          "hasErrors",
+          "processedCount",
+          "successCount"
+        ]
+      },
+      "BatchOperationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "isSuccess": {
+            "type": "boolean"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "statusCode": {
+            "type": "integer"
+          },
+          "featureId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "isSuccess",
+          "statusCode"
+        ]
+      },
+      "GeoJsonFeature": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature"
+            ]
+          },
+          "id": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "integer" }
+            ]
+          },
+          "geometry": {
+            "nullable": true,
+            "oneOf": [
+              { "$ref": "#/components/schemas/GeoJsonGeometry" }
+            ]
+          },
+          "properties": {
+            "type": "object"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "GeoJsonFeatureMergePatch": {
+        "type": "object",
+        "description": "Sparse GeoJSON Feature merge patch. Omitted members remain unchanged.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature"
+            ]
+          },
+          "id": {
+            "type": "integer"
+          },
+          "geometry": {
+            "nullable": true,
+            "oneOf": [
+              { "$ref": "#/components/schemas/GeoJsonGeometry" }
+            ]
+          },
+          "properties": {
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      },
+      "GeoJsonGeometry": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Point",
+              "MultiPoint",
+              "LineString",
+              "MultiLineString",
+              "Polygon",
+              "MultiPolygon",
+              "GeometryCollection"
+            ]
+          },
+          "coordinates": {
+            "description": "Coordinate array whose structure depends on the geometry type (RFC 7946)"
+          },
+          "geometries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeoJsonGeometry"
+            },
+            "description": "Child geometries (GeometryCollection only)"
+          }
+        },
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "Link": {
+        "type": "object",
+        "properties": {
+          "href": {
+            "type": "string"
+          },
+          "rel": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "hreflang": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "href",
+          "rel"
+        ]
+      },
+      "Extent": {
+        "type": "object",
+        "properties": {
+          "spatial": {
+            "$ref": "#/components/schemas/SpatialExtent"
+          },
+          "temporal": {
+            "$ref": "#/components/schemas/TemporalExtent"
+          }
+        }
+      },
+      "SpatialExtent": {
+        "type": "object",
+        "properties": {
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "TemporalExtent": {
+        "type": "object",
+        "properties": {
+          "interval": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "QueryablesSchema": {
+        "type": "object"
+      }
     }
-  ]
+  }
 }

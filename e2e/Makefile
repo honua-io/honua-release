@@ -22,12 +22,12 @@ deps:
 # Static gates that must be able to FAIL with no images present: compose validity + scenario compile.
 check:
 	$(COMPOSE) config >/dev/null && echo "compose config: OK"
-	$(PY) -m compileall -q run.py run_cloud.py canonical_checks.py parity.py runner scenarios targets
+	$(PY) -m compileall -q run.py run_cloud.py canonical_checks.py canary_probes.py demo_canary.py parity.py runner scenarios targets
 
 # Unit tests for the runner + cloud-parity verdict logic. No images/cloud needed; runs via pytest if
 # present, else the test modules' standalone runners. Server-independent, so it runs on every PR.
 test:
-	$(PY) -m pytest runner/test_runner.py test_cloud.py -q || { $(PY) runner/test_runner.py && $(PY) test_cloud.py; }
+	$(PY) -m pytest runner/test_runner.py test_cloud.py test_canary_probes.py test_formats.py -q || { $(PY) runner/test_runner.py && $(PY) test_cloud.py && $(PY) test_canary_probes.py; }
 
 e2e: deps
 	$(PY) run.py

@@ -8,6 +8,8 @@ image + the honua-iac tree are all present.
 """
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
 import shutil
 import subprocess
@@ -32,6 +34,30 @@ class TfTargetSpec:
     # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
     # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
     ephemeral_vars: tuple[str, ...] = ()
+    # JSON var files preserve typed values that cannot be represented faithfully
+    # by Terraform's string-constrained `-var=name=value` coercion (notably null).
+    # Paths are relative to the honua-release repository root.
+    ephemeral_var_files: tuple[str, ...] = ()
+    needs_runner_db_access: bool = False
+    # honua-release#128 — the ECS cell's ALB security group.
+    #
+    # The aws-ecs module's ALB is internet-facing (`internal = false`, public subnets) so its DNS name
+    # resolves from anywhere, but its SECURITY GROUP is not: with allow_http_ingress_cidrs and
+    # allow_https_ingress_cidrs both unset and no certificate configured, the module falls back to
+    #     http_ingress_cidrs = [vpc_cidr_block]
+    # (modules/aws-ecs/main.tf locals; its README says so out loud: "the ALB listener defaults to
+    # VPC-only ingress using the active VPC CIDR"). The GitHub-hosted runner is not in that VPC, so
+    # every SYN to the ALB was dropped and every probe timed out — which is the whole of #128.
+    #
+    # The runner's own /32 is the correct opening: it is the same ephemeral address the PostGIS
+    # bootstrap already opens RDS to, and the same one the EKS cell publishes its API server and load
+    # balancer to. It admits exactly the caller doing the certifying and nothing else, so the cell gets
+    # a reachable endpoint without ever putting a plain-HTTP ALB on 0.0.0.0/0 (which the module's own
+    # `http_ingress_requires_https` check exists to discourage).
+    needs_runner_alb_access: bool = False
+    architecture_env: str = ""
+    architecture_var: str = ""
+    architecture_is_list: bool = False
 
 
 class TerraformTarget(DeployTarget):
@@ -68,6 +94,12 @@ class TerraformTarget(DeployTarget):
             missing.append(f"{self.spec.image_env} ({self.spec.image_hint or 'deployable image'})")
         if self._iac_root() is None:
             missing.append("HONUA_IAC_DIR pointing at the honua-iac terraform tree")
+        if self.spec.needs_runner_db_access and not os.environ.get("HONUA_AWS_DB_INGRESS_CIDR"):
+            missing.append("HONUA_AWS_DB_INGRESS_CIDR (ephemeral runner /32 for PostGIS bootstrap)")
+        if self.spec.needs_runner_alb_access and not os.environ.get("HONUA_AWS_RUNNER_CIDR"):
+            missing.append("HONUA_AWS_RUNNER_CIDR (ephemeral runner /32 for ALB ingress)")
+        if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
+            missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
         if missing:
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
@@ -86,9 +118,16 @@ class TerraformTarget(DeployTarget):
         # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
         redis_tag = "r" if redis_enabled else "n"
         prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
-        admin_pw = os.environ.get("HONUA_ADMIN_PASSWORD", f"it-{self.run_id}-Aa1!")
-        return [
+        # honua-iac requires at least 32 characters plus mixed-case, digit and special
+        # characters. Keep the ephemeral fallback deterministic so the same value is
+        # available to destroy after a partial apply.
+        admin_pw = os.environ.get(
+            "HONUA_ADMIN_PASSWORD",
+            f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}",
+        )
+        values = [
             "-input=false", "-no-color",
+            *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
             "-var=environment=it",
@@ -97,6 +136,59 @@ class TerraformTarget(DeployTarget):
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]
+        if self.spec.needs_runner_db_access:
+            raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
+            values.extend([
+                "-var=db_publicly_accessible=true",
+                f"-var=db_additional_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
+            ])
+        if self.spec.needs_runner_alb_access:
+            raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
+            values.append(
+                f"-var=allow_http_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}")
+        if self.spec.architecture_env:
+            architecture = os.environ.get(self.spec.architecture_env, "").strip()
+            if architecture not in {"arm64", "x86_64"}:
+                raise ProvisionError(
+                    f"{self.name}: {self.spec.architecture_env} must be arm64 or x86_64, got {architecture!r}"
+                )
+            if not self.spec.architecture_var:
+                raise ProvisionError(f"{self.name}: architecture_env requires architecture_var")
+            architecture_value = (
+                json.dumps([architecture], separators=(",", ":"))
+                if self.spec.architecture_is_list
+                else architecture.upper()
+            )
+            values.append(f"-var={self.spec.architecture_var}={architecture_value}")
+        return values
+
+    def _runner_cidr(self, env_name: str) -> str:
+        """The ephemeral runner's own address, validated as a single IPv4 /32.
+
+        A /32 is the point: these vars punch a hole in a security group, and the only caller that has
+        any business coming through it is the one runner doing the certifying. Anything wider is
+        rejected rather than quietly applied.
+        """
+        raw_cidr = os.environ.get(env_name, "").strip()
+        try:
+            cidr = ipaddress.ip_network(raw_cidr, strict=True)
+        except ValueError as exc:
+            raise ProvisionError(
+                f"{self.name}: {env_name} must be a valid runner CIDR, got {raw_cidr!r}"
+            ) from exc
+        if cidr.version != 4 or cidr.prefixlen != 32:
+            raise ProvisionError(
+                f"{self.name}: {env_name} must be a single IPv4 /32, got {raw_cidr!r}"
+            )
+        return raw_cidr
+
+    @staticmethod
+    def _resolve_var_file(relative_path: str) -> Path:
+        repo_root = Path(__file__).resolve().parents[2]
+        path = (repo_root / relative_path).resolve()
+        if not path.is_file():
+            raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
+        return path
 
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
@@ -115,14 +207,23 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
-    def teardown(self) -> None:
+    def teardown(self, redis_enabled: bool | None = None) -> None:
+        # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
+        # (honua-iac#142), so it raises instead of being swallowed. The caller (run_cloud / the
+        # backstop reaper) turns that into a red cell, which is the only honest verdict for a cell
+        # that stranded its own infrastructure.
         root = self._workdir or self._iac_root()
         if root is None:
             return
+        mode = False if redis_enabled is None else redis_enabled
         try:
-            self._tf(root, "destroy", "-auto-approve", *(self._last_vars or self._vars(False)), check=False)
-        except Exception:  # noqa: BLE001 - best-effort reaper
-            pass
+            destroy = self._tf(root, "destroy", "-auto-approve",
+                               *(self._last_vars or self._vars(mode)), check=False)
+        except OSError as error:
+            raise ProvisionError(f"{self.name} teardown failed: {error}") from error
+        if destroy.returncode != 0:
+            detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
+            raise ProvisionError(f"{self.name} teardown failed: {detail}")
 
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
@@ -132,6 +233,10 @@ SERVERLESS_SPEC = TfTargetSpec(
     image_env="HONUA_LAMBDA_IMAGE_URI",
     image_var="honua_image_uri",
     image_hint="ECR Lambda-AOT image (*-lambda-aot)",
+    needs_runner_db_access=True,
+    architecture_env="HONUA_LAMBDA_ARCHITECTURE",
+    architecture_var="lambda_architectures",
+    architecture_is_list=True,
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -139,7 +244,16 @@ ECS_SPEC = TfTargetSpec(
     image_env="HONUA_ECS_IMAGE",
     image_var="honua_image",
     image_hint="container image (ghcr or ECR; immutable tag/digest)",
+    # This is always a brand-new ephemeral deployment, so explicitly select the
+    # IAC root's null/new-key path. Existing deployments must supply their current
+    # key instead, but the release harness never adopts an existing ECS database.
+    # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
+    ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
+    needs_runner_db_access=True,
+    needs_runner_alb_access=True,
+    architecture_env="HONUA_ECS_ARCHITECTURE",
+    architecture_var="task_cpu_architecture",
 )
 
 

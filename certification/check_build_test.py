@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -43,6 +44,8 @@ MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
 ROLLUP_PATH = REPO_ROOT / "certification" / "rollup-checks.yaml"
 SECURITY_PATH = REPO_ROOT / "certification" / "security-checks.yaml"
+GOVERNANCE_PATH = REPO_ROOT / "certification" / "governance-checks.yaml"
+FULL_MATRIX_PATH = REPO_ROOT / "certification" / "full-matrix-checks.yaml"
 ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
@@ -117,9 +120,80 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
+def load_governance(path=GOVERNANCE_PATH) -> dict[str, frozenset[str]]:
+    """Load non-build policy/attestation check names.
+
+    These lanes inspect PR/review state and run no component build or tests. They
+    remain visible in the verdict explanation but cannot be mistaken for a red
+    compile/unit lane on an already-merged candidate SHA.
+    """
+    return _load_check_names(path)
+
+
+def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
+    """Load components whose release pin requires an authoritative full-matrix Actions run."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    policies: dict[str, dict] = {}
+    for component, raw in data.items():
+        policy = raw or {}
+        workflow = str(policy.get("workflow", "")).strip()
+        events = frozenset(str(event).strip() for event in (policy.get("events") or []) if str(event).strip())
+        required = frozenset(
+            str(entry.get("name", "")).strip()
+            for entry in (policy.get("requiredChecks") or [])
+            if isinstance(entry, dict) and str(entry.get("name", "")).strip()
+        )
+        if workflow and events and required:
+            policies[str(component)] = {"workflow": workflow, "events": events, "requiredChecks": required}
+    return policies
+
+
+def _latest_named_runs(runs: list[dict]) -> list[dict]:
+    """Keep the latest check-run attempt for each named app lane.
+
+    GitHub retains scheduled runs and reruns on the same commit, so the check-runs endpoint can return
+    several historical verdicts for one lane. Certification must use that lane's latest attempt: an
+    old red must not poison a later green forever, and a newer red must not be hidden by an old green.
+    Unnamed runs stay independent because there is no stable lane identity by which to supersede them.
+    """
+    unnamed: list[tuple[int, dict]] = []
+    latest: dict[tuple[str, str, str], tuple[tuple[int, str, int], dict]] = {}
+    for index, run in enumerate(runs):
+        name = str(run.get("name", "")).strip()
+        if not name:
+            unnamed.append((index, run))
+            continue
+        app = run.get("app") or {}
+        app_slug = str(app.get("slug", "")).strip() if isinstance(app, dict) else ""
+        workflow_id = str(run.get("_workflow_id", "")).strip()
+        suite = run.get("check_suite") or {}
+        suite_id = str(suite.get("id", "")).strip() if isinstance(suite, dict) else ""
+        # Workflow IDs distinguish independent Actions workflows that happen to use the same job
+        # name. If enrichment was unavailable, keep each Actions check suite independent rather than
+        # risk hiding one workflow behind another; this conservative fallback may retain stale runs,
+        # but can never manufacture a pass.
+        lane_scope = workflow_id or (f"suite:{suite_id}" if app_slug == "github-actions" else "")
+        timestamp = str(run.get("started_at") or run.get("completed_at") or "")
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        marker = (run_id, timestamp, index)
+        key = (name, app_slug, lane_scope)
+        if key not in latest or marker > latest[key][0]:
+            latest[key] = (marker, run)
+
+    selected = unnamed + [(marker[2], run) for marker, run in latest.values()]
+    return [run for _, run in sorted(selected, key=lambda item: item[0])]
+
+
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
-             security_names: frozenset[str] = frozenset()) -> tuple[str, str]:
+             security_names: frozenset[str] = frozenset(),
+             governance_names: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
@@ -140,8 +214,9 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
+    runs = _latest_named_runs(runs)
 
-    excluded = env_gated_names | rollup_names | security_names
+    excluded = env_gated_names | rollup_names | security_names | governance_names
     core = [r for r in runs if str(r.get("name", "")) not in excluded]
     env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
     # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
@@ -163,7 +238,12 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     security_note = (f"; {len(security_nongreen)} dependency-security check(s) excluded "
                      f"({sorted({str(r.get('name')) for r in security_nongreen})}) — owned by gate_security"
                      if security_nongreen else "")
-    env_note = env_note + rollup_note + security_note
+    governance_nongreen = [r for r in runs if str(r.get("name", "")) in governance_names
+                           and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
+    governance_note = (f"; {len(governance_nongreen)} non-build governance check(s) excluded "
+                       f"({sorted({str(r.get('name')) for r in governance_nongreen})}) — no build/test work"
+                       if governance_nongreen else "")
+    env_note = env_note + rollup_note + security_note + governance_note
 
     if not core:
         # Only env-gated / roll-up / security lanes ran → no core build/test signal to certify on. Never pass.
@@ -192,21 +272,120 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     return "pass", f"all {len(core)} core check-run(s) green{env_note}"
 
 
+def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None = None) -> tuple[str, str]:
+    """Require a completed green full-matrix workflow and its named release-critical lanes."""
+    if not isinstance(payload, dict):
+        return "fail", "missing full-matrix evidence: no Actions payload"
+
+    workflow = policy["workflow"]
+    events = policy["events"]
+    candidates = [
+        run for run in (payload.get("_workflow_runs") or [])
+        if str(run.get("path", "")) == workflow and str(run.get("event", "")) in events
+        and (expected_sha is None or str(run.get("head_sha", "")) == expected_sha)
+    ]
+    completed = [run for run in candidates if run.get("status") == "completed"]
+    if not completed:
+        return "fail", f"missing completed full-matrix run for {workflow} on the pinned sha"
+
+    def marker(run: dict) -> tuple[str, int]:
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        return str(run.get("updated_at") or run.get("created_at") or ""), run_id
+
+    selected = max(completed, key=marker)
+    run_id = str(selected.get("id") or "")
+
+    def belongs_to_selected(check: dict) -> bool:
+        match = _ACTIONS_RUN_URL.search(str(check.get("details_url") or ""))
+        return bool(match and match.group(1) == run_id)
+
+    latest = _latest_named_runs([
+        check for check in (payload.get("check_runs") or []) if belongs_to_selected(check)
+    ])
+    by_name = {str(check.get("name", "")): check for check in latest}
+    missing = sorted(policy["requiredChecks"] - by_name.keys())
+    non_green = sorted(
+        name for name in policy["requiredChecks"] & by_name.keys()
+        if by_name[name].get("status") != "completed" or str(by_name[name].get("conclusion")) != "success"
+    )
+    problems = []
+    if missing:
+        problems.append(f"missing expected lanes {missing}")
+    if non_green:
+        problems.append(f"expected lanes not successful {non_green}")
+    if selected.get("conclusion") != "success":
+        problems.append(f"workflow conclusion={selected.get('conclusion') or 'none'}")
+    if problems:
+        return "fail", f"full-matrix run {run_id} is not certifiable: " + "; ".join(problems)
+    return "pass", f"full-matrix run {run_id} completed successfully with all expected lanes"
+
+
 Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
+
+
+_ACTIONS_RUN_URL = re.compile(r"/actions/runs/(\d+)(?:/|$)")
+_GITHUB_PAGE_SIZE = 100
+
+
+def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> dict:
+    """Fetch every page of a GitHub REST collection, preserving first-page metadata."""
+    items: list[dict] = []
+    first_page: dict | None = None
+    page = 1
+    while True:
+        separator = "&" if "?" in url else "?"
+        page_url = f"{url}{separator}per_page={_GITHUB_PAGE_SIZE}&page={page}"
+        request = urllib.request.Request(page_url, headers=headers)
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+        if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
+            raise ValueError(f"GitHub response did not contain a {key} collection")
+        if first_page is None:
+            first_page = payload
+        batch = payload[key]
+        items.extend(batch)
+        total = payload.get("total_count")
+        if (isinstance(total, int) and len(items) >= total) or len(batch) < _GITHUB_PAGE_SIZE:
+            break
+        page += 1
+
+    result = dict(first_page or {})
+    result[key] = items
+    return result
+
+
+def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
+    """Attach stable workflow IDs to Actions check-runs so same-named jobs stay independent."""
+    workflows = {
+        int(run["id"]): str(run.get("workflow_id") or run.get("path") or "")
+        for run in (workflow_payload.get("workflow_runs") or [])
+        if run.get("id") is not None
+    }
+    for run in payload.get("check_runs") or []:
+        app = run.get("app") or {}
+        if not isinstance(app, dict) or app.get("slug") != "github-actions":
+            continue
+        match = _ACTIONS_RUN_URL.search(str(run.get("details_url") or ""))
+        workflow_id = workflows.get(int(match.group(1))) if match else None
+        if workflow_id:
+            run["_workflow_id"] = workflow_id
+    return payload
 
 
 def _default_fetch(repo: str, sha: str) -> object:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    url = f"https://api.github.com/repos/{ORG}/{repo}/commits/{sha}/check-runs?per_page=100"
-    req = urllib.request.Request(url, headers={
+    url = f"https://api.github.com/repos/{ORG}/{repo}/commits/{sha}/check-runs"
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "honua-release-gate",
         **({"Authorization": f"Bearer {token}"} if token else {}),
-    })
+    }
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.loads(r.read().decode("utf-8", "replace"))
+        payload = _fetch_paginated_collection(url, headers, "check_runs")
     except urllib.error.HTTPError as e:
         if e.code in (404, 403, 422):
             return NOT_FOUND
@@ -214,15 +393,31 @@ def _default_fetch(repo: str, sha: str) -> object:
     except (urllib.error.URLError, OSError):
         return NOT_FOUND
 
+    # One additional request identifies the Actions workflow behind each job. This lets the
+    # classifier supersede attempts of one workflow without merging an unrelated workflow that uses
+    # the same generic job name. If metadata cannot be read, the classifier conservatively keys
+    # Actions runs by check-suite ID and retains every suite.
+    actions_url = f"https://api.github.com/repos/{ORG}/{repo}/actions/runs?head_sha={sha}"
+    try:
+        workflow_payload = _fetch_paginated_collection(actions_url, headers, "workflow_runs")
+        payload["_workflow_runs"] = workflow_payload.get("workflow_runs") or []
+        return _enrich_action_workflow_ids(payload, workflow_payload)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
+        return payload
+
 
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              env_gated: dict[str, frozenset[str]] | None = None,
              rollup: dict[str, frozenset[str]] | None = None,
-             security: dict[str, frozenset[str]] | None = None) -> dict:
+             security: dict[str, frozenset[str]] | None = None,
+             governance: dict[str, frozenset[str]] | None = None,
+             full_matrix: dict[str, dict] | None = None) -> dict:
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
     rollup = rollup or {}
     security = security or {}
+    governance = governance or {}
+    full_matrix = full_matrix or {}
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -231,8 +426,16 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
             rows.append({"component": name, "status": "blocked",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
-        status, why = classify(fetch(name, sha), env_gated.get(name, frozenset()),
-                               rollup.get(name, frozenset()), security.get(name, frozenset()))
+        payload = fetch(name, sha)
+        status, why = classify(payload, env_gated.get(name, frozenset()),
+                               rollup.get(name, frozenset()), security.get(name, frozenset()),
+                               governance.get(name, frozenset()))
+        if name in full_matrix:
+            matrix_status, matrix_why = classify_full_matrix(payload, full_matrix[name], sha)
+            if matrix_status != "pass":
+                status, why = matrix_status, matrix_why
+            else:
+                why = f"{why}; {matrix_why}"
         rows.append({"component": name, "status": status, "sha": sha[:12], "why": why})
 
     def decided(s: str) -> str:
@@ -261,6 +464,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="YAML of per-component aggregate/roll-up check-run names (excluded from the verdict)")
     ap.add_argument("--security", default=str(SECURITY_PATH),
                     help="YAML of per-component dependency-security check-run names (excluded from the verdict)")
+    ap.add_argument("--governance", default=str(GOVERNANCE_PATH),
+                    help="YAML of per-component non-build governance check-run names")
+    ap.add_argument("--full-matrix", default=str(FULL_MATRIX_PATH),
+                    help="YAML of components requiring a completed full-matrix Actions run")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
@@ -268,7 +475,10 @@ def main(argv: list[str] | None = None) -> int:
     env_gated = load_env_gated(args.env_gated)
     rollup = load_rollup(args.rollup)
     security = load_security(args.security)
-    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security)
+    governance = load_governance(args.governance)
+    full_matrix = load_full_matrix(args.full_matrix)
+    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
+                      full_matrix)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

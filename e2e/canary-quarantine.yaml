@@ -1,0 +1,34 @@
+# Issue-linked quarantine registry for the demo canary (honua-release#84).
+#
+# WHY THIS FILE EXISTS
+# A canary probe that fails for a KNOWN, OWNED reason must not do either of the two dishonest things:
+# it must not be deleted (that destroys the signal), and it must not sit red forever with nobody
+# owning it (that trains everyone to ignore the canary). Quarantine is the honest third option: the
+# probe keeps running, keeps reporting the truth, and the run stays green — but ONLY while a named
+# issue owns the gap and the review date has not passed.
+#
+# CONTRACT (e2e/quarantine.py — the tested decision core; e2e/test_quarantine.py)
+#   * Applies to `fail` verdicts ONLY. A `pass` or `blocked` probe is never rewritten.
+#   * A quarantined FAIL becomes status `quarantined`: it does not redden the run and does not open the
+#     automated demo-canary issue, but it IS printed, listed in gate-report-demo-canary.json, and
+#     surfaced with its issue link in the workflow step summary. No silent red.
+#   * Evidence is NEVER quarantined. The live-canary envelope published to honua-evidence still reports
+#     a quarantined probe as `red`. Quarantine changes CI exit codes, not the evidence chain.
+#   * `reviewBy` is a hard expiry, not a suggestion. Past that date the entry stops applying and the
+#     probe FAILs the run again — so a quarantine cannot quietly become permanent.
+#   * A quarantine entry whose probe is now PASSING is reported as stale and should be deleted (the
+#     canary prints it; keeping it around re-hides the next genuine regression).
+#   * Entries naming a probe the canary does not emit are reported as unknown — usually a rename.
+#
+# Every field is required. `issue` must be a full URL so the run summary is one click from the owner.
+
+quarantine:
+  security-headers:
+    issue: https://github.com/honua-io/honua-release/issues/87
+    reason: >-
+      demo.honua.io's root `/` is a CloudFront function-generated stub, not an origin response, and that
+      function emits only CSP/referrer-policy/x-content-type-options — no HSTS, no COOP, no XFO. Every
+      origin-served path (/rest/services, /healthz/live) carries the full baseline, so this is a demo CDN
+      gap rather than a honua-server regression. Fix is in the demo infra's CloudFront function.
+    since: "2026-08-16"
+    reviewBy: "2026-09-30"

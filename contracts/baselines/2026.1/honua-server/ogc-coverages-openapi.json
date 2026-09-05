@@ -1,277 +1,27 @@
 {
-  "components": {
-    "parameters": {
-      "CollectionId": {
-        "in": "path",
-        "name": "collectionId",
-        "required": true,
-        "schema": {
-          "type": "string"
-        }
-      },
-      "MetadataFormat": {
-        "description": "Metadata representation. Defaults to JSON when no explicit format or Accept header is supplied.",
-        "in": "query",
-        "name": "f",
-        "schema": {
-          "enum": [
-            "json",
-            "html"
-          ],
-          "type": "string"
-        }
-      },
-      "OpenApiFormat": {
-        "description": "OpenAPI document representation. Defaults to application/vnd.oai.openapi+json;version=3.0.",
-        "in": "query",
-        "name": "f",
-        "schema": {
-          "enum": [
-            "json"
-          ],
-          "type": "string"
-        }
-      }
-    },
-    "responses": {
-      "BadRequest": {
-        "description": "Invalid request"
-      },
-      "NotAcceptable": {
-        "description": "Requested representation is not acceptable"
-      },
-      "NotFound": {
-        "description": "Coverage collection was not found"
-      },
-      "ServerError": {
-        "description": "Server error"
-      }
-    },
-    "schemas": {
-      "ConformanceDeclaration": {
-        "properties": {
-          "conformsTo": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "conformsTo"
-        ],
-        "type": "object"
-      },
-      "CoverageCollection": {
-        "properties": {
-          "crs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "defaultFields": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "description": {
-            "type": "string"
-          },
-          "domain": {
-            "type": "object"
-          },
-          "extent": {
-            "properties": {
-              "spatial": {
-                "properties": {
-                  "bbox": {
-                    "items": {
-                      "items": {
-                        "type": "number"
-                      },
-                      "type": "array"
-                    },
-                    "type": "array"
-                  },
-                  "crs": {
-                    "type": "string"
-                  },
-                  "storageCrsBbox": {
-                    "items": {
-                      "items": {
-                        "type": "number"
-                      },
-                      "type": "array"
-                    },
-                    "type": "array"
-                  }
-                },
-                "type": "object"
-              }
-            },
-            "type": "object"
-          },
-          "grid": {
-            "type": "object"
-          },
-          "id": {
-            "type": "string"
-          },
-          "itemType": {
-            "enum": [
-              "coverage"
-            ],
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "storageCrs": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "itemType",
-          "links"
-        ],
-        "type": "object"
-      },
-      "CoverageCollections": {
-        "properties": {
-          "collections": {
-            "items": {
-              "$ref": "#/components/schemas/CoverageCollection"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "collections",
-          "links"
-        ],
-        "type": "object"
-      },
-      "CoverageSchema": {
-        "properties": {
-          "$schema": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "properties": {
-            "additionalProperties": {
-              "type": "object"
-            },
-            "type": "object"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "properties"
-        ],
-        "type": "object"
-      },
-      "LandingPage": {
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "links"
-        ],
-        "type": "object"
-      },
-      "Link": {
-        "properties": {
-          "href": {
-            "format": "uri-reference",
-            "type": "string"
-          },
-          "hreflang": {
-            "type": "string"
-          },
-          "rel": {
-            "type": "string"
-          },
-          "templated": {
-            "type": "boolean"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "href"
-        ],
-        "type": "object"
-      }
-    }
-  },
+  "openapi": "3.0.3",
   "info": {
-    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
     "title": "Honua OGC API Coverages",
+    "description": "OGC API Coverages implementation for raster coverage discovery, schema metadata, and coverage retrieval.\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
     "version": "1.0.0",
     "x-honua-cite-compliance": {
+      "summary": "Coverage retrieval is exercised through the classic WCS 2.0 ETS, which passes 82/82 on trunk; full Honua suite is 1117/1117.",
+      "lastEvidenceRun": "2026-07-27",
       "authoritativeSource": "docs/cite-status.md",
-      "lastEvidenceRun": "2026-05-17",
       "suites": [
-        {
-          "passRate": "100%",
-          "passed": 82,
-          "profile": "core",
-          "suite": "WCS 2.0",
-          "total": 82
-        }
-      ],
-      "summary": "Coverage retrieval is exercised through the classic WCS 2.0 ETS, which passes 82/82 on trunk; full Honua suite is 952/952."
+        { "suite": "WCS 2.0", "profile": "core", "passed": 82, "total": 82, "passRate": "100%" }
+      ]
     }
   },
-  "openapi": "3.0.3",
+  "servers": [
+    {
+      "url": "/ogc/coverages"
+    }
+  ],
   "paths": {
     "/": {
       "get": {
+        "summary": "Landing page",
         "parameters": [
           {
             "$ref": "#/components/parameters/MetadataFormat"
@@ -279,6 +29,7 @@
         ],
         "responses": {
           "200": {
+            "description": "Landing page",
             "content": {
               "application/json": {
                 "schema": {
@@ -286,33 +37,14 @@
                 }
               },
               "text/html": {}
-            },
-            "description": "Landing page"
+            }
           }
-        },
-        "summary": "Landing page"
+        }
       }
     },
-    "/api": {
+    "/conformance": {
       "get": {
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/OpenApiFormat"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.oai.openapi+json;version=3.0": {}
-            },
-            "description": "OpenAPI document"
-          }
-        },
-        "summary": "OpenAPI document"
-      }
-    },
-    "/collections": {
-      "get": {
+        "summary": "Conformance declaration",
         "parameters": [
           {
             "$ref": "#/components/parameters/MetadataFormat"
@@ -320,6 +52,66 @@
         ],
         "responses": {
           "200": {
+            "description": "Conformance classes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConformanceDeclaration"
+                }
+              },
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
+    "/api": {
+      "get": {
+        "summary": "OpenAPI document",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OpenApiFormat"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/vnd.oai.openapi+json;version=3.0": {}
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI document",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OpenApiFormat"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/vnd.oai.openapi+json;version=3.0": {}
+            }
+          }
+        }
+      }
+    },
+    "/collections": {
+      "get": {
+        "summary": "List coverage collections",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MetadataFormat"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accessible raster coverage collections",
             "content": {
               "application/json": {
                 "schema": {
@@ -327,8 +119,7 @@
                 }
               },
               "text/html": {}
-            },
-            "description": "Accessible raster coverage collections"
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -336,12 +127,12 @@
           "500": {
             "$ref": "#/components/responses/ServerError"
           }
-        },
-        "summary": "List coverage collections"
+        }
       }
     },
     "/collections/{collectionId}": {
       "get": {
+        "summary": "Get coverage collection metadata",
         "parameters": [
           {
             "$ref": "#/components/parameters/CollectionId"
@@ -352,6 +143,7 @@
         ],
         "responses": {
           "200": {
+            "description": "Coverage collection metadata",
             "content": {
               "application/json": {
                 "schema": {
@@ -359,8 +151,7 @@
                 }
               },
               "text/html": {}
-            },
-            "description": "Coverage collection metadata"
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -371,78 +162,118 @@
           "500": {
             "$ref": "#/components/responses/ServerError"
           }
-        },
-        "summary": "Get coverage collection metadata"
+        }
       }
     },
-    "/collections/{collectionId}/coverage": {
+    "/collections/{collectionId}/schema": {
       "get": {
+        "summary": "Get coverage schema",
         "parameters": [
           {
             "$ref": "#/components/parameters/CollectionId"
           },
           {
-            "description": "Spatial subset as xmin,ymin,xmax,ymax. Coordinates are CRS84 unless bbox-crs is supplied; geographic antimeridian crossings are represented with east/west clip polygons.",
-            "in": "query",
+            "$ref": "#/components/parameters/MetadataFormat"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Coverage field-selection schema",
+            "content": {
+              "application/schema+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageSchema"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageSchema"
+                }
+              },
+              "text/html": {}
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}/coverage": {
+      "get": {
+        "summary": "Get coverage data",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CollectionId"
+          },
+          {
             "name": "bbox",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Spatial subset as xmin,ymin,xmax,ymax. Coordinates are CRS84 unless bbox-crs is supplied; geographic antimeridian crossings are represented with east/west clip polygons."
           },
           {
-            "description": "CRS identifier for bbox coordinates. Must resolve to one of the collection's advertised CRS identifiers.",
-            "in": "query",
             "name": "bbox-crs",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "CRS identifier for bbox coordinates. Must resolve to one of the collection's advertised CRS identifiers."
           },
           {
-            "description": "Output CRS identifier. Must resolve to one of the collection's advertised CRS identifiers.",
-            "in": "query",
             "name": "crs",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Output CRS identifier. Must resolve to one of the collection's advertised CRS identifiers."
           },
           {
-            "description": "Comma-separated band fields, for example band_1,band_3.",
-            "in": "query",
             "name": "properties",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Comma-separated band fields, for example band_1,band_3."
           },
           {
-            "description": "Positive native/storage CRS pixel size as one value or width,height. Maps to RasterQuery.PixelSize before output reprojection. The derived output must not exceed 8192 pixels on either axis, checked in storage CRS against the requested bbox when supplied and otherwise against coverage extent or native grid metadata.",
-            "in": "query",
             "name": "resolution",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Positive native/storage CRS pixel size as one value or width,height. Maps to RasterQuery.PixelSize before output reprojection. The derived output must not exceed 8192 pixels on either axis, checked in storage CRS against the requested bbox when supplied and otherwise against coverage extent or native grid metadata."
           },
           {
-            "description": "Positive multiplier for the native pixel size. The derived output must not exceed 8192 pixels on either axis, checked in storage CRS against the requested bbox when supplied and otherwise against coverage extent or native grid metadata.",
-            "in": "query",
             "name": "scale-factor",
+            "in": "query",
             "schema": {
-              "exclusiveMinimum": 0,
-              "type": "number"
-            }
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "description": "Positive multiplier for the native pixel size. The derived output must not exceed 8192 pixels on either axis, checked in storage CRS against the requested bbox when supplied and otherwise against coverage extent or native grid metadata."
           },
           {
-            "description": "Output size as width,height or axis-size pairs such as x(512),y(512), with each axis from 1 through 8192 pixels.",
-            "in": "query",
             "name": "scale-size",
+            "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Output size as width,height or axis-size pairs such as x(512),y(512), with each axis from 1 through 8192 pixels."
           },
           {
-            "description": "Coverage encoding. Defaults to GeoTIFF when no explicit format or Accept header is supplied.",
-            "in": "query",
             "name": "f",
+            "in": "query",
             "schema": {
+              "type": "string",
               "enum": [
                 "geotiff",
                 "tiff",
@@ -450,27 +281,13 @@
                 "image/tiff",
                 "png",
                 "image/png"
-              ],
-              "type": "string"
-            }
+              ]
+            },
+            "description": "Coverage encoding. Defaults to GeoTIFF when no explicit format or Accept header is supplied."
           }
         ],
         "responses": {
           "200": {
-            "content": {
-              "image/png": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              },
-              "image/tiff": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
             "description": "Coverage payload",
             "headers": {
               "Content-Bbox": {
@@ -491,6 +308,20 @@
                   "type": "string"
                 }
               }
+            },
+            "content": {
+              "image/tiff": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
             }
           },
           "400": {
@@ -505,95 +336,258 @@
           "500": {
             "$ref": "#/components/responses/ServerError"
           }
-        },
-        "summary": "Get coverage data"
-      }
-    },
-    "/collections/{collectionId}/schema": {
-      "get": {
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CollectionId"
-          },
-          {
-            "$ref": "#/components/parameters/MetadataFormat"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CoverageSchema"
-                }
-              },
-              "application/schema+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CoverageSchema"
-                }
-              },
-              "text/html": {}
-            },
-            "description": "Coverage field-selection schema"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "500": {
-            "$ref": "#/components/responses/ServerError"
-          }
-        },
-        "summary": "Get coverage schema"
-      }
-    },
-    "/conformance": {
-      "get": {
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/MetadataFormat"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConformanceDeclaration"
-                }
-              },
-              "text/html": {}
-            },
-            "description": "Conformance classes"
-          }
-        },
-        "summary": "Conformance declaration"
-      }
-    },
-    "/openapi.json": {
-      "get": {
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/OpenApiFormat"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.oai.openapi+json;version=3.0": {}
-            },
-            "description": "OpenAPI document"
-          }
-        },
-        "summary": "OpenAPI document"
+        }
       }
     }
   },
-  "servers": [
-    {
-      "url": "/ogc/coverages"
+  "components": {
+    "parameters": {
+      "CollectionId": {
+        "name": "collectionId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "MetadataFormat": {
+        "name": "f",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "json",
+            "html"
+          ]
+        },
+        "description": "Metadata representation. Defaults to JSON when no explicit format or Accept header is supplied."
+      },
+      "OpenApiFormat": {
+        "name": "f",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "json"
+          ]
+        },
+        "description": "OpenAPI document representation. Defaults to application/vnd.oai.openapi+json;version=3.0."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid request"
+      },
+      "NotFound": {
+        "description": "Coverage collection was not found"
+      },
+      "NotAcceptable": {
+        "description": "Requested representation is not acceptable"
+      },
+      "ServerError": {
+        "description": "Server error"
+      }
+    },
+    "schemas": {
+      "LandingPage": {
+        "type": "object",
+        "required": [
+          "title",
+          "links"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "ConformanceDeclaration": {
+        "type": "object",
+        "required": [
+          "conformsTo"
+        ],
+        "properties": {
+          "conformsTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "CoverageCollections": {
+        "type": "object",
+        "required": [
+          "collections",
+          "links"
+        ],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CoverageCollection"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
+        }
+      },
+      "CoverageCollection": {
+        "type": "object",
+        "required": [
+          "id",
+          "itemType",
+          "links"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string",
+            "enum": [
+              "coverage"
+            ]
+          },
+          "extent": {
+            "type": "object",
+            "properties": {
+              "spatial": {
+                "type": "object",
+                "properties": {
+                  "bbox": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "storageCrsBbox": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "crs": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          },
+          "crs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "storageCrs": {
+            "type": "string"
+          },
+          "grid": {
+            "type": "object"
+          },
+          "domain": {
+            "type": "object"
+          },
+          "defaultFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CoverageSchema": {
+        "type": "object",
+        "required": [
+          "type",
+          "properties"
+        ],
+        "properties": {
+          "$schema": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "Link": {
+        "type": "object",
+        "required": [
+          "href"
+        ],
+        "properties": {
+          "href": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "rel": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "templated": {
+            "type": "boolean"
+          },
+          "hreflang": {
+            "type": "string"
+          }
+        }
+      }
     }
-  ]
+  }
 }

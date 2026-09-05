@@ -1,10 +1,48 @@
-# Release gate (g) — observability / SLO. Evaluates the GeoServices in-band error rate against a
-# budget on a deployed candidate (PLAN §4g; retires server#2243/devops#113 at the gate level).
+# Release gate (g) — observability / SLO. Two independent checks (PLAN §4g; retires
+# server#2243/devops#113 at the gate level):
 #
-# The decision is mechanical (tools/check_slo.py, unit-tested) so it CANNOT green-light a failing
-# release the way the audited SLO gate did. Until the server emits honua_geoservices_error_total
-# (issue #5) and a candidate is deployed with a scrapeable metrics endpoint, it reports BLOCKED —
-# never a fake green. Set HONUA_METRICS_URL (repo var) to point at the candidate's /metrics.
+#  1. metric-contract — REAL and deployment-independent. Parses the platform's actual alert rules
+#     (honua-helm's PrometheusRule, honua-devops' recording/alert rules) and this gate's own metric
+#     names, and requires every Honua series they reference to be declared in honua-server's
+#     observability/slo-metric-contract.json — a contract the server integration-tests against its
+#     real /metrics exposition. This is the check that was missing when #5 was filed: three
+#     repositories divided by three different metrics that no Honua component has ever emitted, and
+#     nothing failed, because a PromQL ratio over an absent series is an EMPTY vector — no alert,
+#     no error, no signal. Silence, not noise.
+#
+#  2. slo — the error-budget evaluation itself. Mechanical (tools/check_slo.py, unit-tested) so it
+#     CANNOT green-light a failing release the way the audited SLO gate did. It needs a deployed
+#     candidate: set HONUA_METRICS_URL (repo var) to the candidate's /metrics endpoint. While that
+#     variable is unset there is genuinely nothing to scrape, and the gate reports BLOCKED (an
+#     honest skip in bootstrap, a hard FAIL under strict) — never a fake green.
+#
+#     THE VERDICT IS A WINDOW, NOT A COUNTER READING, and that is what makes it REPRODUCIBLE. The
+#     SLO series are cumulative counters scoped to one server process's lifetime; honua-server runs
+#     on Lambda. Read raw, the same unchanged candidate produced fail / blocked / pass / skipped
+#     within one hour on 2026-08-18 purely from traffic timing (honua-release#5). So the gate drives
+#     a bounded deterministic burst of ordinary in-scope GeoServices reads between two scrapes and
+#     evaluates the delta — a SYNTHETIC CANARY over a window it defines, explicitly labelled as such
+#     in the verdict, not a production SLO. Guards that block rather than clamp: per-process
+#     continuity (both scrapes answered by one process), probe attribution (the scraped process saw
+#     at least the whole burst), and budget resolution (a window too small to resolve the budget
+#     cannot "pass" it). A negative or vanished counter is BLOCKED, never zero.
+#
+#     ...AND the scraped instance must PROVE it is the candidate. Honua is not a SaaS: the one
+#     long-lived deployed environment (demo.honua.io, owned by honua-io/honua-demo-infra) doubles as
+#     demo and certification target, and it routinely runs a build older than the manifest pin —
+#     6ad71ac7 (2026-08-03) at the time this binding was written, against a much newer pinned
+#     honua-server. Aiming HONUA_METRICS_URL at it without a binding would compute a real,
+#     correct-looking error budget over the WRONG population and report it as the candidate's: the
+#     same class of defect as the fail-open denominator #5 already fixed once. So the gate reads the
+#     instance's advertised build identity from the PUBLIC capability manifest
+#     (GET /api/v1/capabilities/manifest -> $.server.deploymentRevision, with
+#     deploymentRevisionSource: commit-sha) and requires it to equal components.honua-server.sha in
+#     platform-manifest.yaml. Mismatched, unreadable or absent => BLOCKED (hard FAIL under strict).
+#     `pass` is unreachable for an instance whose identity was not confirmed.
+#
+# ERROR_METRIC / REQUEST_METRIC must be names the server actually EXPORTS, which is not the same as
+# the .NET instrument name — the OpenTelemetry Prometheus exporter rewrites names from the
+# instrument's declared unit. Check #1 is what keeps these two honest.
 
 name: gate-observability
 run-name: "gate-observability ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
@@ -20,6 +58,17 @@ on:
     inputs:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
+      # Admin API key for the candidate's /metrics endpoint, which honua-server maps with
+      # .RequireAuthorization("Admin"). Without it the scrape is a 401 that reads as "metric absent".
+      HONUA_METRICS_API_KEY: { required: false }
+      # Fallback credential, wired but inert. The repo already holds HONUA_DEMO_API_KEY (demo-canary
+      # uses it); HONUA_METRICS_API_KEY does not exist yet. Accepting the existing secret means
+      # pointing this gate at a candidate needs no new secret — only HONUA_METRICS_URL. Inert today
+      # because that variable is deliberately left unset here: aiming the gate at demo is an act for
+      # AFTER demo is redeployed onto the pinned candidate, not a side effect of wiring a credential.
+      HONUA_DEMO_API_KEY: { required: false }
     outputs:
       overall_status:
         description: "pass | fail | blocked | skipped"
@@ -40,11 +89,24 @@ jobs:
     env:
       HONUA_METRICS_URL: ${{ vars.HONUA_METRICS_URL }}
       ERROR_METRIC: "honua_geoservices_error_total"
-      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_geoservices_requests_total' }}
+      # The denominator: the _count child of honua-server's serving-plane latency histogram, one
+      # sample per served request that classifies to a Honua protocol. The previous default
+      # (honua_geoservices_requests_total) was an invented name; check_slo.py returns "blocked" when
+      # request_total is None, so this gate was STRUCTURALLY incapable of returning `pass`.
+      REQUEST_METRIC: ${{ vars.HONUA_REQUEST_METRIC || 'honua_serving_request_duration_ms_count' }}
+      # SCOPE IS NOT OPTIONAL. ERROR_METRIC counts GeoServices errors only, so the denominator must
+      # count GeoServices requests only. Summed across every label set it also carries OGC/OData/
+      # Admin traffic and — until honua-server stopped recording them — health probes and metric
+      # scrapes, which on a day-old candidate outnumber a smoke suite ~100:1. That turns a 10% real
+      # error rate into 0.09% and passes a 1% budget: fail-OPEN, worse than the no-signal state this
+      # gate replaced. The selector is read from honua-server's slo-metric-contract.json (generated
+      # from HonuaTelemetry.Protocols.GeoServicesFamily) so it cannot drift from the server. If it
+      # cannot be resolved the gate blocks rather than falling back to an unscoped denominator.
+      REQUEST_SELECTOR_KEY: "geoservices_protocols"
       MAX_ERROR_RATE: ${{ vars.HONUA_MAX_ERROR_RATE || '0.01' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       # pyyaml is needed because the shared self-test module (test_slo_upgrade.py) imports
@@ -55,35 +117,214 @@ jobs:
       - name: Self-test the SLO logic
         run: python -m pytest tools/test_slo_upgrade.py -q -k slo
 
-      - name: Scrape the candidate metrics + evaluate the error budget
+      # The metric-name guard must be able to fail, so its own extraction rules are unit-tested
+      # (tools/test_metric_contract.py), including the exact regression it exists to catch: an
+      # alert rule dividing by a metric honua-server does not emit.
+      - name: Self-test the metric-contract guard
+        run: python -m pytest tools/test_metric_contract.py e2e/runner/test_runner.py -q
+
+      - name: Clone the alert-rule consumers
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          ROOT="$RUNNER_TEMP/components"; mkdir -p "$ROOT"; echo "REPOS_ROOT=$ROOT" >> "$GITHUB_ENV"
+          # honua-server (owns the contract) and honua-helm (ships the PrometheusRule) are
+          # manifest-pinned components: check the CANDIDATE's alerting against the CANDIDATE's
+          # server, not against whatever is on trunk today.
+          for comp in honua-server honua-helm; do
+            sha="$(python -c "import yaml;print(((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('$comp',{})) or {}).get('sha','') or '')")"
+            echo "::group::checkout exact $comp @ ${sha:-<none>}"
+            if [ -n "$sha" ] && bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" "$comp" "$sha" "$ROOT/$comp" 2>/tmp/clone.log; then
+              echo "$comp exact checkout: $(git -C "$ROOT/$comp" rev-parse HEAD)"
+            else
+              echo "note: exact $comp checkout unavailable"; tail -n 3 /tmp/clone.log || true
+            fi
+            echo "::endgroup::"
+          done
+          # honua-devops is operator tooling, not a shipped platform component, so it has no
+          # manifest pin — take its default branch. If the token cannot reach it (private repo),
+          # its rules stay UNVERIFIED and the checker reports blocked rather than a partial pass.
+          echo "::group::checkout honua-devops (default branch)"
+          if git clone --quiet --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-devops.git" "$ROOT/honua-devops" 2>/tmp/devops.log; then
+            git -C "$ROOT/honua-devops" remote set-url origin "https://github.com/honua-io/honua-devops.git"
+            echo "honua-devops checkout: $(git -C "$ROOT/honua-devops" rev-parse HEAD)"
+          else
+            echo "note: honua-devops checkout unavailable"; tail -n 3 /tmp/devops.log || true
+          fi
+          echo "::endgroup::"
+
+      - name: Cross-repo metric-name contract
+        id: contract
+        run: |
+          set -uo pipefail
+          if OUT="$(python tools/check_metric_contract.py --repos-root "$REPOS_ROOT" --self . 2>&1)"; then
+            RC=0
+          else
+            RC=$?
+          fi
+          echo "$OUT"
+          case "$RC" in
+            0) STATUS=pass ;;
+            1) STATUS=fail ;;
+            *) STATUS=blocked ;;
+          esac
+          WHY="$(printf '%s\n' "$OUT" | sed -n 's/^metric-contract: //p' | head -n1)"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "why=${WHY:-see log}" >> "$GITHUB_OUTPUT"
+          { echo "## Observability / metric contract — ${STATUS}"; echo ""; echo "${WHY:-see log}"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Bind the scrape to the pinned candidate BEFORE measuring anything. The identity comes from
+      # the same origin as HONUA_METRICS_URL by construction (check_slo.capability_manifest_url
+      # rewrites only the path), so there is no second variable that could drift to a different host.
+      # The capability manifest is PUBLIC — unlike /metrics, which is Admin-authorized — so identity
+      # is establishable even when the scrape credential is missing. The key is still sent when
+      # present, in case a candidate locks the endpoint down.
+      - name: Identify the scraped instance
+        env:
+          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
+        run: |
+          set -uo pipefail
+          python - >> "$GITHUB_ENV" <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+          sys.path.insert(0, "tools")
+          import yaml
+          from check_slo import capability_manifest_url, read_instance_revision
+
+          # The pin. An unreadable manifest yields "" and blocks — it is never defaulted.
+          try:
+              with open("platform-manifest.yaml", encoding="utf-8") as handle:
+                  pinned = ((yaml.safe_load(handle).get("components", {})
+                             .get("honua-server", {})) or {}).get("sha", "") or ""
+          except (OSError, AttributeError, ValueError, yaml.YAMLError) as exc:
+              pinned, note = "", f"platform-manifest.yaml unreadable ({exc.__class__.__name__})"
+          else:
+              note = ""
+
+          url = capability_manifest_url(os.environ.get("HONUA_METRICS_URL", ""))
+          revision = source = ""
+          if url is None:
+              note = note or "HONUA_METRICS_URL unset or not an http(s) URL - no instance to identify"
+          else:
+              request = urllib.request.Request(url)
+              request.add_header("Accept", "application/json")
+              key = os.environ.get("HONUA_ADMIN_PASSWORD", "")
+              if key:
+                  request.add_header("X-API-Key", key)
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      document = json.loads(response.read().decode("utf-8", "replace"))
+              except (urllib.error.URLError, OSError, ValueError) as exc:
+                  note = f"{url} unreadable ({exc.__class__.__name__})"
+              else:
+                  found, found_source = read_instance_revision(document)
+                  revision, source = found or "", found_source or ""
+                  if not revision:
+                      note = f"{url} advertised no deploymentRevision"
+
+          # Single-line, whitespace-free values only: these are shas, and GITHUB_ENV is line-oriented.
+          def clean(value):
+              return "".join(value.split())
+
+          print(f"PINNED_SHA={clean(pinned)}")
+          print(f"INSTANCE_REVISION={clean(revision)}")
+          print(f"INSTANCE_REVISION_SOURCE={clean(source)}")
+          print(f"IDENTITY_URL={clean(url or '')}")
+          print(f"IDENTITY_NOTE={' '.join(note.split())}")
+          PY
+
+      # MEASURE A WINDOW, NOT A COUNTER READING.
+      #
+      # honua_geoservices_error_total and honua_serving_request_duration_ms_count are cumulative
+      # counters scoped to one server process's lifetime, and honua-server runs on Lambda. Reading
+      # them raw made this gate's verdict a property of traffic TIMING rather than of the release:
+      # against an UNCHANGED candidate on 2026-08-18 this gate returned fail (17.6%, poisoned by six
+      # bad requests an operator had issued minutes earlier — a counter has no window, so no volume of
+      # clean traffic can ever dilute them), then blocked (the container recycled and both series
+      # vanished), then pass, then skipped. Four verdicts in an hour, one release (honua-release#5).
+      #
+      # So the gate now defines its own interval: scrape, drive a fixed deterministic burst of
+      # ordinary in-scope GeoServices reads at the candidate, scrape again, evaluate the DIFFERENCE.
+      # History cancels out, the denominator cannot be empty, and the window is the same shape every
+      # run — which is what makes two consecutive dispatches agree.
+      #
+      # This is a SYNTHETIC CANARY over a bounded window, not a production SLO, and the verdict text
+      # says so. It answers "does the pinned candidate serve its own catalogue without emitting error
+      # envelopes"; it does not answer "what have real users seen". Nobody should cite a pass here as
+      # production SLO evidence.
+      #
+      # Why not the obviously-correcter windowed rate from Prometheus (rate(...[5m]) over the fleet,
+      # which honua-devops' rules already express)? Because NO PROMETHEUS SCRAPES THE DEMO. Verified,
+      # not assumed: honua-demo's stack instantiates only honua-iac's aws-serverless module and
+      # provisions no Prometheus, no AMP workspace, no remote_write, no OTLP endpoint and no metric
+      # stream; the observability-stack Terraform module that would build a scrape config is never
+      # instantiated by any root stack and its scrape-target Terraform variable has no default; and
+      # honua-helm's ServiceMonitor is Kubernetes-only and disabled by default, while the demo has no
+      # Kubernetes at all. Those recording rules are real and correct and nothing evaluates them.
+      # Choosing them here would make the gate depend on infrastructure that does not exist.
+      - name: Resolve the denominator scope selector
+        run: |
+          set -uo pipefail
+          python - >> "$GITHUB_ENV" <<'PY'
+          import json, os
+          # The scope selector comes from the CANDIDATE server's own contract file so it cannot drift
+          # from the server. If it cannot be resolved we emit nothing and the probe refuses to run:
+          # falling back to an unscoped denominator is fail-open, the one outcome worse than no signal.
+          contract = os.path.join(os.environ.get("REPOS_ROOT", ""), "honua-server",
+                                  "observability", "slo-metric-contract.json")
+          try:
+              with open(contract, encoding="utf-8") as handle:
+                  selector = json.load(handle)["selectors"][os.environ["REQUEST_SELECTOR_KEY"]]
+              note = selector
+          except (OSError, KeyError, ValueError) as exc:
+              selector, note = "", f"scope selector unavailable ({exc.__class__.__name__}) - {contract}"
+          print(f"REQUEST_SELECTOR={' '.join(selector.split())}")
+          print(f"SCRAPED_SELECTOR={' '.join(note.split())}")
+          PY
+
+      - name: Drive the bounded probe window against the candidate
+        env:
+          # honua-server maps /metrics with .RequireAuthorization("Admin"), so an unauthenticated
+          # GET is a 401 that the scraper would report as "metric absent".
+          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
+          # Burst size. Not arbitrary: a 1% budget cannot be resolved by a window smaller than 100
+          # requests (one error would read as >1% no matter how healthy the release), and check_slo
+          # blocks below that floor rather than pretending. 200 leaves headroom.
+          HONUA_SLO_PROBE_REQUESTS: ${{ vars.HONUA_SLO_PROBE_REQUESTS || '200' }}
+        run: |
+          set -uo pipefail
+          python tools/slo_probe.py >> "$GITHUB_ENV"
+
+      - name: Evaluate the error budget
         id: eval
+        env:
+          CONTRACT_STATUS: ${{ steps.contract.outputs.status }}
+          CONTRACT_WHY: ${{ steps.contract.outputs.why }}
         run: |
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
-          # Reuse the e2e Prometheus parser; scrape the in-band error + request counters.
-          read -r ERR REQ < <(python - <<'PY'
-          import os, sys, urllib.request
-          sys.path.insert(0, "e2e")
-          from runner.harness import parse_metric_total
-          url = os.environ.get("HONUA_METRICS_URL", "").strip()
-          def scrape(name):
-              if not url: return ""
-              try:
-                  body = urllib.request.urlopen(url, timeout=15).read().decode("utf-8","replace")
-              except Exception:
-                  return ""
-              v = parse_metric_total(body, name)
-              return "" if v is None else repr(v)
-          print(scrape(os.environ["ERROR_METRIC"]), scrape(os.environ["REQUEST_METRIC"]) or '""')
-          PY
-          )
-          ERR="${ERR:-}"; REQ="${REQ:-}"
-          echo "scraped error_total=${ERR:-<absent>} request_total=${REQ:-<absent>} (url=${HONUA_METRICS_URL:-<unset>})"
+          echo "scope selector: ${SCRAPED_SELECTOR:-<unresolved>}"
+          echo "probe window: error ${PROBE_ERR_BEFORE:-<absent>} -> ${PROBE_ERR_AFTER:-<absent>}, request ${PROBE_REQ_BEFORE:-<absent>} -> ${PROBE_REQ_AFTER:-<absent>}, delivered ${PROBE_REQUESTS:-0} in-scope requests (url=${HONUA_METRICS_URL:-<unset>})"
+          echo "probe continuity: ${PROBE_CONTINUITY:-<none>} ${PROBE_NOTE:+- $PROBE_NOTE}"
+          echo "unrated errors: ${PROBE_UNRATED_ERRORS:-0} ${PROBE_UNRATED_NOTE:+- $PROBE_UNRATED_NOTE}"
+          echo "candidate identity: instance=${INSTANCE_REVISION:-<absent>} (source=${INSTANCE_REVISION_SOURCE:-<absent>}) pinned=${PINNED_SHA:-<unreadable>} via ${IDENTITY_URL:-<none>} ${IDENTITY_NOTE:+- $IDENTITY_NOTE}"
           # Raw verdict from the pure, unit-tested decision core (pass|fail|blocked). We evaluate WITHOUT
           # --require-real here and apply the enforcement policy below, so the honest dry-run skip is
           # explicit (mirrors gate-artifact-consume's dry-run-skip pattern: a publish/deploy-dependent
           # gate reports `skipped` — never a fake green — when its backing source genuinely doesn't exist).
-          OUT="$(python tools/check_slo.py --error-total "$ERR" --request-total "$REQ" --max-error-rate "$MAX_ERROR_RATE")"
+          # Identity is a PRECONDITION inside check_slo.evaluate_gate: an unconfirmed instance
+          # short-circuits to blocked and the error budget is never consulted, so no combination of
+          # scraped numbers can green this gate off an instance that is not the pinned candidate.
+          OUT="$(python tools/check_slo.py \
+                   --error-before "${PROBE_ERR_BEFORE:-}" --error-after "${PROBE_ERR_AFTER:-}" \
+                   --request-before "${PROBE_REQ_BEFORE:-}" --request-after "${PROBE_REQ_AFTER:-}" \
+                   --probe-requests "${PROBE_REQUESTS:-0}" \
+                   --unrated-errors "${PROBE_UNRATED_ERRORS:-0}" \
+                   --continuity "${PROBE_CONTINUITY:-${PROBE_NOTE:-}}" \
+                   --max-error-rate "$MAX_ERROR_RATE" \
+                   --pinned-sha "${PINNED_SHA:-}" \
+                   --instance-revision "${INSTANCE_REVISION:-}" \
+                   --revision-source "${INSTANCE_REVISION_SOURCE:-}")"
           RAW="$(printf '%s\n' "$OUT" | sed -n 's/^status=//p')"
           RAW_WHY="$(printf '%s\n' "$OUT" | sed -n 's/^why=//p')"
           case "$RAW" in
@@ -94,17 +335,45 @@ jobs:
               # A genuine error-budget breach is RED in both modes (this is the gate's whole point).
               STATUS=fail;  WHY="$RAW_WHY"; RC=1 ;;
             *)
-              # blocked == no SLO source: HONUA_METRICS_URL unset / no scrapeable candidate / in-band
-              # error metric not wired (server#2243). In a dry-run bootstrap cut there is genuinely no
-              # staging deploy to scrape, so this is an honest SKIP (does not fake green, does not redden
-              # the train). A real cut (strict) MUST have a live SLO source, so there it stays a hard FAIL.
+              # blocked == no TRUSTWORTHY SLO source. Two ways to get here, and RAW_WHY says which:
+              #   * no source at all — HONUA_METRICS_URL unset / nothing scrapeable / in-band error
+              #     metric not wired (server#2243);
+              #   * a source that is not the candidate — the scraped instance's deploymentRevision
+              #     does not match the pinned honua-server.sha, or could not be read. RAW_WHY names
+              #     both shas. This is NOT a lesser outcome than "nothing deployed": a wrong-build
+              #     error budget is worse than no error budget, because it looks like an answer.
+              # In a dry-run bootstrap cut there is genuinely no candidate deploy, so this is an honest
+              # SKIP (does not fake green, does not redden the train). A real cut (strict) MUST have a
+              # live SLO source that proved it is the candidate, so there it stays a hard FAIL.
               if [ "$ENF" = "strict" ]; then
-                STATUS=fail;    WHY="no live SLO source on a real cut — $RAW_WHY"; RC=1
+                STATUS=fail;    WHY="no confirmed SLO source on a real cut — $RAW_WHY"; RC=1
               else
-                STATUS=skipped; WHY="no staging SLO source — dry run (HONUA_METRICS_URL unset / in-band error metric not wired): $RAW_WHY"; RC=0
+                STATUS=skipped; WHY="no confirmed staging SLO source — dry run: $RAW_WHY"; RC=0
+              fi ;;
+          esac
+          # Fold in the metric-name contract. It is deployment-independent and deterministic, so a
+          # DRIFT is a real, present defect — alerting that cannot fire — and overrides a green or
+          # skipped SLO verdict in BOTH modes. A BLOCKED contract (a consumer checkout was
+          # unavailable, or the manifest-pinned honua-server predates the contract file) is treated
+          # like every other missing source: honest skip in bootstrap, hard fail under strict.
+          case "${CONTRACT_STATUS:-blocked}" in
+            pass) ;;
+            fail)
+              STATUS=fail; WHY="metric-name contract drift — ${CONTRACT_WHY:-see log}"; RC=1 ;;
+            *)
+              if [ "$ENF" = "strict" ]; then
+                STATUS=fail; WHY="metric contract unverified on a real cut — ${CONTRACT_WHY:-see log}"; RC=1
+              else
+                [ "$STATUS" = "pass" ] && { STATUS=skipped; RC=0; }
+                WHY="$WHY (metric contract unverified: ${CONTRACT_WHY:-see log})"
               fi ;;
           esac
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          { echo "## Observability / SLO — ${STATUS:-unknown}"; echo ""; echo "$WHY"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## Observability / SLO — ${STATUS:-unknown}"; echo ""; echo "$WHY"; echo ""
+            echo "_Measured over a bounded probe window this gate drove itself (${PROBE_REQUESTS:-0} in-scope"
+            echo "GeoServices reads between two scrapes of the same server process). This is a SYNTHETIC"
+            echo "canary against the pinned candidate, not a production SLO: it says the candidate serves"
+            echo "its own catalogue without emitting error envelopes, not what error rate real users saw._"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "SLO: $STATUS — $WHY"
           exit "$RC"

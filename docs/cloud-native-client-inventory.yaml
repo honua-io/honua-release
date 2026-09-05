@@ -1,0 +1,155 @@
+schema: honua.cloud-native-client-inventory/v1
+source:
+  guide: https://guide.cloudnativegeo.org/
+  repository: https://github.com/cloudnativegeo/cloud-optimized-geospatial-formats-guide
+  revision: 0fabdf7c04ff135dd8160f39bf7a0fbb2f402f46
+  revision_date: 2026-07-27T22:08:16Z
+  retrieved_date: 2026-08-20
+governance:
+  owner: honua-evidence
+  tracking_issue: https://github.com/honua-io/honua-evidence/issues/22
+  classifications: [required-consumer, optional-consumer, producer-validator, supporting-tool, roadmap-consumer, not-applicable]
+  release_required_classifications: [required-consumer, producer-validator]
+  certification_rule: >-
+    A supported format passes only when every release-required client has an
+    executable observation against the supported Honua operation and exact
+    candidate. Fixture-only readability is supporting evidence, not API proof.
+execution:
+  pr:
+    purpose: deterministic contracts and matrix/schema completeness
+    external_infrastructure: false
+  nightly:
+    purpose: canonical clients against live local services and object-store fixtures
+    required_for_release_reuse: false
+  release:
+    purpose: complete required-client denominator against the exact candidate image
+    skips_allowed: false
+    immutable_evidence_required: true
+pins:
+  python:
+    Dask: 2026.7.1
+    GeoPandas: 1.1.4
+    PyArrow: 25.0.1
+    Pyogrio: 0.13.0
+    PySTAC-Client: 0.9.0
+    Rasterio: 1.5.1
+    fsspec: 2026.7.0
+    h5netcdf: 1.8.1
+    h5py: 3.16.0
+    pmtiles-python-reader: 3.7.0
+    rio-cogeo: 7.0.2
+    xarray: 2026.7.0
+    zarr: 3.3.0
+  javascript:
+    flatgeobuf-js: 4.4.0
+    PMTiles-browser-viewer: 4.5.0
+formats:
+  cog:
+    maturity: supported
+    evidence:
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+      api_binding: incomplete
+      tracking_issue: https://github.com/honua-io/honua-server/issues/3377
+    tools:
+      Rasterio: required-consumer
+      GDAL: required-consumer
+      rio-cogeo: producer-validator
+      rio-xarray: optional-consumer
+      R-stars: optional-consumer
+      R-terra: optional-consumer
+  hdf5-netcdf:
+    maturity: supported
+    evidence:
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+      api_binding: incomplete
+      tracking_issue: https://github.com/honua-io/honua-server/issues/3377
+    tools:
+      h5stat: required-consumer
+      h5dump: producer-validator
+      h5repack: producer-validator
+      h5py: required-consumer
+      xarray: required-consumer
+      fsspec: supporting-tool
+      ROS3: optional-consumer
+  zarr:
+    maturity: supported
+    evidence:
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+      api_binding: incomplete
+      tracking_issue: https://github.com/honua-io/honua-server/issues/3377
+    tools:
+      zarr: required-consumer
+      xarray: required-consumer
+      fsspec: required-consumer
+      Dask: required-consumer
+      s3fs: supporting-tool
+      adlfs: optional-consumer
+      Planetary-Computer: optional-consumer
+  kerchunk:
+    maturity: roadmap
+    tracking_issue: https://github.com/honua-io/honua-server/issues/3378
+    tools:
+      kerchunk: roadmap-consumer
+      fsspec-reference-filesystem: roadmap-consumer
+      xarray: roadmap-consumer
+      h5py: supporting-tool
+      s3fs: supporting-tool
+      Dask: optional-consumer
+      imagecodecs: supporting-tool
+  copc:
+    maturity: roadmap
+    tracking_issues:
+      - https://github.com/honua-io/honua-server/issues/2442
+      - https://github.com/honua-io/honua-server/issues/3289
+      - https://github.com/honua-io/honua-server/issues/3290
+    tools:
+      PDAL-CLI: roadmap-consumer
+      PDAL-Python: roadmap-consumer
+      readers.las: producer-validator
+      writers.copc: producer-validator
+      readers.copc: roadmap-consumer
+      filters.stats: producer-validator
+  geoparquet:
+    maturity: supported
+    evidence:
+      api_binding: executable
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+    tools:
+      GeoPandas: required-consumer
+      PyArrow: required-consumer
+      GDAL: required-consumer
+      fsspec: supporting-tool
+  flatgeobuf:
+    maturity: supported
+    evidence:
+      api_binding: executable
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+    tools:
+      GDAL: required-consumer
+      GeoPandas: required-consumer
+      Pyogrio: required-consumer
+      Fiona: optional-consumer
+      flatgeobuf-js: required-consumer
+      Leaflet: optional-consumer
+  pmtiles:
+    maturity: supported
+    evidence:
+      api_binding: executable
+      canonical_artifact_lane: honua-server/.github/workflows/cng-conformance.yml
+    tools:
+      pmtiles-python-reader: required-consumer
+      PMTiles-browser-viewer: required-consumer
+      Tippecanoe: producer-validator
+      mapbox-vector-tile: supporting-tool
+  stac-zarr:
+    maturity: roadmap
+    tracking_issue: https://github.com/honua-io/honua-server/issues/3383
+    evidence:
+      api_binding: not-implemented
+    tools:
+      PySTAC-Client: required-consumer
+      xarray: required-consumer
+      rustac: optional-consumer
+      stac-geoparquet: optional-consumer
+      kerchunk: roadmap-consumer
+      fsspec: supporting-tool

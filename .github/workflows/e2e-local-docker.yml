@@ -1,4 +1,4 @@
-# Phase A — local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
+# Phase A â€” local-docker cross-component seam tier. Cheap, per-PR, highest bug-catch-per-dollar.
 # Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
 # uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
 #
@@ -14,6 +14,8 @@ on:
   pull_request:
     paths:
       - "e2e/**"
+      # bumping the pinned honua-site revision changes what S9 certifies, so re-run the gate for it
+      - "certification/conformance-evidence.yaml"
       - "platform-manifest.yaml"
       - "compatibility-matrix.yaml"
       - ".github/workflows/e2e-local-docker.yml"
@@ -32,6 +34,9 @@ on:
       require_real:
         type: boolean
         default: false
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -45,30 +50,77 @@ jobs:
   seam:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       # Toolchains for the SDK probes. They are present so that, once the SDK pins are real, the
       # probes actually install + run; while pins are placeholders the probes self-report SKIP.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
+
+      # Static refs mirror the manifest and prevent mutable checkout injection.
+      - name: Check out the pinned Python SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-python
+          ref: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4   # python-sdk-v0.1.11; mirrors components.honua-sdk-python.sha
+          path: _e2e-sdk-python
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Check out the pinned .NET SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-sdk-dotnet
+          ref: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6   # 2026-08-27 refresh; mirrors components.honua-sdk-dotnet.sha
+          path: _e2e-sdk-dotnet
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
       - name: Install runner deps
         run: python -m pip install -r e2e/requirements.txt pytest
 
-      # Static gates — always run, can FAIL with no images (broken compose / scenario syntax).
+      - name: Install the frozen SDK artifacts for the seam probes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import yaml
+          components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
+          # These literals mirror the immutable manifest pins so the seam probes consume the same
+          # published client candidate. The .NET/Python package coordinates remain unchanged.
+          expected = {
+              "honua-sdk-js": ("c99e71197dd940ed952aecb024c6de273456f2ae", "0.1.9-beta.0"),
+              "honua-sdk-python": ("f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4", "0.1.11"),
+              "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
+          }
+          for name, (sha, version) in expected.items():
+              actual = components[name]
+              if (actual.get("sha"), str(actual.get("version"))) != (sha, version):
+                  raise SystemExit(f"{name} seam pin drift")
+          PY
+          npm install --prefix e2e --no-save --registry https://registry.npmjs.org @honua/sdk-js@0.1.9-beta.0
+          python -m pip install ./_e2e-sdk-python/packages/honua-sdk
+          WORK="$RUNNER_TEMP/e2e-dotnet-sdk"
+          mkdir -p "$WORK/feed"
+          dotnet nuget update source github-honua -u honua -p "$GH_TOKEN" \
+            --store-password-in-clear-text --configfile _e2e-sdk-dotnet/NuGet.config
+          dotnet pack _e2e-sdk-dotnet -c Release -o "$WORK/feed"
+          dotnet add e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.csproj \
+            package Honua.Sdk.GeoServices --version 1.6.0 --source "$WORK/feed"
+
+      # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)
         working-directory: e2e
         run: make check
 
-      # Unit-test the runner's verdict logic + parsers — an untested gate can stop gating silently.
+      # Unit-test the runner's verdict logic + parsers â€” an untested gate can stop gating silently.
       - name: Unit-test the runner
         working-directory: e2e
         run: make test
@@ -83,24 +135,24 @@ jobs:
 
       - name: Upload gate-report.json
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-local-docker-gate-report
           path: e2e/gate-report.json
           if-no-files-found: warn
 
-  # ── Slice 1 — zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
+  # â”€â”€ Slice 1 â€” zero-cloud-spend local-docker job: boot a REAL honua-server + PostGIS + Redis and
   #    drive MCP, AI Studio, GP, three-protocol parity, and per-format coverage against it. Cheap,
   #    PR-runnable. Nightly / release-train runs set require_real so BLOCKED becomes a hard FAIL.
   slice1:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
-      # Static gates first — these ALWAYS run and can FAIL on a broken edit even with no image
+      # Static gates first â€” these ALWAYS run and can FAIL on a broken edit even with no image
       # (compose validity, shell syntax, python compile, manifest-snapshot validity).
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
@@ -108,17 +160,131 @@ jobs:
       # Pull the pinned server image from ghcr (packages:read). If this can't authenticate, boot.sh
       # degrades to BLOCKED (honest) rather than failing the cheap PR tier.
       - name: Log in to ghcr
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
+      # Tool setup runs BEFORE any external checkout, deliberately: a cache-writing step should not
+      # follow another repository's code onto the disk. The driver shells out to `dotnet` and
+      # `npx playwright` and reports BLOCKED when either is absent, so both toolchains must exist.
+      #
+      # The Console checkout is executed host-side by S4, so a dynamically selected ref would let
+      # that code inherit the default-branch runner's cache capability. Keep the executable ref a
+      # review-visible literal. The resolver below compares it with platform-manifest.yaml and fails
+      # closed on drift, preserving the manifest as the release source of truth while preventing an
+      # unreviewed revision from reaching npm or MSBuild.
+      - name: Set up .NET (console live suite)
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node (console live suite)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      # S4-console-studio drives a real honua-console checkout and reported
+      # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
+      # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
+      # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
+      # - not its default branch - so the console driven here is the one this release ships.
+      - name: Resolve the pinned honua-console revision
+        run: |
+          set -euo pipefail
+          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+          # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
+          # manifest exactly this way for the server image. Keeping one idiom avoids adding a
+          # dependency to a job whose whole purpose is to boot a container.
+          SHA="$(awk '
+            $0 ~ /^  honua-console:/ {inblk=1; next}
+            inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
+            inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
+          ' platform-manifest.yaml)"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
+          echo "pinned honua-console: ${SHA:-<unpinned>}"
+
+      - name: Check out the pinned honua-console
+        id: console
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-console
+          # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
+          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          path: _console
+
+      # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
+      # thing under test, so they are checked out at a PINNED sha, never a floating branch: evidence
+      # taken from a moving ref attests demos that may already have changed, and makes the scenario
+      # non-reproducible across re-runs of the same train. The pin lives beside the esri evidence
+      # producer in certification/conformance-evidence.yaml (see the rationale there and
+      # honua-release#136).
+      - name: Resolve the pinned honua-site revision
+        run: |
+          set -euo pipefail
+          TRUSTED_SHA="0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          # awk, not PyYAML: this job installs no python packages, and the console/server pins are
+          # already read exactly this way. One idiom, no new dependency.
+          SHA="$(awk '
+            $0 ~ /^demos:/ {inblk=1; next}
+            inblk && $0 ~ /^[a-zA-Z]/ {inblk=0}
+            inblk && $1=="sourceRef:" {print $2; exit}
+          ' certification/conformance-evidence.yaml)"
+          if [ "$SHA" != "$TRUSTED_SHA" ]; then
+            echo "::error::conformance-evidence demos sourceRef $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            exit 1
+          fi
+          echo "pinned honua-site: ${SHA:-<unpinned>}"
+
+      # When the checkout fails, or the pinned revision predates the backend-override shim, the
+      # driver reports its own honest BLOCKED naming the missing piece â€” and require_real promotes
+      # that to FAIL. An unpinned ref is left EMPTY on purpose so the checkout fails loudly rather
+      # than silently falling back to a branch.
+      - name: Check out the pinned honua-site (S9 demos)
+        id: site
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-site
+          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          path: _site
+
+      - name: Authenticate and restore the pinned honua-console
+        if: steps.console.outcome == 'success'
+        env:
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          dotnet nuget update source github-honua \
+            --username "${GITHUB_ACTOR}" \
+            --password "${RELEASE_GH_TOKEN}" \
+            --store-password-in-clear-text \
+            --valid-authentication-types basic \
+            --configfile _console/NuGet.config
+          dotnet restore _console/src/Honua.Console.Web/Honua.Console.Web.csproj \
+            --configfile _console/NuGet.config \
+            --nologo
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
           # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
           E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+          # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
+          # instead of pointing at a directory that is not a console checkout.
+          E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
+          # Pin the driver's console-sha note to what we actually checked out, so a failure message
+          # never cites a different revision than the one under test.
+          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
+          E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
+          # Quoted back in the driver's BLOCKED message so a failure never cites a different
+          # revision than the one under test.
+          E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
@@ -128,7 +294,7 @@ jobs:
           f=e2e/gate-report.json
           [ -f "$f" ] || { echo "no gate-report"; exit 0; }
           {
-            echo "## e2e Slice-1 — $(jq -r .status "$f")";
+            echo "## e2e Slice-1 â€” $(jq -r .status "$f")";
             echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
             jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
             echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";
@@ -139,8 +305,24 @@ jobs:
 
       - name: Upload Slice-1 gate-report.json
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-slice1-gate-report
           path: e2e/gate-report.json
           if-no-files-found: warn
+
+      # S4's failure message is `see .../e2e/out/console-live.log`, but that file was never uploaded,
+      # so a red S4 was undebuggable from CI. Upload the Playwright log plus the traces/screenshots
+      # the driver now writes under e2e/out/console-playwright. Kept as its OWN artifact, deliberately
+      # scoped to those two paths: the release train consumes `e2e-slice1-gate-report` and must not
+      # have to download a Playwright trace bundle to read one JSON file.
+      - name: Upload S4 console live-suite log + Playwright traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-console-live
+          path: |
+            e2e/out/console-live.log
+            e2e/out/console-playwright/**
+          if-no-files-found: ignore
+          retention-days: 14

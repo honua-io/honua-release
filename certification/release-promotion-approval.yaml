@@ -1,0 +1,87 @@
+# Release-promotion approval gate — settings-as-code (honua-release#44).
+#
+# WHY THIS FILE EXISTS
+# promote.yml is the one place where a certified candidate becomes a signed, tagged, published
+# platform release. Artifact integrity (#42) proves WHAT is being released; this file and
+# tools/check_release_promotion_approval.py prove WHO authorised it — an authorisation boundary the release
+# automation cannot satisfy on its own. The settings live in git so the intended configuration is
+# reviewable, diffable, and comparable against the live repository by a read-only drift check
+# (.github/workflows/repo-control-drift.yml) rather than existing only in the GitHub UI.
+#
+# CHOSEN DESIGN: GitHub protected-environment required reviewers.
+# This repository is PUBLIC, and environment protection rules (required reviewers, protected-branch
+# deployment policy, prevent-self-review) are available to public repositories on every plan. The
+# licensing blocker recorded when this issue was filed — required reviewers being Enterprise-only for
+# PRIVATE repositories on GitHub Team — no longer applies. Approval authority therefore lives in
+# GitHub's deployment-protection layer, which the release automation's token cannot grant itself:
+# `GITHUB_TOKEN` and the release App can dispatch promote, but neither can approve the deployment.
+# See docs/RELEASE-PROMOTION-APPROVAL-GATE.md for the full rationale, runbook, and break-glass procedure.
+#
+# IF THIS REPOSITORY EVER GOES PRIVATE AGAIN the required-reviewer rule stops being enforceable on a
+# Team plan. The gate does not silently degrade: the environment read would show the rule missing and
+# promotion fails closed. Re-evaluate the design (Enterprise, or an external approval signature)
+# before re-privatising.
+
+schemaVersion: 1
+
+environment:
+  name: release-promotion
+  repository: honua-io/honua-release
+  # Deployments may only come from a protected branch — no custom branch list, which would let an
+  # arbitrary branch reach the release-promotion gate.
+  deployment_branch_policy:
+    protected_branches: true
+    custom_branch_policies: false
+  # Any protection-rule type outside this set is refused: an unknown rule type (for example a custom
+  # deployment-protection-rule app) could approve automatically, so it must be reviewed here first.
+  allowed_protection_rule_types: [required_reviewers, branch_policy, wait_timer]
+
+approval:
+  # The live environment must name exactly this roster: at least one and at most six human Users.
+  # GitHub requires one approval from any roster member. Add or rotate members here and in the live
+  # environment, then re-attest (docs/RELEASE-PROMOTION-APPROVAL-GATE.md § Roster changes).
+  required_reviewers:
+    - id: 12301237
+      login: mikemcdougall
+      kind: human
+  # GitHub must refuse an approval from the actor that started the deployment.
+  require_prevent_self_review: true
+  # The checker additionally requires at least one roster member other than the promoting actor, so
+  # the two-actor property remains satisfiable and GitHub's prevent-self-review control enforces it.
+  require_independent_promoting_actor: true
+  # Principals that may dispatch the release train / promote but must NEVER count as an approver.
+  # Names only — no tokens, ids, or credentials belong in this file.
+  automation_principals:
+    - github-actions[bot]
+    - dependabot[bot]
+  # Any reviewer whose login ends in `[bot]`, or whose reviewer type is not `User`, is refused
+  # regardless of this list.
+
+promotion:
+  # Release promotion is restricted to the repository's protected default branch, and the
+  # certified train identity is verified separately by tools/candidate_binding.py validate-run.
+  require_protected_default_branch: true
+  require_promotion_from_default_branch: true
+
+# The live environment is compared against this file. `attested_at` is the moment a human last
+# reviewed the live settings and confirmed they match; the gate fails closed when the attestation has
+# expired, or when GitHub reports the environment was modified AFTER it (someone changed the
+# release-promotion settings without re-attesting here).
+attestation:
+  attested_at: "2026-08-18T19:35:00Z"
+  attested_by: mikemcdougall
+  max_attestation_age_days: 180
+  # True once the release-promotion environment exists and has been configured per the runbook.
+  # The gate still fails closed independently if the LIVE settings stop matching this file — this
+  # flag only records that the settings-as-code entry has been applied.
+  applied: true
+  note: >-
+    Applied 2026-08-18. The release-promotion environment was created in honua-io/honua-release per
+    the runbook in docs/RELEASE-PROMOTION-APPROVAL-GATE.md, then read back and compared against this
+    file with tools/check_release_promotion_approval.py. Every check passed except
+    attestation-current, which is the expected refusal for an environment modified after the previous
+    attestation — this commit is that re-attestation. Verified live settings: a one-member reviewer
+    roster containing mikemcdougall (id 12301237, type User), prevent_self_review true, deployment branch
+    policy protected_branches true / custom_branch_policies false, protection rule types limited to
+    branch_policy + required_reviewers, and default branch trunk protected. Promotion remains
+    two-actor: a different roster member must approve when a roster member dispatches promote.

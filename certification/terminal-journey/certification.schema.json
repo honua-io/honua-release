@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/terminal-journey-certification-v1.json",
+  "title": "Terminal setup-to-published-map certification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceKey", "release", "status", "promotionEligible", "sourceReceipt", "candidate", "stages", "andGates", "requiredOutcomes", "blockers"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "evidenceKey": {"const": "release.e2e.ai-terminal-arc"},
+    "release": {"type": "string", "minLength": 1},
+    "status": {"enum": ["pass", "blocked"]},
+    "promotionEligible": {"type": "boolean"},
+    "sourceReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceKey", "status", "pullRequest", "commit", "receiptPath", "receiptSha256"],
+      "properties": {
+        "evidenceKey": {"const": "release.e2e.terminal-zero-to-map"},
+        "status": {"enum": ["pass", "fail", "blocked"]},
+        "pullRequest": {"$ref": "#/$defs/url"},
+        "commit": {"$ref": "#/$defs/sha1"},
+        "receiptPath": {"type": "string", "minLength": 1},
+        "receiptSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverSourceSha", "serverImage", "clients", "fixtureRevision", "configRevision", "authPolicyRevision"],
+      "properties": {
+        "serverSourceSha": {"$ref": "#/$defs/sha1"},
+        "serverImage": {"type": "string", "minLength": 1},
+        "clients": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/client"}},
+        "fixtureRevision": {"type": "string", "minLength": 1},
+        "configRevision": {"type": "string", "minLength": 1},
+        "authPolicyRevision": {"type": "string", "minLength": 1}
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/stage"}
+    },
+    "andGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localCandidate", "awsCandidate", "clientMatrix", "browserStudio", "browserConsole", "controlPlaneRoster"],
+      "properties": {
+        "localCandidate": {"$ref": "#/$defs/gate"},
+        "awsCandidate": {"$ref": "#/$defs/gate"},
+        "clientMatrix": {"$ref": "#/$defs/gate"},
+        "browserStudio": {"$ref": "#/$defs/gate"},
+        "browserConsole": {"$ref": "#/$defs/gate"},
+        "controlPlaneRoster": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "requiredOutcomes": {
+      "type": "object",
+      "required": ["terminalApproval", "styleRenderPixels", "dashboardComposition", "ownerAuthorization", "finalUrl"],
+      "additionalProperties": {"type": "boolean"}
+    },
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/url"}, "uniqueItems": true}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "pass"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "promotionEligible": {"const": true},
+          "sourceReceipt": {"properties": {"status": {"const": "pass"}}},
+          "stages": {"items": {"properties": {"status": {"const": "pass"}}}},
+          "andGates": {"properties": {
+            "localCandidate": {"properties": {"status": {"const": "pass"}}},
+            "awsCandidate": {"properties": {"status": {"const": "pass"}}},
+            "clientMatrix": {"properties": {"status": {"const": "pass"}}},
+            "browserStudio": {"properties": {"status": {"const": "pass"}}},
+            "browserConsole": {"properties": {"status": {"const": "pass"}}},
+            "controlPlaneRoster": {"properties": {"status": {"const": "pass"}}}
+          }},
+          "requiredOutcomes": {"additionalProperties": {"const": true}},
+          "blockers": {"maxItems": 0}
+        }
+      },
+      "else": {"properties": {"promotionEligible": {"const": false}, "blockers": {"minItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "client": {
+      "type": "object", "additionalProperties": false,
+      "required": ["package", "version", "integrity", "sourceSha"],
+      "properties": {
+        "package": {"type": "string"}, "version": {"type": "string"},
+        "integrity": {"type": "string", "minLength": 1}, "sourceSha": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "stage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["number", "status", "blockers"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1, "maximum": 8},
+        "status": {"enum": ["pass", "blocked"]},
+        "blockers": {"type": "array", "items": {"$ref": "#/$defs/url"}, "uniqueItems": true}
+      },
+      "allOf": [{"if": {"properties": {"status": {"const": "blocked"}}}, "then": {"properties": {"blockers": {"minItems": 1}}}}]
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "evidence"],
+      "properties": {
+        "status": {"enum": ["pass", "blocked"]},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/url"}, "uniqueItems": true}
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+name: Nightly protocol certification
+
+on:
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@34649bbc0a0886427c2e35d40edebf2d7bdc01e3 # v1.0.2 - trusted gate workflow (REBIND: advance to this PR squash SHA post-merge)
+    with:
+      matrix_repository: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_REPOSITORY }}
+      matrix_commit: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_COMMIT }}
+      matrix_path: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_PATH }}
+      matrix_sha256: ${{ vars.PROTOCOL_CERTIFICATION_MATRIX_SHA256 }}
+      expected_requirements_source_revision: ${{ vars.PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION }}
+      tier: nightly
+      expected_source_sha: ${{ vars.PROTOCOL_CERTIFICATION_SOURCE_SHA }}
+      expected_image_digest: ${{ vars.PROTOCOL_CERTIFICATION_IMAGE_DIGEST }}
+      expected_cut_at: ${{ vars.PROTOCOL_CERTIFICATION_CUT_AT }}
+    secrets: inherit

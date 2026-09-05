@@ -43,6 +43,10 @@ permissions:
   contents: read
   packages: read          # pull the server image to SBOM it
 
+env:
+  SYFT_VERSION: "1.51.1"
+  SYFT_LINUX_AMD64_SHA256: "8fcb33017a0dc1058298c923c436d19dfa68ae93968e0b423248542e3afb9fc3"
+
 concurrency:
   group: gate-sbom-${{ github.ref }}-${{ inputs.platform_label }}
   cancel-in-progress: true
@@ -52,8 +56,8 @@ jobs:
   platform-sbom:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" pytest
@@ -86,7 +90,7 @@ jobs:
 
       - name: Upload platform BOM
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-bom-platform
           path: bom/
@@ -107,8 +111,8 @@ jobs:
   image-sbom:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
@@ -122,7 +126,14 @@ jobs:
           echo "resolved server image: ${IMG:-<none>}"
 
       - name: Install Syft
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "${archive}" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "${SYFT_LINUX_AMD64_SHA256}" "${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}" syft
+          sudo install -m 0755 "${RUNNER_TEMP}/syft" /usr/local/bin/syft
 
       - name: SBOM the server image (CycloneDX + SPDX)
         id: sbom
@@ -157,7 +168,7 @@ jobs:
 
       - name: Upload image SBOMs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-bom-server-image
           path: bom/
@@ -183,14 +194,14 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: sbom-gate-fragment-*
           path: fragments
           merge-multiple: true
 
       - name: Collect the produced BOMs (bom/)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: sbom-bom-*
           path: bom
@@ -234,7 +245,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report + aggregated bom/
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-gate-report
           path: |

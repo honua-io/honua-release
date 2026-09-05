@@ -1,0 +1,106 @@
+{
+  "backup": {
+    "format": "pg_dump-custom",
+    "originalDatabaseDestroyed": true,
+    "restoredIntoCleanVolume": true,
+    "sha256": "sha256:5191522227774a092c2477e3eac93d356a3f9a4b31ad5f9031b7028434a31838",
+    "supportedCommands": [
+      "pg_dump",
+      "pg_restore"
+    ]
+  },
+  "candidate": {
+    "dbSchema": "106",
+    "imageDigest": "sha256:373aa1fdf1bd4153df9cb21e25e43dfc463c0e194fcac13b40a39c4bb390eb72",
+    "platformRelease": "2026.1-rc.2",
+    "releaseLock": {
+      "path": "platform-manifest.yaml",
+      "sha256": "sha256:bc01600e1b1e7a20b4549de7b1bd56557c1d16aa6e0a71da980ce73a6c1ade67"
+    },
+    "serverSha": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+  },
+  "completedAt": "2026-09-01T08:49:38Z",
+  "measurements": {
+    "rpoDefinition": "last committed fixture to backup completion",
+    "rpoMs": 1548,
+    "rtoDefinition": "destruction start to restored customer journey green",
+    "rtoMs": 24905
+  },
+  "schema": "honua.dr-drill-receipt/v1",
+  "startedAt": "2026-09-01T08:48:55Z",
+  "status": "pass",
+  "topology": "local-docker",
+  "verification": {
+    "after": {
+      "contentChecksums": {
+        "alert": "2a8b78bcc9ef35836e87e6bd973fdc1b",
+        "cursor": "1a261f3a321cb6c293ff4c6fdc1dd70f",
+        "feature": "a4a3d02bf0b00ed2b1520ea12e38e76b",
+        "job": "ea5c3704591f332f0e1457f2db8ee387",
+        "layer": "09047f4e13892435e8d43c114942af99",
+        "outbox": "d66fe4207753fd95e997577c00bfd70a",
+        "service": "813af963e63f16aaaccaeb700aaa8938"
+      },
+      "rows": {
+        "alerts": 1,
+        "audit": 1,
+        "cursors": 1,
+        "features": 1,
+        "jobLogs": 1,
+        "jobs": 1,
+        "layers": 1,
+        "outbox": 1,
+        "tenants": 2
+      },
+      "schemaVersion": "Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql",
+      "tenantIsolation": {
+        "alphaSees": [
+          "alpha-private-asset"
+        ],
+        "betaSees": [
+          "beta-private-asset"
+        ],
+        "crossTenantLeakCount": 0
+      }
+    },
+    "before": {
+      "contentChecksums": {
+        "alert": "2a8b78bcc9ef35836e87e6bd973fdc1b",
+        "cursor": "1a261f3a321cb6c293ff4c6fdc1dd70f",
+        "feature": "a4a3d02bf0b00ed2b1520ea12e38e76b",
+        "job": "ea5c3704591f332f0e1457f2db8ee387",
+        "layer": "09047f4e13892435e8d43c114942af99",
+        "outbox": "d66fe4207753fd95e997577c00bfd70a",
+        "service": "813af963e63f16aaaccaeb700aaa8938"
+      },
+      "rows": {
+        "alerts": 1,
+        "audit": 1,
+        "cursors": 1,
+        "features": 1,
+        "jobLogs": 1,
+        "jobs": 1,
+        "layers": 1,
+        "outbox": 1,
+        "tenants": 2
+      },
+      "schemaVersion": "Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql",
+      "tenantIsolation": {
+        "alphaSees": [
+          "alpha-private-asset"
+        ],
+        "betaSees": [
+          "beta-private-asset"
+        ],
+        "crossTenantLeakCount": 0
+      }
+    },
+    "contentEqual": true,
+    "customerJourney": {
+      "name": "browse service catalog",
+      "responseContract": "HTTP 200 JSON object with services member",
+      "route": "/rest/services?f=json",
+      "status": "pass"
+    }
+  }
+}

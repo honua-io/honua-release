@@ -1,0 +1,33 @@
+{
+  "schema": "honua.canonical-client-assignments/v1",
+  "revision": "2026-08-21.1",
+  "tracking_issue": "https://github.com/honua-io/honua-server/issues/3386",
+  "clients": {
+    "ogc-cite": {"name": "OGC CITE", "lane": "cite", "version": "ets-selection@{server_sha}"},
+    "gdal-ogr": {"name": "GDAL/OGR", "lane": "gdal", "version": "3.8.4"},
+    "gdal": {"name": "GDAL", "lane": "gdal", "version": "3.8.4"},
+    "qgis": {"name": "QGIS", "lane": "qgis", "version": "3.40"},
+    "maplibre": {"name": "MapLibre GL JS", "lane": "maplibre", "version": "5.7"},
+    "owslib": {"name": "OWSLib", "lane": "owslib", "version": "0.36.0"},
+    "pystac-client": {"name": "PySTAC-Client", "lane": "pystac-client", "version": "0.9.0"},
+    "frost-client": {"name": "FROST-Client", "lane": "frost-client", "version": "0.46"},
+    "microsoft-odata": {"name": "Microsoft.OData.Client", "lane": "ci-bi", "version": "8.3"}
+  },
+  "assignments": [
+    {"capability_key": "serve.ogc-api-features", "surface": "ogc-api-features", "clients": ["ogc-cite", "gdal-ogr", "qgis"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wfs", "surface": "wfs", "clients": ["ogc-cite", "gdal-ogr", "qgis"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-maps", "surface": "ogc-api-maps", "clients": ["ogc-cite", "qgis", "maplibre"], "scenario_facets": ["positive", "negative", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-tiles", "surface": "ogc-api-tiles", "clients": ["ogc-cite", "qgis", "maplibre"], "scenario_facets": ["positive", "negative", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "styling.ogc-api-styles", "surface": "ogc-api-styles", "clients": ["ogc-cite", "qgis", "maplibre"], "scenario_facets": ["positive", "negative", "auth", "media-schema"]},
+    {"capability_key": "serve.wms", "surface": "wms", "clients": ["ogc-cite", "qgis", "maplibre"], "scenario_facets": ["positive", "negative", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wmts", "surface": "wmts", "clients": ["ogc-cite", "qgis", "maplibre"], "scenario_facets": ["positive", "negative", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-coverages", "surface": "ogc-api-coverages", "clients": ["ogc-cite", "gdal", "owslib"], "scenario_facets": ["positive", "negative", "auth", "boundary", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wcs", "surface": "wcs", "clients": ["ogc-cite", "gdal", "owslib"], "scenario_facets": ["positive", "negative", "auth", "boundary", "crs-axis", "media-schema"]},
+    {"capability_key": "process.ogc-api-processes", "surface": "ogc-api-processes", "clients": ["ogc-cite", "owslib"], "scenario_facets": ["positive", "negative", "auth", "boundary", "media-schema"]},
+    {"capability_key": "serve.ogc-api-records", "surface": "ogc-api-records", "clients": ["ogc-cite", "owslib"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "media-schema"]},
+    {"capability_key": "serve.ogc-api-edr", "surface": "ogc-api-edr", "clients": ["ogc-cite", "owslib"], "scenario_facets": ["positive", "negative", "auth", "boundary", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.sensorthings", "surface": "sensorthings", "clients": ["ogc-cite", "frost-client"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "media-schema"]},
+    {"capability_key": "serve.stac", "surface": "stac", "clients": ["pystac-client"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "media-schema"]},
+    {"capability_key": "serve.odata", "surface": "odata", "clients": ["microsoft-odata"], "scenario_facets": ["positive", "negative", "auth", "pagination", "limit", "media-schema"]}
+  ]
+}

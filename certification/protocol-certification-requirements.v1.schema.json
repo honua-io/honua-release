@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/protocol-certification-requirements.v1.schema.json",
+  "title": "Honua protocol certification requirements",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "revision", "receipt_schema_min", "complete", "scope_notes", "source_revisions", "requirements"],
+  "properties": {
+    "schema": { "const": "honua.protocol-certification-requirements/v1" },
+    "revision": { "type": "string", "minLength": 1 },
+    "receipt_schema_min": { "enum": ["v1", "v2"] },
+    "complete": { "type": "boolean" },
+    "scope_notes": { "type": "string", "minLength": 1 },
+    "source_revisions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "commit"],
+        "properties": {
+          "repository": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" }
+        }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability_key", "surface", "operation", "maturity", "canonical_client", "client_lane",
+          "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
+          "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
+          "fixture_revision", "budget_expectations"
+        ],
+        "properties": {
+          "capability_key": { "type": "string", "minLength": 1 },
+          "surface": { "type": "string", "minLength": 1 },
+          "operation": { "type": "string", "minLength": 1 },
+          "maturity": { "enum": ["supported", "preview", "experimental", "roadmap", "deprecated", "internal"] },
+          "canonical_client": { "type": "string", "minLength": 1 },
+          "client_lane": { "type": "string", "minLength": 1 },
+          "client_version": { "type": "string", "minLength": 1 },
+          "deployment_target": { "type": "string", "minLength": 1 },
+          "required_tier": { "enum": ["pr", "nightly", "release"] },
+          "licensed": { "type": "boolean" },
+          "entitlement_policy_revision": { "type": ["string", "null"], "pattern": "^[a-z0-9.-]+-v[0-9]+$" },
+          "addressable_by_client": { "type": "boolean" },
+          "addressability_reason": { "type": ["string", "null"] },
+          "scenario_facets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+          "test_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "contract_revision": { "type": "string", "minLength": 1 },
+          "auth_policy_revision": { "type": "string", "minLength": 1 },
+          "fixture_revision": { "type": "string", "minLength": 1 },
+          "budget_expectations": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": [
+              "max_requests", "max_transferred_bytes", "max_full_object_downloads",
+              "min_range_requests", "min_cache_hits", "max_coordinate_error",
+              "max_geometry_error", "required_metadata", "expected_metadata"
+            ],
+            "properties": {
+              "max_requests": { "type": "integer", "minimum": 0 },
+              "max_transferred_bytes": { "type": "integer", "minimum": 0 },
+              "max_full_object_downloads": { "type": "integer", "minimum": 0 },
+              "min_range_requests": { "type": "integer", "minimum": 0 },
+              "min_cache_hits": { "type": "integer", "minimum": 0 },
+              "max_coordinate_error": { "type": "number", "minimum": 0 },
+              "max_geometry_error": { "type": "number", "minimum": 0 },
+              "required_metadata": {
+                "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }
+              },
+              "expected_metadata": { "type": "object", "minProperties": 1 }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
+            "then": {
+              "properties": {
+                "entitlement_policy_revision": {
+                  "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1"]
+                }
+              }
+            },
+            "else": { "properties": { "entitlement_policy_revision": { "type": "null" } } }
+          },
+          {
+            "if": {
+              "properties": { "entitlement_policy_revision": { "const": "honua-pro-feature-subscriptions-v1" } },
+              "required": ["entitlement_policy_revision"]
+            },
+            "then": {
+              "properties": {
+                "deployment_target": { "const": "licensed-release" },
+                "auth_policy_revision": { "const": "api-key-protected-v1" }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "entitlement_policy_revision": { "const": "esri-arcgis-pro-arcpy-v1" } },
+              "required": ["entitlement_policy_revision"]
+            },
+            "then": {
+              "properties": {
+                "deployment_target": { "const": "windows-licensed" },
+                "auth_policy_revision": { "const": "anonymous-and-protected-v1" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

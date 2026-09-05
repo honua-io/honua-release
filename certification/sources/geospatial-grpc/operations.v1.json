@@ -1,0 +1,327 @@
+{
+    "schema":  "honua.protocol-operation-inventory/v1",
+    "source_sha":  "73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+    "fixture_version":  "0.2.0-alpha.1",
+    "operations":  [
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "PublishArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "ReadArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "GetArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "InspectArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "ListArtifacts"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "RetainArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "ReleaseArtifact"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "GetRetentionPolicy"
+                       },
+                       {
+                           "service":  "ArtifactService",
+                           "operation":  "ListRetentionPolicies"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "ValidateBuild"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "DryRunBuild"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "ExecuteBuild"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "ExecuteBuildStream"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "SubmitBuildJob"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "GetBuildJob"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "GetBuildJobResult"
+                       },
+                       {
+                           "service":  "BuilderService",
+                           "operation":  "CancelBuildJob"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "ValidateDeployment"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "DryRunDeployment"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "ExecuteDeployment"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "ExecuteDeploymentStream"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "SubmitDeploymentJob"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "GetDeploymentJob"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "GetDeploymentJobResult"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "CancelDeploymentJob"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "RollbackDeployment"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "GetDeploymentHealth"
+                       },
+                       {
+                           "service":  "DeploymentService",
+                           "operation":  "StreamDeploymentHealth"
+                       },
+                       {
+                           "service":  "ElevationService",
+                           "operation":  "GetElevation"
+                       },
+                       {
+                           "service":  "ElevationService",
+                           "operation":  "GetElevationProfile"
+                       },
+                       {
+                           "service":  "FeatureService",
+                           "operation":  "QueryFeatures"
+                       },
+                       {
+                           "service":  "FeatureService",
+                           "operation":  "QueryFeaturesStream"
+                       },
+                       {
+                           "service":  "FeatureService",
+                           "operation":  "ApplyEdits"
+                       },
+                       {
+                           "service":  "FormService",
+                           "operation":  "GetFormDefinition"
+                       },
+                       {
+                           "service":  "FormService",
+                           "operation":  "SubmitFormData"
+                       },
+                       {
+                           "service":  "FormService",
+                           "operation":  "StreamFormUpdates"
+                       },
+                       {
+                           "service":  "FormService",
+                           "operation":  "ValidateFormData"
+                       },
+                       {
+                           "service":  "FormService",
+                           "operation":  "GetFormMetadata"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "ValidatePipeline"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "DryRunPipeline"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "ExecutePipeline"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "ExecutePipelineStream"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "SubmitPipelineJob"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "GetPipelineJob"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "GetPipelineJobResult"
+                       },
+                       {
+                           "service":  "PipelineService",
+                           "operation":  "CancelPipelineJob"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "ValidatePlan"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "DryRunPlan"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "ExecutePlan"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "ExecutePlanStream"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "SubmitJob"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "GetJob"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "GetJobResult"
+                       },
+                       {
+                           "service":  "ProcessService",
+                           "operation":  "CancelJob"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "ValidateRender"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "DryRunRender"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "ExecuteRender"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "ExecuteRenderStream"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "SubmitRenderJob"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "GetRenderJob"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "GetRenderJobResult"
+                       },
+                       {
+                           "service":  "RenderService",
+                           "operation":  "CancelRenderJob"
+                       },
+                       {
+                           "service":  "SceneService",
+                           "operation":  "ListScenes"
+                       },
+                       {
+                           "service":  "SceneService",
+                           "operation":  "GetScene"
+                       },
+                       {
+                           "service":  "SpecService",
+                           "operation":  "PlanSpec"
+                       },
+                       {
+                           "service":  "SpecService",
+                           "operation":  "ApplySpec"
+                       },
+                       {
+                           "service":  "SpecService",
+                           "operation":  "CancelApply"
+                       },
+                       {
+                           "service":  "StyleService",
+                           "operation":  "ListStyles"
+                       },
+                       {
+                           "service":  "StyleService",
+                           "operation":  "GetStyle"
+                       },
+                       {
+                           "service":  "TileService",
+                           "operation":  "GetTile"
+                       },
+                       {
+                           "service":  "TileService",
+                           "operation":  "StreamTiles"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "CreateWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "OpenWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "GetWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "ListWorkspaces"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "UpdateWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "PromoteWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "RetainWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "ReleaseWorkspace"
+                       },
+                       {
+                           "service":  "WorkspaceService",
+                           "operation":  "GetQuotaUsage"
+                       }
+                   ]
+}

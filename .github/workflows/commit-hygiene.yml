@@ -1,0 +1,11 @@
+name: Commit hygiene
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commit-hygiene:
+    uses: honua-io/.github/.github/workflows/commit-hygiene.yml@98f1eaa3f36528790f846ddae9ac40683738e852 # v1.0.0

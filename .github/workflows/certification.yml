@@ -9,8 +9,7 @@
 #
 # Principle (AGENTS.md): a gate that can't fail is worse than no gate — and a *conformance* gate that
 # false-passes is the worst kind (it manufactures release confidence). So:
-#   - the mcp job runs the real checker against geospatial-mcp trunk (the maintained suite carrying
-#     the geospatial-mcp#25 fix; the Phase 0 manifest still pins a pre-fix sha) and parses it with
+#   - the mcp job runs the real checker at the exact evidenceSources.mcp producer SHA and parses it with
 #     certification/parse_conformance.py, which FAILS on any manifest FAIL, on a reference impl that
 #     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
 #     parser is self-tested in-job before it is trusted.
@@ -62,6 +61,8 @@ on:
     secrets:
       RELEASE_GH_TOKEN:
         required: false
+      HONUA_ESRI_COMPAT_TOKEN:
+        required: false
     outputs:
       overall_status:
         description: "pass | fail | blocked — aggregate of all conformance jobs"
@@ -81,8 +82,8 @@ jobs:
   conformance-mcp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4          # honua-release: gate-fragment action + parser + manifest
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1          # v7.0.1 - honua-release: gate-fragment action + parser + manifest
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -102,20 +103,25 @@ jobs:
           GATE=conformance-mcp; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/mcp"; mkdir -p "$WORK"
 
-          # Manifest-pinned sha is recorded for traceability. We certify against geospatial-mcp TRUNK
-          # (the maintained conformance suite that carries the geospatial-mcp#25 resource-coverage fix
-          # this gate exists to enforce); the Phase 0 manifest snapshot still pins a pre-fix sha, so
-          # certifying the pin would run the old, false-passing checker. Once the train regenerates the
-          # manifest to post-fix shas, point this at the pin.
-          SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('geospatial-mcp',{}) or {}).get('sha','') or '')")"
-          echo "manifest-pinned geospatial-mcp sha (traceability): ${SHA:-<none>}"
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("mcp") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; SHA="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
+          if [ "$REPO" != "honua-io/geospatial-mcp" ]; then
+            STATUS=fail; WHY="evidenceSources.mcp repository is not honua-io/geospatial-mcp"
+          fi
 
-          echo "::group::Clone geospatial-mcp trunk (public)"
-          if git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-mcp.git" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
-            cd "$WORK/mcp"; SOURCE=trunk
-            HEAD_SHA="$(git rev-parse --short HEAD)"
+          echo "::group::Clone the exact manifest-pinned geospatial-mcp producer"
+          if [ "$STATUS" != "fail" ] && bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" geospatial-mcp "$SHA" "$WORK/mcp" >/tmp/mcp-clone.log 2>&1; then
+            cd "$WORK/mcp"; SOURCE="${REPO}@${SHA}#${ARTIFACT}"
           else
-            STATUS=blocked; WHY="geospatial-mcp not cloneable"; tail -n 5 /tmp/mcp-clone.log || true
+            [ "$STATUS" = "fail" ] || { STATUS=blocked; WHY="pinned geospatial-mcp producer is not cloneable"; }
+            tail -n 5 /tmp/mcp-clone.log || true
           fi
           echo "::endgroup::"
 
@@ -139,7 +145,7 @@ jobs:
             # `bash -e` — we read the verdict from its printed status= line, not its exit code.
             VERDICT="$(printf '%s' "$OUT" | python "$GITHUB_WORKSPACE/certification/parse_conformance.py" --rc "$RC" || true)"
             STATUS="$(printf '%s\n' "$VERDICT" | sed -n 's/^status=//p')"
-            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [source=trunk@${HEAD_SHA}; manifest pins ${SHA:0:12}]"
+            WHY="$(printf '%s\n' "$VERDICT" | sed -n 's/^why=//p') [producer=${REPO}@${SHA:0:12}; artifact=${ARTIFACT}]"
             [ -n "$STATUS" ] || { STATUS=fail; WHY="parser produced no verdict"; }
           fi
 
@@ -170,18 +176,81 @@ jobs:
   conformance-esri-geoservices:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Esri GeoServices conformance (blocked without candidate server)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install gate dependencies
+        run: pip install --quiet pyyaml
+
+      # The evidence producer is pinned in platform-manifest.yaml evidenceSources. A bundle built by
+      # a different revision of the harness measures a different denominator and cannot certify this
+      # candidate.
+      - name: Resolve the pinned evidence revision
+        id: pin
+        run: |
+          set -euo pipefail
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("esri-compat") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; SHA="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "pinned evidence source: $REPO@${SHA:-<unpinned>}#$ARTIFACT"
+
+      # honua-esri-compat is a private repo, so this needs a token with read access to it. Without
+      # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
+      - name: Check out the pinned Esri certification evidence
+        id: evidence
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.pin.outputs.repo }}
+          ref: ${{ steps.pin.outputs.sha }}
+          path: _conformance/esri-compat
+          token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || secrets.RELEASE_GH_TOKEN || github.token }}
+
+      - name: Federate Esri GeoServices certification evidence
         run: |
           set -uo pipefail
-          if [ -n "${HONUA_SERVER_URL:-}" ]; then
-            WHY="HONUA_SERVER_URL set but the esri-compat lane runner is not yet wired here (TODO #3 follow-up)"
-          else
-            WHY="no candidate server / Esri toolchain in CI — set HONUA_SERVER_URL and run on a licensed runner to certify the honua-esri-compat lanes"
+          # Read the CERTIFIED bundle for this label, never the whole evidence/ tree. Scanning
+          # everything would also judge evidence/samples/ -- curated fixtures that may legitimately
+          # contain failing cases -- and fail the release on a sample. Narrow, then fall back.
+          BUNDLE=""
+          for CANDIDATE in \
+            "_conformance/esri-compat/evidence/certified/${{ inputs.platform_label }}" \
+            "_conformance/esri-compat/evidence/certified"; do
+            if [ -d "$CANDIDATE" ] && [ -n "$(find "$CANDIDATE" -name '*.cert.json' -print -quit)" ]; then
+              BUNDLE="$CANDIDATE"; break
+            fi
+          done
+          if [ -z "$BUNDLE" ]; then
+            echo "no certified Esri bundle found for ${{ inputs.platform_label }}" >&2
           fi
+          ARGS=(--manifest platform-manifest.yaml --sections esri --json-out _conformance/esri.json)
+          [ -n "$BUNDLE" ] && ARGS+=(--esri-bundle "$BUNDLE")
+          set +e
+          python tools/check_conformance_evidence.py "${ARGS[@]}" | tee _conformance/esri.log
+          RC=$?
+          set -e
+          STATUS="$(python -c "import json;print(json.load(open('_conformance/esri.json'))['overallStatus'])" 2>/dev/null || echo blocked)"
+          WHY="$(python -c "
+          import json
+          rows = json.load(open('_conformance/esri.json'))['rows']
+          bad = [r for r in rows if r['status'] != 'pass'] or rows
+          print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
+          " 2>/dev/null || echo 'Esri evidence could not be evaluated')"
           {
-            echo "status=blocked"
-            echo "source=blocked"
+            echo "status=$STATUS"
+            echo "source=federated:${{ steps.pin.outputs.repo }}@${{ steps.pin.outputs.sha }}#${{ steps.pin.outputs.artifact }}"
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
@@ -190,7 +259,7 @@ jobs:
         with:
           gate: conformance-esri-geoservices
           status: ${{ env.status || 'blocked' }}
-          source: blocked
+          source: ${{ env.source || 'blocked' }}
           why: ${{ env.why || 'blocked' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: cert-
@@ -201,14 +270,135 @@ jobs:
   conformance-ogc-stac:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: OGC/STAC conformance (blocked without candidate server)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install gate dependencies
+        run: pip install --quiet pyyaml stac-api-validator
+
+      # OGC half: federate honua-server's authoritative CITE snapshot. docs/cite-status.md is the
+      # single canonical record of per-suite TEAM Engine pass rates (and is what honua-evidence
+      # ingests as the `cite` producer), so gate and evidence ledger read the same source.
+      - name: Fetch the honua-server CITE snapshot
+        id: cite
         run: |
           set -uo pipefail
+          mkdir -p _conformance
+          readarray -t PIN < <(python - <<'PY'
+          import yaml
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("cite") or {}
+          print(source.get("repository", ""))
+          print(source.get("producerSha", ""))
+          print(source.get("artifactIdentity", ""))
+          PY
+          )
+          REPO="${PIN[0]:-}"; PRODUCER="${PIN[1]:-}"; ARTIFACT="${PIN[2]:-}"
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "producer=$PRODUCER" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          URL="https://raw.githubusercontent.com/${REPO}/${PRODUCER}/docs/cite-status.md"
+          if curl -fsSL "$URL" -o _conformance/cite-status.md; then
+            echo "fetched=true" >> "$GITHUB_OUTPUT"
+            SHA="$(grep -oE '[0-9a-f]{40}' _conformance/cite-status.md | head -1)"
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Lineage is a VCS question, so the shim answers it and hands the relation in as a plain
+      # value -- the decision module stays pure. Ancestor/descendant/identical all mean the evidence
+      # shares this release's history; only a genuine fork is a failure.
+      - name: Determine CITE-to-candidate ancestry
+        id: lineage
+        if: steps.cite.outputs.fetched == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          CANDIDATE="$(python - <<'PY'
+          import yaml
+          m = yaml.safe_load(open("platform-manifest.yaml"))
+          print(((m.get("components") or {}).get("honua-server") or {}).get("sha", ""))
+          PY
+          )"
+          CITE="${{ steps.cite.outputs.sha }}"
+          if [ -z "$CANDIDATE" ] || [ -z "$CITE" ]; then
+            echo "relation=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$CANDIDATE" = "$CITE" ]; then
+            echo "relation=identical" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # An unreachable compare API must leave the relation EMPTY so the gate reports blocked,
+          # never guess a relation it could not observe.
+          STATUS="$(gh api "repos/honua-io/honua-server/compare/${CITE}...${CANDIDATE}" --jq .status 2>/dev/null || echo "")"
+          case "$STATUS" in
+            ahead)     echo "relation=ancestor"   >> "$GITHUB_OUTPUT" ;;
+            behind)    echo "relation=descendant" >> "$GITHUB_OUTPUT" ;;
+            identical) echo "relation=identical"  >> "$GITHUB_OUTPUT" ;;
+            diverged)  echo "relation=diverged"   >> "$GITHUB_OUTPUT" ;;
+            *)         echo "relation="           >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # STAC half: CITE covers OGC API/OWS and never certifies STAC, so validate STAC directly
+      # against a booted candidate. Public__BaseUrl is required -- without it the landing page
+      # advertises the container's own address and every link-following client (STAC is entirely
+      # link-driven) chases an unroutable host.
+      - name: Boot the candidate and validate STAC
+        id: stac
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # boot.sh reads the pinned image from platform-manifest.yaml itself (source of truth) and
+          # exits non-zero if the candidate cannot be pulled or never becomes ready -- in which case
+          # this step's continue-on-error leaves no stac.json and the gate reports BLOCKED, honestly.
+          export HONUA_PUBLIC_BASE_URL="http://localhost:8080"
+          if ! bash e2e/harness/boot.sh up; then
+            echo "STAC validation skipped: candidate did not boot" >&2
+            exit 1
+          fi
+          COLLECTION="$(curl -sf http://localhost:8080/stac/collections | python -c "import sys,json;print((json.load(sys.stdin).get('collections') or [{}])[0].get('id',''))" || echo "")"
+          ARGS=(--root-url http://localhost:8080/stac --conformance core --conformance collections)
+          [ -n "$COLLECTION" ] && ARGS+=(--collection "$COLLECTION")
+          stac-api-validator "${ARGS[@]}" > _conformance/stac-raw.txt 2>&1
+          python - <<'PY'
+          import json, re, urllib.request
+          raw = open("_conformance/stac-raw.txt").read()
+          body = json.load(urllib.request.urlopen("http://localhost:8080/stac/conformance"))
+          errors = []
+          block = re.search(r"^Errors:\s*(.*)$", raw, re.M | re.S)
+          if block and block.group(1).strip().lower() not in ("none", ""):
+              errors = [line.strip("- ").strip() for line in block.group(1).splitlines() if line.strip().startswith("-")]
+          json.dump({"conformsTo": body.get("conformsTo", []), "errors": errors}, open("_conformance/stac.json", "w"))
+          PY
+
+      - name: Tear down the candidate stack
+        if: always()
+        run: bash e2e/harness/boot.sh down || true
+
+      - name: Federate OGC + STAC conformance evidence
+        run: |
+          set -uo pipefail
+          ARGS=(--manifest platform-manifest.yaml --sections cite,stac --json-out _conformance/ogc-stac.json)
+          [ -f _conformance/cite-status.md ] && ARGS+=(--cite-status _conformance/cite-status.md)
+          [ -n "${{ steps.lineage.outputs.relation }}" ] && ARGS+=(--cite-lineage "${{ steps.lineage.outputs.relation }}")
+          [ -f _conformance/stac.json ] && ARGS+=(--stac-report _conformance/stac.json)
+          set +e
+          python tools/check_conformance_evidence.py "${ARGS[@]}" | tee _conformance/ogc-stac.log
+          set -e
+          STATUS="$(python -c "import json;print(json.load(open('_conformance/ogc-stac.json'))['overallStatus'])" 2>/dev/null || echo blocked)"
+          WHY="$(python -c "
+          import json
+          rows = json.load(open('_conformance/ogc-stac.json'))['rows']
+          bad = [r for r in rows if r['status'] != 'pass'] or rows
+          print('; '.join(f\"{r['check']}: {r['why']}\" for r in bad[:3]))
+          " 2>/dev/null || echo 'OGC/STAC evidence could not be evaluated')"
           {
-            echo "status=blocked"
-            echo "source=blocked"
-            echo "why=no candidate server in CI — OGC API (CITE) + STAC conformance run against a deployed candidate (Phase B); set HONUA_SERVER_URL to enable"
+            echo "status=$STATUS"
+            echo "source=federated:${{ steps.cite.outputs.repo }}@${{ steps.cite.outputs.producer }}#${{ steps.cite.outputs.artifact }}+stac"
+            echo "why=$WHY"
           } >> "$GITHUB_ENV"
       - name: Emit fragment
         if: always()
@@ -216,7 +406,7 @@ jobs:
         with:
           gate: conformance-ogc-stac
           status: ${{ env.status || 'blocked' }}
-          source: blocked
+          source: ${{ env.source || 'blocked' }}
           why: ${{ env.why || 'blocked' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: cert-
@@ -233,7 +423,7 @@ jobs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
       - name: Download fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: cert-gate-fragment-*
           path: fragments
@@ -290,7 +480,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report.json
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: certification-gate-report
           path: out/gate-report.json

@@ -1,0 +1,1257 @@
+{
+  "schema_version": 1,
+  "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
+  "rules_date": "2026-09-05",
+  "exceptions": {
+    "honua-server#3849": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
+    },
+    "honua-server#3381": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
+    },
+    "honua-server#3861": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3863": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3864": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3868": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3869": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3870": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3811": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-console#362": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling supersedes the conditional-GA installed alert workflow; retained security/audit floors are owned by server#3859/#3865.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#4025": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#4035": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#4065": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3739": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3875": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3878": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3269": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3305": {
+      "bucket": "2026.2",
+      "reason": "Browser Studio documentation expansion; 2026-09-04 release-integrity review keeps feature expansion outside the critical path."
+    },
+    "honua-sdk-js#1569": {
+      "bucket": "2026.2",
+      "reason": "New dashboard.package authoring contract is feature expansion; priority/P1, not a security/integrity repair or queued hunt family."
+    },
+    "honua-support#61": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#64": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#65": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#62": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-support#68": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-support#56": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-server#3809": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3852": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3854": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3855": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3857": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3867": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3892": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3893": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3377": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-sdk-python#21": {
+      "bucket": "prove-against-candidate",
+      "reason": "Registry-installed wheel exact-candidate certification; release#7/#157 consume the receipt."
+    },
+    "honua-iac#118": {
+      "bucket": "prove-against-candidate",
+      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
+    },
+    "honua-iac#20": {
+      "bucket": "prove-against-candidate",
+      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
+    },
+    "honua-devops#183": {
+      "bucket": "prove-against-candidate",
+      "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
+    },
+    "honua-devops#182": {
+      "bucket": "prove-against-candidate",
+      "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
+    },
+    "honua-devops#181": {
+      "bucket": "prove-against-candidate",
+      "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
+    },
+    "honua-esri-compat#74": {
+      "bucket": "prove-against-candidate",
+      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
+    },
+    "honua-esri-compat#75": {
+      "bucket": "prove-against-candidate",
+      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
+    },
+    "honua-esri-compat#88": {
+      "bucket": "prove-against-candidate",
+      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
+    },
+    "honua-release#7": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#122": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#123": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#129": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#157": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#161": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
+    },
+    "honua-release#98": {
+      "bucket": "post-cut-hardening",
+      "reason": "release#268 partial ratification records claim-removed: retain ARM64/Fargate exclusion truth; no cut-path ARM64 engineering."
+    },
+    "honua-support#5": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
+    },
+    "honua-support#59": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
+    },
+    "honua-console#334": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
+    },
+    "honua-console#337": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
+    },
+    "honua-site#234": {
+      "bucket": "must-fix-before-cut",
+      "reason": "3D truth-only evidence/claim correction is the Experimental safety obligation, not 3D feature expansion."
+    },
+    "honua-iac#168": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-09-02 accepted Lambda Preview evidence bill requires this isolated certification prerequisite; not a new deployment target."
+    },
+    "honua-server#3424": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3365": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3361": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3364": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3302": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3906": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#4300": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#4187": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3384": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-release#57": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#120": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#231": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#233": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#236": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#181": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#257": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#258": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-evidence#22": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required normalized evidence ledger must reject ambiguous/missing evidence before manufacture; feat label describes gate machinery."
+    },
+    "honua-demo-infra#68": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
+    }
+  },
+  "admission_reviews": {
+    "honua-server#4300": {
+      "body_sha256": "63a306becb09a1a032beec4296107d12d140695470afbac4f372dfbcd9fca1f9",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Customer installation: publish a native PowerShell package-only path"
+    },
+    "honua-server#4299": {
+      "body_sha256": "0320c530ba776425bdf179f8763af2ff1b3b85ee9201f3c6e419d0650cc07b96",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Production Compose fresh install omits PostGIS initialization and cannot start Honua"
+    },
+    "honua-server#4293": {
+      "body_sha256": "28cb5930cead368801a2b786c61074b5078c9a92c9f468de1b982bd890c284d9",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Documented production env-file command silently retains Development and quickstart secrets"
+    },
+    "honua-server#4290": {
+      "body_sha256": "1f9f6f2399e9bf075f34ebcdcf9b89fc3afd42c64a8025a462a3abfecfcb964f",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Feature-stream session admission is a process-global cap with no tenant partition"
+    },
+    "honua-server#4284": {
+      "body_sha256": "197ef6b40c868161de50110ef949fc6c6b3f0470192e31d5c89b42ce1d341ad4",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] OGC Maps ignores the configured end-to-end request timeout"
+    },
+    "honua-server#4282": {
+      "body_sha256": "e87972872921d8b2cadeedffdd0e9b63e7df9b9e6200dd84b16992f9c7ec3e69",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] OData $expand bypasses related-row caps and copies child arrays quadratically"
+    },
+    "honua-server#4281": {
+      "body_sha256": "0cb9ea37425f4df6f456cee76ddfa1ffbca4e881c327677fa2e5a3ad50171af0",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Production Compose guide omits the trusted hostname and rejects all public proxy requests"
+    },
+    "honua-server#4280": {
+      "body_sha256": "056406f46eb031d1fce168f97470f40b9a03a4c701aa627bd9c1d7fd3f1531cb",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Security configuration source reordering discards resolved Redis secret references before connection"
+    },
+    "honua-server#4279": {
+      "body_sha256": "8064ae5485aecd97a668e42b3199ec2967b87f6cbc73c43a00125e8e8afe3d08",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Quickstart publishes PostgreSQL and optional MinIO on all interfaces with known passwords"
+    },
+    "honua-server#4270": {
+      "body_sha256": "6e0ab78f197bc9e501caf87309a6e8daf240a4cf335f94d5db10f14f9110fbdf",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Admin operation query parameters are encoded into the loopback path"
+    },
+    "honua-server#4268": {
+      "body_sha256": "c25c86545d9b8a9869053f9a48e1eef3902ff30b3faf4c302ab66d12af3d464d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] ImageServer, WMTS, EDR and Coverages still publish implemented/GA evidence after Preview ruling"
+    },
+    "honua-server#4265": {
+      "body_sha256": "8cd62e12b53d2317ccaa9c20dcad38dc3e721fef95e6a41643de4a3a58ae6881",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] GA WPS traffic is absent from serving latency and the request denominator"
+    },
+    "honua-server#4264": {
+      "body_sha256": "1440d1dbcf04d2b524e9e246bfdfa3c8b399acd2863c6627a88fafa3a8aafcf0",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Standalone error-rate alerts divide incompatible label sets and never fire"
+    },
+    "honua-server#4263": {
+      "body_sha256": "762ad03545079cb213b8463cb6b2f1e1d583cfd6f5abade4897575c7fd90ad1e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] GeoServices HTTP-200 errors are labelled in_band=false"
+    },
+    "honua-server#4262": {
+      "body_sha256": "63dadd34e2e04a6d69efb3c3865551c1fba21462287b5098e358528c5748597c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Admin mutation audit records omit the effective tenant"
+    },
+    "honua-server#4261": {
+      "body_sha256": "d27477826ad7a49c819cc27beb2f8fbaaca3c2274cdb95a345e3aa151929d96d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Operate validation and dry-run accept missing required request fields"
+    },
+    "honua-server#4259": {
+      "body_sha256": "23ce3f478d1cb52824e5c7b4d02d265f187f11726e6818f4171b9f8cccfe18fa",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Response-cache invalidation leaves warm replicas serving old feature responses for 30 seconds"
+    },
+    "honua-server#4258": {
+      "body_sha256": "0f1ff74a49fb94b72660d0967948ad53b5384cad33ad15dbdb85fad336545b0c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Admin proposal details omit the target and values being approved"
+    },
+    "honua-server#4254": {
+      "body_sha256": "caebfba9a32316c7ee38e289b351774ada00e7fe0972818b148b9b7d97be437a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] Applying a new MCP preset can leave the old style primary while reporting success"
+    },
+    "honua-server#4251": {
+      "body_sha256": "d999400a652c4283f8934b783ada1d7559baa4c254ff615c0592a76fd01066a6",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [gav-hunt] MCP query and describe bypass connection-bound provider routing"
+    },
+    "honua-server#4229": {
+      "body_sha256": "e51860e9d6c693555dc84a01ef398a4da7258990ba59a7911d59024f540f4ed8",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] STAC `datetime` is a silent no-op on collections without a resolvable temporal field while their items advertise a fabricated `datetime` (1970 epoch / extent start)"
+    },
+    "honua-server#4226": {
+      "body_sha256": "4ad5f4f25ae31dd202ba9697d519d71ffc5c492740e6bfd75473532560774507",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] Custom TileMatrixSets accept CellSize/ScaleDenominator pairs that contradict each other; tiles are cut by CellSize while GDAL/QGIS place them by ScaleDenominator"
+    },
+    "honua-server#4225": {
+      "body_sha256": "a446d1033f2050333d092ce8dcbc847dd2e1d6615ea713fa7abecd45cf8beff3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] PMTilesWriter materialises the entire tile section in a MemoryStream (2 GiB hard cap, ~2x archive peak RSS) although the job layer spills to a temp file for exactly that reason"
+    },
+    "honua-server#4224": {
+      "body_sha256": "97b1291836342a0066dbffbe2525c98a6a0b69b796da75c9b9fba81afad3da3f",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] PMTiles JSON metadata omits the spec-mandatory vector_layers (and name); header tile_contents_count is a 32-bit hash cardinality, not the blob count written"
+    },
+    "honua-server#4223": {
+      "body_sha256": "26058087ea430aa0a7d64c39a8d9616471847d180c4e702fd21b53cd594faa65",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] publish/archive silently truncate the pyramid at maxTiles (default 500) but stamp the header with the full requested zoom range and bbox \u2014 MapLibre shows a blank map beyond the truncated zoom while the job reports success"
+    },
+    "honua-server#4222": {
+      "body_sha256": "8248c4e54097b347ef63415598b63c346a18abdfa4c1d3f315237fc521474ee5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] PMTiles writer bounds the root directory by entry count (16,384), not bytes (16,257 B) \u2014 archives above ~6-7k tiles are unreadable by pmtiles.js/MapLibre and go-pmtiles"
+    },
+    "honua-server#4218": {
+      "body_sha256": "760201165ed7af4f5b1cec53bb4deab3e9031148d747b88f39d1855922cb6353",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] `bbox` is dropped from @odata.nextLink and from the $skiptoken fingerprint, so page 2+ of a bbox-windowed query is served from the unfiltered layer"
+    },
+    "honua-server#4217": {
+      "body_sha256": "33dce8e5e605258709cd7d50668cf2fc09a0621d8946d3d3d5ea4ae1d0e57431",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] $search, $apply, entity-by-key GET and OData CRUD bypass provider routing and hit the managed `features` partition \u2014 empty results / 404 / shadow writes on connection-bound (admin-published) layers"
+    },
+    "honua-server#4209": {
+      "body_sha256": "85d49f2b9d215a47d8112bf4dc75b9095f0b2da68299ab43a63690a4ab793e96",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] Georeferencing extraction ignores ModelTransformation, PixelIsPoint (GTRasterTypeGeoKey 1025) and tiepoint raster coordinates, so persisted extent and tile alignment are wrong for those files"
+    },
+    "honua-server#4208": {
+      "body_sha256": "32f296b9ef190597a17f97a1cd7edb93b646225ae5ff6e6c90789b6cfd46ef77",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] Tile reads trust TileByteCounts with no upper bound and no ETag pin: a corrupt or replaced object drives up to 2 GiB allocation per tile request and stale offsets are read against new bytes"
+    },
+    "honua-server#4207": {
+      "body_sha256": "bd8f82080d9561c94a7910dfd208e445551a52471a1b7d803462fe8922a16632",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] Lifecycle/docs truth: docs promise cloud COGs serve via exportImage/identify, WCS 2.0.1 and OGC API Coverages and that non-3857 sources are merely logged; code reaches COGs only from the ImageServer tile fallback and silently 404s anything not aligned to WebMercatorQuad"
+    },
+    "honua-server#4206": {
+      "body_sha256": "1deeb2b07217e4f56fc861d56f50c0fe0244132ecc2bc839971c23533dd2719a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] DEFLATE/LZW/ZSTD/uncompressed COG tiles can never be delivered: tile route offers only png/jpg/tiff/cog, decoder yields application/octet-stream, and CanServeRequestedFormat rejects every request with 404"
+    },
+    "honua-server#4205": {
+      "body_sha256": "c11ec44f268c01cde03ac6bc8aa4eead0a6a96a26b5babd410be58bd1372275f",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] JPEG passthrough serves abbreviated TIFF-JPEG tile streams as image/jpeg; JPEGTables (tag 347) never read, so GDAL-written JPEG COG tiles are undecodable"
+    },
+    "honua-server#4204": {
+      "body_sha256": "daefed8a9fb686329bfe94b03e17f13b0ff35e99352540003933d2d9879ea710",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] ImageServer tile fallback looks COGs up by storage layer id while registrations are keyed by publication LayerIndex \u2014 cloud COGs are never found, or another service's COG is served"
+    },
+    "honua-server#4197": {
+      "body_sha256": "47ed46b9ccca9fedbacd16cddd726bc503d1e76d24866ae88db64f694c929cce",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] ObservationsStream fans every tenant's ingested observations out to every subscriber (no tenant key in sessions, frames, or the Redis channel) and is unauthenticated"
+    },
+    "honua-server#4187": {
+      "body_sha256": "edc92316851e30489ad4ad1fbacbc97f43a57bacd8fca7f591af5e62cea9bcb5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: security: one-time credentials are persisted in durable operation results and approval payloads"
+    },
+    "honua-server#4144": {
+      "body_sha256": "ddea408f72095e074cac95de089325e25a453afe7042dfca4b70f445c2d0f4b0",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [ogc-hunt] Document-mode results are link objects with data: URIs, not the value transmission the process description advertises"
+    },
+    "honua-server#4124": {
+      "body_sha256": "7949f42fe783619d159474e7a8634d7c06decd366134d9e36360d1e684829869",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] FeatureServer import passes Blob values as text"
+    },
+    "honua-server#4123": {
+      "body_sha256": "74a5a5938cb0be8a9763a040382090349d822b1880fa8826882532e3b0ebcf33",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] ArcGIS import does not retry HTTP 429 or honor Retry-After"
+    },
+    "honua-server#4122": {
+      "body_sha256": "521ecc64f48784d5be986452ed0e5421a03465d526f6d48c47c058cc05b2dc04",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] FeatureServer import drops Esri M measures"
+    },
+    "honua-server#4121": {
+      "body_sha256": "82f4773030957124fb95cbe28722d51587711688df5ac1deb9eca2e1d4c56a3b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] FeatureServer import drops true-curve geometries"
+    },
+    "honua-server#4119": {
+      "body_sha256": "ba1b6d6f1a11870ffd6f7de987027e5f524fe13505c93c1df72de8d640a7a1ce",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] FeatureServer import does not provision dimensional PostGIS geometry columns"
+    },
+    "honua-server#4113": {
+      "body_sha256": "393a012f7cc154bf32a7c1c1c3b064a611a63ac65c08244bf1fa92bf070a9fb4",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-probe] Attribute-only applyEdits updates return code 1000"
+    },
+    "honua-server#4075": {
+      "body_sha256": "14d1c91d2aee1c075bf72b1cdd3560b0e712ceb69d40407441edc09a15caa8c5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] project between NAD27 (4267) and NAD83 (4269) returns HTTP 500: catalog default pipeline is fed to PostGIS 3-arg ST_Transform which rejects it"
+    },
+    "honua-server#4071": {
+      "body_sha256": "578443f59897c872a324cb67364675aeb7c74c30b7c799b6df1e92e4db584775",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] objectIdField resolver prefers an integer column named id/fid/objectid over the schema id.primary key (and falls back to any integer column), so a non-key `id` column silently becomes the OID for queries and edits"
+    },
+    "honua-server#4038": {
+      "body_sha256": "f25e9c7e97536b20bafaea452f7d5277fc2208d502aeaed178c8fbc60a2000c0",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] Import/discover client ignores ArcGIS `error` envelopes returned with HTTP 200 (service, layer, count responses)"
+    },
+    "honua-server#4025": {
+      "body_sha256": "0d6860ea0d6676974d1fde08dbfbf25c19b5d7bfa8dda2af4e2871db26478be1",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] NAServer ignores the spatialReference in stops/facilities FeatureSets; relies on non-Esri inSR and silently solves garbage coordinates"
+    },
+    "honua-server#4023": {
+      "body_sha256": "fc920cfec4308f1b5a1c4c1524f832203aca1ede3f0ba54210e30f2bbddcdd16",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] Layer-scoped GA tasks (overlay/proximity/statistics/dissolve, published as Clip/Intersect/Union/\u2026) cannot accept an Esri FeatureSet at all"
+    },
+    "honua-server#4021": {
+      "body_sha256": "1f9ca91ef96031ef6423a5c11546832eff55ec334d0067bb4c6afa8343f877dc",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] GP result value is a bare data-URI/URL string, not the Esri FeatureSet / {url} object \u2014 ArcGIS clients get empty or broken results"
+    },
+    "honua-server#4009": {
+      "body_sha256": "d20743b3e5d9983d482ece61d400a1fe5f99867002655f214c3078e1e25d10a8",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [Bug Hunt] Capabilities advertises manifest export but trunk has no export route"
+    },
+    "honua-server#4008": {
+      "body_sha256": "cfb48bdfc9292c938f1f2c655e03c265b6e41eb80220b3c240379fcbb4c2db0a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [Bug Hunt] Exact trunk default startup fails DI validation for offline sync service"
+    },
+    "honua-server#3951": {
+      "body_sha256": "91f6ea06804d91f17382ac7f60ee6aa97126c89947ae30fe13f3b2a62a0fa159",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3950": {
+      "body_sha256": "efb4560b860b5aa9242248212943e096637c8ec44d54f438d6615731608941cc",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3949": {
+      "body_sha256": "b7a0c60fd173b2fb7e0944c015b8eb0a1a0f31c4fb37aaa6a56c3ddd519194c8",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3948": {
+      "body_sha256": "b235cd831144dcdc2f2935f1bea6d3290574dfc9a64cee2cbc20427c66fc7a11",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3947": {
+      "body_sha256": "73eb43cdc848b8b718e871a8d543711f6b66d3c9c741219d349a250b1004512e",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3946": {
+      "body_sha256": "9bb0fd04e526593203dcf8ae6859af8ec0724f57603d5bb4e1070320d03ffbc0",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3945": {
+      "body_sha256": "d92924cc02c722086fbec211056e93a99cead4326c551284c2f5c23155ba41f6",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3944": {
+      "body_sha256": "e5e34fcbefa64d18e48f6f089a7045367322db1fb7c2f97369421308f350c563",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3943": {
+      "body_sha256": "542224212b48e463871c2a74b134fe877eec1089a27fc37d4f042e39542f260b",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3942": {
+      "body_sha256": "7a644d998788faacc0e690fd8c1ad9dba9741bd91b8ba338a3af51077ca38dff",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3941": {
+      "body_sha256": "a3ab5d2ada9aa5a9b731f4f52e610398e1e60b650972577c4c050ed5243049ca",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3939": {
+      "body_sha256": "427c4ac029b6bb00e2329a1a38915036b15c56e422c868210652b3e39688099f",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3940": {
+      "body_sha256": "ace93a2a00cdc24ec1bfb28f240bedc67f3090531f02e4046af907333a52ab9a",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3938": {
+      "body_sha256": "f66a53acb7d529da03773a043fa23e597399788f4812084634059a66a907abf2",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3937": {
+      "body_sha256": "6ac177550e851d7e7a3d9c894b64e31548f502bb19d59db9ef463ff115ac356b",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3936": {
+      "body_sha256": "5a1a201b8096f4074f1bd4952b0d48da9b941665b0ead20ae7b27b6882d51001",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3935": {
+      "body_sha256": "fe10ba21478b41f68fb0da2ac451dd6af2f03dfbe0145b7847947651cf997f7c",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3934": {
+      "body_sha256": "da00850459c79f7c440cf66d6031df5b0e45f01e7843f471cd61512225ff782e",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3933": {
+      "body_sha256": "2abc16b294d282948aa10505f03331c4e3a34f3469939d3cb83b9dfe33e326e5",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3932": {
+      "body_sha256": "9fd87caccca35b2db91ce81108d41435762c663ff4e3eec3b0079bd00bbb00fa",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3931": {
+      "body_sha256": "605df86d6d5f9a816ef2a6d595a5bc9aeb12a36baa220343ea2985fa8d67252f",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3930": {
+      "body_sha256": "1c438e533f84f0c6d67d3eb2ba74a3674aaf41f627df81354be86fb874c38aab",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3929": {
+      "body_sha256": "49c2170eb08dbc5561fe6fe64a027b41095fca97a5dc768ad334f6e83796bdf5",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3928": {
+      "body_sha256": "c6d1645edb97688dada6783d8fca4833d2a6c26819c0441932e4c44740fe6131",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3927": {
+      "body_sha256": "06d678245580176ce384f3041ef242f2fd69784e11469b24bcf9a898e1908298",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3926": {
+      "body_sha256": "905165acbe6e0cf404639fe1dd55ad99efda1b2742e62ab83bda4acb5a7ff730",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3925": {
+      "body_sha256": "5a5e9c6f8987d5ff23b01c0e25e3cb87f953dcdcc5188b8b538e157f100f4ba4",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3924": {
+      "body_sha256": "2f757df1832f548926d6a2e5556d852fed85b6e2a27dc468892f4d41a5a88b24",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3923": {
+      "body_sha256": "c42010f761b494b1767cf1089cde37b775dc3b062d93ed3919b8a11641e442ca",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3922": {
+      "body_sha256": "b339b730a64cd20291138e24bf80439472b054c8b5c91b3f3f4b2dfef68996c2",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3921": {
+      "body_sha256": "5da065f339f73f3ea5a057c4e55193722cd73396090db918b4c2388859714b60",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3920": {
+      "body_sha256": "fa084c0bd399e488b16dcba4cce5d4447ee6b92ab3b505ed449a0c06f2a6e298",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3919": {
+      "body_sha256": "ce5e9962254567750de4896d657c80e02adbb35593c49d2684bbe49e2fb0b811",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3918": {
+      "body_sha256": "5e62ae4ad89ce06ef40bac6bf458edbeec2dec54e0a318eda3dd3b03e156145c",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3917": {
+      "body_sha256": "fe3cd67a46d886cff4ce42f3a4d6a5be2befc4e49937a215c287dc9f18d7e708",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3916": {
+      "body_sha256": "ee79290e8289e94cc789664fc9c779894640fe68fd1a4f9650d2b90dd3ff5446",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3915": {
+      "body_sha256": "870284f86a5b8b18bf62f00835248a54c3d9248de834e26e9e5c67e00acafeaa",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3914": {
+      "body_sha256": "4021f2d372d21e82b5c277101d5786439e889b4b96fc58c6273e54c8131f9f6f",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3913": {
+      "body_sha256": "068b69a41416350391cb6e885b25b9153e20cd4c968b0e4eea6fe8ae0625f07a",
+      "named_promise": true,
+      "reason": "Whole BuiltInProcessCatalog is GA (2026-09-04); this body specifies concrete production execution and semantic output assertions for the named catalog operation."
+    },
+    "honua-server#3909": {
+      "body_sha256": "62b8dabea116a78a50482e75b94c79a635311366ca4d59e5019260e00bb7d94e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(operate): replica-local retained tail is exposed as platform availability/error budget"
+    },
+    "honua-server#3906": {
+      "body_sha256": "6897195995485204111dac54d1ccdc854d93ec429eb0654f0d0a63f29fd328ec",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(tenancy): declare single-tenant GA and multi-tenant Preview"
+    },
+    "honua-server#3903": {
+      "body_sha256": "205cacc3c7a294525b7c7ecfbbb3a6016625c9645e20ad7e014c2898cd1fc2ad",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(jobs): require Redis durability attestation before advertising durable jobs"
+    },
+    "honua-server#3900": {
+      "body_sha256": "f706e7050e78248b6f6aa9118da74fc61a6e0844ca1fca536bd1874e92832088",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(gp): require persistent-store attestation for referenced outputs"
+    },
+    "honua-server#3893": {
+      "body_sha256": "d907dba8714f390d2d96a35ba703f8aaab1991967260b3903c99a31a1c947fab",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(capabilities): bind deploy.rollback availability to target-scoped executable rollback receipts"
+    },
+    "honua-server#3892": {
+      "body_sha256": "cad4643ea8bace35d4389bab38179ea8693e90e21e9eeab39d3801569baed5f3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(deploy): require restored data-plane health before backend rollback can terminate successfully"
+    },
+    "honua-server#3878": {
+      "body_sha256": "14d9babf904723a1d46e921868c5a63e754304dc31554936ba079dba377adc42",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(sensorthings): qualify observation-stream loss and recovery semantics independently"
+    },
+    "honua-server#3875": {
+      "body_sha256": "67df1e76ff737c7efd6a6fe2b456dfefb23646bd20112f4ecc31879bab1538db",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(realtime): qualify cursor resume, typed gaps, and partition recovery end to end"
+    },
+    "honua-server#3870": {
+      "body_sha256": "483f23b28980df5765077c8a9b79c8c8e0e0e6a20ce3c0869d8b3a7f6b4cf7cd",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove cooldown, dwell, dedupe, and incident time under clock and zone shifts"
+    },
+    "honua-server#3869": {
+      "body_sha256": "7551b669b9c24e7ceb512a063d8e2f207446887e3d6ae1d23d60d8408e141cbc",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove Postgres DLQ redrive to successful provider delivery and audit"
+    },
+    "honua-server#3868": {
+      "body_sha256": "fad2b41fca4ef36276d6fda90e0e216a37a0b30bb915eb24a670d40d2c69ae78",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): qualify fleet-wide storm limits, circuit recovery, backlog SLO, and provider outages"
+    },
+    "honua-server#3867": {
+      "body_sha256": "44e0f51f9a935e1a1493e526a794c3b79e871f8a933de1a80584ac5e26d393f3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): qualify secret rotation and secret-provider outage through the production cache"
+    },
+    "honua-server#3865": {
+      "body_sha256": "0fef8aaeeac19393d7ca3a5da27c89df75b414b11b068d1cb79cd26c091390db",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove lifecycle mutations cannot escape their domain audit record"
+    },
+    "honua-server#3864": {
+      "body_sha256": "57d25fa42a24c246b392a7fe7a9c7852fc5afa72d4b470a9e13181dce8ad27f7",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): preserve ordered threshold and geofence transitions during change bursts"
+    },
+    "honua-server#3863": {
+      "body_sha256": "988160ecca5c2b1be8a85997ca3d3a10c5403cc34f4094b7d3aecbe9a32f377e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove leader handoff, database recovery, and restart persistence with two replicas"
+    },
+    "honua-server#3861": {
+      "body_sha256": "87fcc34ef3228c7b84d27ecc44870a429d4caea70f55aa2d92a44f3c6e38c4fe",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove the real condition-to-audit chain through hosted APIs"
+    },
+    "honua-server#3859": {
+      "body_sha256": "3e94c0901785dce5b32ad1d22e06f1f9980ad9b519bacea0dc42a8d088c1f733",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(alerts): prove fail-closed tenant isolation across evaluation and delivery"
+    },
+    "honua-server#3857": {
+      "body_sha256": "8fe7312b5b223d305b8346eb44ded8426916ccb611fbc01a01845de722d851c1",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): require numerical and heavier-operation seven-interval canary proof"
+    },
+    "honua-server#3855": {
+      "body_sha256": "39994c98cfc2348305b7f16805ab27ba693132d25107afe48141c30a18fb30ae",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): make Postgres restart cells exercise database-dependent execution and output"
+    },
+    "honua-server#3854": {
+      "body_sha256": "ac7a39a3fda63e206ff94c09fd4391718e5c238f472c79283430a09725452426",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): qualify Redis persistence, failover, and queue reconciliation"
+    },
+    "honua-server#3852": {
+      "body_sha256": "b7fb4d819f1c527e1479dbadc9a9c09b224ba4cb93d0c22b43cebb16ff28a033",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): qualify staged output durability across worker and object-store failures"
+    },
+    "honua-server#3851": {
+      "body_sha256": "ecde9e636b40201073fd13157d70a4ce590a89fd7c4676fb117adc8121b570c1",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): prove stale-attempt fencing and automatic retry with exactly-once observables"
+    },
+    "honua-server#3850": {
+      "body_sha256": "36b121abde9161f394c50ee3c82bde980c0fd9dde61d007e4883bb15ff4cbe02",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): prove in-flight cancel and timeout against the production worker"
+    },
+    "honua-server#3849": {
+      "body_sha256": "972dc1fd41947f3824be24fd6291983303d921433fcb38da783f8c209f1dc42b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(gp): prove crash consistency at job-store, queue, index, and terminal projection seams"
+    },
+    "honua-server#3811": {
+      "body_sha256": "030b9688e0ef6ef1afd4832c8dec5578befc73b43c78a4b41f125a414f9bb93f",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: qualification lane: alerting conditional GA (engine+admin+webhook) with enabled candidate lane"
+    },
+    "honua-server#3809": {
+      "body_sha256": "9fbef201067f4767d5757d1f62842c147dce8ce5d99f640619c36afe68a0fd6d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: qualification lane: GP reliability against the exact candidate (bounded GA journey)"
+    },
+    "honua-server#3475": {
+      "body_sha256": "f1ce8d07e11c3e15b8a2ce6c15460df76a92199b2f05b44d43536e627c5c62ff",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(observability): publish source freshness and completeness envelopes for agent evidence"
+    },
+    "honua-server#3434": {
+      "body_sha256": "258855aa00ca71bb337edf03ac2cac8368633880de9b4d2cb684dbe6b87ec349",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the bounded 2026.1 external-client roster"
+    },
+    "honua-server#3424": {
+      "body_sha256": "8e3a0f856b1a944d7ef25cfc47c69f93d807d9ca63f4b4810fc441b1768eb7b8",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(ai proxy): sign canonical real-model transcript provenance"
+    },
+    "honua-server#3384": {
+      "body_sha256": "ba1c8fc349177403f3e55cf2218730d2ccd444e876e509aef514ef393f6b5394",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Fix live STAC items and search 500 regression"
+    },
+    "honua-server#3381": {
+      "body_sha256": "30fe3be8a3849e8e82bef6d6dee375cf1dbe2ef6601eb6f64a0271d737caf0e5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(sdk): certify JS, Python, and .NET protocol operations against exact release images"
+    },
+    "honua-server#3377": {
+      "body_sha256": "8fcdf96cdbb44eee4a62f1f5df3abbd7bcca3dba4333f3684122316ad0bfe9aa",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(cng): repair cloud-native gate and certify supported formats with canonical consumers"
+    },
+    "honua-server#3365": {
+      "body_sha256": "edb82344220e85f6db87624cfa5d0c7997a717cd1053f590427379805df1342c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(auth): `admin:approve` grant + focused Console read/approve key recipe"
+    },
+    "honua-server#3364": {
+      "body_sha256": "3829894a2d8761f30dd252a52f9707bc126127e0476430f5575edfd48a6ef6db",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs: one-terminal setup \u2192 services/style + GP \u2192 saved map/dashboard \u2192 governed publish"
+    },
+    "honua-server#3361": {
+      "body_sha256": "adef7da20062ae3f3d618d254ea49d03050b09a5d120828020af379e97e2c6fc",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(operations): WS2 lane C \u2014 access \u2014 admin operation descriptors + executors"
+    },
+    "honua-server#3305": {
+      "body_sha256": "ecda61138ac0d172f56d02e1d23561731eafde5e62373c325484ac736dcee07c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(studio): \"Honua Studio\" GitBook section \u2014 concept, standalone, embed, BYOM (Ollama/gis-llm), MCP tools, Claude Desktop, sdk-js agent, .NET lifecycle"
+    },
+    "honua-server#3302": {
+      "body_sha256": "a2065ea688ab2a3179e05cb7daded6e82d12fc5c2923fba7db9d440b8ce55ce2",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(operate): cross-surface \"Operate scenario\" page + metric inventory (REST, MCP, console, devops agent, Helm/Terraform rollback wiring)"
+    },
+    "honua-server#3269": {
+      "body_sha256": "0dd3713ab22740e2e5811cf799a1badf6d694566e5d56219376941edcd52f455",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(mcp): implement geospatial-mcp analysis-profile verbs over IGeoprocessingJobService"
+    },
+    "honua-sdk-js#1589": {
+      "body_sha256": "e08644b8998715c7a95248d28b768651d5476592aa54d3357486518539bb294e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: capabilities: preserve lifecycle and opt-in governance in JS manifest projection"
+    },
+    "honua-sdk-js#1572": {
+      "body_sha256": "1e38900b04ec524d6bb1d982c4dfd99c51211b44559963124c7de3ef4cccae91",
+      "named_promise": false,
+      "reason": "Body describes pin/error-contract hardening without demonstrating a broken current GA workflow or retained security/data-integrity floor."
+    },
+    "honua-sdk-js#1569": {
+      "body_sha256": "17acb86bbafcb56e5e71787faf1f5f6d3fd3f361422d68b0f30b4da9d9a256be",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(studio): own and version the dashboard.package authoring contract"
+    },
+    "honua-sdk-js#1426": {
+      "body_sha256": "18afad32f45757d1309ba73cd5b43ef213f822a7fc572ab4d3a1281c586dc946",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(map): one portable versioned map artifact across JS, CLI, MCP, and Studio"
+    },
+    "honua-sdk-js#1424": {
+      "body_sha256": "faa6dc54b22de9c857b02791e7d39ce299e8028bcd25f78f078c9e3c03d8d9dd",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: refactor(control-plane): share idempotent application commands across CLI, MCP, Studio, and SDK"
+    },
+    "honua-sdk-js#1401": {
+      "body_sha256": "6ca1ed95996c9408607bb88e2f0a8df2742bd893698839de8f5b92a487860d84",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(release): make zero-to-map profile/catalog preflight executable and prove published style rendering"
+    },
+    "honua-sdk-js#1398": {
+      "body_sha256": "17273cc8fa8b2efe63684474dee2f42c088f8a1966a45988ff454a8753dc3db5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(studio): complete lifecycle enumeration and publication-proposal status client"
+    },
+    "honua-sdk-js#1397": {
+      "body_sha256": "d58d631ae9dd9405e6e099b79edcf3f437d8e5f0e35de7412076c2a007f5ed1b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(studio-agent): route server-discovered composition tools instead of a hard-coded name table"
+    },
+    "honua-sdk-js#39": {
+      "body_sha256": "3c06f6eb828f127c5bab802aaa28b4c92cf22aeb382cff9f2e8c166b7d66905a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the installed JS package set against the exact 2026.1 candidate"
+    },
+    "honua-sdk-python#219": {
+      "body_sha256": "5608d9859604f7268ce146fe46bc1e6e73776cf388460449b18ef0f80c418e37",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [Bug Hunt] Admin compatibility baseline rejects exact trunk 1.0.0 server"
+    },
+    "honua-sdk-python#21": {
+      "body_sha256": "9efc241ece6e49893690fd2d9eeec9e4053aa51170ffe237e4685b2532e7bc0c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the installed wheel against the exact 2026.1 candidate"
+    },
+    "honua-sdk-dotnet#326": {
+      "body_sha256": "ac30f8dc81bbe023371d33d86f7d08b2fbcee99ba6906ef96c670b3f4b82075b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: capabilities: preserve lifecycle and opt-in fields in .NET and JS manifest projections"
+    },
+    "honua-sdk-dotnet#311": {
+      "body_sha256": "99b9ad0c97693415bc688fe064bc6905485757c429487dfc69a6040788a8028d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the installed NuGet package against the exact 2026.1 candidate"
+    },
+    "honua-sdk-dotnet#310": {
+      "body_sha256": "188a7191445215a9c930891132ed49491e3cb0558e5bc9ebce7caaca81a72d7d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(certification): exercise FeatureServer edits with governed entitlement"
+    },
+    "honua-sdk-dotnet#308": {
+      "body_sha256": "51a7be4aca7c1840b35f70fbed6e9a848ef10c75d860e31db2e785fdc3c47e79",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): resolve RC edit entitlement, catalog route, and fixture gaps"
+    },
+    "honua-helm#64": {
+      "body_sha256": "c827f7ac01f58522e3e1e698037990cdc7c8096d56a2a7b31c5831bec4dd95de",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(chart): make Helm rollback smoke prove distinct digest and release identity restoration"
+    },
+    "honua-site#244": {
+      "body_sha256": "9f773131b3cfc1bbe9fd4891d00a919a2db565ebbd749347f73bba65fe6f280b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: capability drift: site publishes ai.workflow-generation as Pro after honua-server#3264 removes it"
+    },
+    "honua-site#234": {
+      "body_sha256": "72fe8aaa9d986b1e8dc5794f8658805ea168f270a0d79a65093cd6552c977bde",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(evidence): publish truthful 2026.1 3D capability evidence"
+    },
+    "honua-iac#168": {
+      "body_sha256": "be5ce3df805f27d9c0d5d448046ebeeaff9c3fd0ae303c1eafbcd7d2fae002ac",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(aws-cert): bootstrap isolated Lambda Preview certification resources"
+    },
+    "honua-iac#154": {
+      "body_sha256": "c08970bbe1fc7d5c467d86d53dd4d75372b4f35af905b287115f8a755d0c9870",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(terraform): declared 1.5 floor is broken by eager-|| null validation and untested by CI"
+    },
+    "honua-iac#118": {
+      "body_sha256": "1db802496a595c5e4d6fe4da8bcec87b880392f57897637c7d1b45cadbecd418",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(operators): certify AWS ECS topology with live apply and replacement"
+    },
+    "honua-iac#20": {
+      "body_sha256": "4c24f10b87a748cf71a688a951394b5a1648a4ecf03349bc428b356f9d612700",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(runbooks): execute AWS apply/smoke/destroy and record evidence"
+    },
+    "honua-devops#183": {
+      "body_sha256": "0e24f44d268580b164f7118e949d6384fd18aea03f5ae0c87e373efd185f2bdf",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(provisioning): prove governed cleanup after partial apply, cancellation, and retry"
+    },
+    "honua-devops#182": {
+      "body_sha256": "c5d9c478a73497f4d3156f45b8b2ba8e74f0115cbfe9f3469c58e979cca6ad84",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(handoff): adversarially qualify the real install verifier and proxy protocol"
+    },
+    "honua-devops#181": {
+      "body_sha256": "97c32fe5b23b4082dde25c3a4799bc5d32aa1c735265d7d809752b74f59bd741",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(drift): certify detection through approved reconcile, verify, and receipt"
+    },
+    "geospatial-grpc#88": {
+      "body_sha256": "d4766f48bf30b04374a60340d846a7d75c1094b7d4309bd7e30f8679adad82e5",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): emit normalized multi-client gRPC release evidence"
+    },
+    "honua-support#68": {
+      "body_sha256": "bbcc26a555b7d6c6493ecca00026f1dfb0176e012b4ef645f9c0e32c1a81ec4c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(api): 110 failure producers emit incompatible or bodyless error contracts"
+    },
+    "honua-support#65": {
+      "body_sha256": "e1a68a9b75f0c58e4560283eafa0939b7181e990d6104308b219ef09709554ba",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: real Postgres migration, restore, isolation, and security qualification"
+    },
+    "honua-support#64": {
+      "body_sha256": "a87371313d6b1d0954f6511b9566c95c300cb6183489855387da7b6f83362aca",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: signed replay-safe webhooks with retry, DLQ, redrive, and alerting"
+    },
+    "honua-support#62": {
+      "body_sha256": "46935266657408e351fcaffd799d45526cb494526fcd454a9caa2dcb29d87f1c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: generate compatibility data from the signed release lock"
+    },
+    "honua-support#61": {
+      "body_sha256": "7f66b610c7b28ad54f7ab6f4b6f2212d0c6c33ab8612b43f3a0cc43000a5df8c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: signed versioned deployment with real Postgres operations and rollback"
+    },
+    "honua-support#60": {
+      "body_sha256": "2d92d95a3c2678aae7c86a7ebb49371e879fa773abdec4e830002683d472d843",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: publish severity, coverage, contact, incident, maintenance, and EOL policy"
+    },
+    "honua-support#59": {
+      "body_sha256": "53ed74930057d96c549dab0ba487b0766475608c143db9d0107987ad1c846ced",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 support readiness \u2014 policy, operations, application, and rehearsal"
+    },
+    "honua-support#56": {
+      "body_sha256": "c3e30541f955cacc9ece195fa6c1aa111eded4fb5df2fc36faee7bdefec8c792",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: separation of duties for fixed-version approval and patch promotion"
+    },
+    "honua-support#5": {
+      "body_sha256": "a6b6afe31be0f9bfef8689a172b4c13c1ad463f785e9e4f8a62490a050591d7c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: decide and prove staffed manual support or complete the operator workspace"
+    },
+    "honua-console#365": {
+      "body_sha256": "01334ecb4d23567bafa5ed62f11b8bcd113ab4ed4812e347d3312c6ed164696b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: capabilities: derive server-backed UI gates from the live server manifest"
+    },
+    "honua-console#364": {
+      "body_sha256": "8b2c02714ed7fa3d4c22fc22b42e869ebc01ef92f10036f4c017a6f9725ee8bf",
+      "named_promise": false,
+      "reason": "Body describes pin/error-contract hardening without demonstrating a broken current GA workflow or retained security/data-integrity floor."
+    },
+    "honua-console#363": {
+      "body_sha256": "615fbc89b4c5deed454bb98547b013bb5a577021034bed859d52250abd651f56",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(import): require explicit authorization before replacing target tables"
+    },
+    "honua-console#362": {
+      "body_sha256": "ce26eedaa2d0ae34437a803727c713c0a67535ea5b87933a79587bf2524dd3ec",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(operate): qualify installed alert create, test, enable, health, RBAC, and audit flow"
+    },
+    "honua-console#337": {
+      "body_sha256": "5d56c3375d6c13150f53496c2a6abc724c0961a1a1a76e736b8fbaa0eff26de7",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: chore(deps): upgrade vega past three open advisories (one high) \u2014 coordinated with vega-lite"
+    },
+    "honua-console#334": {
+      "body_sha256": "74543ac8941469a8731fbcdaf80b90c9708e64932fca7fb878a184848a18f67c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(security): SceneViewer and ChartPreview load Cesium and Vega from jsdelivr at runtime"
+    },
+    "honua-esri-compat#75": {
+      "body_sha256": "7d0655fe86c9a9520fd4d53c9f9a3b134b2f374d02991de0293f1cd5c3217ba9",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: certification: run ArcGIS Pro/arcpy on a licensed Windows runner"
+    },
+    "honua-esri-compat#74": {
+      "body_sha256": "28755c8dbbebcda0753c6e0fedbd8c6987d2f65ddacc84996464c0842f3f6476",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: certification: complete addressable Esri matrix and prove SOAP catalog discovery boundary"
+    },
+    "honua-release#258": {
+      "body_sha256": "591ee45051a878fa17a74b4b95024b6ad6f98586010a8e7ce9aa0f8ffda4fcaa",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(gate): capacity/SLO receipt accepts values without observation provenance"
+    },
+    "honua-release#257": {
+      "body_sha256": "a9143dce04f2852fed23f3c15145956b5320d40c0ba4cf7d15837a0bb256f217",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(dr): reject receipts that omit enabled durable substrates"
+    },
+    "honua-release#236": {
+      "body_sha256": "4d0e4937fb8fc03afeab5ccc885154786444284d62b14994da071c0bce8985a6",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: org branch-protection + CODEOWNERS hardening for release lines"
+    },
+    "honua-release#233": {
+      "body_sha256": "2d124dd584309dfba046cfa9f6ec1f70e5ab1f8da1aeb079960f963bf9fb5a33",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: compatibility ledger + resolver (honua release inspect / compat check)"
+    },
+    "honua-release#231": {
+      "body_sha256": "387e84ac0ffd7ee32dc99542461fba4eeefb1797085d46d1b2b9e1f8274cb336",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: platform lock v1: one signed atomic candidate identity"
+    },
+    "honua-release#181": {
+      "body_sha256": "bdf9fed8625acf8881bf439e091ba11d33da05a2734c203c6f7775c96bffb00d",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: converge manifest-frozen SDK producer pins with the requirements catalog"
+    },
+    "honua-release#161": {
+      "body_sha256": "2d2935d7bab164650c2b79053d902cce2b31fae5154afb4c9e520518423aa3a7",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: run a genuine terminal-model canary for the 2026.1 Honua arc"
+    },
+    "honua-release#157": {
+      "body_sha256": "fa52cfaba05561c0feeb0700036ca7d9a06ca277b8782de68e7a5c9accbadfa3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: cross-protocol compliance and canonical-client certification program"
+    },
+    "honua-release#129": {
+      "body_sha256": "7d82a388d8e1796dababa63ca1f80787981517882ee97e17b5c138b145a036f9",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: certify the AWS ECS terminal AI delivery arc"
+    },
+    "honua-release#123": {
+      "body_sha256": "e495e6d7b912770d5ee754e6156a8e5b2b01e27fa81d881a52c7345d60259e7a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: deterministic terminal candidate journey \u2014 install \u2192 services + GP \u2192 maps/dashboards \u2192 approval"
+    },
+    "honua-release#122": {
+      "body_sha256": "7c0f0de7a972731ca515ee77a2aabb10c9e08d5929ff7d4a556e1f7c517c6a8a",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: certify the terminal setup-to-published-map journey"
+    },
+    "honua-release#120": {
+      "body_sha256": "d1de6957efc397db2987faf6d767487362a3b88a94478ab94c0104842eaeb4a3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 terminal AI delivery arc \u2014 install \u2192 services + GP \u2192 maps/dashboards \u2192 governed publish"
+    },
+    "honua-release#98": {
+      "body_sha256": "6138429fd99e86c90667a82d546dbd47814690f94aab54d857848fdc1a0b7468",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: ARM64-on-Fargate exclusion for honua-server is carried forward unverified against the current pin"
+    },
+    "honua-release#57": {
+      "body_sha256": "44326da89a16d96580c755cc8126f2ad1a8a602313556149d0817ea07ed7731b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: First-publication wave: finish NuGet, BSR, Helm OCI, QGIS, Mobile, Console, and migrate"
+    },
+    "honua-release#7": {
+      "body_sha256": "793c3edcb04333c45f97aed56aa0d29396b4f8a0124d10980963a37f9b978619",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(local-cert): execute the installed 2026.1 client matrix against the exact candidate"
+    },
+    "honua-evidence#22": {
+      "body_sha256": "8f89f81c2c84174f4d35806d8d077089e5e1b382cd9df2e03fac6cc59c485a4e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat: normalized certification ledger and governed cloud-native client inventory"
+    },
+    "honua-demo-infra#68": {
+      "body_sha256": "457b95098ea6ef38deb374e1eb6e3c034ec45f43cbf60345a93481eab6241130",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(demo): govern a public OGC process (geometry.buffer) in the demo manifest and add a scheduled GP canary"
+    }
+  }
+}

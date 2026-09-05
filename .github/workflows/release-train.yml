@@ -1,11 +1,14 @@
 # Release train — the single trigger surface for cutting a platform release candidate.
 # Both humans and AI use this one workflow_dispatch (AI via the GitHub App / MCP).
 #
-# State: EVERY gate (a-i) is wired as a reusable (workflow_call) job with a real, fail-able body — the
-# same code as their per-PR CI, so there is no drift between "what CI checks" and "what the train
-# checks." Gates whose deeper cert needs infra/creds not present in a local cut (cloud cert, upgrade
-# kind-smoke, sbom image scan, security image scan) report `blocked`/`skipped` HONESTLY (never a fake
-# green) and are promoted to a hard FAIL on a real cut / once their secrets are wired.
+# State: EVERY gate (a-i), plus `gate_evidence` (honua-release#60, evidence lineage/freshness — proves
+# the honua-evidence capability matrix backing #59's capability-key docs claims is about this
+# candidate's pinned honua-server sha and isn't stale), is wired as a reusable (workflow_call) job with
+# a real, fail-able body — the same code as their per-PR CI, so there is no drift between "what CI
+# checks" and "what the train checks." Gates whose deeper cert needs infra/creds not present in a local
+# cut (cloud cert, upgrade kind-smoke, sbom image scan, security image scan) report `blocked`/`skipped`
+# HONESTLY (never a fake green) and are promoted to a hard FAIL on a real cut / once their secrets are
+# wired.
 #
 # Honesty (AGENTS.md): a gate that can't fail is worse than no gate. Every gate here can fail. On a real
 # cut (dry_run=false) the consume/sbom/security/upgrade gates run `strict` and e2e/cloud run
@@ -22,6 +25,7 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+      capacity_receipt_url: { description: "HTTPS URL of the candidate capacity-soak receipt", required: true, type: string }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -37,9 +41,27 @@ permissions:
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
     runs-on: ubuntu-latest
+    outputs:
+      server_sha: ${{ steps.candidate.outputs.server_sha }}
+      server_digest: ${{ steps.candidate.outputs.server_digest }}
+      server_certification_sha: ${{ steps.candidate.outputs.server_certification_sha }}
+      sdk_js_sha: ${{ steps.candidate.outputs.sdk_js_sha }}
+      sdk_python_sha: ${{ steps.candidate.outputs.sdk_python_sha }}
+      sdk_dotnet_sha: ${{ steps.candidate.outputs.sdk_dotnet_sha }}
+      sdk_js_version: ${{ steps.candidate.outputs.sdk_js_version }}
+      sdk_python_version: ${{ steps.candidate.outputs.sdk_python_version }}
+      sdk_dotnet_version: ${{ steps.candidate.outputs.sdk_dotnet_version }}
+      geospatial_grpc_sha: ${{ steps.candidate.outputs.geospatial_grpc_sha }}
+      geospatial_mcp_sha: ${{ steps.candidate.outputs.geospatial_mcp_sha }}
+      certification_repository: ${{ steps.candidate.outputs.certification_repository }}
+      certification_commit: ${{ steps.candidate.outputs.certification_commit }}
+      certification_requirements_source_revision: ${{ steps.candidate.outputs.certification_requirements_source_revision }}
+      certification_path: ${{ steps.candidate.outputs.certification_path }}
+      certification_sha256: ${{ steps.candidate.outputs.certification_sha256 }}
+      candidate_cut_at: ${{ steps.candidate.outputs.candidate_cut_at }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
@@ -49,17 +71,58 @@ jobs:
       # and publishes it as the run's `candidate-manifest` artifact the downstream gates certify. This
       # is a real, fail-able step (a malformed/incoherent manifest stops the train here), not an echo.
       - name: Validate + publish the candidate manifest
+        id: candidate
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          python tools/validate_platform.py
+          ARGS=()
+          if [ "$DRY_RUN" = "false" ]; then
+            ARGS+=(--exact-candidate)
+          fi
+          python tools/validate_platform.py "${ARGS[@]}"
+          if [ "$DRY_RUN" = "false" ]; then
+            python tools/verify_client_artifacts.py
+            python tools/verify_evidence_sources.py
+          fi
+          python tools/generate_evidence_index.py --out release-evidence-pins.json
           echo "candidate platform_label (input): ${{ inputs.platform_label }}"
           echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
-      - uses: actions/upload-artifact@v4
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import yaml
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          server = manifest["components"]["honua-server"]
+          certification = manifest["protocolCertification"]
+          ledger = certification["ledger"]
+          print(f"server_sha={server['sha']}")
+          print(f"server_digest={server['digest']}")
+          print(f"server_certification_sha={certification['serverCertificationProducerSha']}")
+          print(f"sdk_js_sha={manifest['components']['honua-sdk-js']['sha']}")
+          print(f"sdk_python_sha={manifest['components']['honua-sdk-python']['sha']}")
+          print(f"sdk_dotnet_sha={manifest['components']['honua-sdk-dotnet']['sha']}")
+          client_artifacts = manifest["clientArtifacts"]
+          print(f"sdk_js_version={client_artifacts['honua-sdk-js']['version']}")
+          print(f"sdk_python_version={client_artifacts['honua-sdk-python-wheel']['version']}")
+          print(f"sdk_dotnet_version={client_artifacts['honua-sdk-dotnet']['version']}")
+          print(f"geospatial_grpc_sha={manifest['components']['geospatial-grpc']['sha']}")
+          print(f"geospatial_mcp_sha={manifest['components']['geospatial-mcp']['sha']}")
+          print(f"certification_repository={ledger['repository']}")
+          print(f"certification_commit={ledger['commit']}")
+          print(f"certification_requirements_source_revision={ledger['requirementsSourceRevision']}")
+          print(f"certification_path={ledger['path']}")
+          print(f"certification_sha256={ledger['sha256']}")
+          print(f"candidate_cut_at={certification['candidateCutAt']}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-manifest
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            platform-lock.json
+            release-evidence-pins.json
+          if-no-files-found: error
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -92,6 +155,7 @@ jobs:
     with:
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
+    secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
   gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
     needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
@@ -144,10 +208,14 @@ jobs:
     with:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit            # RELEASE_GH_TOKEN for the cross-repo metric-contract checkout
 
-  gate_docs:                   # h) advertised-vs-actual: every shipped capability is backed. Phase 3.
+  gate_docs:                   # h) advertised-vs-actual + advertised-GA ⊆ evidenced-GA (#59). Phase 3.
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
   gate_upgrade:                # i) prior-release -> candidate: compat-matrix + forward-schema + kind install/upgrade/rollback smoke
     needs: gate_e2e
@@ -156,6 +224,49 @@ jobs:
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
+
+  gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
+    needs: freeze
+    uses: ./.github/workflows/rollback-certification.yml
+
+  gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
+                                 # matrix backing #59's capability-key claims must be about this
+                                 # candidate's pinned honua-server sha and not stale. Wired at freeze.
+    needs: freeze
+    uses: ./.github/workflows/gate-evidence.yml
+    with:
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+
+  gate_protocol_certification: # normalized canonical-client cells for the exact candidate
+    needs: [freeze, gate_conformance]
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@34649bbc0a0886427c2e35d40edebf2d7bdc01e3 # v1.0.2 - trusted gate workflow (REBIND: advance to this PR squash SHA post-merge)
+    with:
+      matrix_repository: ${{ needs.freeze.outputs.certification_repository }}
+      matrix_commit: ${{ needs.freeze.outputs.certification_commit }}
+      matrix_path: ${{ needs.freeze.outputs.certification_path }}
+      matrix_sha256: ${{ needs.freeze.outputs.certification_sha256 }}
+      expected_requirements_source_revision: ${{ needs.freeze.outputs.certification_requirements_source_revision }}
+      tier: release
+      expected_source_sha: ${{ needs.freeze.outputs.server_sha }}
+      expected_image_digest: ${{ needs.freeze.outputs.server_digest }}
+      expected_cut_at: ${{ needs.freeze.outputs.candidate_cut_at }}
+      expected_server_certification_sha: ${{ needs.freeze.outputs.server_certification_sha }}
+      expected_sdk_js_sha: ${{ needs.freeze.outputs.sdk_js_sha }}
+      expected_sdk_python_sha: ${{ needs.freeze.outputs.sdk_python_sha }}
+      expected_sdk_dotnet_sha: ${{ needs.freeze.outputs.sdk_dotnet_sha }}
+      expected_sdk_js_version: ${{ needs.freeze.outputs.sdk_js_version }}
+      expected_sdk_python_version: ${{ needs.freeze.outputs.sdk_python_version }}
+      expected_sdk_dotnet_version: ${{ needs.freeze.outputs.sdk_dotnet_version }}
+      expected_geospatial_grpc_sha: ${{ needs.freeze.outputs.geospatial_grpc_sha }}
+      expected_geospatial_mcp_sha: ${{ needs.freeze.outputs.geospatial_mcp_sha }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+
+  gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
+    needs: freeze
+    uses: ./.github/workflows/capacity-soak.yml
+    with:
+      receipt_url: ${{ inputs.capacity_receipt_url }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -173,17 +284,30 @@ jobs:
       - gate_observability
       - gate_docs
       - gate_upgrade
+      - gate_one_operation_rollback
+      - gate_evidence
+      - gate_protocol_certification
+      - gate_capacity_soak
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Collect sub-gate reports (best-effort)
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          # the wired gates upload their own machine-readable reports; pull whatever exists.
-          pattern: "*gate-report*"
-          path: subreports
-          merge-multiple: true
-        continue-on-error: true
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      # Prove the exception ledger is well-formed (every entry names a real gate id and carries an
+      # issue link) BEFORE the report consumes it, so a typo cannot quietly annotate nothing.
+      - name: Self-test the gate-exception ledger
+        run: python -m pytest tools/test_gate_exceptions.py -q
+
+      - name: Download the frozen candidate artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: candidate-input
 
       - name: Assemble platform gate-report.json
         id: assemble
@@ -205,8 +329,12 @@ jobs:
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
-          S_DOCS: ${{ needs.gate_docs.result }}
+          S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
+          S_ROLLBACK: ${{ needs.gate_one_operation_rollback.outputs.overall_status || needs.gate_one_operation_rollback.result }}
+          S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
+          S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
+          S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -226,6 +354,10 @@ jobs:
           observability|$S_OBS
           docs|$S_DOCS
           upgrade|$S_UPGRADE
+          one-operation-rollback|$S_ROLLBACK
+          evidence|$S_EVIDENCE
+          protocol-certification|$S_PROTOCOL
+          capacity-soak|$S_CAPACITY
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -256,23 +388,112 @@ jobs:
                 overallStatus: (
                   if   any(.[]; .status=="fail")    then "fail"
                   elif any(.[]; .status=="blocked") then "blocked"
-                  else "pass" end)     # a `skipped` gate does not reduce overall below pass
+                  elif ($dry=="false" and any(.[]; .status=="skipped")) then "fail"
+                  else "pass" end)
               }' > out/gate-report.json
+
+          # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
+          # annotation: statuses, the summary counts and overallStatus above are already computed and
+          # are NOT touched here, so an exception can never turn a red gate green — it only records
+          # WHY it is red and where the fix is tracked. See certification/gate-exceptions.yaml.
+          python - <<'PY'
+          import json
+          import pathlib
+
+          import yaml
+
+          report_path = pathlib.Path("out/gate-report.json")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          exceptions = (yaml.safe_load(
+              pathlib.Path("certification/gate-exceptions.yaml").read_text(encoding="utf-8")
+          ) or {}).get("gates") or {}
+          before = json.dumps(
+              [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
+          )
+          for row in report["gates"]:
+              entry = exceptions.get(row["gate"])
+              if entry:
+                  row["exception"] = {"issue": entry.get("issue", ""),
+                                      "why": " ".join(str(entry.get("why", "")).split())}
+          after = json.dumps(
+              [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
+          )
+          assert before == after, "gate-exceptions must not alter any gate verdict"
+          report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          PY
+
           cat out/gate-report.json
           echo "overall=$(jq -r .overallStatus out/gate-report.json)" >> "$GITHUB_OUTPUT"
           {
             echo "## release-train $PLATFORM_LABEL — $(jq -r .overallStatus out/gate-report.json)";
             echo "";
-            echo "| gate | status |";
-            echo "|---|---|";
-            jq -r '.gates[] | "| \(.gate) | \(.status) |"' out/gate-report.json;
+            echo "| gate | status | documented exception |";
+            echo "|---|---|---|";
+            jq -r '.gates[] | "| \(.gate) | \(.status) | \(if .exception then .exception.issue else "" end) |"' out/gate-report.json;
+            echo "";
+            echo "An exception records WHY a gate is red and where the fix is tracked. It never changes a verdict.";
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload platform gate-report.json
-        uses: actions/upload-artifact@v4
+      - name: Bind the report to the exact candidate and train identity
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          SOURCE_WORKFLOW_REF: ${{ github.workflow_ref }}
+          TRAIN_RUN_ID: ${{ github.run_id }}
+          TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CERTIFICATION_MODE: ${{ inputs.dry_run && 'dry-run' || 'live' }}
+        run: |
+          set -euo pipefail
+          WORKFLOW_PATH="${SOURCE_WORKFLOW_REF#${SOURCE_REPOSITORY}/}"
+          WORKFLOW_PATH="${WORKFLOW_PATH%@*}"
+          python tools/candidate_binding.py bind \
+            --report out/gate-report.json \
+            --manifest candidate-input/platform-manifest.yaml \
+            --matrix candidate-input/compatibility-matrix.yaml \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-sha "$SOURCE_SHA" \
+            --source-branch "$SOURCE_BRANCH" \
+            --workflow-path "$WORKFLOW_PATH" \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
+            --train-run-url "$TRAIN_RUN_URL" \
+            --certification-mode "$CERTIFICATION_MODE" \
+            --out-dir out/certified-candidate
+          python tools/candidate_binding.py verify \
+            --report out/certified-candidate/gate-report.json \
+            --manifest out/certified-candidate/platform-manifest.yaml \
+            --matrix out/certified-candidate/compatibility-matrix.yaml \
+            --source-repository "$SOURCE_REPOSITORY" \
+            --source-sha "$SOURCE_SHA" \
+            --source-branch "$SOURCE_BRANCH" \
+            --workflow-path "$WORKFLOW_PATH" \
+            --train-run-id "$TRAIN_RUN_ID" \
+            --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
+            --train-run-url "$TRAIN_RUN_URL" \
+            --certification-mode "$CERTIFICATION_MODE"
+          # The lock is the atomic RC identity. A real train without it cannot produce promotion
+          # evidence; copying the committed bytes into every train bundle makes comparisons immutable.
+          test -f platform-lock.json || {
+            echo "::error::platform-lock.json is required for a strict release train"; exit 1;
+          }
+          cp platform-lock.json out/certified-candidate/platform-lock.json
+          python tools/generate_evidence_index.py \
+            --manifest out/certified-candidate/platform-manifest.yaml \
+            --out out/certified-candidate/release-evidence-pins.json
+
+      - name: Upload bound platform gate-report.json
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-gate-report
-          path: out/gate-report.json
+          path: out/certified-candidate/gate-report.json
+
+      - name: Upload the certified candidate bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: certified-candidate
+          path: out/certified-candidate/
 
       - name: Enforce + (TODO) tag RC
         run: |

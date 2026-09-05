@@ -9,17 +9,14 @@
 #   - a matrix range narrowed (support dropped) without a contract-version bump (DRIFT) — the
 #     manifest/matrix half of "a breaking change without a MAJOR bump fails CI"
 #
-# Runs per-PR (drift vs the PR base) and is callable by the release train as a reusable gate.
+# Runs on every PR so branch protection can require its stable `validate` check. It validates the
+# full committed source of truth (and the gate tooling) even when a PR changes only workflow/docs
+# files. It is also callable by the release train as a reusable gate.
 
 name: manifest-validate
 
 on:
   pull_request:
-    paths:
-      - "platform-manifest.yaml"
-      - "compatibility-matrix.yaml"
-      - "tools/**"
-      - ".github/workflows/manifest-validate.yml"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -40,21 +37,144 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0          # need the base ref present for `git show <base>:matrix` drift
 
-      - uses: actions/setup-python@v5
+      # Standard-library-only and deliberately before dependency installation: a mutable action
+      # reference must fail the branch-protected validate job even when no Python deps are present.
+      - name: Enforce immutable GitHub Actions pins
+        env:
+          # the ancestry check queries the GitHub API through gh
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/check_action_pins.py
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install deps
-        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.18" pytest
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
 
       # The tools/ gates' own tests must pass — they prove the manifest/matrix validator and the
       # release finalizer both redden on a bad input (a gate that can't fail is worse than no gate).
+      - name: Verify regenerated release decision
+        run: python3 tools/release_decision_record.py --check
+
       - name: Self-test the tools gates
         run: python -m pytest tools/ -q
+
+      # Acceptance harness for #230. Dispatch the registered manifest workflow on a ref ending in
+      # `-red-demo`; the branch's validator must recognize the skipped REQUIRED receipt, then this
+      # step deliberately preserves that verdict as the run conclusion (failure/RED).
+      - name: Acceptance demo — skipped REQUIRED cell is RED
+        if: github.event_name == 'workflow_dispatch' && endsWith(github.ref_name, '-red-demo')
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from tools.candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report
+
+          skipped = "cloud-parity"
+          report = {
+              "dry_run": False,
+              "overallStatus": "pass",
+              "generatedAt": datetime.now(timezone.utc).isoformat(),
+              "gates": [
+                  {"gate": gate, "status": "skipped" if gate == skipped else "pass"}
+                  for gate in sorted(REQUIRED_RELEASE_GATES)
+              ],
+          }
+          ok, why = validate_live_report(report)
+          print(f"deliberately skipped REQUIRED cell: {skipped}")
+          print(f"validator verdict: {'GREEN (BUG)' if ok else 'RED (EXPECTED)'}: {why}")
+          if ok:
+              raise SystemExit("validator accepted a skipped REQUIRED cell")
+          raise SystemExit(1)
+          PY
+
+      - name: Validate complete protocol certification denominator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          harness_sha="$(jq -r '.sources["server-certification"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#harness_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-server/contents/docs/gis/data/protocol-harness-assignments.v1.json?ref=$harness_sha" \
+            -o "$RUNNER_TEMP/protocol-harness-assignments.v1.json"
+          cmp certification/sources/server/protocol-harness-assignments.v1.json \
+            "$RUNNER_TEMP/protocol-harness-assignments.v1.json"
+          server_sha="$(jq -r '.sources.server.commit' certification/sources/source-revisions.v1.json)"
+          test "${#server_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-server/contents/docs/gis/data/capability-matrix.v1.json?ref=$server_sha" \
+            -o "$RUNNER_TEMP/server-capability-matrix.v1.json"
+          cmp certification/sources/server/capability-matrix.v1.json \
+            "$RUNNER_TEMP/server-capability-matrix.v1.json"
+          sdk_js_sha="$(jq -r '.sources["sdk-js"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_js_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-js/contents/config/protocol-certification.v1.json?ref=$sdk_js_sha" \
+            -o "$RUNNER_TEMP/sdk-js-protocol-certification.v1.json"
+          cmp certification/sources/sdk-js/protocol-certification.v1.json \
+            "$RUNNER_TEMP/sdk-js-protocol-certification.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-js/contents/config/sdk-coverage.v1.json?ref=$sdk_js_sha" \
+            -o "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-js/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-js-sdk-coverage.v1.json"
+          sdk_python_sha="$(jq -r '.sources["sdk-python"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_python_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/compatibility/sdk-coverage.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-python/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-python-sdk-coverage.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-python/contents/conformance/protocol-certification.v1.json?ref=$sdk_python_sha" \
+            -o "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
+          cmp certification/sources/sdk-python/protocol-certification.v1.json \
+            "$RUNNER_TEMP/sdk-python-protocol-certification.v1.json"
+          sdk_dotnet_sha="$(jq -r '.sources["sdk-dotnet"].commit' certification/sources/source-revisions.v1.json)"
+          test "${#sdk_dotnet_sha}" -eq 40
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-dotnet/contents/contracts/sdk-coverage.v1.json?ref=$sdk_dotnet_sha" \
+            -o "$RUNNER_TEMP/sdk-dotnet-sdk-coverage.v1.json"
+          cmp certification/sources/sdk-dotnet/sdk-coverage.v1.json \
+            "$RUNNER_TEMP/sdk-dotnet-sdk-coverage.v1.json"
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github.raw+json' \
+            "https://api.github.com/repos/honua-io/honua-sdk-dotnet/contents/contracts/sdk-certification.v1.json?ref=$sdk_dotnet_sha" \
+            -o "$RUNNER_TEMP/sdk-dotnet-sdk-certification.v1.json"
+          cmp certification/sources/sdk-dotnet/sdk-certification.v1.json \
+            "$RUNNER_TEMP/sdk-dotnet-sdk-certification.v1.json"
+          python certification/generate-protocol-requirements.py
+          git diff --exit-code -- certification/protocol-certification-requirements.v1.json
+          python certification/validate-protocol-requirements.py
 
       - name: Resolve drift baseline
         id: baseline

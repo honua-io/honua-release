@@ -1,0 +1,107 @@
+# Documented exceptions for release-train gates that are currently RED.
+#
+# WHY THIS FILE EXISTS
+# honua-release#83 requires that a release-train cut is either fully green OR that every red gate
+# carries an issue link and an explicit exception — never a silent skip. Prose in a PR description
+# rots and is invisible to anyone reading `gate-report.json`. This file is the machine-readable
+# ledger the train's `report` job attaches to each gate row, so the artifact that downstream tooling
+# consumes says *why* a gate is red and *where* the work to fix it lives.
+#
+# WHAT AN EXCEPTION DOES — AND DOES NOT — DO
+# It attaches {issue, why} to the gate's row in gate-report.json and to the run summary. It does NOT
+# change the gate's verdict, does not downgrade `fail` to `blocked`, does not remove a gate from the
+# rollup, and does not affect `overallStatus`. A red gate with an exception is still red and still
+# fails the train. This is deliberate: an exception mechanism that could flip a verdict is a
+# green-washing mechanism, and per AGENTS.md a gate that can't fail is worse than no gate. If you
+# want a gate to stop failing, fix the gate.
+#
+# HARD GUARDRAIL (enforced by tools/test_gate_exceptions.py):
+#   * every entry names a gate id the train's report actually emits — a typo cannot silently do
+#     nothing, and a gate that is deleted or renamed leaves a dangling entry that fails the test;
+#   * every entry carries a resolvable honua-io issue URL and a non-empty `why`;
+#   * nothing in this file is consulted when deciding pass/fail.
+#
+# HOUSEKEEPING
+# Delete an entry the moment its gate goes green. A stale exception is a lie about the state of the
+# release, which is the exact failure mode this file is meant to prevent.
+
+gates:
+  build-test:
+    issue: https://github.com/honua-io/honua-release/issues/102
+    why: >-
+      Re-pinning every component to trunk HEAD (honua-release#83) imported red CI that the older,
+      hand-picked rc.1 pins did not carry. Exact red lanes at the pinned shas, as of run
+      32082747764 (honua-server and honua-console are green and are NOT part of this exception):
+      honua-sdk-dotnet @ f6c98c5cb — Analyze (csharp), Build DocFX site, Code Coverage, Contract
+      Conformance (pinned), Contract Conformance (moving canary), Security Audit (NuGet); one root
+      cause drives most of them, NU1903 (SSH.NET 2025.1.0, GHSA-q939-rpr3-3284) failing restore
+      under warnings-as-errors, which is the same red as the artifact-consume entry below.
+      honua-sdk-js @ 9d20f0cb4 — Commit report + regenerate leaderboard, Demo + AWS live evidence,
+      Sweep merged PRs for stranded merge commits. honua-sdk-python @ 23e9dd3d7 —
+      ephemeral-server-smoke (staging-smoke is already env-gated). honua-iac @ 7abdb07c8 — Resolve
+      immutable candidate, Sweep orphaned validation IAM principals (the previously-noted Static
+      Terraform Validate has since gone green). Only the honua-sdk-dotnet set is a product-code red;
+      the rest are repo-ops/live-environment lanes. They are deliberately NOT excused here: an
+      exclusion is a per-component policy assertion about a specific lane, and making nine of them
+      at once across four repos to clear a gate is the green-washing this file exists to prevent.
+      #102 owns them, and also raises the underlying policy question: whether pins should be
+      "newest trunk HEAD" or "newest trunk commit whose CI is green".
+
+  artifact-consume:
+    issue: https://github.com/honua-io/honua-release/issues/102
+    why: >-
+      consume-nuget fails because `dotnet pack` of honua-sdk-dotnet @ f6c98c5cb fails restore with
+      NU1903: SSH.NET 2025.1.0 carries a known high-severity advisory (GHSA-q939-rpr3-3284) and the
+      solution treats audit warnings as errors. Same root cause as the Security Audit (NuGet) lane
+      in build-test. This is a real dependency problem in the pinned SDK, not a registry gap, so the
+      gate's tolerant path deliberately does not excuse it.
+
+  contract:
+    issue: https://github.com/honua-io/honua-release/issues/71
+    why: >-
+      rest-sdk-api is GREEN as of honua-release#104: the four baselines in contracts/baselines/2026.1
+      were re-extracted at the pins landed by #101 (honua-server and honua-sdk-dotnet extract
+      byte-identically; honua-sdk-python added 11 symbols and removed none; honua-sdk-js added 942
+      importable names and removed none once the TS extractor stopped keying symbols by declaring
+      file). What keeps this gate red is the OTHER check: contract-suppression reports BLOCKED
+      because repo-wide breaking-change suppression is still ACTIVE in honua-io/honua-server
+      (OPENAPI_ALLOW_BREAKING_CHANGES=true, window opened 2026-07-29T16:53:29Z). It must be off, or
+      replaced by the per-PR mechanism, before the first published control-plane API release. That is
+      an owner action tracked by honua-release#71, not something any change in this repo can fix.
+
+  cloud-parity:
+    issue: https://github.com/honua-io/honua-release/issues/103
+    why: >-
+      THE aws-eks CELLS ARE FIXED AND PASS. honua-release#79 wires the helm-install +
+      LoadBalancer-resolve step the checked-in target used to stop at, and run 32235601866 shows
+      aws-eks/redis-off and aws-eks/redis-on both `pass`: all six canonical checks plus the canary
+      set, against a real EKS-deployed candidate reached through the chart's Service LoadBalancer,
+      each cell torn down clean (reaper green, no VPC/cluster/ELB/ENI left behind). Two claims in
+      the previous version of this entry are DISPROVEN and must not be carried forward: the CI role
+      is not missing IAM OIDC-provider actions — the cluster applies with the role as it stands
+      (runs 32219953698 and 32235601866) — and #79 is neither unmerged nor conflicting.
+      What keeps this gate off green on a REAL (non-dry-run) cut is no longer EKS and is not any one
+      cell: `require_real` promotes the MCP/Studio/GP/top-demo extended scenarios, which are
+      hardcoded BLOCKED pending the cloud driver harness (honua-release#35), to FAIL — and that
+      reddens EVERY cloud cell, the passing ones included. Under a dry run (require_real off)
+      aws-eks and aws-serverless report `pass`; aws-ecs reports `blocked` because a canonical check
+      blocks there, and its security-headers canary has never actually reached the endpoint
+      (`endpoint unreachable` in every run inspected) — a separate, pre-existing ECS gap.
+  docs:
+    issue: https://github.com/honua-io/honua-release/issues/100
+    why: >-
+      check_ga_surface reports FAIL: six capability keys are advertised as GA while carrying fewer
+      than the floor of 5 proving tests (ai.workflow-generation, analytics.viewshed, demo.showcase,
+      scene.catalog, serve.wms, serve.wmts). This is independent of the platform manifest — the gate
+      reads honua-evidence's matrix, whose server producer tracks honua-server trunk rather than the
+      pinned SHA — so a re-pin cannot fix it. scene.catalog overlaps honua-release#86.
+
+  upgrade:
+    issue: https://github.com/honua-io/honua-release/issues/226
+    why: >-
+      Every kind-upgrade run before #226 was vacuous: the honua-2026.1 image and candidate both
+      stopped at migration 106, PostGIS started empty because e2e/harness/seed/seed.sh was never
+      invoked, and rollback compatibility was reported by a success string instead of querying the
+      prior image against the migrated database. Keep this acknowledgement until CI is green on the
+      replacement proof: schema_versions must advance to 107 or later, deterministic seed rows must
+      survive, and the rolled-back honua-2026.1 image must serve those rows from the forward schema.

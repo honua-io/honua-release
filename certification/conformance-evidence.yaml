@@ -1,0 +1,92 @@
+# Conformance-evidence federation thresholds (honua-release#133,
+# tools/check_conformance_evidence.py, .github/workflows/certification.yml).
+#
+# WHY THIS FILE EXISTS
+# `gate_conformance`'s ogc-stac and esri-geoservices lanes used to be hardcoded `status=blocked`
+# with no body. Under `enforcement: strict` (every real cut) blocked is promoted to FAIL, so those
+# two lanes made a real release impossible while proving nothing -- and the `HONUA_SERVER_URL` their
+# `why` strings told you to set was never read by either lane, because neither had an implementation
+# to enable.
+#
+# The evidence they need already exists elsewhere and is already sha-bound, so the lanes now
+# FEDERATE it instead of re-certifying it from scratch. Thresholds live here, not in the decision
+# module, so they can be tuned without touching decision logic (same split as
+# certification/evidence-freshness.yaml).
+#
+# BLOCKED is still honest: an unfetchable snapshot, an unreachable compare API, or a validator that
+# never ran reports BLOCKED, never a fake pass. Only evidence that was actually obtained and says
+# "not conformant", "wrong history", or "too old" turns into FAIL.
+
+cite:
+  # honua-server runs 13 CITE TEAM Engine suites and transcribes the authoritative snapshot to
+  # docs/cite-status.md (run id, `trunk@<sha>`, per-suite passed/total, allPassed). That page is
+  # also what honua-evidence ingests as the `cite` producer of capability-matrix.v1.json, so this
+  # gate and the freeze-phase evidence gate read the same source of truth.
+  #
+  # 14 days matches the `cite` producer window already configured in evidence-freshness.yaml, and
+  # matches cite-evidence-report.yml's own "Assert CITE status freshness" drift check. Keep the
+  # three in step: CITE suites are expensive and run on their own weekly cadence, not per-commit,
+  # so a per-commit window would red the gate permanently for no added safety.
+  maxAgeDays: 14
+
+  # A suite silently disappearing from the snapshot must not read as "nothing regressed". These are
+  # the lanes a Honua release claims OGC conformance for; if one is absent from the table, the gate
+  # fails rather than certifying a shrunken denominator.
+  requiredSuites:
+    - OGC API Features 1.0
+    - OGC API Tiles 1.0
+    - WFS 2.0
+    - WMS 1.3
+    - WMTS 1.0
+    - WCS 2.0
+
+stac:
+  # CITE covers OGC API/OWS and never certifies STAC, so the STAC half is validated directly against
+  # the booted candidate. The candidate serves its declared classes at `/stac/conformance`.
+  #
+  # Requiring the classes explicitly means a candidate cannot quietly stop advertising item-search
+  # or filter and still pass: the docs and SDKs promise these, so the gate holds them.
+  requiredConformanceClasses:
+    - https://api.stacspec.org/v1.0.0/core
+    - https://api.stacspec.org/v1.0.0/collections
+    - https://api.stacspec.org/v1.0.0/item-search
+    - https://api.stacspec.org/v1.0.0/ogcapi-features
+
+esri:
+  # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
+  # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
+  # The licensed arcpy/ArcGIS Pro desktop lanes are explicitly out of scope for CI and are NOT
+  # federated here -- claiming them would be claiming a certification nobody ran.
+  #
+  # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
+  # honua-server image at evaluation time, so the bundle is bound to the exact build being released.
+  # Evidence about a different build is worse than no evidence, because it reads as a pass.
+  #
+  # The canonical producer pin is platform-manifest.yaml evidenceSources.esri-compat. This value is
+  # retained temporarily for older federation consumers and is checked for equality by the manifest
+  # validator; it must never become parallel configuration truth.
+  #
+  # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
+  # is the backstop: a bundle for the wrong image fails rather than silently certifying.
+  evidenceRepo: honua-io/honua-esri-compat
+  evidenceRef: ece4c3a2f68557fe8329e9932de36193d0732894   # 2026-08-27 refresh: trunk HEAD, honua-esri-compat#76 (live fixture evidence bound to a candidate)
+
+demos:
+  # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos
+  # ARE the thing under test, so the revision they are driven from decides the verdict: a green S9
+  # taken from a floating branch would attest demos that may already have changed, and re-running
+  # the same train run later could legitimately produce a different answer with no change to the
+  # candidate. That is the drift the rest of this gate design exists to prevent, so the source is
+  # pinned like every other cross-repo input.
+  #
+  # The canonical producer pin is platform-manifest.yaml evidenceSources.demos. This compatibility
+  # copy remains for older consumers and is checked for equality by the manifest validator.
+  #
+  # The ref MUST carry assets/demos/csp-bootstrap.js + assets/demos/backend-override.js: without the
+  # backend-override shim the demos are still locked to demo.honua.io by their page CSP. The driver
+  # checks for exactly that and reports BLOCKED naming the missing file rather than a false green,
+  # and `require_real` promotes that BLOCKED to FAIL.
+  #
+  # Bump this ref whenever the demos change in a way this cut should certify.
+  sourceRepo: honua-io/honua-site
+  sourceRef: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71   # honua-site#245 merge commit on trunk

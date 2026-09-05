@@ -13,10 +13,15 @@ Run: python -m pytest tools/test_platform.py    (or: python tools/test_platform.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
+
+import pytest
+from jsonschema import Draft202012Validator
 
 import semver
 import validate_platform as vp
+import trunk_reachability as tr
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,6 +63,193 @@ def test_committed_manifest_and_matrix_are_valid():
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
 
 
+class StubCompareClient:
+    def __init__(self, statuses=None, branches=None):
+        self.statuses = statuses or {}
+        self.branches = branches or {}
+
+    def json(self, path):
+        if path.endswith("/branches-where-head"):
+            return [{"name": name} for name in self.branches.get(path.split("/commits/")[1].split("/")[0], [])]
+        if "/compare/" in path:
+            sha = path.rsplit("...", 1)[1]
+            return {"status": self.statuses.get(sha, "behind")}
+        raise AssertionError(path)
+
+
+def test_exact_candidate_rejects_historical_off_trunk_server_pin_with_origin():
+    """Regression for the real e3ab87ce off-trunk candidate found by PR #194.
+
+    Stubs the manifest's CURRENT server pin as diverged rather than hardcoding
+    e3ab87ce: candidate rebinds advance that pin, and a hardcoded sha stops
+    matching any manifest pin — the stub then defaults everything to reachable
+    and the test dies of StopIteration instead of testing anything.
+    """
+    manifest, matrix = _real_files()
+    server_sha = manifest["components"]["honua-server"]["sha"]
+    client = StubCompareClient(
+        statuses={server_sha: "diverged"},
+        branches={server_sha: ["fix/2026.1-esri-defects"]},
+    )
+    f = vp.validate(manifest, matrix, None, exact_candidate=True, reachability_client=client)
+    error = next(e for e in f.errors if "components.honua-server.sha" in e)
+    assert server_sha in error
+    assert "honua-io/honua-server" in error
+    assert "fix/2026.1-esri-defects" in error
+
+
+def test_every_required_manifest_pin_family_is_enumerated():
+    manifest, _ = _real_files()
+    names = {pin.name for pin in tr.manifest_pins(manifest)}
+    assert any(name.startswith("components.") for name in names)
+    assert any(name.startswith("clientArtifacts.") for name in names)
+    assert any(name.startswith("evidenceSources.") for name in names)
+    assert "protocolCertification.serverCertificationProducerSha" in names
+    assert "protocolCertification.ledger.requirementsSourceRevision" in names
+    assert "protocolCertification.ledger.commit" in names
+
+
+def test_bound_ledger_commit_is_pinned_to_the_evidence_repository():
+    manifest = {
+        "protocolCertification": {
+            "ledger": {
+                "status": "bound",
+                "repository": "honua-io/honua-evidence",
+                "commit": "d" * 40,
+                "requirementsSourceRevision": "pending",
+            }
+        }
+    }
+    pins = tr.manifest_pins(manifest)
+    assert [p for p in pins if p.name == "protocolCertification.ledger.commit"] == [
+        tr.Pin("protocolCertification.ledger.commit", "honua-io/honua-evidence", "d" * 40)
+    ]
+
+
+def test_pending_ledger_commit_is_not_pinned():
+    manifest = {
+        "protocolCertification": {
+            "ledger": {"status": "pending", "commit": "pending"}
+        }
+    }
+    assert not [
+        p for p in tr.manifest_pins(manifest) if p.name == "protocolCertification.ledger.commit"
+    ]
+
+
+@pytest.mark.parametrize("status", ["ahead", "diverged", None])
+def test_trunk_compare_fails_closed_for_every_non_ancestor_status(status):
+    pin = tr.Pin("components.example.sha", "honua-io/example", "b" * 40)
+    with pytest.raises(tr.ReachabilityError, match=r"components\.example\.sha=.*honua-io/example"):
+        tr.verify_manifest_pins(
+            {"components": {"example": {"sha": pin.sha}}},
+            StubCompareClient(statuses={pin.sha: status}),
+        )
+
+
+def test_compare_api_failure_names_pin_and_repository():
+    class FailedClient:
+        def json(self, path):
+            raise tr.ReachabilityError("stubbed API unavailable")
+
+    with pytest.raises(
+        tr.ReachabilityError,
+        match=r"components\.example\.sha=.*honua-io/example.*stubbed API unavailable",
+    ):
+        tr.verify_manifest_pins(
+            {"components": {"example": {"sha": "c" * 40}}}, FailedClient()
+        )
+
+
+def test_committed_manifest_matches_published_json_schema():
+    schema = json.loads((REPO_ROOT / "schemas/platform-manifest.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(_real_files()[0])
+
+
+def test_exact_candidate_rejects_non_trunk_dispatched_ref_fixture():
+    manifest, matrix = _real_files()
+    fixture = vp._load_yaml(REPO_ROOT / "tools/fixtures/candidate-manifest-non-trunk.yaml")
+    manifest = copy.deepcopy(manifest)
+    manifest["candidate"] = fixture["candidate"]
+
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+
+    assert not f.ok
+    assert (
+        "exact-candidate: candidate.refSource must be 'trunk'; dispatched ref was "
+        "'release/unsafe-candidate'"
+    ) in f.errors
+
+
+def test_exact_candidate_rejects_trunk_claim_pinning_a_different_server_sha():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["candidate"]["ref"] = "2222222222222222222222222222222222222222"
+
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+
+    assert not f.ok
+    assert (
+        "exact-candidate: candidate.ref must equal components.honua-server.sha; "
+        "candidate.ref=2222222222222222222222222222222222222222 but the pinned server sha is "
+        f"{manifest['components']['honua-server']['sha']}"
+    ) in f.errors
+
+
+def test_exact_candidate_binds_the_committed_manifest_ref_to_the_pinned_sha():
+    manifest, _ = _real_files()
+
+    assert manifest["candidate"]["ref"] == manifest["components"]["honua-server"]["sha"]
+
+
+def test_structure_rejects_untrusted_or_unpinned_certification_ledger():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    ledger = manifest["protocolCertification"]["ledger"]
+    ledger.update(
+        status="bound",
+        repository="attacker/example",
+        commit="main",
+        requirementsSourceRevision="main",
+        sha256="unknown",
+    )
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("owned by honua-io/honua-evidence" in e for e in f.errors)
+    assert any("commit must be a full SHA" in e for e in f.errors)
+    assert any("requirementsSourceRevision must be a full SHA" in e for e in f.errors)
+    assert any("sha256 must be an exact digest" in e for e in f.errors)
+
+
+def test_structure_rejects_actor_replayable_or_released_pending_candidate_state():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["protocolCertification"]["candidateCutAt"] = "not-a-cut"
+    manifest["protocolCertification"]["ledger"].update(
+        {
+            "status": "pending",
+            "commit": "pending",
+            "requirementsSourceRevision": "pending",
+            "sha256": "pending",
+        }
+    )
+    manifest["status"] = "released"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("candidateCutAt" in e for e in f.errors)
+    assert any("released platform cannot" in e for e in f.errors)
+
+
+def test_structure_rejects_server_certification_producer_that_is_not_the_candidate():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["protocolCertification"]["serverCertificationProducerSha"] = "f" * 40
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("serverCertificationProducerSha must match" in e for e in f.errors)
+
+
 # ---- structure rules can fail ---------------------------------------------------------------------
 def test_structure_rejects_unknown_client():
     manifest, matrix = _real_files()
@@ -81,6 +273,116 @@ def test_structure_rejects_component_with_no_valid_pin():
     manifest["components"]["honua-sdk-js"] = {"version": "not-semver"}  # no sha either
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("neither a valid semver" in e for e in f.errors)
+
+
+def test_structure_rejects_client_without_immutable_source_sha():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["clientArtifacts"]["honua-sdk-js"]["sourceSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("clientArtifacts.honua-sdk-js.sourceSha" in e for e in f.errors)
+
+
+def test_structure_keeps_evidence_sources_out_of_components():
+    manifest, matrix = _real_files()
+    # One repository can both ship a deployable component and publish installable bytes; the
+    # records remain independent even when their logical names match.
+    assert manifest["clientArtifacts"] is not manifest["components"]
+    assert set(manifest["evidenceSources"]).isdisjoint(manifest["components"])
+    f = vp.validate(manifest, matrix, None)
+    assert f.ok, f.errors
+
+
+def test_structure_rejects_floating_evidence_producer_ref():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["evidenceSources"]["esri-compat"]["producerSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("evidenceSources.esri-compat.producerSha" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_local_or_unpublished_client():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    artifact = manifest["clientArtifacts"]["honua-sdk-js"]
+    artifact.update(source="local", publicationState="unpublished")
+    artifact.pop("integrity")
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok
+    assert any("does not name published/promoted bytes" in e for e in f.errors)
+    assert any("lacks an immutable digest/integrity pin" in e for e in f.errors)
+    assert any("cannot use source=local" in e for e in f.errors)
+
+
+@pytest.mark.parametrize("source", ["local", "checkout", "build"])
+def test_exact_candidate_rejects_every_source_build_fallback(source):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["clientArtifacts"]["honua-sdk-js"]["source"] = source
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any(f"cannot use source={source}" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_null_server_image():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"]["image"] = None
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any("requires an image and immutable digest" in e for e in f.errors)
+
+
+def test_exact_candidate_rejects_required_producer_without_pin():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["evidenceSources"]["cite"]["producerSha"] = "trunk"
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert not f.ok and any("lacks a trusted immutable producer pin" in e for e in f.errors)
+
+
+def test_exact_candidate_accepts_committed_pins():
+    manifest, matrix = _real_files()
+    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    assert f.ok, f.errors
+
+
+def test_legacy_evidence_pin_cannot_drift_from_manifest():
+    manifest, _ = _real_files()
+    config = {"esri": {"evidenceRef": "f" * 40}}
+    f = vp.Findings()
+    vp.check_legacy_evidence_pin_coherence(manifest, config, f)
+    assert not f.ok and any("evidenceSources.esri-compat" in e for e in f.errors)
+
+
+def test_structure_requires_explicit_aws_runtime_architectures():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    del manifest["components"]["honua-server"]["awsEcsArchitecture"]
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
+
+
+# ---- awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else --------------------
+@pytest.mark.parametrize("value", [
+    "TBD-at-publish",                       # a hand-wave
+    "sha256:deadbeef",                      # well-shaped prefix, wrong length
+    "pending",                              # near-miss on the sentinel spelling
+    "",                                     # absent
+])
+def test_structure_rejects_non_digest_non_sentinel_ecr_digest(value):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"]["awsLambdaEcrDigest"] = value
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("awsLambdaEcrDigest" in e for e in f.errors)
+
+
+def test_structure_accepts_pending_ecr_mirror_sentinel_and_real_digests():
+    manifest, matrix = _real_files()
+    for value in (vp.PENDING_ECR_MIRROR, "sha256:" + "a" * 64):
+        candidate = copy.deepcopy(manifest)
+        candidate["components"]["honua-server"]["awsLambdaEcrDigest"] = value
+        f = vp.validate(candidate, matrix, None)
+        assert f.ok, f"{value!r} must be accepted, got: {f.errors}"
 
 
 # ---- coherence rules can fail ---------------------------------------------------------------------

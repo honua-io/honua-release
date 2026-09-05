@@ -1,0 +1,41 @@
+{
+  "schema": "honua.protocol-certification-source-revisions/v1",
+  "sources": {
+    "server": {
+      "repository": "honua-io/honua-server",
+      "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+    },
+    "server-certification": {
+      "repository": "honua-io/honua-server",
+      "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+    },
+    "sdk-dotnet": {
+      "repository": "honua-io/honua-sdk-dotnet",
+      "commit": "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"
+    },
+    "sdk-python": {
+      "repository": "honua-io/honua-sdk-python",
+      "commit": "516c727dc03cae3b6b312595a9f4bfcee5f34cad"
+    },
+    "sdk-js": {
+      "repository": "honua-io/honua-sdk-js",
+      "commit": "c99e71197dd940ed952aecb024c6de273456f2ae"
+    },
+    "esri-compat": {
+      "repository": "honua-io/honua-esri-compat",
+      "commit": "ece4c3a2f68557fe8329e9932de36193d0732894"
+    },
+    "cloud-native-guide": {
+      "repository": "cloudnativegeo/cloud-optimized-geospatial-formats-guide",
+      "commit": "0fabdf7c04ff135dd8160f39bf7a0fbb2f402f46"
+    },
+    "geospatial-grpc": {
+      "repository": "honua-io/geospatial-grpc",
+      "commit": "d20abf2f1a0069e333c8bdf13b0096e915accbab"
+    },
+    "geospatial-mcp": {
+      "repository": "honua-io/geospatial-mcp",
+      "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+    }
+  }
+}

@@ -65,14 +65,22 @@ deploy shapes and with/without its cache:
 
 ```
 e2e/
-  canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog) — HTTP-level, no SDK/Prom
+  canonical_checks.py     # the target-agnostic parity set (health, GeoServices 200+{error}, catalog,
+                          #   live capability-manifest check honua-release#61) — HTTP-level, no SDK/Prom
+  canary_probes.py        # the wider canary probe set (STAC/EDR/OData/OGC-Features/tiles/per-service
+                          #   WMS-WMTS-WCS reachability, report-only geocoding latency; honua-release#61)
+  expected-ga-manifest.json  # committed expected-GA capability id set the manifest check asserts against
+  demo_canary.py          # scheduled entrypoint: canonical + canary probes against a live target
+                          #   (default https://demo.honua.io); writes gate-report + a versioned
+                          #   live-canary-evidence.json envelope for honua-evidence#8's join
   parity.py               # compare(reference, other): identical verdicts across targets, else FAIL
-  run_cloud.py            # provision(target, redis) -> canonical -> teardown -> parity -> gate-report-cloud.json
+  run_cloud.py            # provision(target, redis) -> canonical + canary probes -> teardown -> parity -> gate-report-cloud.json
   targets/
     base.py               # DeployTarget contract (availability / provision(redis_enabled) / teardown)
     terraform_target.py   # config-driven terraform cells (serverless + ECS): apply image+redis var -> honua_url -> destroy
     aws_eks.py            # the heavy EKS cell (cluster + Helm + LB); needs kubectl/helm + the chart
-  test_cloud.py           # unit tests: parity comparator, canonical normalisation, all 3 targets × redis BLOCKED-without-infra
+  test_cloud.py           # unit tests: parity comparator, canonical normalisation (incl. capability-manifest), all 3 targets × redis BLOCKED-without-infra
+  test_canary_probes.py   # unit tests: the canary probe set (pass/fail/blocked, incl. seeded-data honesty)
 ```
 
 ```bash
@@ -85,13 +93,82 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
 `teardown()` + a backstop reaper (sweeping every example root) always run.
 
+### Cells leave nothing billing — including what `terraform destroy` cannot delete
+Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's
+one case of that is the cluster's secret-encryption CMK: `terraform destroy` can only *schedule* a KMS
+key for deletion, AWS's minimum window is **7 days** and cannot be shortened, so a key minted per cell
+kept billing (~$1/key/month) for a week after its cluster was gone — two per full matrix dispatch,
+growing with release-train cadence (honua-release#127).
+
+The parity suite asserts nothing about secret-at-rest encryption (not `canonical_checks.py`, not
+`canary_probes.py`, not `certification/`, not `compatibility-matrix.yaml`), so the cells were paying
+for a property they never certified. `aws_eks.py` therefore applies the honua-iac aws-eks root with
+`cluster_secret_encryption_enabled=false` and no key is created at all. Production keeps envelope
+encryption: the iac default is `true`, and only this harness turns it off.
+
+**If the cells ever need to certify secret encryption**, do not go back to a key per cell — that
+recreates the drip. Create ONE long-lived CMK outside the harness and pass its ARN as the root's
+`cluster_secret_encryption_key_arn` (leaving `cluster_secret_encryption_enabled=true`): the encryption
+path is exercised on every cell at a fixed one-key cost, with nothing scheduled for deletion at teardown.
+
+honua-iac is pinned **by sha** (`platform-manifest.yaml` → `components.honua-iac.sha`), and terraform
+hard-errors on a `-var` the root does not declare, so the cell emits the flag only when the
+checked-out root actually declares the variable (`AwsEksTarget._root_declares`). That keeps the
+harness working against an older pin or an older local `HONUA_IAC_DIR` instead of failing every EKS
+cell until the pin moves.
+
 ### A gate that can FAIL — and is honestly BLOCKED until infra exists
 Each cell reports **BLOCKED** (never a fake green) until ALL prerequisites are wired, each a real
 dependency: the AWS OIDC role (repo var `HONUA_AWS_ROLE_ARN`), a deployable image (`HONUA_LAMBDA_IMAGE_URI`
 = ECR Lambda-AOT for serverless; `HONUA_ECS_IMAGE` for ECS/EKS), the honua-iac tree (`HONUA_IAC_DIR`), and
-for EKS also kubectl/helm + the chart (`HONUA_HELM_DIR`). `--require-real` (the train on a real cut / a
+for EKS also the aws/kubectl/helm CLIs, the chart (`HONUA_HELM_DIR`) and the runner's own /32
+(`HONUA_AWS_RUNNER_CIDR`, the only address its API server and load balancer are opened
+to). `--require-real` (the train on a real cut / a
 real nightly) promotes BLOCKED / a parity divergence to a hard FAIL. The verdict + parity logic is
 unit-tested (`make test`) so the gate is trustworthy with zero cloud.
+
+### What BLOCKED means — and what it does not (honua-release#128)
+BLOCKED means **a probe had no input to work with**: no admin API key, no seeded service/tile id, no
+cloud harness image. The missing thing is ours to supply and its absence says nothing about the
+candidate, so it is reported and does not gate.
+
+An **unreachable endpoint is not that**. The deployment is the subject of the test, so a probe that
+cannot reach it has found a defect, and it FAILS — on every target, whatever `--require-real` says. A
+cell that provisioned an endpoint which then never served is failed as one fact ("terraform
+provisioned X but it never served") rather than as twenty identical timeouts.
+
+This distinction was not free: the `aws-ecs` cells reported a passing verdict in every run they ever
+had. Their ALB's security group defaults to VPC-only ingress unless `allow_http_ingress_cidrs` is set
+(honua-iac `modules/aws-ecs`), so nothing from the GitHub runner ever reached them — every canonical
+check and every reachability probe timed out, said `blocked`, and the cell summarised itself as
+"canonical set passed". The cell now opens the ALB to the ephemeral runner's own /32 (the same address
+the PostGIS bootstrap already uses, and nothing wider), and unreachability can no longer be mistaken
+for a skip.
+
+## Phase B.1 — scheduled demo canary (honua-release#61)
+
+`.github/workflows/demo-canary.yml` runs `demo_canary.py` every 6 hours (+ `workflow_dispatch`) against
+the always-on public demo (`https://demo.honua.io` by default) — a HYBRID-train evidence producer, not a
+`release-train.yml` gate job (see [`docs/HYBRID-TRAIN.md`](../docs/HYBRID-TRAIN.md)). It runs the
+canonical set + the full canary probe set (`canary_probes.run_canary`, with the demo's real
+service/tile ids configured) and writes:
+
+- `gate-report-demo-canary.json` — the human/machine-readable report (workflow step summary + the
+  single tracking issue opened/updated on a genuine FAIL).
+- `live-canary-evidence.json` — a versioned `honua-evidence.live-canary-envelope/v1` envelope (honua-evidence#9 producer contract) for
+  honua-io/honua-evidence#8's capability-matrix join. The scheduled workflow commits each envelope into the evidence repo's live-canary landing zone.
+
+```bash
+python e2e/demo_canary.py --base https://demo.honua.io          # unauthenticated (default)
+HONUA_DEMO_API_KEY=... python e2e/demo_canary.py --base https://demo.honua.io   # asserts available=true too
+```
+
+`geocoding-latency` is REPORT-ONLY (honua-server#2948 — geocoding is known-broken pending VPC egress) and
+never fails the run. Every other check/probe can genuinely fail; key-gated probes (`metrics-gated`,
+`admin-metrics-health`, `deploy-preflight`, and the manifest check's `available=true` assertion) report
+BLOCKED — not FAIL — when `HONUA_DEMO_API_KEY` isn't configured. A demo that does not answer at all is
+a FAIL, not a blocked run (honua-release#128) — an unreachable site is the loudest thing a canary can
+find, and it used to be the quietest.
 
 ### Probe exit-code contract (every language probe)
 

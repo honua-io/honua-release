@@ -160,15 +160,40 @@ The "weak gates," "artifact integrity," and "telemetry blindness" themes are not
 - **Reusable workflows everywhere.** Each component repo exposes its gates as `workflow_call` units (`gate-build-test.yml`, `gate-contract.yml`, `gate-artifact-consume.yml`, `gate-security.yml`). They run in PR CI *and* are callable by the train — same code, no drift.
 - **Release repo owns `release-train.yml`** triggered by `workflow_dispatch` (inputs: `platform_label`, `pins` or `auto-snapshot`, `dry_run`). It: snapshot main → build candidate manifest → fan out to component gates via `workflow_call`/`repository_dispatch` → cross-repo conformance + upgrade gate → SBOM/notes → tag RC → (gated) promote.
 - **`workflow_dispatch` is the trigger surface for *both* humans and AI** — there is exactly one way to cut, and it's the same one. Cross-repo fan-out via `repository_dispatch` with a GitHub App token.
-- **Promote = a separate job behind a GHA `environment`** (`production`) with required reviewers + optional wait timer. This is the human/AI approval boundary; GHA enforces it, the AI cannot skip it.
+- **Promote = a separate job behind a GHA `environment`** (`release-promotion`) with a required human reviewer and a protected-branch deployment policy. Promotion preflights the environment through the GitHub API and fails before release work if either protection is absent. This is the human/AI approval boundary; the AI cannot skip it.
 - **`concurrency` group** on the train so two cuts can't race.
-- **Every gate emits a machine-readable report** (a `gate-report.json` artifact + job summary): `{gate, status, why, evidence_url}`. The AI parses *that*, never scrapes logs. Promote requires all gate jobs green via `needs:` — enforced by GHA, not by the AI's judgment.
+- **Every gate emits a machine-readable report** (a `gate-report.json` artifact + job summary): `{gate, status, why, evidence_url}`. The AI parses *that*, never scrapes logs. The train packages its report with the exact candidate manifest and compatibility matrix; the report binds both by SHA-256 plus immutable source/run identity and an explicit live/dry-run mode. Promote requires a successful live train from the repository's protected current default branch, verifies that bundle against the Actions and repository APIs, and requires all gates green before it finalizes, signs, or releases anything. It never replaces certified files with a later checkout.
+
+### Repository configuration prerequisites
+
+Promotion remains intentionally unavailable until configuration outside git matches the workflow's
+trust model:
+
+- Protect the current default branch, enforce the rule for administrators, require pull requests,
+  and require the GitHub Actions `validate` check. `manifest-validate.yml` runs that stable check on
+  every pull request so path filters cannot deadlock or bypass it.
+- Configure the `release-promotion` environment to allow only protected branches, require the expected human
+  reviewer, and enable `prevent_self_review`. The declared configuration is settings-as-code in
+  `certification/release-promotion-approval.yaml`; `promote.yml` compares the live environment against it and
+  refuses on anything missing, unreadable, weakened, drifted, or stale, and
+  `.github/workflows/repo-control-drift.yml` monitors the same comparison read-only between releases.
+  **This repository is now public**, so required environment reviewers are available on every plan —
+  the earlier Enterprise dependency applied to this repository while it was private and would return
+  if it were re-privatised. Do not weaken the preflight to work around a plan limitation.
+- `prevent_self_review` plus the preflight's independent-actor check means the required reviewer must
+  not be the actor that dispatches `promote`: automation (or a second human) dispatches, the reviewer
+  approves. The gate requires exactly one declared reviewer, so a single-seat owner who needs to
+  dispatch personally must **rotate** the required reviewer to another human — never disable
+  self-review protection, and never add a second reviewer alongside (the checker refuses more than
+  one; multi-reviewer continuity is tracked in honua-release#93).
+- Full rationale, admin runbook, reviewer rotation, break-glass, and re-lock procedure:
+  `docs/RELEASE-PROMOTION-APPROVAL-GATE.md` (honua-release#44).
 
 ### Identity, least privilege, provenance
 - The AI acts as a dedicated **GitHub App** with scoped permissions: `actions:write` (dispatch) + `contents:read` + read checks/artifacts — **but no publish/sign/tag rights.** Tagging, publishing, and signing are done by the *workflow's own OIDC identity*, so the AI never holds signing keys and can't exfiltrate them. Keyless signing (OIDC → Sigstore/SLSA) ties provenance to the workflow, and every dispatch records the triggering actor (which AI/human).
 
 ### Near-term: AI coordinates
-The AI watches signals (green mains, change backlog, cadence, open S1 count, freeze flag) → decides "cut `2026.2-rc.1`" → `gh workflow run release-train.yml -f platform_label=…` → polls `gate-report.json` → on red, reads the failing gate, triages/files, holds; on green, requests promote (which hits the human-gated `production` environment). The AI **drafts release notes** from change metadata (it's good at that) but the *facts* — versions, SBOM, gate evidence — come from the pipeline.
+The AI watches signals (green mains, change backlog, cadence, open S1 count, freeze flag) → decides "cut `2026.2-rc.1`" → `gh workflow run release-train.yml -f platform_label=…` → polls `gate-report.json` → on red, reads the failing gate, triages/files, holds; on green, requests promote (which hits the human-gated `release-promotion` environment). The AI **drafts release notes** from change metadata (it's good at that) but the *facts* — versions, SBOM, gate evidence — come from the pipeline.
 
 ### Eventual: AI cuts its own release via MCP
 Expose release ops as **thin, policy-enforcing MCP tools** over the GHA surface (natural home: geospatial-mcp + the existing MCP tooling):

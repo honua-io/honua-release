@@ -1,250 +1,1180 @@
 {
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Honua OGC API Tiles",
+    "description": "OGC API Tiles implementation for vector tiles\n\nCompliance: OGC CITE 1117/1117 across 13 conformance suites — see docs/cite-status.md.",
+    "version": "1.0.0",
+    "x-honua-cite-compliance": {
+      "summary": "OGC API Tiles ETS passes 16/16 on trunk; full Honua suite is 1117/1117.",
+      "lastEvidenceRun": "2026-07-27",
+      "authoritativeSource": "docs/cite-status.md",
+      "suites": [
+        { "suite": "OGC API Tiles 1.0", "profile": "default", "passed": 16, "total": 16, "passRate": "100%" },
+        { "suite": "WMTS 1.0", "profile": "default", "passed": 60, "total": 60, "passRate": "100%" }
+      ]
+    }
+  },
+  "servers": [
+    {
+      "url": "/ogc/tiles"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Landing page",
+        "operationId": "core.getLandingPage",
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Landing page information",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LandingPage" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conformance": {
+      "get": {
+        "summary": "Conformance declaration",
+        "operationId": "core.getConformance",
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conformance declaration",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConformanceDeclaration" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI specification",
+        "operationId": "core.getApiDefinition",
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json)",
+            "schema": {
+              "type": "string",
+              "enum": ["json"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/vnd.oai.openapi+json;version=3.0": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collections": {
+      "get": {
+        "summary": "Collections list",
+        "operationId": "collections.getCollections",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Collections list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Collections" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required to access the available collections",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Available collections are not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}": {
+      "get": {
+        "summary": "Collection metadata",
+        "operationId": "collections.getCollection",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Collection metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CollectionInfo" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid collection metadata query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required for the requested collection",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested collection is not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/tiles": {
+      "get": {
+        "summary": "Dataset tilesets list",
+        "operationId": "tilesets.getTilesets",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tilesets list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileSetsList" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tilesets query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required to access the available dataset tilesets",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Available dataset tilesets are not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tiles/{tileMatrixSetId}": {
+      "get": {
+        "summary": "Dataset tileset metadata",
+        "operationId": "tilesets.getTileset",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "tileMatrixSetId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          },
+          {
+            "name": "collections",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated collection identifiers",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tileset metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileSet" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tileset query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required to access the requested dataset tileset",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested dataset tileset is not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}": {
+      "get": {
+        "summary": "Dataset tile",
+        "operationId": "tilesets.getTile",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "tileMatrixSetId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tileMatrix",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tileRow",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 }
+          },
+          {
+            "name": "tileCol",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Tile format (mvt or png)",
+            "schema": {
+              "type": "string",
+              "enum": ["mvt", "png"]
+            }
+          },
+          {
+            "name": "datetime",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "subset",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "crs",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uri" }
+          },
+          {
+            "name": "subset-crs",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uri" }
+          },
+          {
+            "name": "collections",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated collection identifiers",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector or raster tile",
+            "content": {
+              "application/vnd.mapbox-vector-tile": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "image/png": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "204": { "description": "No content" },
+          "400": {
+            "description": "Invalid tile matrix, tile coordinates, or query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": {
+            "description": "Tile matrix set or requested collections not found",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required for at least one requested collection",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested collections are not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested tile format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collections/{collectionId}/tiles": {
+      "get": {
+        "summary": "Collection tilesets list",
+        "operationId": "collections.getTilesets",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tilesets list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileSetsList" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid collection tilesets query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required for the requested collection",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested collection is not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/collections/{collectionId}/tiles/{tileMatrixSetId}": {
+      "get": {
+        "summary": "Collection tileset metadata",
+        "operationId": "collections.getTileset",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "tileMatrixSetId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tileset metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileSet" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid collection tileset query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required for the requested collection",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested collection is not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}": {
+      "get": {
+        "summary": "Collection tile",
+        "operationId": "collections.getTile",
+        "security": [
+          {},
+          { "ApiKeyAuth": [] },
+          { "BearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "name": "collectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "tileMatrixSetId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tileMatrix",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tileRow",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 }
+          },
+          {
+            "name": "tileCol",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Tile format (mvt or png)",
+            "schema": {
+              "type": "string",
+              "enum": ["mvt", "png"]
+            }
+          },
+          {
+            "name": "datetime",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "subset",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "crs",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uri" }
+          },
+          {
+            "name": "subset-crs",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uri" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector or raster tile",
+            "content": {
+              "application/vnd.mapbox-vector-tile": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "image/png": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "204": { "description": "No content" },
+          "400": {
+            "description": "Invalid tile matrix, tile coordinates, or query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": {
+            "description": "Collection or tile matrix set not found",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required for the requested collection",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "403": {
+            "description": "Requested collection is not accessible",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested tile format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tileMatrixSets": {
+      "get": {
+        "summary": "Tile matrix sets list",
+        "operationId": "tileMatrixSets.getTileMatrixSets",
+        "parameters": [
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tile matrix sets list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileMatrixSetsList" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tile matrix sets query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tileMatrixSets/{tileMatrixSetId}": {
+      "get": {
+        "summary": "Tile matrix set definition",
+        "operationId": "tileMatrixSets.getTileMatrixSet",
+        "parameters": [
+          {
+            "name": "tileMatrixSetId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "f",
+            "in": "query",
+            "required": false,
+            "description": "Output format (json or html)",
+            "schema": {
+              "type": "string",
+              "enum": ["json", "html"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tile matrix set",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TileMatrixSetDefinition" }
+              },
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tile matrix set query parameters",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "406": {
+            "description": "Requested metadata format is not acceptable",
+            "content": {
+              "application/problem+json": {
+                "schema": { "$ref": "#/components/schemas/ProblemDetails" }
+              }
+            }
+          },
+          "404": { "description": "Not found" }
+        }
+      }
+    }
+  },
   "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
     "schemas": {
-      "CollectionInfo": {
+      "Link": {
+        "type": "object",
+        "required": ["href", "rel"],
         "properties": {
-          "crs": {
-            "items": {
-              "format": "uri",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "description": {
-            "type": "string"
-          },
-          "extent": {
-            "$ref": "#/components/schemas/Extent"
-          },
-          "id": {
-            "type": "string"
-          },
-          "itemType": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "storageCrs": {
-            "format": "uri",
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "links"
-        ],
-        "type": "object"
-      },
-      "Collections": {
-        "properties": {
-          "collections": {
-            "items": {
-              "$ref": "#/components/schemas/CollectionInfo"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "collections",
-          "links"
-        ],
-        "type": "object"
-      },
-      "ConformanceDeclaration": {
-        "properties": {
-          "conformsTo": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "conformsTo"
-        ],
-        "type": "object"
-      },
-      "Extent": {
-        "properties": {
-          "spatial": {
-            "$ref": "#/components/schemas/SpatialExtent"
-          },
-          "temporal": {
-            "$ref": "#/components/schemas/TemporalExtent"
-          }
-        },
-        "type": "object"
+          "href": { "type": "string" },
+          "rel": { "type": "string" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "templated": { "type": "boolean" },
+          "hreflang": { "type": "string" }
+        }
       },
       "LandingPage": {
+        "type": "object",
+        "required": ["title", "links"],
         "properties": {
-          "description": {
-            "type": "string"
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          }
+        }
+      },
+      "ConformanceDeclaration": {
+        "type": "object",
+        "required": ["conformsTo"],
+        "properties": {
+          "conformsTo": {
+            "type": "array",
+            "items": { "type": "string" }
           },
           "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
           }
-        },
-        "required": [
-          "title",
-          "links"
-        ],
-        "type": "object"
-      },
-      "Link": {
-        "properties": {
-          "href": {
-            "type": "string"
-          },
-          "hreflang": {
-            "type": "string"
-          },
-          "rel": {
-            "type": "string"
-          },
-          "templated": {
-            "type": "boolean"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "href",
-          "rel"
-        ],
-        "type": "object"
+        }
       },
       "ProblemDetails": {
+        "type": "object",
+        "required": ["type", "title", "status", "detail"],
         "properties": {
-          "detail": {
-            "type": "string"
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "instance": { "type": "string" }
+        }
+      },
+      "Collections": {
+        "type": "object",
+        "required": ["collections", "links"],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CollectionInfo" }
           },
-          "instance": {
-            "type": "string"
-          },
-          "status": {
-            "type": "integer"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
           }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "detail"
-        ],
-        "type": "object"
+        }
+      },
+      "CollectionInfo": {
+        "type": "object",
+        "required": ["id", "links"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          },
+          "extent": { "$ref": "#/components/schemas/Extent" },
+          "itemType": { "type": "string" },
+          "crs": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" }
+          },
+          "storageCrs": { "type": "string", "format": "uri" }
+        }
+      },
+      "Extent": {
+        "type": "object",
+        "properties": {
+          "spatial": { "$ref": "#/components/schemas/SpatialExtent" },
+          "temporal": { "$ref": "#/components/schemas/TemporalExtent" }
+        }
       },
       "SpatialExtent": {
+        "type": "object",
+        "required": ["bbox"],
         "properties": {
           "bbox": {
+            "type": "array",
             "items": {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "type": "array"
+              "type": "array",
+              "items": { "type": "number" }
+            }
           },
-          "crs": {
-            "format": "uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "bbox"
-        ],
-        "type": "object"
+          "crs": { "type": "string", "format": "uri" }
+        }
       },
       "TemporalExtent": {
+        "type": "object",
+        "required": ["interval"],
         "properties": {
           "interval": {
+            "type": "array",
             "items": {
-              "items": {
-                "nullable": true,
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "type": "array"
+              "type": "array",
+              "items": { "type": "string", "nullable": true }
+            }
           },
-          "trs": {
-            "type": "string"
+          "trs": { "type": "string" }
+        }
+      },
+      "TileSetsList": {
+        "type": "object",
+        "required": ["tilesets"],
+        "properties": {
+          "tilesets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TileSetItem" }
+          },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
           }
-        },
-        "required": [
-          "interval"
-        ],
-        "type": "object"
+        }
+      },
+      "TileSetItem": {
+        "type": "object",
+        "required": ["dataType", "crs", "tileMatrixSetId", "links"],
+        "properties": {
+          "title": { "type": "string" },
+          "dataType": { "type": "string" },
+          "crs": { "type": "string", "format": "uri" },
+          "tileMatrixSetId": { "type": "string" },
+          "tileMatrixSetURI": { "type": "string" },
+          "tileMatrixSetLimits": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TileMatrixSetLimit" }
+          },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          }
+        }
+      },
+      "TileSet": {
+        "type": "object",
+        "required": ["dataType", "crs", "tileMatrixSetId", "links"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "dataType": { "type": "string" },
+          "crs": { "type": "string", "format": "uri" },
+          "tileMatrixSetId": { "type": "string" },
+          "tileMatrixSetURI": { "type": "string" },
+          "tileMatrixSetLimits": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TileMatrixSetLimit" }
+          },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          },
+          "mediaTypes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "TileMatrixSetLimit": {
+        "type": "object",
+        "required": ["tileMatrix", "minTileRow", "maxTileRow", "minTileCol", "maxTileCol"],
+        "properties": {
+          "tileMatrix": { "type": "string" },
+          "minTileRow": { "type": "integer", "minimum": 0 },
+          "maxTileRow": { "type": "integer", "minimum": 0 },
+          "minTileCol": { "type": "integer", "minimum": 0 },
+          "maxTileCol": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "TileMatrixSetsList": {
+        "type": "object",
+        "required": ["tileMatrixSets"],
+        "properties": {
+          "tileMatrixSets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TileMatrixSetItem" }
+          },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          }
+        }
+      },
+      "TileMatrixSetItem": {
+        "type": "object",
+        "required": ["links"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "uri": { "type": "string" },
+          "crs": { "type": "string", "format": "uri" },
+          "links": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Link" }
+          }
+        }
+      },
+      "TileMatrixSetDefinition": {
+        "type": "object",
+        "required": ["crs", "tileMatrices"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "uri": { "type": "string" },
+          "crs": { "type": "string", "format": "uri" },
+          "wellKnownScaleSet": { "type": "string" },
+          "tileMatrices": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TileMatrix" }
+          }
+        }
       },
       "TileMatrix": {
-        "properties": {
-          "cellSize": {
-            "type": "number"
-          },
-          "cornerOfOrigin": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "matrixHeight": {
-            "type": "integer"
-          },
-          "matrixWidth": {
-            "type": "integer"
-          },
-          "pointOfOrigin": {
-            "items": {
-              "type": "number"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
-          "scaleDenominator": {
-            "type": "number"
-          },
-          "tileHeight": {
-            "type": "integer"
-          },
-          "tileWidth": {
-            "type": "integer"
-          }
-        },
+        "type": "object",
         "required": [
           "id",
           "scaleDenominator",
@@ -255,1439 +1185,23 @@
           "matrixWidth",
           "matrixHeight"
         ],
-        "type": "object"
-      },
-      "TileMatrixSetDefinition": {
         "properties": {
-          "crs": {
-            "format": "uri",
-            "type": "string"
+          "id": { "type": "string" },
+          "scaleDenominator": { "type": "number" },
+          "cellSize": { "type": "number" },
+          "pointOfOrigin": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "number" }
           },
-          "id": {
-            "type": "string"
-          },
-          "tileMatrices": {
-            "items": {
-              "$ref": "#/components/schemas/TileMatrix"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
-          },
-          "uri": {
-            "type": "string"
-          },
-          "wellKnownScaleSet": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "crs",
-          "tileMatrices"
-        ],
-        "type": "object"
-      },
-      "TileMatrixSetItem": {
-        "properties": {
-          "crs": {
-            "format": "uri",
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "title": {
-            "type": "string"
-          },
-          "uri": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "links"
-        ],
-        "type": "object"
-      },
-      "TileMatrixSetLimit": {
-        "properties": {
-          "maxTileCol": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "maxTileRow": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "minTileCol": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "minTileRow": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "tileMatrix": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "tileMatrix",
-          "minTileRow",
-          "maxTileRow",
-          "minTileCol",
-          "maxTileCol"
-        ],
-        "type": "object"
-      },
-      "TileMatrixSetsList": {
-        "properties": {
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "tileMatrixSets": {
-            "items": {
-              "$ref": "#/components/schemas/TileMatrixSetItem"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "tileMatrixSets"
-        ],
-        "type": "object"
-      },
-      "TileSet": {
-        "properties": {
-          "crs": {
-            "format": "uri",
-            "type": "string"
-          },
-          "dataType": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "mediaTypes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "tileMatrixSetId": {
-            "type": "string"
-          },
-          "tileMatrixSetLimits": {
-            "items": {
-              "$ref": "#/components/schemas/TileMatrixSetLimit"
-            },
-            "type": "array"
-          },
-          "tileMatrixSetURI": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "dataType",
-          "crs",
-          "tileMatrixSetId",
-          "links"
-        ],
-        "type": "object"
-      },
-      "TileSetItem": {
-        "properties": {
-          "crs": {
-            "format": "uri",
-            "type": "string"
-          },
-          "dataType": {
-            "type": "string"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "tileMatrixSetId": {
-            "type": "string"
-          },
-          "tileMatrixSetLimits": {
-            "items": {
-              "$ref": "#/components/schemas/TileMatrixSetLimit"
-            },
-            "type": "array"
-          },
-          "tileMatrixSetURI": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "dataType",
-          "crs",
-          "tileMatrixSetId",
-          "links"
-        ],
-        "type": "object"
-      },
-      "TileSetsList": {
-        "properties": {
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/Link"
-            },
-            "type": "array"
-          },
-          "tilesets": {
-            "items": {
-              "$ref": "#/components/schemas/TileSetItem"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "tilesets"
-        ],
-        "type": "object"
-      }
-    },
-    "securitySchemes": {
-      "ApiKeyAuth": {
-        "in": "header",
-        "name": "X-API-Key",
-        "type": "apiKey"
-      },
-      "BearerAuth": {
-        "bearerFormat": "JWT",
-        "scheme": "bearer",
-        "type": "http"
-      }
-    }
-  },
-  "info": {
-    "description": "OGC API Tiles implementation for vector tiles\n\nCompliance: OGC CITE 952/952 across 11 conformance suites — see docs/cite-status.md.",
-    "title": "Honua OGC API Tiles",
-    "version": "1.0.0",
-    "x-honua-cite-compliance": {
-      "authoritativeSource": "docs/cite-status.md",
-      "lastEvidenceRun": "2026-05-17",
-      "suites": [
-        {
-          "passRate": "100%",
-          "passed": 16,
-          "profile": "default",
-          "suite": "OGC API Tiles 1.0",
-          "total": 16
-        },
-        {
-          "passRate": "100%",
-          "passed": 60,
-          "profile": "default",
-          "suite": "WMTS 1.0",
-          "total": 60
+          "tileWidth": { "type": "integer" },
+          "tileHeight": { "type": "integer" },
+          "matrixWidth": { "type": "integer" },
+          "matrixHeight": { "type": "integer" },
+          "cornerOfOrigin": { "type": "string" }
         }
-      ],
-      "summary": "OGC API Tiles ETS passes 16/16 on trunk; full Honua suite is 952/952."
-    }
-  },
-  "openapi": "3.0.3",
-  "paths": {
-    "/": {
-      "get": {
-        "operationId": "core.getLandingPage",
-        "parameters": [
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LandingPage"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Landing page information"
-          }
-        },
-        "summary": "Landing page"
-      }
-    },
-    "/collections": {
-      "get": {
-        "operationId": "collections.getCollections",
-        "parameters": [
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Collections"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Collections list"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required to access the available collections"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Available collections are not accessible"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Collections list"
-      }
-    },
-    "/collections/{collectionId}": {
-      "get": {
-        "operationId": "collections.getCollection",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionInfo"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Collection metadata"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid collection metadata query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required for the requested collection"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested collection is not accessible"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Collection metadata"
-      }
-    },
-    "/collections/{collectionId}/tiles": {
-      "get": {
-        "operationId": "collections.getTilesets",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileSetsList"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tilesets list"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid collection tilesets query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required for the requested collection"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested collection is not accessible"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Collection tilesets list"
-      }
-    },
-    "/collections/{collectionId}/tiles/{tileMatrixSetId}": {
-      "get": {
-        "operationId": "collections.getTileset",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileMatrixSetId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileSet"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tileset metadata"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid collection tileset query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required for the requested collection"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested collection is not accessible"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Collection tileset metadata"
-      }
-    },
-    "/collections/{collectionId}/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}": {
-      "get": {
-        "operationId": "collections.getTile",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collectionId",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileMatrixSetId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileMatrix",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileRow",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileCol",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Tile format (mvt or png)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "mvt",
-                "png"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "datetime",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "subset",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "subset-crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.mapbox-vector-tile": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              },
-              "image/png": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Vector or raster tile"
-          },
-          "204": {
-            "description": "No content"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tile matrix, tile coordinates, or query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required for the requested collection"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested collection is not accessible"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Collection or tile matrix set not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested tile format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Collection tile"
-      }
-    },
-    "/conformance": {
-      "get": {
-        "operationId": "core.getConformance",
-        "parameters": [
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConformanceDeclaration"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Conformance declaration"
-          }
-        },
-        "summary": "Conformance declaration"
-      }
-    },
-    "/openapi.json": {
-      "get": {
-        "operationId": "core.getApiDefinition",
-        "parameters": [
-          {
-            "description": "Output format (json)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.oai.openapi+json;version=3.0": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            },
-            "description": "OpenAPI document"
-          }
-        },
-        "summary": "OpenAPI specification"
-      }
-    },
-    "/tileMatrixSets": {
-      "get": {
-        "operationId": "tileMatrixSets.getTileMatrixSets",
-        "parameters": [
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileMatrixSetsList"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tile matrix sets list"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tile matrix sets query parameters"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "summary": "Tile matrix sets list"
-      }
-    },
-    "/tileMatrixSets/{tileMatrixSetId}": {
-      "get": {
-        "operationId": "tileMatrixSets.getTileMatrixSet",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tileMatrixSetId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileMatrixSetDefinition"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tile matrix set"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tile matrix set query parameters"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "summary": "Tile matrix set definition"
-      }
-    },
-    "/tiles": {
-      "get": {
-        "operationId": "tilesets.getTilesets",
-        "parameters": [
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileSetsList"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tilesets list"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tilesets query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required to access the available dataset tilesets"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Available dataset tilesets are not accessible"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Dataset tilesets list"
-      }
-    },
-    "/tiles/{tileMatrixSetId}": {
-      "get": {
-        "operationId": "tilesets.getTileset",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tileMatrixSetId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Output format (json or html)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "json",
-                "html"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated collection identifiers",
-            "explode": false,
-            "in": "query",
-            "name": "collections",
-            "required": false,
-            "schema": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "style": "form"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TileSet"
-                }
-              },
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Tileset metadata"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tileset query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required to access the requested dataset tileset"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested dataset tileset is not accessible"
-          },
-          "404": {
-            "description": "Not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested metadata format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Dataset tileset metadata"
-      }
-    },
-    "/tiles/{tileMatrixSetId}/{tileMatrix}/{tileRow}/{tileCol}": {
-      "get": {
-        "operationId": "tilesets.getTile",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tileMatrixSetId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileMatrix",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileRow",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tileCol",
-            "required": true,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Tile format (mvt or png)",
-            "in": "query",
-            "name": "f",
-            "required": false,
-            "schema": {
-              "enum": [
-                "mvt",
-                "png"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "datetime",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "subset",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "subset-crs",
-            "required": false,
-            "schema": {
-              "format": "uri",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated collection identifiers",
-            "explode": false,
-            "in": "query",
-            "name": "collections",
-            "required": false,
-            "schema": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "style": "form"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.mapbox-vector-tile": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              },
-              "image/png": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Vector or raster tile"
-          },
-          "204": {
-            "description": "No content"
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid tile matrix, tile coordinates, or query parameters"
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Authentication required for at least one requested collection"
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested collections are not accessible"
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Tile matrix set or requested collections not found"
-          },
-          "406": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Requested tile format is not acceptable"
-          }
-        },
-        "security": [
-          {},
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "summary": "Dataset tile"
       }
     }
-  },
-  "servers": [
-    {
-      "url": "/ogc/tiles"
-    }
-  ]
+  }
 }

@@ -21,8 +21,10 @@ EXPECT=2   # two seeded rows carry zone_code '030'
 api_get "/rest/services/$SVC/FeatureServer/$LID/query?where=zone_code%3D%27030%27&returnCountOnly=true&f=json"
 GEO="$(jget '.count')"; [ -z "$GEO" ] && GEO="ERR:$HTTP_CODE"
 
-# OData — generic Features entity set, filter by LayerId + field, $count=true
-api_get "/odata/Features?%24filter=LayerId%20eq%20${LID}%20and%20zone_code%20eq%20%27030%27&%24count=true"
+# OData — use the canonical layer-scoped feature collection, then apply the
+# same attribute predicate. This avoids asking the cross-layer adapter to
+# strip its synthetic LayerId term before forwarding the dynamic field filter.
+api_get "/odata/Layers(${LID})/Features?%24filter=zone_code%20eq%20%27030%27&%24count=true"
 ODATA="$(jget '.["@odata.count"] // (.value|length)')"; [ -z "$ODATA" ] && ODATA="ERR:$HTTP_CODE"
 
 # OGC API Features — cql2-text filter; the collection id is discovered from the catalog.

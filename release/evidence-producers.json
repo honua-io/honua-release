@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "comment": "All producers are dispatched after candidate.imageDigest exists. The workflow path, display name, run attempt, artifact name, and receipt file are verified by tools/release/dispatch-and-collect.sh.",
+  "producers": [
+    {
+      "id": "realtime",
+      "repository": "honua-io/honua-sdk-js",
+      "workflow": "realtime-live-conformance.yml",
+      "workflowPath": ".github/workflows/realtime-live-conformance.yml",
+      "workflowName": "Realtime Cross-Transport Conformance",
+      "artifactName": "realtime-cross-transport-conformance-{run_id}",
+      "receiptName": "realtime-live-conformance-evidence.json"
+    },
+    {
+      "id": "sdk-python",
+      "repository": "honua-io/honua-sdk-python",
+      "workflow": "conformance.yml",
+      "workflowPath": ".github/workflows/conformance.yml",
+      "workflowName": "Python SDK Conformance",
+      "artifactName": "python-sdk-conformance-{run_id}-{run_attempt}",
+      "receiptName": "protocol-certification-fragment.json"
+    },
+    {
+      "id": "protocol-grpc",
+      "repository": "honua-io/geospatial-grpc",
+      "workflow": "protocol-certification.yml",
+      "workflowPath": ".github/workflows/protocol-certification.yml",
+      "workflowName": "gRPC protocol certification",
+      "artifactName": "grpc-protocol-certification-release-{run_id}",
+      "receiptName": "protocol-certification-fragment.json"
+    },
+    {
+      "id": "protocol-mcp",
+      "repository": "honua-io/geospatial-mcp",
+      "workflow": "protocol-certification.yml",
+      "workflowPath": ".github/workflows/protocol-certification.yml",
+      "workflowName": "MCP Protocol Certification",
+      "artifactName": "mcp-protocol-certification-{run_id}-{run_attempt}",
+      "receiptName": "protocol-certification-fragment.json"
+    }
+  ]
+}

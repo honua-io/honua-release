@@ -1,0 +1,383 @@
+{
+  "schemaVersion": "1.0.0",
+  "generator": "scripts/generate-sdk-coverage.py",
+  "trackingIssue": "#273",
+  "sourceRepository": "honua-io/honua-sdk-dotnet",
+  "description": "Per-capability coverage snapshot for the cross-repo capability matrix (honua-io/honua-server#2892). Each entry maps a canonical capability key (consumed, never copied, from honua-server#2893's published capability-keys.v1.json) to what this SDK's source actually implements. Capabilities this SDK does not touch are absent from 'coverage' -- never padded.",
+  "sdkAvailability": {
+    "status": "source-preview",
+    "publishedVersion": null,
+    "note": "Honua.Sdk.* ships as a source preview only; no NuGet package has published yet (see honua-site data/sdk-availability.v1.json, productArea \"sdk-dotnet\"). Every coverage entry's sinceVersion is the literal marker \"unreleased\" -- repo tags such as dotnet-sdk-v1.5.0 are pre-publish release-please source tags, not registry releases, and are never used here."
+  },
+  "capabilityKeyList": {
+    "canonicalUrl": "https://raw.githubusercontent.com/honua-io/honua-server/trunk/docs/gis/data/capability-keys.v1.json",
+    "resolvedFrom": "contracts/fixtures/capability-keys.fixture.json (pinned mirror -- see KEY_LIST_URL)",
+    "keyCount": 110
+  },
+  "coverage": [
+    {
+      "key": "admin.control-plane",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminConnectionsClient",
+        "Honua.Sdk.Admin.IHonuaAdminServicesClient",
+        "Honua.Sdk.Admin.IHonuaAdminUsersClient",
+        "Honua.Sdk.Admin.IHonuaAdminRolesClient",
+        "Honua.Sdk.Admin.IHonuaAdminConfigClient",
+        "Honua.Sdk.Admin.IHonuaAdminMetadataClient"
+      ]
+    },
+    {
+      "key": "ai.spec-apply",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Spec.IHonuaSpecClient.ApplyAsync",
+        "Honua.Sdk.Spec.IHonuaSpecClient.CancelAsync"
+      ]
+    },
+    {
+      "key": "ai.spec-artifacts",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Spec.IHonuaSpecClient.GetArtifactAsync"
+      ]
+    },
+    {
+      "key": "alerts.dwell",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminAlertsClient"
+      ],
+      "note": "Same generic AlertRuleRequest.TriggerType/Channels passthrough as alerts.threshold; no dwell-duration-specific typed fields or client-side dwell evaluation ships in this SDK."
+    },
+    {
+      "key": "alerts.enter-exit",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminAlertsClient"
+      ],
+      "note": "Alert-zone CRUD (ListAlertZonesAsync/CreateAlertZoneAsync/etc.) plus generic rule CRUD supports configuring enter/exit zones, but TriggerType remains an opaque string -- the SDK has no typed enter-exit request shape or client-side geofence evaluation for alerting."
+    },
+    {
+      "key": "alerts.threshold",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminAlertsClient"
+      ],
+      "note": "Generic alert-rule CRUD (CreateAlertRuleAsync/UpdateAlertRuleAsync) passes AlertRuleRequest.TriggerType and Channels through as opaque strings. The SDK ships no typed threshold-specific request/response shape and does not validate threshold semantics client-side."
+    },
+    {
+      "key": "analytics.reporting",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Studio.IHonuaStudioReportsClient.GetReportAsync",
+        "Honua.Sdk.Studio.IHonuaStudioReportsClient.RenderReportAsync"
+      ],
+      "note": "Read/render only: retrieves and renders (Markdown/HTML) a structured analysis report for an already-completed job. The SDK does not submit or configure the analytics/report-generating job itself -- that goes through the generic IHonuaProcessesClient/IHonuaProcessGrpcClient job submission, not a typed analytics wrapper."
+    },
+    {
+      "key": "discovery.capability-manifest",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Studio.Capabilities.IHonuaCapabilityManifestClient.GetManifestAsync"
+      ]
+    },
+    {
+      "key": "editing.featureserver-edits",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.GeoServices.FeatureServer.IHonuaFeatureServerEditClient.ApplyEditsAsync"
+      ]
+    },
+    {
+      "key": "enrichment.datasets",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Abstractions.Data.IHonuaEnrichmentDataClient"
+      ],
+      "note": "Honua.Sdk.Abstractions ships IHonuaEnrichmentDataClient as a provider-neutral contract (GetEnrichmentMetadataAsync/EnrichAsync), but this SDK contains no concrete HTTP-backed implementation of it -- no HonuaEnrichmentDataClient class exists in src/ yet."
+    },
+    {
+      "key": "fieldops.forms",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Field.Forms.FormValidator",
+        "Honua.Sdk.Field.Forms.FieldFormSchemaMapper",
+        "Honua.Sdk.Field.Forms.CalculatedFieldEvaluator",
+        "Honua.Sdk.Field.Records.RecordWorkflow",
+        "Honua.Sdk.Field.Records.DuplicateDetector"
+      ]
+    },
+    {
+      "key": "fieldops.offline-sync",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Offline.OfflineSyncEngine",
+        "Honua.Sdk.Offline.OfflineDownloadPlanner",
+        "Honua.Sdk.Offline.ReplicaSyncClient"
+      ]
+    },
+    {
+      "key": "geocoding.batch",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.BatchGeocodeAsync",
+        "Honua.Sdk.Admin.Geocoding.IHonuaBatchGeocodingClient.BatchGeocodeDetailedAsync"
+      ]
+    },
+    {
+      "key": "geocoding.forward",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ForwardGeocodeAsync"
+      ]
+    },
+    {
+      "key": "geocoding.reverse",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient.ReverseGeocodeAsync"
+      ]
+    },
+    {
+      "key": "identity.oidc",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminIdentityClient.CreateOidcProviderAsync",
+        "Honua.Sdk.Admin.IHonuaAdminIdentityClient.TestOidcProviderAsync"
+      ]
+    },
+    {
+      "key": "identity.oidc-multi-provider",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminIdentityClient.ListOidcProvidersAsync",
+        "Honua.Sdk.Admin.IHonuaAdminIdentityClient.GetIdentityProvidersAsync"
+      ]
+    },
+    {
+      "key": "identity.portal-sharing",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.UpdateAccessAsync",
+        "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.CreatePublicLinkAsync"
+      ]
+    },
+    {
+      "key": "identity.portal-token",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.CreateEmbedTokenAsync",
+        "Honua.Sdk.ConsoleShare.IHonuaConsoleShareClient.RevokeEmbedTokenAsync"
+      ]
+    },
+    {
+      "key": "import.geoserver",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.HonuaAdminMigrationClientExtensions.ScanMigrationSourceAsync"
+      ],
+      "note": "Covers migration-source scanning and inventory/manifest/parity-evidence/readiness-attestation generation only (sourceKind: \"geoserver\"), producing MigrationSourceInventoryArtifact / MigrationManifestArtifact / MigrationParityEvidenceArtifact / MigrationReadinessAttestation. The SDK has no apply/cutover call that loads a scanned GeoServer source's data or config into Honua."
+    },
+    {
+      "key": "import.geoservices",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.HonuaAdminMigrationClientExtensions.ScanMigrationSourceAsync"
+      ],
+      "note": "Same as import.geoserver: scan/manifest/parity-evidence/readiness-attestation generation only (sourceKind: \"geoservices\"), no apply/execute call."
+    },
+    {
+      "key": "ops.observability",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.IHonuaAdminObservabilityClient"
+      ]
+    },
+    {
+      "key": "plugin.sdk",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Abstractions.Plugins.HonuaPluginManifest"
+      ]
+    },
+    {
+      "key": "process.geoprocessing",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Processes.IHonuaProcessesClient.SubmitJobAsync",
+        "Honua.Sdk.Grpc.IHonuaProcessGrpcClient.SubmitJobAsync"
+      ],
+      "note": "Generic job submission/poll/cancel by processId works against any registered geoprocessing tool -- this is also the only path this SDK offers for GP-backed analytics.* operations; it has no typed per-tool wrappers. IHonuaProcessGrpcClient's own doc comments flag that its synchronous ExecutePlanAsync/ExecutePlanStreamAsync methods may return Unimplemented on current Honua Server deployments -- the reliable path is async submit-then-poll."
+    },
+    {
+      "key": "process.ogc-api-processes",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Processes.IHonuaProcessesClient"
+      ]
+    },
+    {
+      "key": "routing.solve",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.GeoServices.Routing.HonuaRoutingClient"
+      ]
+    },
+    {
+      "key": "scene.catalog",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Scenes.HonuaSceneClient.ListScenesAsync"
+      ]
+    },
+    {
+      "key": "serve.3d-tiles-scene",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Scenes.HonuaSceneClient"
+      ],
+      "note": "The scene client discovers and resolves a scene's 3D Tiles endpoint URL and capability tag (HonuaSceneCapabilities.ThreeDimensionalTiles); it does not parse or serve the 3D Tiles/Cesium tileset protocol itself. Renderer/display code is explicitly out of scope for this SDK (see AGENTS.md 'Does Not Belong Here')."
+    },
+    {
+      "key": "serve.elevation",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Abstractions.Data.IHonuaElevationDataClient"
+      ],
+      "note": "Same contract-only situation as enrichment.datasets: IHonuaElevationDataClient (SampleElevationAsync) is a shipped abstraction with no concrete implementing class in this SDK yet."
+    },
+    {
+      "key": "serve.geoservices-featureserver",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.GeoServices.FeatureServer.HonuaFeatureServerClient"
+      ]
+    },
+    {
+      "key": "serve.geoservices-geocodeserver",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Admin.Geocoding.IHonuaGeocodingClient"
+      ]
+    },
+    {
+      "key": "serve.geoservices-geometry-service",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.GeoServices.GeometryServer.HonuaGeometryServerClient"
+      ]
+    },
+    {
+      "key": "serve.geoservices-imageserver",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.GeoServices.ImageServer.HonuaImageServerClient",
+        "Honua.Sdk.GeoServices.ImageServer.HonuaImageServerRasterDataClient"
+      ]
+    },
+    {
+      "key": "serve.i3s-scene",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Scenes.HonuaSceneClient"
+      ],
+      "note": "Same as serve.3d-tiles-scene: the scene client resolves the I3S endpoint URL and capability tag (HonuaSceneCapabilities.I3s) only; it does not parse or serve the I3S scene-layer protocol itself."
+    },
+    {
+      "key": "serve.ogc-api-features",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.OgcFeatures.HonuaOgcFeaturesClient",
+        "Honua.Sdk.OgcFeatures.IHonuaOgcFeaturesEditClient",
+        "Honua.Sdk.OgcFeatures.IHonuaOgcFeaturesPatchClient"
+      ]
+    },
+    {
+      "key": "serve.ogc-api-records",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Catalogs.Records.HonuaOgcRecordsClient"
+      ]
+    },
+    {
+      "key": "serve.stac",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Catalogs.Stac.HonuaStacClient"
+      ]
+    },
+    {
+      "key": "serve.wfs",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.OgcFeatures.Wfs.IHonuaWfsClient"
+      ],
+      "note": "WFS 2.0 read/query only (GetCapabilitiesAsync, DescribeFeatureTypeAsync, GetFeaturesAsync, hits-only count, auto-paging). No WFS-T Transaction (insert/update/delete) support ships in this SDK."
+    },
+    {
+      "key": "streaming.feature-subscriptions",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.Abstractions.Features.IHonuaFeatureStreamClient.SubscribeAsync",
+        "Honua.Sdk.Admin.IHonuaAdminStreamingOperationsClient"
+      ]
+    },
+    {
+      "key": "styling.defaults",
+      "status": "partial",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.OgcFeatures.Styles.IHonuaOgcStylesClient.ListStylesAsync"
+      ],
+      "note": "Read-only: the OgcStylesList.Default field surfaces which style is the server-declared default. The SDK has no call to designate or change the default style."
+    },
+    {
+      "key": "styling.ogc-api-styles",
+      "status": "covered",
+      "sinceVersion": "unreleased",
+      "entrypoints": [
+        "Honua.Sdk.OgcFeatures.Styles.IHonuaOgcStylesClient"
+      ]
+    }
+  ]
+}

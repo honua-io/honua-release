@@ -21,6 +21,12 @@ on:
     paths:
       - "certification/check_build_test.py"
       - "certification/test_build_test.py"
+      - "tools/test_build_test_full_matrix.py"
+      - "certification/env-gated-checks.yaml"
+      - "certification/governance-checks.yaml"
+      - "certification/full-matrix-checks.yaml"
+      - "certification/rollup-checks.yaml"
+      - "certification/security-checks.yaml"
       - ".github/workflows/gate-build-test.yml"
   schedule:
     - cron: "37 6 * * *"          # nightly drift check on the current pins
@@ -58,8 +64,8 @@ jobs:
     outputs:
       overall_status: ${{ steps.live.outputs.overall_status }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install deps
@@ -67,7 +73,7 @@ jobs:
 
       # Always: prove the verdict logic can FAIL (green-only passes; red/missing/incomplete don't).
       - name: Self-test the gate logic
-        run: python -m pytest certification/test_build_test.py -q
+        run: python -m pytest certification/test_build_test.py tools/test_build_test_full_matrix.py -q
 
       # Live per-repo check — not on PRs (stale pins aren't a PR's fault); enforces in the train/nightly.
       - name: Per-repo CI on pinned SHAs
@@ -92,7 +98,7 @@ jobs:
 
       - name: Upload gate-report
         if: ${{ always() && github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: build-test-gate-report
           path: certification/gate-report-build-test.json

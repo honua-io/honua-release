@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "honua.expected-ga-manifest.v1",
+  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). `expectedGa` (minus `excluded`) is the id set every deployed candidate must advertise as supported=true; when the check runs authenticated (an admin X-API-Key) it also asserts available=true for the same set. REFRESH RULE: this file is asserted against a LIVE deployment, so it must only be refreshed from a deployment that is actually running the manifest-pinned candidate — refreshing it from a stale environment would red a live canary to green a candidate, or vice versa. This snapshot was taken from demo.honua.io while it served deploymentRevision 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1, the sha pinned in platform-manifest.yaml, immediately after that redeploy. Versus the previous 2026-07-21 snapshot it removes ai.workflow-generation (retired by honua-server ADR-0076 / #3255 / #3264) and adds sync.offline and temporal.animation-api.",
+  "sourceSnapshot": {
+    "target": "https://demo.honua.io/api/v1/capabilities/manifest",
+    "manifestSchemaVersion": "honua.capability_manifest.v1",
+    "fetchedAt": "2026-08-19T02:13:20Z",
+    "totalCapabilities": 29,
+    "deploymentRevision": "6b6d3b898f4abb6b34833d953b50d44f3d38c6c1",
+    "deploymentRevisionSource": "commit-sha"
+  },
+  "expectedGa": [
+    "package.metadata-v2",
+    "package.release-package",
+    "package.gitops-manifest",
+    "package.map",
+    "package.app",
+    "temporal.filtering",
+    "temporal.extent-discovery",
+    "temporal.histogram",
+    "temporal.time-series-tiles",
+    "temporal.animation-api",
+    "sync.offline",
+    "realtime.feature-streams",
+    "alerts.geofence",
+    "jobs.runner",
+    "ai.spec-apply",
+    "ai.grounding",
+    "gitops.release-manifest",
+    "transport.grpc",
+    "transport.grpc-web",
+    "transport.native-grpc",
+    "transport.mcp",
+    "transport.qgis",
+    "preview.file-import",
+    "query.features",
+    "analysis.spatial",
+    "publication.metadata-release",
+    "upload.file",
+    "edit.features",
+    "operate.status"
+  ],
+  "excluded": [
+    {
+      "id": "security.mtls",
+      "reason": "No longer advertised as a capability id at all on this candidate (it survives as the `mtls` TRANSPORT, reported available=false / disabled-by-configuration). Previously it was advertised supported=true but gated; honua-server#2958 tracks the reclassification. Kept here so the exclusion's history is legible if the id returns."
+    },
+    {
+      "id": "alerts.geofence",
+      "reason": "Gated: disabled-by-configuration (geofence enter/exit alerting is not enabled on every deployment profile). Present in the manifest as supported=true but not asserted available on a bare/demo deployment."
+    }
+  ]
+}

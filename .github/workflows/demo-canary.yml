@@ -1,0 +1,275 @@
+# Scheduled demo canary (honua-release#61, P4 of the release-safety epic #58).
+#
+# Runs the canonical slim set (incl. the live capability-manifest check, honua-release#61 item 1) plus
+# the full canary probe set (e2e/canary_probes.py — corrected 2026-07-20 protocol reachability probes,
+# ported from honua-server's docs/internal/demo/scripts/demo-b-probes.sh, plus STAC/EDR/OData/
+# OGC-Features/tiles/per-service-WMS-WMTS-WCS/geocoding-latency) against https://demo.honua.io every 6
+# hours. This is a HYBRID-train evidence producer (docs/HYBRID-TRAIN.md): it runs on its own schedule
+# against the ALWAYS-ON public demo deployment, independent of any specific release candidate — it is
+# NOT wired as a release-train gate job. Its output (a versioned live-canary-evidence.json envelope) is
+# meant to be consumed/joined by honua-evidence (honua-io/honua-evidence#8), the same "produce evidence
+# out-of-band, consume it with freshness bounds" shape as the honua-esri-compat lane.
+#
+# Honesty (AGENTS.md): geocoding-latency is REPORT-ONLY (honua-server#2948, known-broken pending VPC
+# egress) and never fails the run. Every other check/probe can genuinely fail — and a failure that is
+# KNOWN and OWNED is QUARANTINED, never deleted (honua-release#84): e2e/canary-quarantine.yaml maps the
+# probe to an owning issue, e2e/quarantine.py downgrades its FAIL to `quarantined` until the entry's
+# `reviewBy` expires (after which it reddens the run again), and the step summary below prints a table
+# linking every quarantined probe to its issue — so a remaining failure is owned, not silent. The
+# live-canary envelope published to honua-evidence still reports a quarantined probe `red`.
+# `HONUA_DEMO_API_KEY` is
+# an OPTIONAL repo secret — key-gated probes (metrics, admin-metrics-health, deploy-preflight, and the
+# `available=true` half of the capability-manifest check) report BLOCKED (not FAIL) without it, and the
+# run stays green (exit 0) as long as nothing GENUINELY fails. On a real FAIL, a single tracking issue
+# (label `demo-canary,automated`) is opened/updated — never a new issue per run — mirroring
+# honua-server's cite-evidence-report.yml pattern.
+
+name: demo-canary
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target base URL to canary"
+        required: false
+        type: string
+        default: "https://demo.honua.io"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: demo-canary
+  cancel-in-progress: false
+
+env:
+  HONUA_DEMO_BASE_URL: ${{ inputs.base_url || vars.HONUA_DEMO_BASE_URL || 'https://demo.honua.io' }}
+  HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.canary.outputs.status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt pytest
+
+      # The check/probe logic's own correctness must be proven before we trust a live run against it.
+      - name: Self-test the canonical + canary probe + quarantine logic
+        run: python -m pytest e2e/test_cloud.py e2e/test_canary_probes.py e2e/test_quarantine.py -q
+
+      - name: Run the demo canary
+        id: canary
+        env:
+          HONUA_DEMO_API_KEY: ${{ secrets.HONUA_DEMO_API_KEY }}
+        run: |
+          set -uo pipefail
+          python e2e/demo_canary.py --base "$HONUA_DEMO_BASE_URL" > /tmp/canary.log 2>&1
+          RC=$?
+          cat /tmp/canary.log
+          STATUS="$(python -c "import json;print(json.load(open('e2e/gate-report-demo-canary.json'))['status'])" 2>/dev/null || echo fail)"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Demo canary — $HONUA_DEMO_BASE_URL — $STATUS";
+            echo "";
+            echo '```';
+            cat /tmp/canary.log;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+          # honua-release#84 AC: every remaining failure carries an owning issue LINKED FROM THE RUN
+          # SUMMARY. Quarantined probes are real failures held green by e2e/canary-quarantine.yaml, so
+          # they get their own table rather than being buried in the log above. Registry rot (expired /
+          # stale / unknown entries) is surfaced as an annotation so nobody has to read the log to see it.
+          python - <<'PY' || true
+          import json, os, pathlib
+          audit = (json.loads(pathlib.Path("e2e/gate-report-demo-canary.json").read_text())
+                   .get("quarantine") or {})
+          lines = []
+          if audit.get("applied"):
+              lines += ["", "### Quarantined probes (failing, owned, not silenced)", "",
+                        "| probe | owning issue | since | review by | reason |", "|---|---|---|---|---|"]
+              lines += [f"| `{e['probe']}` | {e['issue']} | {e['since']} | {e['reviewBy']} | {e['reason']} |"
+                        for e in audit["applied"]]
+              lines += ["", "These are still reported `red` to honua-evidence — quarantine moves the CI "
+                        "verdict, never the evidence verdict."]
+          for kind, note in (("expired", "is past its reviewBy — the probe is failing the run again"),
+                             ("stale", "is no longer failing — delete the entry"),
+                             ("unknown", "is not a probe this canary emits (renamed?)")):
+              for e in audit.get(kind, []):
+                  lines += ["", f"> **Quarantine {kind}**: `{e['probe']}` {note} ({e['issue']})."]
+                  print(f"::warning title=demo-canary quarantine {kind}::{e['probe']} {note} — {e['issue']}")
+          if lines:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+                  fh.write("\n".join(lines) + "\n")
+          PY
+          # A key-configured note so a red run is diagnosable at a glance (was the key even wired?).
+          if [ -z "${HONUA_DEMO_API_KEY:-}" ]; then
+            echo "::notice title=demo-canary::HONUA_DEMO_API_KEY is not set — key-gated probes (metrics, admin-metrics-health, deploy-preflight, capability-manifest available=true) report BLOCKED, not FAIL."
+          fi
+          exit "$RC"
+
+      - name: Bind passing canary evidence to the committed candidate lock
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f platform-lock.json || {
+            echo "::error::platform-lock.json is required for burn-in canary evidence"; exit 1;
+          }
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          lock_path = pathlib.Path("platform-lock.json")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          report = json.loads(pathlib.Path("e2e/gate-report-demo-canary.json").read_text(encoding="utf-8"))
+          envelope_path = pathlib.Path("e2e/live-canary-evidence.json")
+          envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+          expected_server = lock["components"]["honua-server"]["source"]["revision"]
+          if envelope.get("candidateServerSha") != expected_server:
+              raise SystemExit("demo deployment revision does not match platform-lock honua-server revision")
+          envelope["runId"] = os.environ["RUN_ID"]
+          envelope["status"] = report.get("status")
+          envelope["candidateLock"] = {
+              "path": "platform-lock.json",
+              "digest": "sha256:" + hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+          }
+          envelope_path.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload demo-canary gate-report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-canary-gate-report
+          path: e2e/gate-report-demo-canary.json
+          if-no-files-found: warn
+
+      # Versioned live-canary evidence envelope for honua-evidence#8's join (see docs/HYBRID-TRAIN.md —
+      # the schema there is a PROPOSAL, since honua-evidence#8 had not defined one as of this writing).
+      - name: Upload live-canary evidence envelope
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-canary-evidence
+          path: e2e/live-canary-evidence.json
+          if-no-files-found: warn
+
+      - name: Check out the evidence landing zone
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-evidence
+          ref: trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN }}
+          path: evidence-repo
+          fetch-depth: 0
+
+      - name: Publish the versioned envelope to honua-evidence
+        id: publish_evidence
+        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          destination="evidence-repo/data/producers/live-canary/demo-${RUN_ID}.json"
+          cp e2e/live-canary-evidence.json "$destination"
+
+          cd evidence-repo
+          git config user.name "Mike McDougall"
+          git config user.email "mike@honua.io"
+          git add "data/producers/live-canary/demo-${RUN_ID}.json"
+          git commit -m "chore: ingest demo canary evidence ${RUN_ID}"
+
+          for attempt in 1 2 3; do
+            if git pull --rebase origin trunk && git push origin HEAD:trunk; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep "$((attempt * 2))"
+          done
+          echo "Failed to publish the live-canary envelope after 3 attempts" >&2
+          exit 1
+
+      - name: Trigger evidence aggregation and Pages deployment
+        id: dispatch_aggregate
+        if: ${{ always() && steps.publish_evidence.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          gh api --method POST repos/honua-io/honua-evidence/dispatches \
+            -f event_type=producer-updated
+
+      - name: Report an evidence-delivery failure
+        if: ${{ always() && steps.canary.outcome == 'success' && (steps.publish_evidence.outcome != 'success' || steps.dispatch_aggregate.outcome != 'success') }}
+        env:
+          PUBLISH_OUTCOME: ${{ steps.publish_evidence.outcome }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch_aggregate.outcome }}
+        run: |
+          if [ "$PUBLISH_OUTCOME" != "success" ]; then
+            detail="the live-canary envelope was not delivered to honua-evidence"
+          else
+            detail="the envelope was delivered, but the honua-evidence aggregate and Pages deployment were not triggered"
+          fi
+          echo "::error title=Live-canary evidence pipeline failed::The demo canary passed, but $detail."
+          echo "## Evidence pipeline failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "The demo canary passed, but $detail. This is an evidence-pipeline failure, not a demo regression." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Open/update issue on a genuine FAIL
+        if: ${{ always() && github.event_name == 'schedule' && steps.canary.outcome == 'failure' && steps.canary.outputs.status == 'fail' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = 'Demo canary: scheduled run against demo.honua.io failed';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const body = `## Demo Canary Alert
+
+            The scheduled \`demo-canary\` run against \`${{ env.HONUA_DEMO_BASE_URL }}\` reported a
+            genuine, UNOWNED FAIL — see the run's step summary for the full per-check breakdown.
+            BLOCKED entries (missing \`HONUA_DEMO_API_KEY\`, the known geocoding gap honua-server#2948)
+            and QUARANTINED entries (a known failure already owned by an issue in
+            \`e2e/canary-quarantine.yaml\`) do not trigger this alert.
+
+            **Run**: ${runUrl}
+
+            ## Acceptance Criteria
+
+            - Identify which check/probe genuinely failed (see the run's job summary) and root-cause it
+              — a real regression on the live demo deployment, not just an unwired secret.
+            - Re-run this workflow (workflow_dispatch) to confirm green before closing.
+
+            This issue was created automatically by the demo-canary workflow.
+            `;
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'demo-canary,automated'
+            });
+
+            const existingIssue = issues.data.find(issue => issue.title === title);
+
+            if (existingIssue) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `Recurred: ${runUrl}`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['demo-canary', 'automated', 'high-priority']
+              });
+            }

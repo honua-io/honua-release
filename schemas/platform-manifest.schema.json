@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/platform-manifest.schema.json",
+  "title": "Honua platform manifest",
+  "type": "object",
+  "required": ["platformRelease", "status", "candidate", "protocolCertification", "components", "clientArtifacts", "evidenceSources"],
+  "properties": {
+    "platformRelease": {"type": "string", "minLength": 1},
+    "status": {"enum": ["draft", "rc", "released"]},
+    "candidate": {
+      "type": "object",
+      "required": ["ref", "refSource"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/sha"},
+        "refSource": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "protocolCertification": {
+      "type": "object",
+      "required": ["candidateCutAt", "serverCertificationProducerSha", "ledger"],
+      "properties": {
+        "serverCertificationProducerSha": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Deployable runtime components only; consumed by BOM and upgrade tooling."
+    },
+    "clientArtifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/clientArtifact"}
+    },
+    "evidenceSources": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/evidenceSource"}
+    }
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "clientArtifact": {
+      "type": "object",
+      "required": ["ecosystem", "package", "version", "repository", "sourceSha", "publicationState", "targets"],
+      "properties": {
+        "ecosystem": {"enum": ["npm", "pypi", "nuget"]},
+        "package": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/digest"},
+        "integrity": {"type": "string", "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$"},
+        "filename": {"type": "string", "minLength": 1},
+        "registry": {"enum": ["github-packages"]},
+        "repository": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+        "sourceSha": {"$ref": "#/$defs/sha"},
+        "source": {"enum": ["registry", "local", "checkout", "build"]},
+        "publicationState": {"enum": ["published", "promoted", "staged", "unpublished"]},
+        "targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "required": {"type": "boolean"}
+      },
+      "oneOf": [
+        {"required": ["integrity"], "not": {"required": ["digest"]}},
+        {"required": ["digest"], "not": {"required": ["integrity"]}}
+      ],
+      "allOf": [
+        {
+          "if": {"properties": {"ecosystem": {"const": "npm"}}},
+          "then": {"required": ["integrity"]}
+        },
+        {
+          "if": {"properties": {"ecosystem": {"const": "pypi"}}},
+          "then": {"required": ["digest", "filename"]}
+        },
+        {
+          "if": {"properties": {"ecosystem": {"const": "nuget"}}},
+          "then": {"required": ["digest", "registry"]}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "evidenceSource": {
+      "type": "object",
+      "required": ["repository", "workflowPath", "producerSha", "trustedEvents", "trustedBranch", "artifactIdentity", "evidencePolicyRevision"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+        "workflowPath": {"type": "string", "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"},
+        "producerSha": {"$ref": "#/$defs/sha"},
+        "trustedEvents": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["push", "schedule", "workflow_dispatch", "workflow_run"]}},
+        "trustedBranch": {"type": "string", "minLength": 1},
+        "artifactIdentity": {"type": "string", "minLength": 1},
+        "evidencePolicyRevision": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

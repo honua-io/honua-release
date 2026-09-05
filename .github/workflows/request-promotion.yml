@@ -1,0 +1,99 @@
+# Automatically dispatch the environment-gated promotion workflow as the dedicated
+# GitHub App after a successful live release train. There is deliberately no manual
+# trigger: the required human reviewer must not be able to initiate promotion and then
+# approve it through an App redispatch.
+name: request-promotion
+run-name: "request promotion from train ${{ github.event.workflow_run.id }}"
+
+on:
+  workflow_run:
+    workflows: [release-train]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: request-promotion-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the certified candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRAIN_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir candidate
+          gh run download "$TRAIN_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name certified-candidate \
+            --dir candidate
+
+      - name: Validate live candidate binding for dispatch
+        id: candidate
+        env:
+          TRAIN_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRAIN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          jq -e \
+            --arg run_id "$TRAIN_RUN_ID" \
+            --arg head_sha "$TRAIN_HEAD_SHA" '
+              .dry_run == false and
+              .overallStatus == "pass" and
+              (.platform_label | test("^[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) and
+              .candidate.source.sha == $head_sha and
+              .candidate.train.runId == $run_id and
+              .candidate.train.certificationMode == "live"
+            ' candidate/gate-report.json >/dev/null || {
+              echo "::error::successful train did not produce a matching live, passing candidate"
+              exit 1
+            }
+          echo "platform_label=$(jq -r .platform_label candidate/gate-report.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Mint claude App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.1.1
+        with:
+          app-id: ${{ vars.CLAUDE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: honua-release
+
+      - name: Resolve the committed burn record
+        id: promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM_LABEL: ${{ steps.candidate.outputs.platform_label }}
+        run: |
+          set -euo pipefail
+          RECORD="certification/promotions/${PLATFORM_LABEL}.json"
+          gh api "repos/$GITHUB_REPOSITORY/contents/$RECORD?ref=${{ github.event.repository.default_branch }}" \
+            --jq .content | tr -d '\n' | base64 --decode > promotion-record.json
+          RC_RUN_ID="$(jq -er .rcTrainRunId promotion-record.json)"
+          echo "record=$RECORD" >> "$GITHUB_OUTPUT"
+          echo "rc_run_id=$RC_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch protected promotion workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PLATFORM_LABEL: ${{ steps.candidate.outputs.platform_label }}
+          TRAIN_RUN_ID: ${{ steps.promotion.outputs.rc_run_id }}
+          PROMOTION_RECORD: ${{ steps.promotion.outputs.record }}
+        run: |
+          set -euo pipefail
+          gh workflow run promote.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref trunk \
+            -f platform_label="$PLATFORM_LABEL" \
+            -f train_run_id="$TRAIN_RUN_ID" \
+            -f promotion_record="$PROMOTION_RECORD"

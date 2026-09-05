@@ -67,6 +67,89 @@ def test_red_is_not_masked_by_in_progress_siblings():
     assert bt.classify(payload)[0] == "fail"
 
 
+def test_latest_success_supersedes_an_older_failure_for_the_same_lane():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "status": "completed", "conclusion": "failure",
+         "completed_at": "2026-07-01T00:00:00Z"},
+        {"id": 20, "name": "Build", "status": "completed", "conclusion": "success",
+         "completed_at": "2026-07-02T00:00:00Z"},
+    ]}
+    assert bt.classify(payload)[0] == "pass"
+
+
+def test_latest_failure_supersedes_an_older_success_for_the_same_lane():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "status": "completed", "conclusion": "success",
+         "completed_at": "2026-07-01T00:00:00Z"},
+        {"id": 20, "name": "Build", "status": "completed", "conclusion": "failure",
+         "completed_at": "2026-07-02T00:00:00Z"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_latest_in_progress_attempt_blocks_instead_of_reusing_an_older_green():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "status": "completed", "conclusion": "success",
+         "completed_at": "2026-07-01T00:00:00Z"},
+        {"id": 20, "name": "Build", "status": "in_progress", "conclusion": None,
+         "started_at": "2026-07-02T00:00:00Z"},
+    ]}
+    assert bt.classify(payload)[0] == "blocked"
+
+
+def test_higher_id_queued_attempt_blocks_even_without_timestamps():
+    payload = {"check_runs": [
+        {"id": 20, "name": "Build", "status": "completed", "conclusion": "success",
+         "started_at": "2026-07-02T00:00:00Z", "completed_at": "2026-07-02T00:01:00Z"},
+        {"id": 30, "name": "Build", "status": "queued", "conclusion": None,
+         "started_at": None, "completed_at": None},
+    ]}
+    assert bt.classify(payload)[0] == "blocked"
+
+
+def test_distinct_named_lanes_remain_independently_decisive():
+    payload = _named(("Build", "success"), ("Unit Tests", "failure"))
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_same_name_from_distinct_apps_remains_independently_decisive():
+    payload = {"check_runs": [
+        {"name": "Analyze", "app": {"slug": "codeql"}, "status": "completed", "conclusion": "success"},
+        {"name": "Analyze", "app": {"slug": "another-scanner"}, "status": "completed", "conclusion": "failure"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_same_actions_job_name_from_distinct_workflows_remains_decisive():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "app": {"slug": "github-actions"}, "_workflow_id": "100",
+         "status": "completed", "conclusion": "success"},
+        {"id": 20, "name": "Build", "app": {"slug": "github-actions"}, "_workflow_id": "200",
+         "status": "completed", "conclusion": "failure"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_unenriched_actions_suites_are_kept_independent_conservatively():
+    payload = {"check_runs": [
+        {"id": 10, "name": "Build", "app": {"slug": "github-actions"}, "check_suite": {"id": 1000},
+         "status": "completed", "conclusion": "success"},
+        {"id": 20, "name": "Build", "app": {"slug": "github-actions"}, "check_suite": {"id": 2000},
+         "status": "completed", "conclusion": "failure"},
+    ]}
+    assert bt.classify(payload)[0] == "fail"
+
+
+def test_actions_run_metadata_enriches_jobs_with_stable_workflow_identity():
+    payload = {"check_runs": [
+        {"name": "Build", "app": {"slug": "github-actions"},
+         "details_url": "https://github.com/honua-io/repo/actions/runs/42/job/99"},
+    ]}
+    workflows = {"workflow_runs": [{"id": 42, "workflow_id": 1234}]}
+    enriched = bt._enrich_action_workflow_ids(payload, workflows)
+    assert enriched["check_runs"][0]["_workflow_id"] == "1234"
+
+
 def test_not_found_is_blocked():
     assert bt.classify(bt.NOT_FOUND)[0] == "blocked"
 
@@ -232,6 +315,39 @@ def test_load_security_never_lists_a_build_or_test_lane():
         for n in names:
             low = n.lower()
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not a security signal"
+
+
+# ---- non-build governance check-runs -------------------------------------------------------------
+GOVERNANCE = frozenset({"Publish SHA-bound Codex review attestation"})
+
+
+def test_governance_red_is_excluded_when_core_green():
+    payload = _named(("Restore and Build", "success"), ("Server Tests (Core)", "success"),
+                     ("Publish SHA-bound Codex review attestation", "failure"))
+    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)
+    assert status == "pass", why
+    assert "non-build governance" in why
+
+
+def test_governance_never_masks_real_core_red():
+    payload = _named(("Server Tests (Core)", "failure"),
+                     ("Publish SHA-bound Codex review attestation", "failure"))
+    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "fail"
+
+
+def test_only_governance_checks_is_blocked_never_pass():
+    payload = _named(("Publish SHA-bound Codex review attestation", "failure"))
+    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "blocked"
+
+
+def test_load_governance_never_lists_build_or_test_lane():
+    import re
+
+    governance = bt.load_governance()
+    banned = re.compile(r"\b(?:restore|build|compile|unit|tests?|integration|playwright|validate)\b")
+    for comp, names in governance.items():
+        for name in names:
+            assert not banned.search(name.lower()), f"{comp}: '{name}' looks like a core lane"
 
 
 # ---- evaluate -------------------------------------------------------------------------------------

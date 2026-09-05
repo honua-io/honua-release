@@ -41,3 +41,11 @@ honua-console:
       Honua.Sdk.Studio; that is a Dependabot feed-credential/config gap, NOT an open CVE/advisory on a
       console dependency, so nothing is being buried here. Either way a dependency-update red is not a
       build/test verdict and must not block the build-test gate.
+
+honua-sdk-dotnet:
+  - name: "Dependabot"
+    why: >-
+      Dependabot's dependency-update job runs no SDK compile, unit, contract, or integration tests.
+      The .NET SDK's build, API compatibility, contract conformance, and unit lanes remain in the core
+      verdict. Dependency-update and advisory findings belong to gate_security, so this signal is
+      surfaced there rather than misclassified as a build/test failure.

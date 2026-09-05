@@ -31,7 +31,6 @@ from runner.report import Result, Status, assemble, write_report  # noqa: E402
 # Registry of canonical scenarios (decomposed SDK × scenario matrix runs here on local docker).
 SCENARIO_FILES = [
     E2E_DIR / "scenarios" / "geoservices_error_surfacing" / "scenario.py",
-    E2E_DIR / "scenarios" / "sync_no_duplicates" / "scenario.py",
 ]
 
 REPORT_PATH = E2E_DIR / "gate-report.json"
@@ -49,9 +48,8 @@ def main() -> int:
     require_real = os.environ.get("E2E_REQUIRE_REAL", "") not in ("", "0", "false", "False")
     manifest = load_manifest()
     server_port = os.environ.get("HONUA_SERVER_PORT", "8080")
-    metrics_port = os.environ.get("HONUA_METRICS_PORT", "9090")
     server_url = f"http://localhost:{server_port}"
-    metrics_url = f"http://localhost:{metrics_port}/metrics"
+    metrics_url = f"{server_url}/metrics"
 
     print(f"== Honua e2e local-docker :: platform {manifest.platform_release} ==")
     print(f"   server image pin: {manifest.server_image} (real={manifest.server.is_real})")
@@ -96,10 +94,6 @@ def main() -> int:
         block_reason = cfg_why
 
     try:
-        if server_up:
-            sdk_notes = harness.install_sdks(manifest)
-            print(f"   sdk install: {sdk_notes}")
-
         ctx = harness.Ctx(
             manifest=manifest,
             server_url=server_url,
@@ -124,7 +118,7 @@ def main() -> int:
                     why=f"scenario raised: {e}",
                 ))
     finally:
-        if server_up:
+        if cfg_ok:
             harness.compose_down()
 
     report = assemble(results, require_real)

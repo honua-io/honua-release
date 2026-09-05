@@ -17,7 +17,7 @@ inputs:
     description: "raw outcome: pass | fail | blocked | skipped (anything else is treated as fail downstream)"
     required: true
   source:
-    description: "where the artifact came from: staging | local | blocked"
+    description: "where the artifact came from: published | staging | local | blocked"
     required: true
   why:
     description: "human-readable reason / evidence"
@@ -65,7 +65,7 @@ runs:
         cat "$RUNNER_TEMP/fragments/$GATE.json"
 
     - name: Upload fragment
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ inputs.prefix }}gate-fragment-${{ inputs.gate }}
         path: ${{ runner.temp }}/fragments/${{ inputs.gate }}.json

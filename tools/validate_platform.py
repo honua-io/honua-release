@@ -33,9 +33,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -45,6 +48,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
+import trunk_reachability as tr  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -53,6 +57,18 @@ MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
 SHA_PREFIX = "sha:"
+
+# The only legal non-digest value for honua-server.awsLambdaEcrDigest. ECR re-serialises the OCI
+# manifest as Docker schema 2 on push, so that digest cannot be derived from GHCR (nor reproduced by
+# a stock `registry:2`, which preserves the source digest) — it is only knowable after a real mirror.
+# honua-release#99 tracks replacing it; e2e-cloud-aws.yml rejects it once HONUA_AWS_ROLE_ARN is set.
+PENDING_ECR_MIRROR = "pending-ecr-mirror"
+FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+NPM_INTEGRITY_RE = re.compile(r"sha512-[A-Za-z0-9+/]+={0,2}")
+ALLOWED_ECOSYSTEMS = {"npm", "pypi", "nuget"}
+ALLOWED_PUBLICATION_STATES = {"published", "promoted", "staged", "unpublished"}
+ALLOWED_TRUSTED_EVENTS = {"push", "schedule", "workflow_dispatch", "workflow_run"}
 
 
 @dataclass
@@ -106,9 +122,65 @@ def _component_version_kind(comp: dict) -> str:
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
-    for key in ("platformRelease", "status", "components"):
+    for key in ("platformRelease", "status", "components", "protocolCertification"):
         if key not in manifest:
             f.error(f"manifest: missing required top-level key {key!r}")
+
+    certification = manifest.get("protocolCertification") or {}
+    cut = str(certification.get("candidateCutAt", "")).strip()
+    try:
+        parsed_cut = datetime.fromisoformat(cut.replace("Z", "+00:00"))
+        if parsed_cut.tzinfo is None:
+            raise ValueError
+    except ValueError:
+        f.error("manifest: protocolCertification.candidateCutAt must be a timezone-aware ISO-8601 timestamp")
+    if not _full_sha(certification.get("serverCertificationProducerSha")):
+        f.error(
+            "manifest: protocolCertification.serverCertificationProducerSha must be a full "
+            "40-character commit SHA"
+        )
+    elif certification.get("serverCertificationProducerSha") != (
+        (manifest.get("components") or {}).get("honua-server") or {}
+    ).get("sha"):
+        f.error(
+            "manifest: protocolCertification.serverCertificationProducerSha must match the "
+            "frozen honua-server component SHA"
+        )
+
+    ledger = certification.get("ledger") or {}
+    ledger_status = str(ledger.get("status", "")).strip()
+    if ledger_status not in {"pending", "bound"}:
+        f.error("manifest: protocolCertification.ledger.status must be 'pending' or 'bound'")
+    if ledger.get("repository") != "honua-io/honua-evidence":
+        f.error("manifest: protocol certification ledger must be owned by honua-io/honua-evidence")
+    ledger_path = str(ledger.get("path", "")).strip()
+    if not ledger_path or ledger_path.startswith("/") or ".." in ledger_path.split("/"):
+        f.error("manifest: protocol certification ledger path must be a safe repository-relative path")
+    if ledger_status == "bound":
+        if not re.fullmatch(r"[0-9a-f]{40}", str(ledger.get("commit", "")), re.I):
+            f.error("manifest: bound protocol certification ledger commit must be a full SHA")
+        if not re.fullmatch(
+            r"[0-9a-f]{40}", str(ledger.get("requirementsSourceRevision", "")), re.I
+        ):
+            f.error(
+                "manifest: bound protocol certification ledger requirementsSourceRevision "
+                "must be a full SHA"
+            )
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(ledger.get("sha256", "")), re.I):
+            f.error("manifest: bound protocol certification ledger sha256 must be an exact digest")
+    elif ledger_status == "pending":
+        if (
+            ledger.get("commit") != "pending"
+            or ledger.get("requirementsSourceRevision") != "pending"
+            or ledger.get("sha256") != "pending"
+        ):
+            f.error(
+                "manifest: pending protocol certification ledger must use explicit pending commit, "
+                "requirements source, and digest sentinels"
+            )
+        if manifest.get("status") == "released":
+            f.error("manifest: a released platform cannot have a pending protocol certification ledger")
+
     components = manifest.get("components") or {}
     if not isinstance(components, dict) or not components:
         f.error("manifest: 'components' must be a non-empty mapping")
@@ -125,6 +197,26 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
         if kind == "sha" and not comp.get("sha"):
             f.error(f"manifest: component {name!r} is {PRERELEASE_SENTINEL} but has no sha")
 
+    server = components.get("honua-server") or {}
+    for field_name in ("awsEcsArchitecture", "awsLambdaArchitecture"):
+        architecture = str(server.get(field_name, "")).strip()
+        if architecture not in {"arm64", "x86_64"}:
+            f.error(
+                f"manifest: honua-server.{field_name} must explicitly select arm64 or x86_64, "
+                f"got {architecture!r}"
+            )
+
+    # awsLambdaEcrDigest is the digest ECR assigns AFTER the OCI->schema-2 conversion, so it can only
+    # be learned by actually pushing to ECR. Exactly two values are legal: a real digest, or the one
+    # documented sentinel (honua-release#99). Anything else — a stale digest from a previous pin, an
+    # invented one, "TBD" — is rejected here rather than sailing past the cloud gate's regex.
+    ecr_digest = str(server.get("awsLambdaEcrDigest", "")).strip()
+    if ecr_digest != PENDING_ECR_MIRROR and not re.fullmatch(r"sha256:[0-9a-f]{64}", ecr_digest):
+        f.error(
+            f"manifest: honua-server.awsLambdaEcrDigest must be an exact sha256:<64hex> digest or "
+            f"the literal {PENDING_ECR_MIRROR!r} sentinel, got {ecr_digest!r}"
+        )
+
     # Matrix ranges must parse, and every named client/component must exist in the manifest.
     for contract, body in (matrix.get("contracts") or {}).items():
         for client, spec in (body.get("clients") or {}).items():
@@ -139,6 +231,150 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
         for comp_name in (matrix.get(section) or {}):
             if comp_name not in components:
                 f.error(f"matrix: {section} names unknown component {comp_name!r} (not in manifest)")
+
+    _check_client_artifacts(manifest.get("clientArtifacts"), f)
+    _check_evidence_sources(manifest.get("evidenceSources"), f)
+
+
+def _mapping(value: object, path: str, f: Findings) -> dict:
+    if not isinstance(value, dict) or not value:
+        f.error(f"manifest: {path} must be a non-empty mapping")
+        return {}
+    return value
+
+
+def _full_sha(value: object) -> bool:
+    return bool(FULL_SHA_RE.fullmatch(str(value or "")))
+
+
+def _check_client_artifacts(value: object, f: Findings) -> None:
+    for name, artifact in _mapping(value, "clientArtifacts", f).items():
+        path = f"clientArtifacts.{name}"
+        if not isinstance(artifact, dict):
+            f.error(f"manifest: {path} must be a mapping")
+            continue
+        ecosystem = artifact.get("ecosystem")
+        if ecosystem not in ALLOWED_ECOSYSTEMS:
+            f.error(f"manifest: {path}.ecosystem must be one of {sorted(ALLOWED_ECOSYSTEMS)}")
+        for key in ("package", "version", "repository"):
+            if not str(artifact.get(key, "")).strip():
+                f.error(f"manifest: {path}.{key} is required")
+        if not semver.is_semver(str(artifact.get("version", ""))):
+            f.error(f"manifest: {path}.version must be an exact semver")
+        if not _full_sha(artifact.get("sourceSha")):
+            f.error(f"manifest: {path}.sourceSha must be a full 40-character commit SHA")
+        state = artifact.get("publicationState")
+        if state not in ALLOWED_PUBLICATION_STATES:
+            f.error(f"manifest: {path}.publicationState must be one of {sorted(ALLOWED_PUBLICATION_STATES)}")
+        if not isinstance(artifact.get("targets"), list) or not artifact["targets"]:
+            f.error(f"manifest: {path}.targets must be a non-empty list")
+        elif any(not isinstance(target, str) or not target.strip() for target in artifact["targets"]):
+            f.error(f"manifest: {path}.targets must contain non-empty strings")
+        if "required" in artifact and not isinstance(artifact["required"], bool):
+            f.error(f"manifest: {path}.required must be a boolean")
+        if artifact.get("source") not in {None, "registry", "local", "checkout", "build"}:
+            f.error(f"manifest: {path}.source names an unsupported package source")
+        digest, integrity = artifact.get("digest"), artifact.get("integrity")
+        if digest is not None and not DIGEST_RE.fullmatch(str(digest)):
+            f.error(f"manifest: {path}.digest must be sha256:<64hex>")
+        if integrity is not None and not NPM_INTEGRITY_RE.fullmatch(str(integrity)):
+            f.error(f"manifest: {path}.integrity must be an npm sha512 SRI value")
+        if ecosystem == "npm" and digest is not None:
+            f.error(f"manifest: {path} must use integrity, not digest, for npm bytes")
+        if ecosystem == "npm" and integrity is None:
+            f.error(f"manifest: {path} requires npm integrity for immutable package bytes")
+        if ecosystem != "npm" and integrity is not None:
+            f.error(f"manifest: {path} must use digest, not npm integrity")
+        if ecosystem in {"pypi", "nuget"} and digest is None:
+            f.error(f"manifest: {path} requires a sha256 digest for immutable package bytes")
+        if ecosystem == "pypi" and not str(artifact.get("filename", "")).strip():
+            f.error(f"manifest: {path}.filename is required for an exact wheel pin")
+        if ecosystem == "nuget" and artifact.get("registry") != "github-packages":
+            f.error(f"manifest: {path}.registry must identify the GitHub Packages registry")
+
+
+def _check_evidence_sources(value: object, f: Findings) -> None:
+    for name, source in _mapping(value, "evidenceSources", f).items():
+        path = f"evidenceSources.{name}"
+        if not isinstance(source, dict):
+            f.error(f"manifest: {path} must be a mapping")
+            continue
+        for key in ("repository", "workflowPath", "trustedBranch", "artifactIdentity", "evidencePolicyRevision"):
+            if not str(source.get(key, "")).strip():
+                f.error(f"manifest: {path}.{key} is required")
+        if not _full_sha(source.get("producerSha")):
+            f.error(f"manifest: {path}.producerSha must be a full 40-character commit SHA")
+        events = source.get("trustedEvents")
+        if not isinstance(events, list) or not events or any(e not in ALLOWED_TRUSTED_EVENTS for e in events):
+            f.error(f"manifest: {path}.trustedEvents contains an unsupported or empty event set")
+        if "required" in source and not isinstance(source["required"], bool):
+            f.error(f"manifest: {path}.required must be a boolean")
+
+
+def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | None, f: Findings) -> None:
+    """Keep compatibility copies from becoming a second source of pin truth."""
+    if evidence_config is None:
+        return
+    sources = manifest.get("evidenceSources") or {}
+    pairs = (("esri-compat", "esri", "evidenceRef"), ("demos", "demos", "sourceRef"))
+    for source_name, section, field_name in pairs:
+        canonical = str((sources.get(source_name) or {}).get("producerSha", ""))
+        legacy = str((evidence_config.get(section) or {}).get(field_name, ""))
+        if canonical and legacy and canonical != legacy:
+            f.error(
+                f"coherence: evidenceSources.{source_name}.producerSha={canonical} disagrees with "
+                f"certification/conformance-evidence.yaml {section}.{field_name}={legacy}"
+            )
+
+
+def check_exact_candidate(
+    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
+) -> None:
+    """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    candidate = manifest.get("candidate") or {}
+    ref_source = candidate.get("refSource")
+    if ref_source != "trunk":
+        f.error(
+            "exact-candidate: candidate.refSource must be 'trunk'; "
+            f"dispatched ref was {ref_source!r}"
+        )
+    server = ((manifest.get("components") or {}).get("honua-server") or {})
+    if not server.get("image") or not DIGEST_RE.fullmatch(str(server.get("digest", ""))):
+        f.error("exact-candidate: components.honua-server requires an image and immutable digest")
+    # A trunk refSource alone proves nothing about WHICH commit was dispatched: a manifest could
+    # claim trunk while pinning (and certifying) a different build. Bind the dispatch ref to the
+    # pinned component so the source claim and the certified bytes are about the same commit.
+    ref = str(candidate.get("ref", ""))
+    server_sha = str(server.get("sha", ""))
+    if not _full_sha(ref):
+        f.error("exact-candidate: candidate.ref must be a full 40-character commit SHA")
+    elif ref != server_sha:
+        f.error(
+            "exact-candidate: candidate.ref must equal components.honua-server.sha; "
+            f"candidate.ref={ref} but the pinned server sha is {server_sha or '<missing>'}"
+        )
+    for name, artifact in (manifest.get("clientArtifacts") or {}).items():
+        path = f"clientArtifacts.{name}"
+        if artifact.get("required", True) is False:
+            continue
+        if artifact.get("publicationState") not in {"published", "promoted"}:
+            f.error(f"exact-candidate: {path} does not name published/promoted bytes")
+        if not (artifact.get("digest") or artifact.get("integrity")):
+            f.error(f"exact-candidate: {path} lacks an immutable digest/integrity pin")
+        version = str(artifact.get("version", ""))
+        if version in {"", "latest", "next", "local", "pre-release"} or any(c in version for c in "*^~<>"):
+            f.error(f"exact-candidate: {path}.version is floating or local")
+        source_mode = artifact.get("source")
+        if source_mode not in {None, "registry"}:
+            f.error(f"exact-candidate: {path} cannot use source={source_mode}; checkout/build fallbacks are forbidden")
+    for name, source in (manifest.get("evidenceSources") or {}).items():
+        if source.get("required", True) and not _full_sha(source.get("producerSha")):
+            f.error(f"exact-candidate: evidenceSources.{name} lacks a trusted immutable producer pin")
+    if reachability_client is not None:
+        try:
+            tr.verify_manifest_pins(manifest, reachability_client)
+        except tr.ReachabilityError as exc:
+            f.error(f"exact-candidate: {exc}")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -253,13 +489,21 @@ def _narrowed(base: semver.Range, cur: semver.Range) -> str:
 # --------------------------------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------------------------------
-def validate(manifest: dict, matrix: dict, baseline_matrix: dict | None) -> Findings:
+def validate(
+    manifest: dict,
+    matrix: dict,
+    baseline_matrix: dict | None,
+    exact_candidate: bool = False,
+    reachability_client: tr.APIClient | None = None,
+) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
+    if exact_candidate:
+        check_exact_candidate(manifest, f, reachability_client)
     return f
 
 
@@ -270,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drift", action="store_true", help="skip drift even if --baseline is given")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--matrix", default=str(MATRIX_PATH))
+    ap.add_argument("--exact-candidate", action="store_true",
+                    help="reject unpublished/floating/local pins; use for release certification")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
@@ -281,7 +527,25 @@ def main(argv: list[str] | None = None) -> int:
         if baseline_matrix is None:
             print(f"note: no baseline compatibility-matrix.yaml at {args.baseline!r}; skipping drift")
 
-    f = validate(manifest, matrix, baseline_matrix)
+    reachability_client = None
+    if args.exact_candidate:
+        if os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("GITHUB_TOKEN"):
+            reachability_client = tr.GhClient()
+        else:
+            print(
+                "SKIP  trunk-reachability checks unavailable offline "
+                "(not running in CI and GITHUB_TOKEN is unset)"
+            )
+    f = validate(
+        manifest,
+        matrix,
+        baseline_matrix,
+        exact_candidate=args.exact_candidate,
+        reachability_client=reachability_client,
+    )
+    evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
+    if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
+        check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
 
     for w in f.warnings:
         print(f"WARN  {w}")

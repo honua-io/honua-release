@@ -1,0 +1,385 @@
+name: gate-protocol-certification
+run-name: "protocol certification ${{ inputs.tier }}"
+
+on:
+  workflow_call:
+    inputs:
+      matrix_repository:
+        description: Repository containing the immutable certification ledger
+        required: true
+        type: string
+      matrix_commit:
+        description: Full immutable commit containing the certification ledger
+        required: true
+        type: string
+      matrix_path:
+        description: Repository-relative certification ledger path
+        required: true
+        type: string
+      matrix_sha256:
+        description: Independently pinned SHA-256 of the certification ledger bytes
+        required: true
+        type: string
+      expected_requirements_source_revision:
+        description: Full honua-release commit that owns the pinned denominator
+        required: true
+        type: string
+      tier:
+        description: pr | nightly | release
+        required: true
+        type: string
+      expected_source_sha:
+        description: Exact honua-server source SHA
+        required: false
+        type: string
+        default: ""
+      expected_image_digest:
+        description: Exact release image digest
+        required: false
+        type: string
+        default: ""
+      expected_cut_at:
+        description: Independently frozen ISO-8601 candidate cut
+        required: false
+        type: string
+        default: ""
+      expected_server_certification_sha:
+        description: Frozen server-certification producer SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_js_sha:
+        description: Frozen honua-sdk-js component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_python_sha:
+        description: Frozen honua-sdk-python component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_dotnet_sha:
+        description: Frozen honua-sdk-dotnet component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_js_version:
+        description: Shipped honua-sdk-js artifact version for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_python_version:
+        description: Shipped honua-sdk-python artifact version for release certification
+        required: false
+        type: string
+        default: ""
+      expected_sdk_dotnet_version:
+        description: Shipped honua-sdk-dotnet artifact version for release certification
+        required: false
+        type: string
+        default: ""
+      expected_geospatial_grpc_sha:
+        description: Frozen geospatial-grpc component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      expected_geospatial_mcp_sha:
+        description: Frozen geospatial-mcp component SHA for release certification
+        required: false
+        type: string
+        default: ""
+      enforcement:
+        description: bootstrap | strict
+        required: false
+        type: string
+        default: strict
+    outputs:
+      overall_status:
+        description: pass | fail | blocked
+        value: ${{ jobs.protocol-certification.outputs.status }}
+  workflow_dispatch:
+    inputs:
+      matrix_repository:
+        description: Repository containing the immutable certification ledger
+        required: true
+        type: string
+      matrix_commit:
+        description: Full immutable commit containing the certification ledger
+        required: true
+        type: string
+      matrix_path:
+        description: Repository-relative certification ledger path
+        required: true
+        type: string
+      matrix_sha256:
+        description: Independently pinned SHA-256 of the certification ledger bytes
+        required: true
+        type: string
+      expected_requirements_source_revision:
+        description: Full honua-release commit that owns the pinned denominator
+        required: true
+        type: string
+      tier:
+        description: Certification tier
+        required: true
+        type: choice
+        options: [pr, nightly, release]
+      expected_source_sha:
+        description: Exact honua-server source SHA
+        required: false
+        type: string
+      expected_image_digest:
+        description: Exact release image digest
+        required: false
+        type: string
+      expected_cut_at:
+        description: Independently frozen ISO-8601 candidate cut
+        required: false
+        type: string
+      expected_server_certification_sha:
+        description: Frozen server-certification producer SHA for release certification
+        required: false
+        type: string
+      expected_sdk_js_sha:
+        description: Frozen honua-sdk-js component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_python_sha:
+        description: Frozen honua-sdk-python component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_dotnet_sha:
+        description: Frozen honua-sdk-dotnet component SHA for release certification
+        required: false
+        type: string
+      expected_sdk_js_version:
+        description: Shipped honua-sdk-js artifact version for release certification
+        required: false
+        type: string
+      expected_sdk_python_version:
+        description: Shipped honua-sdk-python artifact version for release certification
+        required: false
+        type: string
+      expected_sdk_dotnet_version:
+        description: Shipped honua-sdk-dotnet artifact version for release certification
+        required: false
+        type: string
+      expected_geospatial_grpc_sha:
+        description: Frozen geospatial-grpc component SHA for release certification
+        required: false
+        type: string
+      expected_geospatial_mcp_sha:
+        description: Frozen geospatial-mcp component SHA for release certification
+        required: false
+        type: string
+      enforcement:
+        description: Gate enforcement
+        required: true
+        default: strict
+        type: choice
+        options: [strict, bootstrap]
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.evaluate.outputs.status }}
+    steps:
+      - name: Check out the proposed gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install proposed-evaluator test dependencies
+        run: python3 -m pip install pytest jsonschema
+
+      - name: Test the proposed evaluator separately
+        run: python3 -m pytest tools/test_check_protocol_certification.py -q
+
+      - name: Fetch immutable certification ledger
+        id: fetch
+        shell: bash
+        env:
+          MATRIX_REPOSITORY: ${{ inputs.matrix_repository }}
+          MATRIX_COMMIT: ${{ inputs.matrix_commit }}
+          MATRIX_PATH: ${{ inputs.matrix_path }}
+          MATRIX_SHA256: ${{ inputs.matrix_sha256 }}
+          EXPECTED_REQUIREMENTS_REVISION: ${{ inputs.expected_requirements_source_revision }}
+        run: |
+          set -u
+          mkdir -p out
+          code=0
+          fetch_class=integrity
+          if [[ "$MATRIX_REPOSITORY" != "honua-io/honua-evidence" ]] ||
+             [[ ! "$MATRIX_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] ||
+             [[ ! "$MATRIX_PATH" =~ ^[A-Za-z0-9._/-]+$ ]] ||
+             [[ "$MATRIX_PATH" == /* || "/$MATRIX_PATH/" == *"/../"* ]] ||
+             [[ ! "$MATRIX_SHA256" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
+             [[ ! "$EXPECTED_REQUIREMENTS_REVISION" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::Certification ledger binding is not an immutable trusted honua-evidence object."
+            code=1
+          else
+            git init -q out/evidence-source
+            git -C out/evidence-source remote add origin "https://github.com/${MATRIX_REPOSITORY}.git"
+            git -C out/evidence-source fetch --quiet --depth=1 origin "$MATRIX_COMMIT" || {
+              code=$?
+              fetch_class=unavailable
+            }
+            if [[ "$code" -eq 0 ]]; then
+              fetched_commit="$(git -C out/evidence-source rev-parse FETCH_HEAD)"
+              if [[ "${fetched_commit,,}" != "${MATRIX_COMMIT,,}" ]]; then
+                echo "::error::Certification evidence checkout did not resolve the pinned commit."
+                code=1
+              else
+                git -C out/evidence-source checkout --quiet --detach FETCH_HEAD || code=$?
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              source_matrix="out/evidence-source/${MATRIX_PATH}"
+              if [[ ! -f "$source_matrix" ]]; then
+                echo "::error::Pinned certification ledger path does not exist."
+                code=1
+                fetch_class=unavailable
+              else
+                cp "$source_matrix" out/protocol-certification.json
+                source_receipts="$(dirname "$source_matrix")/sha256"
+                [[ ! -d "$source_receipts" ]] || cp -R "$source_receipts" out/sha256
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              actual="sha256:$(sha256sum out/protocol-certification.json | cut -d' ' -f1)"
+              if [[ "${actual,,}" != "${MATRIX_SHA256,,}" ]]; then
+                echo "::error::Certification ledger digest mismatch: expected $MATRIX_SHA256, got $actual."
+                code=1
+                fetch_class=integrity
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              git init -q out/requirements-owner
+              git -C out/requirements-owner remote add origin \
+                "https://github.com/${GITHUB_REPOSITORY}.git"
+                git -C out/requirements-owner fetch --quiet --depth=1 origin \
+                "$EXPECTED_REQUIREMENTS_REVISION" || {
+                  code=$?
+                  fetch_class=unavailable
+                }
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              requirements_commit="$(git -C out/requirements-owner rev-parse FETCH_HEAD)"
+              if [[ "${requirements_commit,,}" != "${EXPECTED_REQUIREMENTS_REVISION,,}" ]]; then
+                echo "::error::Requirements owner checkout did not resolve the pinned commit."
+                code=1
+                fetch_class=integrity
+              else
+                git -C out/requirements-owner checkout --quiet --detach FETCH_HEAD || code=$?
+              fi
+            fi
+            if [[ "$code" -eq 0 ]]; then
+              if [[ ! -f out/requirements-owner/certification/protocol-certification-requirements.v1.json ]]; then
+                echo "::error::Pinned requirements owner has no certification denominator."
+                code=1
+                fetch_class=integrity
+              elif [[ ! -f out/requirements-owner/tools/check_protocol_certification.py ]]; then
+                echo "::error::Pinned requirements owner has no trusted certification evaluator."
+                code=1
+                fetch_class=integrity
+              else
+                cp out/requirements-owner/certification/protocol-certification-requirements.v1.json \
+                  out/protocol-certification-requirements.v1.json
+              fi
+            fi
+          fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "fetch_class=$fetch_class" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate certification ledger
+        id: evaluate
+        if: always()
+        shell: bash
+        env:
+          TIER: ${{ inputs.tier }}
+          EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+          EXPECTED_REQUIREMENTS_REVISION: ${{ inputs.expected_requirements_source_revision }}
+          EXPECTED_DIGEST: ${{ inputs.expected_image_digest }}
+          EXPECTED_CUT_AT: ${{ inputs.expected_cut_at }}
+          EXPECTED_SERVER_CERTIFICATION_SHA: ${{ inputs.expected_server_certification_sha }}
+          EXPECTED_SDK_JS_SHA: ${{ inputs.expected_sdk_js_sha }}
+          EXPECTED_SDK_PYTHON_SHA: ${{ inputs.expected_sdk_python_sha }}
+          EXPECTED_SDK_DOTNET_SHA: ${{ inputs.expected_sdk_dotnet_sha }}
+          EXPECTED_SDK_JS_VERSION: ${{ inputs.expected_sdk_js_version }}
+          EXPECTED_SDK_PYTHON_VERSION: ${{ inputs.expected_sdk_python_version }}
+          EXPECTED_SDK_DOTNET_VERSION: ${{ inputs.expected_sdk_dotnet_version }}
+          EXPECTED_GEOSPATIAL_GRPC_SHA: ${{ inputs.expected_geospatial_grpc_sha }}
+          EXPECTED_GEOSPATIAL_MCP_SHA: ${{ inputs.expected_geospatial_mcp_sha }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          FETCH_EXIT_CODE: ${{ steps.fetch.outputs.exit_code }}
+          FETCH_CLASS: ${{ steps.fetch.outputs.fetch_class }}
+        run: |
+          set +e
+          args=(--matrix out/protocol-certification.json --requirements out/protocol-certification-requirements.v1.json --tier "$TIER" --report out/protocol-certification-report.json --expected-requirements-source-revision "$EXPECTED_REQUIREMENTS_REVISION")
+          [[ -n "$EXPECTED_SHA" ]] && args+=(--expected-source-sha "$EXPECTED_SHA")
+          [[ -n "$EXPECTED_DIGEST" ]] && args+=(--expected-image-digest "$EXPECTED_DIGEST")
+          [[ -n "$EXPECTED_CUT_AT" ]] && args+=(--expected-cut-at "$EXPECTED_CUT_AT")
+          [[ -n "$EXPECTED_SERVER_CERTIFICATION_SHA" ]] && args+=(--expected-server-certification-sha "$EXPECTED_SERVER_CERTIFICATION_SHA")
+          [[ -n "$EXPECTED_SDK_JS_SHA" ]] && args+=(--expected-sdk-js-sha "$EXPECTED_SDK_JS_SHA")
+          [[ -n "$EXPECTED_SDK_PYTHON_SHA" ]] && args+=(--expected-sdk-python-sha "$EXPECTED_SDK_PYTHON_SHA")
+          [[ -n "$EXPECTED_SDK_DOTNET_SHA" ]] && args+=(--expected-sdk-dotnet-sha "$EXPECTED_SDK_DOTNET_SHA")
+          [[ -n "$EXPECTED_SDK_JS_VERSION" ]] && args+=(--expected-sdk-js-version "$EXPECTED_SDK_JS_VERSION")
+          [[ -n "$EXPECTED_SDK_PYTHON_VERSION" ]] && args+=(--expected-sdk-python-version "$EXPECTED_SDK_PYTHON_VERSION")
+          [[ -n "$EXPECTED_SDK_DOTNET_VERSION" ]] && args+=(--expected-sdk-dotnet-version "$EXPECTED_SDK_DOTNET_VERSION")
+          [[ -n "$EXPECTED_GEOSPATIAL_GRPC_SHA" ]] && args+=(--expected-geospatial-grpc-sha "$EXPECTED_GEOSPATIAL_GRPC_SHA")
+          [[ -n "$EXPECTED_GEOSPATIAL_MCP_SHA" ]] && args+=(--expected-geospatial-mcp-sha "$EXPECTED_GEOSPATIAL_MCP_SHA")
+          if [[ "$FETCH_EXIT_CODE" != 0 ]]; then
+            echo "::error::Certification ledger fetch or digest verification failed."
+            code=2
+            if [[ "$ENFORCEMENT" == "bootstrap" && "$FETCH_CLASS" == "unavailable" ]]; then
+              status=blocked
+            else
+              status=fail
+            fi
+          else
+            # Enforcement runs only from the externally pinned requirements-owner
+            # revision. The proposed evaluator was tested above but cannot certify
+            # its own pull request.
+            python3 out/requirements-owner/tools/check_protocol_certification.py "${args[@]}"
+            code=$?
+            if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
+          fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload certification decision
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: protocol-certification-${{ inputs.tier }}
+          path: |
+            out/protocol-certification.json
+            out/protocol-certification-report.json
+          if-no-files-found: warn
+
+      - name: Emit release gate fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: protocol-certification
+          status: ${{ steps.evaluate.outputs.status || 'fail' }}
+          source: ${{ steps.fetch.outputs.exit_code == '0' && 'honua-evidence' || 'blocked' }}
+          why: "normalized ${{ inputs.tier }} certification ledger; see protocol-certification report artifact"
+          enforcement: ${{ inputs.enforcement }}
+          prefix: protocol-
+
+      - name: Enforce certification decision
+        if: steps.evaluate.outputs.status == 'fail'
+        run: |
+          echo "::error::Protocol certification ledger is missing, invalid, stale, mismatched, skipped, or failing."
+          exit 1
