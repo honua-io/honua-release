@@ -1,1 +1,2 @@
 contracts/baselines/**/*.json text eol=lf
+tools/fixtures/dr/*.json text eol=lf

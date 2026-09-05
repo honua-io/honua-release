@@ -86,6 +86,11 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         unresolved.append(rendered)
         if resolution == "AT-CUT":
             deferred.append(rendered)
+    if "disasterRecovery" in manifest:
+        # Preserve the deployment-owned denominator in the signed lock. Never copy it from evidence.
+        lock["disasterRecovery"] = manifest["disasterRecovery"]
+    else:
+        refuse("$.disasterRecovery: candidate deployment durable-substrate inventory is not declared", "AT-CUT")
     if not platform_id:
         unresolved.append(
             "$.platform.id: platformManifest.platformRelease is absent or not strict "

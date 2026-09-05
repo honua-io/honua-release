@@ -105,7 +105,7 @@ export STARTED_AT=$(date -u -d "@$((START_NS/1000000000))" +%Y-%m-%dT%H:%M:%SZ) 
 python3 - "$OUT/receipt.json" <<'PY'
 import json,os,sys
 r={
- 'schema':'honua.dr-drill-receipt/v1','status':'pass','topology':'local-docker',
+ 'schema':'honua.postgresql-restore-receipt/v1','scope':'postgresql-restore','status':'pass','topology':'local-docker',
  'candidate':{'platformRelease':os.environ['RELEASE'],'serverSha':os.environ['CANDIDATE_SHA'],'imageDigest':os.environ['IMAGE_DIGEST'],'dbSchema':os.environ['EXPECTED_SCHEMA'],'releaseLock':{'path':'platform-manifest.yaml','sha256':'sha256:'+os.environ['MANIFEST_SHA']}},
  'backup':{'format':'pg_dump-custom','sha256':'sha256:'+os.environ['BACKUP_SHA'],'supportedCommands':['pg_dump','pg_restore'],'originalDatabaseDestroyed':True,'restoredIntoCleanVolume':True},
  'measurements':{'rpoMs':int(os.environ['RPO_MS']),'rtoMs':int(os.environ['RTO_MS']),'rpoDefinition':'last committed fixture to backup completion','rtoDefinition':'destruction start to restored customer journey green'},
@@ -120,4 +120,4 @@ openssl pkey -in "$KEY" -pubout -out "$OUT/receipt.pub.pem"
 openssl pkeyutl -sign -rawin -inkey "$KEY" -in "$OUT/receipt.json" -out "$OUT/receipt.json.sig"
 openssl pkeyutl -verify -rawin -pubin -inkey "$OUT/receipt.pub.pem" -in "$OUT/receipt.json" -sigfile "$OUT/receipt.json.sig"
 (cd "$OUT" && sha256sum receipt.json receipt.json.sig receipt.pub.pem > SHA256SUMS)
-printf 'DR drill PASS receipt=%s rpoMs=%s rtoMs=%s\n' "$OUT/receipt.json" "$RPO_MS" "$RTO_MS"
+printf 'PostgreSQL restore PASS (not full-platform DR) receipt=%s rpoMs=%s rtoMs=%s\n' "$OUT/receipt.json" "$RPO_MS" "$RTO_MS"
