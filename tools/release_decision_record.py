@@ -54,29 +54,27 @@ def gh(*args, payload=None):
     if payload is not None:
         cmd += ['--input', '-']
     waited = 0
-    for delay in [0, 10, 30, 60, 120, 80]:
-        if delay:
-            time.sleep(delay)
-            waited += delay
+    delays = iter([10, 30, 60, 120, 80])
+    while True:
         p = subprocess.run(cmd, input=None if payload is None else json.dumps(payload),
                            text=True, capture_output=True)
         if p.returncode == 0:
             return json.loads(p.stdout) if p.stdout.strip() else None
         error = p.stderr.lower()
-        if '403' in error:
-            # Authorization/rate-limit response: sleep; never device-auth or re-auth.
-            while '403' in error:
-                print('GitHub 403: sleeping 60 seconds before retrying the same request.', file=sys.stderr)
-                time.sleep(60)
-                p = subprocess.run(cmd, input=None if payload is None else json.dumps(payload),
-                                   text=True, capture_output=True)
-                if p.returncode == 0:
-                    return json.loads(p.stdout) if p.stdout.strip() else None
-                error = p.stderr.lower()
-        if not any(s in error for s in TRANSIENT):
+        forbidden = '403' in error
+        if not forbidden and not any(s in error for s in TRANSIENT):
             status = re.search(r'HTTP (\d+)', p.stderr)
             raise ValueError(f'GitHub request failed ({status[0] if status else "non-transient response"}): {args[1] if len(args)>1 else args[0]}')
-        print(f'Transient GitHub failure; retry budget used {waited}/300 seconds.', file=sys.stderr)
+        if waited >= 300:
+            break
+        # 403 waits share the network retry budget; never device-auth or re-auth.
+        delay = min(60 if forbidden else next(delays), 300 - waited)
+        if forbidden:
+            print(f'GitHub 403: sleeping {delay} seconds before retrying the same request.', file=sys.stderr)
+        else:
+            print(f'Transient GitHub failure; retry budget used {waited}/300 seconds.', file=sys.stderr)
+        time.sleep(delay)
+        waited += delay
     raise ValueError('GitHub request failed after the full 300-second network retry budget')
 
 
