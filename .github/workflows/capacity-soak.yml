@@ -34,6 +34,7 @@ jobs:
           import yaml
           manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
           print(f"revision={manifest['components']['honua-server']['sha']}")
+          print(f"digest={manifest['components']['honua-server']['digest']}")
           PY
       - name: Read frozen lock before receipt
         id: lock
@@ -62,13 +63,14 @@ jobs:
           python3 tools/extract_capacity_evidence.py
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --output "$RUNNER_TEMP/capacity-evidence"
-      - name: Evaluate 10/10 workloads and 8/8 sourced signals
+      - name: Evaluate 8/8 GA workloads, 2 Preview exclusions and 8/8 sourced signals
         run: >-
           python3 tools/check_capacity_soak.py
           --lock certification/capacity-envelope.v1.json
           --receipt "$RUNNER_TEMP/capacity-evidence/capacity-soak-receipt.json"
           --artifact-root "$RUNNER_TEMP/capacity-evidence"
           --expected-revision "${{ steps.candidate.outputs.revision }}"
+          --expected-image-digest "${{ steps.candidate.outputs.digest }}"
       - name: Preserve immutable evidence bundle and verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

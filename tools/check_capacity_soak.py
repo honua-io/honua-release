@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from capacity_observations import validate_sources
+
 
 APPROVED_PRODUCER_REPOSITORY = "honua-io/honua-server"
 APPROVED_PRODUCER_WORKFLOW = ".github/workflows/load-soak-nightly.yml"
@@ -231,6 +233,13 @@ def _validate_population(name: str, signal: dict[str, Any], failures: list[str])
 
 def _validate_recovery(signal: dict[str, Any], artifacts: set[str], window: dict[str, Any], failures: list[str]) -> None:
     evidence = _mapping(signal.get("recoveryEvidence"))
+    events = evidence.get("events")
+    if isinstance(events, list) and events:
+        for event in events:
+            event_signal = dict(signal, recoveryEvidence=dict(event, rawArtifactIds=evidence.get("rawArtifactIds")))
+            event_signal.pop("value", None)
+            _validate_recovery(event_signal, artifacts, window, failures)
+        return
     if not _nonempty(evidence.get("failure")) or not _refs(evidence.get("rawArtifactIds"), artifacts):
         failures.append("recoveryTimeSeconds: recovery evidence and raw artifact are required")
         return
@@ -294,6 +303,8 @@ def _validate_signals(
             failures.append(f"{name}: candidate identity differs from the receipt")
 
         query = _mapping(signal.get("query"))
+        if query != _mapping(lock.get("queries")).get(name):
+            failures.append(f"{name}: query differs from the frozen query in the lock")
         expression = query.get("expression")
         if not all(_nonempty(query.get(field)) for field in ("language", "expression", "version")):
             failures.append(f"{name}: query language/expression/version is missing")
@@ -340,6 +351,7 @@ def evaluate(
     digest: str,
     expected_revision: str,
     artifact_root: Path,
+    expected_image_digest: str,
 ) -> list[str]:
     """Return every contract failure; an empty list is the only green result."""
     failures: list[str] = []
@@ -374,6 +386,8 @@ def evaluate(
         failures.append("candidate revision does not match the manifest-pinned honua-server SHA")
     if not IMAGE_DIGEST_PATTERN.fullmatch(image_digest):
         failures.append("candidate image digest is missing or invalid; source-built evidence is inadmissible")
+    if not IMAGE_DIGEST_PATTERN.fullmatch(expected_image_digest) or image_digest != expected_image_digest:
+        failures.append("candidate image digest does not match the manifest-pinned image")
     if receipt.get("lockSha256") != digest:
         failures.append("receipt does not bind the exact committed threshold lock")
     if receipt.get("profile") != lock.get("soak", {}).get("profile"):
@@ -387,7 +401,7 @@ def evaluate(
     try:
         started = _time(window.get("startedAt"), "window.startedAt")
         ended = _time(window.get("endedAt"), "window.endedAt")
-        frozen = _time(lock.get("frozenAt"), "frozenAt")
+        frozen = max(_time(lock.get("frozenAt"), "frozenAt"), _time(receipt_contract.get("frozenAt"), "receiptContract.frozenAt"))
         if started <= frozen:
             failures.append("soak did not start after the threshold freeze")
         duration = (ended - started).total_seconds()
@@ -405,6 +419,7 @@ def evaluate(
     artifacts = _validate_raw_artifacts(receipt, artifact_root, failures)
     workload_names = _validate_workloads(lock, receipt, artifacts, failures)
     _validate_signals(lock, receipt, candidate, artifacts, workload_names, failures)
+    failures.extend(validate_sources(lock, receipt, artifact_root))
     return failures
 
 
@@ -414,21 +429,22 @@ def main() -> int:
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--expected-revision", required=True)
+    parser.add_argument("--expected-image-digest", required=True)
     args = parser.parse_args()
     try:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
         failures = evaluate(
-            lock, receipt, lock_digest(args.lock), args.expected_revision, args.artifact_root
+            lock, receipt, lock_digest(args.lock), args.expected_revision, args.artifact_root, args.expected_image_digest
         )
-    except (OSError, json.JSONDecodeError, ContractError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         failures = [str(exc)]
     if failures:
         print("capacity-soak: FAIL")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS — exact candidate, 10/10 workloads, 8/8 sourced SLIs")
+    print("capacity-soak: PASS — exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
     return 0
 
 

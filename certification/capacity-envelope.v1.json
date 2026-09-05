@@ -15,7 +15,8 @@
     },
     "requiredRawEvidence": true,
     "requiredWorkloadStatus": "exercised",
-    "previewProxyEvidenceAllowed": false
+    "previewProxyEvidenceAllowed": false,
+    "frozenAt": "2026-09-05T04:00:00Z"
   },
   "baseline": {
     "repository": "honua-io/honua-server",
@@ -34,26 +35,122 @@
     "maximumFeaturePayloadBytes": 1048576,
     "concurrentVirtualUsers": 170,
     "gpWorkers": 1,
-    "gpQueueDepth": 100,
-    "activeSubscriptions": 1000,
-    "alertEvaluationsPerSecond": 10
+    "gpQueueDepth": 100
   },
   "soak": {
     "profile": "soak",
     "minimumSteadyStateSeconds": 3600,
     "requiredSignals": [
-      "availability", "errorRate", "p95LatencyMs", "p99LatencyMs",
-      "throughputRps", "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds"
+      "availability",
+      "errorRate",
+      "p95LatencyMs",
+      "p99LatencyMs",
+      "throughputRps",
+      "queueAgeSeconds",
+      "saturationRatio",
+      "recoveryTimeSeconds"
     ]
   },
   "thresholds": {
-    "availability": { "operator": ">=", "value": 0.9999, "regressionAllowance": 0.0 },
-    "errorRate": { "operator": "<=", "value": 0.0001, "regressionAllowance": 0.0 },
-    "p95LatencyMs": { "operator": "<=", "value": 610.0, "regressionAllowance": 0.10 },
-    "p99LatencyMs": { "operator": "<=", "value": 640.0, "regressionAllowance": 0.10 },
-    "throughputRps": { "operator": ">=", "value": 1790.0, "regressionAllowance": 0.05 },
-    "queueAgeSeconds": { "operator": "<=", "value": 30.0, "regressionAllowance": 0.0 },
-    "saturationRatio": { "operator": "<=", "value": 0.85, "regressionAllowance": 0.0 },
-    "recoveryTimeSeconds": { "operator": "<=", "value": 300.0, "regressionAllowance": 0.0 }
+    "availability": {
+      "operator": ">=",
+      "value": 0.9999,
+      "regressionAllowance": 0.0
+    },
+    "errorRate": {
+      "operator": "<=",
+      "value": 0.0001,
+      "regressionAllowance": 0.0
+    },
+    "p95LatencyMs": {
+      "operator": "<=",
+      "value": 610.0,
+      "regressionAllowance": 0.1
+    },
+    "p99LatencyMs": {
+      "operator": "<=",
+      "value": 640.0,
+      "regressionAllowance": 0.1
+    },
+    "throughputRps": {
+      "operator": ">=",
+      "value": 1790.0,
+      "regressionAllowance": 0.05
+    },
+    "queueAgeSeconds": {
+      "operator": "<=",
+      "value": 30.0,
+      "regressionAllowance": 0.0
+    },
+    "saturationRatio": {
+      "operator": "<=",
+      "value": 0.85,
+      "regressionAllowance": 0.0
+    },
+    "recoveryTimeSeconds": {
+      "operator": "<=",
+      "value": 300.0,
+      "regressionAllowance": 0.0
+    }
+  },
+  "excludedPreviewDimensions": {
+    "activeSubscriptions": {
+      "status": "preview",
+      "requiredForGa": false
+    },
+    "alertEvaluationsPerSecond": {
+      "status": "preview",
+      "requiredForGa": false
+    }
+  },
+  "queries": {
+    "availability": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "sum(requests[count where httpStatus < 500 and inBandError == false]) / sum(requests[count])",
+      "sha256": "ba9ebb1bb2186411a62498a98723871e759d1a0c00c6a8a0276225ea5548510e"
+    },
+    "errorRate": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "sum(requests[count where httpStatus >= 500 or inBandError == true]) / sum(requests[count])",
+      "sha256": "c8f764a94360fa9adb12c82d70f163fe164eccaf95a8ed6532ca9d4fdf3f81cd"
+    },
+    "p95LatencyMs": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "weighted_nearest_rank(requests[durationMs,count], 0.95)",
+      "sha256": "b56300c5fe053b697c772bedb230fdafce2a39770d094e6dfd882f2297fbe4ca"
+    },
+    "p99LatencyMs": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "weighted_nearest_rank(requests[durationMs,count], 0.99)",
+      "sha256": "3932938a3ae7741a712e767676b027016f86e545329c5159b0102c690668a097"
+    },
+    "throughputRps": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "sum(requests[count]) / seconds(window)",
+      "sha256": "159b24f7907e4b03a3bcf3f76d6f81df78f97b2b9d76869d25b9b3849d2ea202"
+    },
+    "queueAgeSeconds": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "max(metrics[queueAgeSeconds])",
+      "sha256": "d1b19193dc1a35c27014287f45f45c873c32893e18f0618de1b818c64044fdee"
+    },
+    "saturationRatio": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "max(metrics[worker], metrics[database], metrics[redis])",
+      "sha256": "7d78e5d70bb0b90691cb51b0f6b0a66b95c1744980278c79f0a088228ffd0211"
+    },
+    "recoveryTimeSeconds": {
+      "language": "honua-observation-query",
+      "version": "1",
+      "expression": "max(recoveries[seconds(recoveredAt - injectedAt)])",
+      "sha256": "3e7b8e1a0613131609d285fe2bf2dc2c2dbd110fb37c73d947a5e254ea7b03cc"
+    }
   }
 }
