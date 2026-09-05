@@ -1,0 +1,29 @@
+﻿name: Capacity evidence contract
+on:
+  pull_request:
+    paths:
+      - 'tools/*capacity*'
+      - 'tools/test_workflow_contracts.py'
+      - 'certification/capacity-envelope.v1.json'
+      - '.github/workflows/capacity-*.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sourced-observations:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pytest pyyaml
+      - name: Reject unsourced observations and recompute all GA signals
+        run: python -m pytest tools/test_check_capacity_soak.py tools/test_extract_capacity_evidence.py tools/test_workflow_contracts.py -q --junitxml=test-results/capacity.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: capacity-checker-tests
+          path: test-results/capacity.xml
+          if-no-files-found: error

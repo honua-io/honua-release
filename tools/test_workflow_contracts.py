@@ -39,7 +39,14 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     commands = "\n".join(_step_text(step) for step in job["steps"])
     assert "capacity-envelope.v1.json" in commands
     assert "check_capacity_soak.py" in commands
-    assert 'gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server' in commands
+    assert "extract_capacity_evidence.py" in commands
+    assert "--artifact-root" in commands
+    assert "--expected-image-digest" in commands
+    assert 'gh attestation verify "$RUNNER_TEMP/capacity-evidence.zip"' in commands
+    assert "--signer-workflow github.com/honua-io/honua-server/.github/workflows/load-soak-nightly.yml" in commands
+    assert "--source-digest" in commands
+    assert "--deny-self-hosted-runners" in commands
+    assert "--predicate-type https://slsa.dev/provenance/v1" in commands
     assert "continue-on-error" not in str(job)
 
 
