@@ -123,3 +123,23 @@ def test_403_sleeps_then_retries_without_authentication():
         assert decision.gh('api','orgs/honua-io/repos') == []
         sleep.assert_called_once_with(60)
         assert run.call_args_list[0] == run.call_args_list[1]
+
+
+def test_interrupted_apply_retains_new_cohort_before_removing_release_label(tmp_path, monkeypatch):
+    original = {'observed_at':'2026-09-05T00:00:00Z','candidate_digest':'not yet cut','issues':[]}
+    fresh = {**original, 'issues':[issue('type/feature','release/2026.1')]}
+    inputs = tmp_path / 'inputs.json'
+    inputs.write_text(json.dumps(original))
+    overrides = tmp_path / 'overrides.json'
+    overrides.write_text(json.dumps(rules()))
+    monkeypatch.setattr(decision, 'INPUTS', inputs)
+    monkeypatch.setattr(decision, 'OVERRIDES', overrides)
+    monkeypatch.setattr(decision, 'refresh', lambda data: fresh)
+    def interrupted(rows, config):
+        assert json.loads(inputs.read_text())['issues'] == fresh['issues']
+        raise ValueError('simulated interruption after label removal')
+    monkeypatch.setattr(decision, 'apply_labels', interrupted)
+    monkeypatch.setattr(decision.sys, 'argv', ['record','--refresh','--apply'])
+    with pytest.raises(ValueError, match='simulated interruption'):
+        decision.main()
+    assert json.loads(inputs.read_text())['issues'] == fresh['issues']

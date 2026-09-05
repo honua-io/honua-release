@@ -335,6 +335,9 @@ def main():
         data = refresh(data)
     rows = decisions(data, rules)
     if args.apply:
+        # Keep newly discovered cohort members before removing any release label.
+        # An interrupted write pass must remain resumable from this same inventory.
+        INPUTS.write_text(compact_snapshot(data))
         apply_labels(rows, rules)
         data = refresh(data)
         rows = decisions(data, rules)
