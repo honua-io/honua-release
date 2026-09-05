@@ -194,7 +194,7 @@ def test_release_and_scheduled_workflows_enforce_validator():
     steps = gate["jobs"]["receipt"]["steps"]
     validate_step = next(step for step in steps if "tools/validate_dr_receipt.py" in step.get("run", ""))
     assert "--candidate $candidatePath" in validate_step["run"]
-    assert "candidate-input/platform-manifest.yaml" in validate_step["run"]
+    assert "candidate-input/platform-lock.json" in validate_step["run"]
     assert not validate_step.get("continue-on-error")
     train = yaml.safe_load((root / ".github/workflows/release-train.yml").read_text(encoding="utf-8"))
     assert train["jobs"]["gate_dr"]["with"]["candidate_bundle"] is True
@@ -207,3 +207,31 @@ def test_legacy_producer_cannot_claim_full_platform_dr():
     assert "'schema':'honua.postgresql-restore-receipt/v1'" in script
     assert "'scope':'postgresql-restore'" in script
     assert "'schema':'honua.dr-drill-receipt/" not in script
+
+
+@pytest.mark.parametrize("field", ["components", "sourceInputs"])
+def test_frozen_lock_change_invalidates_receipt(tmp_path, field):
+    from generate_platform_lock import generate
+
+    matrix = tmp_path / "compatibility-matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    lock = generate(FIXTURES / "candidate.json", matrix).lock
+    lock["components"]["honua-server"]["artifacts"] = [
+        {"kind": "image", "digest": "sha256:" + "b" * 64}]
+    path = tmp_path / "platform-lock.json"
+    path.write_text(json.dumps(lock), encoding="utf-8")
+    receipt = complete()
+    receipt["candidateLockDigest"] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    assert validate(path, receipt) == sorted(SUBSTRATES)
+    if field == "components":
+        lock[field]["honua-server"]["artifacts"][0]["digest"] = "sha256:" + "e" * 64
+    else:
+        lock[field]["compatibilityMatrix"]["sha256"] = "sha256:" + "e" * 64
+    path.write_text(json.dumps(lock), encoding="utf-8")
+    with pytest.raises(ReceiptError, match="candidateLockDigest"):
+        validate(path, receipt)
+
+
+def test_missing_frozen_lock_fails_closed(tmp_path):
+    with pytest.raises(OSError):
+        validate(tmp_path / "platform-lock.json", complete())

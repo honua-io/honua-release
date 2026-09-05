@@ -78,7 +78,7 @@ jobs:
         shell: pwsh
         run: |
           $candidatePath = 'platform-manifest.yaml'
-          if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-manifest.yaml' }
+          if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-lock.json' }
           python tools/validate_dr_receipt.py --candidate $candidatePath --receipt "$env:RUNNER_TEMP/dr-receipt.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve validated receipt

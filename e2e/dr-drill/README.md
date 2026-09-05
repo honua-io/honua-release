@@ -16,7 +16,9 @@ journeys: those remain Preview under the 2026-09-04 amendments.
 
 `tools/validate_dr_receipt.py` is the executable receipt contract. Both a scheduled
 `gate-dr` run and release-train intake validate a producer-attested receipt. The
-train reads its frozen `candidate-manifest` artifact, not a receipt-selected path.
+train reads `platform-lock.json` from its frozen `candidate-manifest` artifact,
+binding every lock field, including artifact identities and the compatibility-matrix
+digest. A missing lock fails closed. Standalone runs use `platform-manifest.yaml`.
 Promotion also requires a passing `dr` row, so an old report omitting DR is rejected.
 
 Before qualification, the deployment owner must resolve the candidate's effective
