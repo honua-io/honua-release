@@ -12,7 +12,7 @@ import json
 import math
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -20,6 +20,7 @@ import yaml
 SUBSTRATES = ("postgresql", "redis", "object-storage", "job-queue",
               "transactional-outbox", "workflow-cursors")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+RECEIPT_MAX_AGE = timedelta(hours=24)
 
 
 class ReceiptError(ValueError):
@@ -85,7 +86,7 @@ def observation(value, path):
     return (identity, checksum, count), at
 
 
-def validate(candidate_path: Path, receipt):
+def validate(candidate_path: Path, receipt, *, now: datetime | None = None):
     candidate_bytes = candidate_path.read_bytes()
     candidate = mapping(yaml.safe_load(candidate_bytes), "candidate")
     topology, required = expected_substrates(candidate)
@@ -107,6 +108,13 @@ def validate(candidate_path: Path, receipt):
         raise ReceiptError("receipt.substrates: unconfigured substrate(s): " + ", ".join(sorted(extra)))
     start = timestamp(receipt.get("startedAt"), "receipt.startedAt")
     end = timestamp(receipt.get("completedAt"), "receipt.completedAt")
+    now = now or datetime.now(timezone.utc)
+    if start > end or end > now:
+        raise ReceiptError("receipt: invalid drill interval or future completion timestamp")
+    # Bound the oldest observation, so neither a long drill nor a new gate report
+    # can refresh old telemetry. The CLI always uses the actual verification time.
+    if now - start > RECEIPT_MAX_AGE:
+        raise ReceiptError("receipt: stale DR evidence; drill must start within the last 24 hours")
     measurements = mapping(receipt.get("measurements"), "receipt.measurements")
     for name in ("rpoMs", "rtoMs"):
         value = measurements.get(name)

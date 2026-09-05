@@ -1,31 +1,48 @@
 import hashlib
 import json
+import re
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from validate_dr_receipt import ReceiptError, SUBSTRATES, validate
+from validate_dr_receipt import ReceiptError, SUBSTRATES, validate as validate_at_time
 
 HERE = Path(__file__).parent
 FIXTURES = HERE / "fixtures" / "dr"
+NOW = datetime(2026, 9, 4, 0, 6, tzinfo=timezone.utc)
+
+
+def validate(candidate_path, receipt):
+    return validate_at_time(candidate_path, receipt, now=NOW)
 
 
 def complete():
     return json.loads((FIXTURES / "complete.json").read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("fixture,code,message", [
-    ("missing-redis.json", 1, "missing enabled substrate(s): redis"),
-    ("numbers-without-restart.json", 1, "job-queue.restartRecovery"),
-    ("complete.json", 0, "DR receipt PASS"),
+@pytest.mark.parametrize("fixture,code,message,stale", [
+    ("missing-redis.json", 1, "missing enabled substrate(s): redis", False),
+    ("numbers-without-restart.json", 1, "job-queue.restartRecovery", False),
+    ("complete.json", 0, "DR receipt PASS", False),
+    ("complete.json", 1, "stale DR evidence", True),
 ])
-def test_receipt_cli_acceptance(fixture, code, message):
+def test_receipt_cli_acceptance(tmp_path, fixture, code, message, stale):
+    # Translate the entire fixture interval equally; keep every restart ordering
+    # and observation intact while exercising the CLI's actual wall clock.
+    raw = (FIXTURES / fixture).read_text(encoding="utf-8")
+    shift = datetime.now(timezone.utc) - NOW - timedelta(days=2 if stale else 0)
+    for value in set(re.findall(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", raw)):
+        at = datetime.fromisoformat(value.replace("Z", "+00:00")) + shift
+        raw = raw.replace(value, at.isoformat())
+    receipt_path = tmp_path / fixture
+    receipt_path.write_text(raw, encoding="utf-8")
     result = subprocess.run([
         sys.executable, str(HERE / "validate_dr_receipt.py"),
         "--candidate", str(FIXTURES / "candidate.json"),
-        "--receipt", str(FIXTURES / fixture),
+        "--receipt", str(receipt_path),
     ], capture_output=True, text=True)
     assert result.returncode == code, result.stdout + result.stderr
     assert message in result.stdout + result.stderr
@@ -235,3 +252,35 @@ def test_frozen_lock_change_invalidates_receipt(tmp_path, field):
 def test_missing_frozen_lock_fails_closed(tmp_path):
     with pytest.raises(OSError):
         validate(tmp_path / "platform-lock.json", complete())
+
+
+@pytest.mark.parametrize("age,error", [
+    (timedelta(minutes=5), None),
+    (timedelta(hours=24), None),
+    (timedelta(hours=24, microseconds=1), "stale"),
+    (timedelta(days=90), "stale"),
+    (timedelta(minutes=4, seconds=59), "future"),
+    (timedelta(hours=-1), "future"),
+])
+def test_receipt_freshness_boundaries(age, error):
+    receipt = complete()
+    start = datetime.fromisoformat(receipt["startedAt"].replace("Z", "+00:00"))
+    if error:
+        with pytest.raises(ReceiptError, match=error):
+            validate_at_time(FIXTURES / "candidate.json", receipt, now=start + age)
+    else:
+        assert validate_at_time(FIXTURES / "candidate.json", receipt, now=start + age) == sorted(SUBSTRATES)
+
+
+def test_fresh_completion_cannot_launder_old_drill():
+    receipt = complete()
+    receipt["startedAt"] = "2026-09-01T00:00:00Z"
+    with pytest.raises(ReceiptError, match="stale"):
+        validate(FIXTURES / "candidate.json", receipt)
+
+
+def test_reversed_drill_interval_is_rejected():
+    receipt = complete()
+    receipt["startedAt"] = "2026-09-04T00:05:01Z"
+    with pytest.raises(ReceiptError, match="invalid drill interval"):
+        validate(FIXTURES / "candidate.json", receipt)

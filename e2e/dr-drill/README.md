@@ -51,6 +51,9 @@ A `honua.dr-drill-receipt/v2` receipt must carry:
 - `scope: full-platform`, `status: pass`, the candidate's `topology`, and
   `candidateLockDigest` (SHA-256 of the exact manifest/lock bytes supplied to the gate).
 - `startedAt`, `completedAt`, and finite nonnegative `measurements.rpoMs` / `rtoMs`.
+  The whole drill must fall within the 24 hours before verification, matching the
+  live gate-report age limit. Future completion times fail. Scheduled and release
+  runs use the current UTC clock; reissuing a report never refreshes old telemetry.
 - A `substrates` object with exactly every enabled candidate substrate. A receipt's
   own purported required-set field has no authority.
 - Per substrate, `backup.id`, `backup.sha256`, `primaryStateDestroyed: true`, and
