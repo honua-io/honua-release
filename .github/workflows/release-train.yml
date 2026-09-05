@@ -25,7 +25,7 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
-      capacity_receipt_url: { description: "HTTPS URL of the candidate capacity-soak receipt", required: true, type: string }
+      capacity_evidence_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: true, type: string }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -260,7 +260,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/capacity-soak.yml
     with:
-      receipt_url: ${{ inputs.capacity_receipt_url }}
+      evidence_bundle_url: ${{ inputs.capacity_evidence_url }}
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 

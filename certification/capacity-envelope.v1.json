@@ -3,6 +3,20 @@
   "release": "2026.1.0-rc.1",
   "owner": "release-engineering",
   "frozenAt": "2026-09-01T10:05:00Z",
+  "receiptContract": {
+    "schemaVersion": 2,
+    "evidenceScope": "single-tenant-ga",
+    "bundleFormat": "zip",
+    "approvedProducer": {
+      "repository": "honua-io/honua-server",
+      "workflowPath": ".github/workflows/load-soak-nightly.yml",
+      "predicateType": "https://slsa.dev/provenance/v1",
+      "runner": "github-hosted"
+    },
+    "requiredRawEvidence": true,
+    "requiredWorkloadStatus": "exercised",
+    "previewProxyEvidenceAllowed": false
+  },
   "baseline": {
     "repository": "honua-io/honua-server",
     "revision": "2a98428e9118632acaa6b6bb2f3916ccd55f94e6",

@@ -3,14 +3,14 @@ name: capacity-soak-frozen-slo
 on:
   workflow_dispatch:
     inputs:
-      receipt_url:
-        description: HTTPS URL of the candidate soak receipt JSON
+      evidence_bundle_url:
+        description: HTTPS URL of the attested candidate soak evidence ZIP
         required: true
         type: string
   workflow_call:
     inputs:
-      receipt_url:
-        description: HTTPS URL of the candidate soak receipt JSON
+      evidence_bundle_url:
+        description: HTTPS URL of the attested candidate soak evidence ZIP
         required: true
         type: string
 
@@ -38,27 +38,44 @@ jobs:
       - name: Read frozen lock before receipt
         id: lock
         run: echo "sha256=$(sha256sum certification/capacity-envelope.v1.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Fetch candidate soak receipt
+      - name: Fetch candidate soak evidence bundle
         env:
-          RECEIPT_URL: ${{ inputs.receipt_url }}
+          EVIDENCE_BUNDLE_URL: ${{ inputs.evidence_bundle_url }}
         run: |
           set -euo pipefail
-          case "$RECEIPT_URL" in https://*) ;; *) echo "receipt_url must use HTTPS"; exit 1;; esac
-          curl --fail --silent --show-error --proto '=https' --tlsv1.2 "$RECEIPT_URL" -o "$RUNNER_TEMP/soak-receipt.json"
-      - name: Verify receipt signature from the soak producer
+          case "$EVIDENCE_BUNDLE_URL" in https://*) ;; *) echo "evidence_bundle_url must use HTTPS"; exit 1;; esac
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            "$EVIDENCE_BUNDLE_URL" -o "$RUNNER_TEMP/capacity-evidence.zip"
+      - name: Verify exact workflow and candidate provenance
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server
-      - name: Evaluate every signal against pre-frozen thresholds
+        run: |
+          gh attestation verify "$RUNNER_TEMP/capacity-evidence.zip" \
+            --repo honua-io/honua-server \
+            --signer-workflow github.com/honua-io/honua-server/.github/workflows/load-soak-nightly.yml \
+            --source-digest "${{ steps.candidate.outputs.revision }}" \
+            --deny-self-hosted-runners \
+            --predicate-type https://slsa.dev/provenance/v1 \
+            --format json > "$RUNNER_TEMP/attestation-verification.json"
+      - name: Extract bounded evidence files
+        run: >-
+          python3 tools/extract_capacity_evidence.py
+          --bundle "$RUNNER_TEMP/capacity-evidence.zip"
+          --output "$RUNNER_TEMP/capacity-evidence"
+      - name: Evaluate 10/10 workloads and 8/8 sourced signals
         run: >-
           python3 tools/check_capacity_soak.py
           --lock certification/capacity-envelope.v1.json
-          --receipt "$RUNNER_TEMP/soak-receipt.json"
+          --receipt "$RUNNER_TEMP/capacity-evidence/capacity-soak-receipt.json"
+          --artifact-root "$RUNNER_TEMP/capacity-evidence"
           --expected-revision "${{ steps.candidate.outputs.revision }}"
-      - name: Preserve immutable receipt evidence
+      - name: Preserve immutable evidence bundle and verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: capacity-slo-receipt-${{ steps.lock.outputs.sha256 }}
-          path: ${{ runner.temp }}/soak-receipt.json
+          path: |
+            ${{ runner.temp }}/capacity-evidence.zip
+            ${{ runner.temp }}/capacity-evidence/
+            ${{ runner.temp }}/attestation-verification.json
           if-no-files-found: error
           retention-days: 90
