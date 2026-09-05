@@ -1,0 +1,178 @@
+lockVersion: platform-lock.v1
+platform:
+  id: honua-2026.1-rc.2
+  status: rc
+  supportTier: ga
+sourceInputs:
+  platformManifest:
+    path: platform-manifest.yaml
+    sha256: sha256:1b17d59656aba2d310e8122a2f599d741d522645cfa649d3583eb97f9cb9593f
+  compatibilityMatrix:
+    path: compatibility-matrix.yaml
+    sha256: sha256:9cb0b0a87359cb8d7528c3301f99025d77c037b943bf0a85330b8d37dcfd21bb
+components:
+  honua-server:
+    source:
+      repository: https://github.com/honua-io/honua-server
+      revision: 4ca8326f37b3225315033ee58e1a652e231992df
+    contractVersions:
+      admin: v1
+      metadata: metadata.honua.io/v2alpha1
+      grpc: v1
+      geoservices: 1.0.0
+      ogc: 1.0.0
+      stac: 1.0.0
+    schemaVersions:
+      database: '107'
+    artifacts:
+    - kind: image
+      coordinate: ghcr.io/honua-io/honua-server
+      digest: sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  honua-console:
+    source:
+      repository: https://github.com/honua-io/honua-console
+      revision: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts:
+    - kind: image
+      coordinate: ghcr.io/honua-io/honua-console
+      sourceRevision: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+      digest: sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da
+      architectures:
+      - amd64
+      - arm64
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  honua-sdk-dotnet:
+    source:
+      repository: https://github.com/honua-io/honua-sdk-dotnet
+      revision: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6
+    contractVersions:
+      sdk-certification: v1
+    schemaVersions: {}
+    artifacts:
+    - kind: nuget
+      coordinate: Honua.Sdk
+      version: 1.6.0
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  honua-sdk-js:
+    source:
+      repository: https://github.com/honua-io/honua-sdk-js
+      revision: c99e71197dd940ed952aecb024c6de273456f2ae
+    contractVersions:
+      connect-parity: '1.0'
+    schemaVersions: {}
+    artifacts:
+    - kind: npm
+      coordinate: '@honua/sdk-js'
+      version: 0.1.9-beta.0
+      integrity: sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ==
+      sourceRevision: c99e71197dd940ed952aecb024c6de273456f2ae
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  honua-sdk-python:
+    source:
+      repository: https://github.com/honua-io/honua-sdk-python
+      revision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+    contractVersions:
+      protocol-factories: '1'
+    schemaVersions: {}
+    artifacts:
+    - kind: wheel
+      coordinate: honua-sdk
+      version: 0.1.11
+      sha256: sha256:80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9
+      sourceRevision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  geospatial-grpc:
+    source:
+      repository: https://github.com/honua-io/geospatial-grpc
+      revision: 0f701ecc6b0c41a5ea43e2dff3c46ce654312576
+    contractVersions:
+      grpc: v1
+    schemaVersions: {}
+    artifacts:
+    - kind: nuget
+      coordinate: Geospatial.Grpc
+      version: 1.0.0
+      sourceRevision: 0f701ecc6b0c41a5ea43e2dff3c46ce654312576
+      sha256: sha256:69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  geospatial-mcp:
+    source:
+      repository: https://github.com/honua-io/geospatial-mcp
+      revision: d5a09d13c4ad541c05702e598c3679c0f42db7af
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts:
+    - kind: spec
+      coordinate: https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json
+      version: 1.0.0+d5a09d13
+      sourceRevision: d5a09d13c4ad541c05702e598c3679c0f42db7af
+      sha256: sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5
+    artifactIdentityModel: published
+    lifecycleStatus: Experimental
+    supportTier: experimental
+  honua-iac:
+    source:
+      repository: https://github.com/honua-io/honua-iac
+      revision: cace70f7b592a583a478ed6f002c7de17b053282
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts:
+    - kind: archive
+      coordinate: https://github.com/honua-io/honua-iac/archive/refs/tags/v0.1.0.tar.gz
+      version: 0.1.0
+      sourceRevision: cace70f7b592a583a478ed6f002c7de17b053282
+      sha256: sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed
+    artifactIdentityModel: published
+    lifecycleStatus: GA
+    supportTier: ga
+  honua-helm:
+    source:
+      repository: https://github.com/honua-io/honua-helm
+      revision: 4c0a5d2d4da17bc2c132e8aa7c5ba9fe8a66709c
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts:
+    - kind: oci-chart
+      coordinate: honua
+    artifactIdentityModel: published
+    lifecycleStatus: Preview
+    supportTier: preview
+  honua-mobile:
+    source:
+      repository: https://github.com/honua-io/honua-mobile
+      revision: 4a356a86cd4d056aa13f6cf8bc6855ab7670c2e6
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts: []
+    artifactIdentityModel: source-pinned
+    lifecycleStatus: Experimental
+    supportTier: experimental
+  honua-collect:
+    source:
+      repository: https://github.com/honua-io/honua-collect
+      revision: 7eb948b5e80680e3a4f33c69c671804eebc370fb
+    contractVersions: {}
+    schemaVersions: {}
+    artifacts: []
+    artifactIdentityModel: source-pinned
+    lifecycleStatus: Experimental
+    supportTier: experimental
+contentDigests: {}
+fixtures: []
+sbom: []
+provenance: []

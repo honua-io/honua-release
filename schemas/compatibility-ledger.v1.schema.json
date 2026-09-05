@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/compatibility-ledger.v1.schema.json",
+  "title": "Honua compatibility ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ledgerVersion", "platformLocks", "componentReleases", "artifactReceipts", "clientServerCertifications", "upgradeEdges", "experimentalExclusions"],
+  "properties": {
+    "ledgerVersion": {"const": "compatibility-ledger.v1"},
+    "platformLocks": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/sha256"},
+      "additionalProperties": {"$ref": "#/$defs/platformLockRecord"}
+    },
+    "componentReleases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifactReceipts": {
+      "type": "array", "items": {"$ref": "#/$defs/artifactReceipt"}
+    },
+    "clientServerCertifications": {
+      "type": "array", "items": {"$ref": "#/$defs/clientServerCertification"}
+    },
+    "upgradeEdges": {
+      "type": "array", "items": {"$ref": "#/$defs/upgradeEdge"}
+    },
+    "experimentalExclusions": {
+      "type": "array", "items": {"$ref": "#/$defs/exclusion"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "uri", "sha256"],
+      "properties": {
+        "schema": {"type": "string", "minLength": 1},
+        "uri": {"type": "string", "pattern": "^(https|oci)://"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifactEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component", "artifactIndex"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "artifactIndex": {"type": "integer", "minimum": 0}
+      }
+    },
+    "platformLockRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platformLock", "releaseArtifacts", "certifications"],
+      "properties": {
+        "platformLock": {"$ref": "platform-lock.v1.schema.json"},
+        "releaseArtifacts": {"type": "array", "items": {"$ref": "#/$defs/artifactEdge"}},
+        "certifications": {"type": "array", "items": {"$ref": "#/$defs/receipt"}}
+      }
+    },
+    "clientArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component", "coordinate", "identity"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "coordinate": {"type": "string", "minLength": 1},
+        "identity": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifactReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component", "coordinate", "identity", "receipt"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "coordinate": {"type": "string", "minLength": 1},
+        "identity": {"type": "string", "minLength": 1},
+        "receipt": {"$ref": "#/$defs/receipt"}
+      }
+    },
+    "clientServerCertification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["serverDigest", "client", "result", "receipt"],
+      "properties": {
+        "serverDigest": {"$ref": "#/$defs/sha256"},
+        "client": {"$ref": "#/$defs/clientArtifact"},
+        "result": {"enum": ["certified", "incompatible"]},
+        "receipt": {"$ref": "#/$defs/receipt"}
+      }
+    },
+    "upgradeEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fromLockDigest", "toLockDigest", "receipt", "rollback"],
+      "properties": {
+        "fromLockDigest": {"$ref": "#/$defs/sha256"},
+        "toLockDigest": {"$ref": "#/$defs/sha256"},
+        "receipt": {"$ref": "#/$defs/receipt"},
+        "rollback": {
+          "type": "object", "additionalProperties": false,
+          "required": ["result", "receipt"],
+          "properties": {
+            "result": {"enum": ["pass", "fail"]},
+            "receipt": {"$ref": "#/$defs/receipt"}
+          }
+        }
+      }
+    },
+    "exclusion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lockDigest", "component", "reason"],
+      "properties": {
+        "lockDigest": {"$ref": "#/$defs/sha256"},
+        "component": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
