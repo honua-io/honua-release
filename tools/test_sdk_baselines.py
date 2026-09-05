@@ -6,31 +6,9 @@ import pytest
 import yaml
 
 from generate_compatibility_table import main, render
-from sdk_baselines import check_component, content_digest, derive, findings
-from test_platform_lock import DIGEST, REVISION, valid_lock
+from sdk_baselines import SDK_COMPONENTS, check_component, content_digest, derive, findings
+from test_platform_lock import DIGEST, REVISION, component, valid_lock
 from validate_platform_lock import validate
-
-
-def component():
-    evidence = {"uri": "https://example.test/introduction", "sha256": DIGEST}
-    content = {"capabilities": {
-        "admin.read": {"minimumServerVersion": "1.0.0", "versionModel": "semver", "evidence": evidence},
-        "admin.write": {"minimumServerVersion": "1.2.0", "versionModel": "semver", "evidence": evidence},
-        "optional": {"minimumServerVersion": "9.0.0", "versionModel": "semver", "evidence": evidence},
-    }}
-    return {
-        "source": {"revision": REVISION},
-        "artifacts": [],
-        "serverCompatibility": {
-            "minimumServerVersion": "1.2.0",
-            "manifests": [{
-                "source": {"repository": "https://github.com/honua-io/honua-server", "revision": REVISION, "path": "capabilities.json"},
-                "content": content, "sha256": content_digest(content),
-                "requiredCapabilities": ["admin.read", "admin.write"],
-            }],
-            "declarations": [{"revision": REVISION, "path": "compatibility.json", "sha256": DIGEST, "minimumServerVersion": "1.2.0"}],
-        },
-    }
 
 
 def test_maximum_required_floor_excludes_optional_capabilities():
@@ -101,6 +79,7 @@ def test_complete_lock_validator_requires_official_sdk_baseline():
 
 def test_table_is_deterministic_and_does_not_imply_upgrade_support():
     lock = valid_lock()
+    del lock["components"]["honua-sdk-python"]
     output = render(lock)
     assert output == render(copy.deepcopy(lock))
     assert "## UPGRADE EDGES" in output
@@ -111,10 +90,39 @@ def test_table_is_deterministic_and_does_not_imply_upgrade_support():
 
 def test_cli_documentation_check_cannot_be_confused_with_qualification(tmp_path):
     source, output = tmp_path / "lock.yaml", tmp_path / "table.md"
-    source.write_text(yaml.safe_dump(valid_lock()), encoding="utf-8")
+    lock = valid_lock()
+    del lock["components"]["honua-sdk-python"]
+    source.write_text(yaml.safe_dump(lock), encoding="utf-8")
     args = [str(source), "--output", str(output)]
     assert main(args) == 0
     assert main([*args, "--check-output"]) == 0
     assert main([*args, "--check"]) == 1
     output.write_text("stale", encoding="utf-8")
     assert main([*args, "--check-output"]) == 1
+
+
+@pytest.mark.parametrize("name", SDK_COMPONENTS)
+def test_nonempty_lock_cannot_omit_official_sdk(name):
+    lock = valid_lock()
+    del lock["components"][name]
+    assert any(f"$.components.{name}: required official SDK" in error for error in validate(lock).errors)
+
+
+def test_published_declaration_cannot_bind_newer_component_head():
+    item = component()
+    item["artifacts"] = [{"sourceRevision": "b" * 40}]
+    with pytest.raises(ValueError, match="source"):
+        check_component(item)
+    item["serverCompatibility"]["declarations"][0]["revision"] = "b" * 40
+    assert check_component(item) == "1.2.0"
+
+
+def test_declarations_must_cover_all_shipped_artifact_revisions():
+    item = component()
+    item["artifacts"] = [{"sourceRevision": REVISION}, {"sourceRevision": "b" * 40}]
+    with pytest.raises(ValueError, match="every artifact source revision"):
+        check_component(item)
+    declaration = copy.deepcopy(item["serverCompatibility"]["declarations"][0])
+    declaration["revision"] = "b" * 40
+    item["serverCompatibility"]["declarations"].append(declaration)
+    assert check_component(item) == "1.2.0"

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import release_inspect
+from validate_platform_lock import validate as validate_lock
 
 
 class CompatError(ValueError):
@@ -23,6 +24,13 @@ def resolve_server(value: str, timeout: float = 10.0) -> str:
     if re.fullmatch(r"sha256:[0-9a-f]{64}", value):
         return value
     lock, _ = release_inspect.load_source(value, timeout)
+    schema = json.loads(release_inspect.PLATFORM_LOCK_SCHEMA.read_text())
+    schema_error = next(release_inspect.Draft202012Validator(schema).iter_errors(lock), None)
+    if schema_error is not None:
+        raise CompatError(f"invalid server platform lock: {schema_error.message}")
+    findings = validate_lock(lock)
+    if not findings.ok:
+        raise CompatError(f"invalid server platform lock: {findings.errors[0]}")
     server = (lock.get("components") or {}).get("honua-server") or {}
     digests = {
         artifact["digest"]
@@ -60,7 +68,10 @@ def _local_package(path: Path) -> dict[str, str]:
             with zipfile.ZipFile(path) as archive:
                 member = next(n for n in archive.namelist() if n.endswith(".dist-info/METADATA"))
                 metadata = BytesParser().parsebytes(archive.read(member))
-                return {"coordinate": metadata["Name"], "identity": metadata["Version"]}
+                name, version = metadata["Name"], metadata["Version"]
+                if not name or not name.strip() or not version or not version.strip():
+                    raise CompatError(f"cannot read package identity from {path}: Name and Version must be non-empty")
+                return {"coordinate": name, "identity": version}
         elif path.name.endswith((".tgz", ".tar.gz")):
             with tarfile.open(path, "r:*") as archive:
                 member = next(m for m in archive.getmembers() if m.name.endswith("/package.json"))

@@ -20,7 +20,7 @@ def ledger_for(lock, receipt=True):
     return {
         "ledgerVersion": "compatibility-ledger.v1",
         "platformLocks": {digest: {"platformLock": copy.deepcopy(lock), "releaseArtifacts": [], "certifications": receipts}},
-        "componentReleases": {"sdk": [digest]},
+        "componentReleases": {name: [digest] for name in lock["components"]},
         "artifactReceipts": [],
         "clientServerCertifications": [], "upgradeEdges": [], "experimentalExclusions": [],
     }
@@ -30,7 +30,8 @@ def test_exact_digest_resolves_identity_and_receipt():
     lock = valid_lock(); result = release_inspect.inspect(lock, ledger_for(lock))
     assert result["ledgerRecord"] == "resolved"
     assert result["certified"] is True
-    assert result["components"][0]["artifacts"][0]["identity"] == "sha512-YWJjZA=="
+    sdk = next(item for item in result["components"] if item["name"] == "sdk")
+    assert sdk["artifacts"][0]["identity"] == "sha512-YWJjZA=="
 
 
 def test_absent_receipt_is_never_certified_even_for_same_versions():
@@ -120,3 +121,34 @@ def test_load_ledger_refuses_schema_invalid_evidence(tmp_path, mutate):
 
     with pytest.raises(release_inspect.InspectError, match="invalid compatibility ledger"):
         release_inspect.load_ledger(path)
+
+
+@pytest.mark.parametrize("mutation", ["missing-baseline", "floor", "missing-sdk"])
+def test_embedded_lock_semantics_required_even_with_certification(tmp_path, capsys, mutation):
+    lock = valid_lock()
+    if mutation == "missing-baseline":
+        del lock["components"]["honua-sdk-js"]["serverCompatibility"]
+    elif mutation == "floor":
+        lock["components"]["honua-sdk-js"]["serverCompatibility"]["minimumServerVersion"] = "0.1.0"
+    else:
+        del lock["components"]["honua-sdk-js"]
+    ledger = ledger_for(lock)  # Canonical digest, reverse edges, and receipt are all valid.
+    errors = validate_compatibility_ledger.validate(ledger)
+    assert any(".platformLock.components.honua-sdk-js" in error for error in errors)
+    path = tmp_path / "ledger.yaml"
+    path.write_text(yaml.safe_dump(ledger))
+    source = tmp_path / "lock.yaml"
+    source.write_text(yaml.safe_dump(lock))
+    with pytest.raises(release_inspect.InspectError, match="incoherent compatibility ledger"):
+        release_inspect.load_ledger(path)
+    assert release_inspect.main([str(source), "--ledger", str(path)]) == 2
+    output = capsys.readouterr()
+    assert "REFUSED:" in output.err
+    assert not output.out
+
+
+def test_load_ledger_accepts_qualified_embedded_lock(tmp_path):
+    ledger = ledger_for(valid_lock())
+    path = tmp_path / "ledger.yaml"
+    path.write_text(yaml.safe_dump(ledger))
+    assert release_inspect.load_ledger(path) == ledger

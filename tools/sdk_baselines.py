@@ -64,8 +64,10 @@ def check_component(component: dict[str, Any]) -> str:
     declarations = baseline.get("declarations")
     if not isinstance(declarations, list) or not declarations:
         raise ValueError("unqualified: no SDK baseline declaration is pinned")
-    revisions = {component.get("source", {}).get("revision")}
-    revisions.update(item.get("sourceRevision") for item in component.get("artifacts", []))
+    artifacts = component.get("artifacts", [])
+    revisions = ({item.get("sourceRevision") for item in artifacts} if artifacts
+                 else {component.get("source", {}).get("revision")})
+    declared_revisions = set()
     for declaration in declarations:
         if declaration.get("revision") not in revisions or not REVISION.fullmatch(str(declaration.get("revision", ""))):
             raise ValueError("SDK declaration revision is not bound to component/artifact source")
@@ -73,6 +75,9 @@ def check_component(component: dict[str, Any]) -> str:
             raise ValueError("SDK declaration needs a path and byte SHA-256")
         if declaration.get("minimumServerVersion") != floor:
             raise ValueError(f"declared baseline {declaration.get('minimumServerVersion')!r} disagrees with lock floor {floor}")
+        declared_revisions.add(declaration["revision"])
+    if revisions - declared_revisions:
+        raise ValueError("SDK declarations must cover every artifact source revision")
     return floor
 
 
