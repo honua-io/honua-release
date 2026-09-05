@@ -1252,6 +1252,11 @@
       "body_sha256": "457b95098ea6ef38deb374e1eb6e3c034ec45f43cbf60345a93481eab6241130",
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(demo): govern a public OGC process (geometry.buffer) in the demo manifest and add a scheduled GP canary"
+    },
+    "honua-server#4352": {
+      "body_sha256": "47fd4c905d3a35965660e925a1e9b5744124d4066ca338ca3e137d332b3ddecf",
+      "named_promise": true,
+      "reason": "The documented supported backup/restore workflow excludes Redis even though enabled GP queues, execution logs and workflow state are durable there; following it can omit required state from disaster recovery."
     }
   }
 }
