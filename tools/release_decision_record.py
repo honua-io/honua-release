@@ -269,21 +269,23 @@ def tables(rows):
     for row in active:
         if row['bucket'] == 'must-fix-before-cut':
             p = next((s.removeprefix('priority/') for s in row['labels'] if s.startswith('priority/')), '—')
-            groups.setdefault((row['repo'], p, family_text(row)), []).append(row)
-    for (_, p, family), group in sorted(groups.items()):
-        lines.append('| ' + ', '.join(link(issue_key(r)) for r in group) + f' | {p} | {family} | No | No |')
+            groups.setdefault((row['repo'], family_text(row)), []).append(row)
+    for (_, family), group in sorted(groups.items()):
+        p = '/'.join(sorted({next((s.removeprefix('priority/') for s in r['labels'] if s.startswith('priority/')), '—') for r in group}))
+        lines.append('| ' + ', '.join(link(issue_key(r)) if idx == 0 else link(issue_key(r)).replace('[' + issue_key(r) + ']', '[#' + str(r['number']) + ']') for idx,r in enumerate(group)) + f' | {p} | {family} | No | No |')
     return '\n'.join(lines)
 
 
 def render(data, rows):
     active = [r for r in rows if r['state'] == 'open']
     p0_unowned = [link(issue_key(r)) for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut' and (not r.get('family') or r['family']['status']=='parked')]
+    p0_activity = Counter(('queued' if r.get('family') and r['family']['status']=='queued' else 'dispatched; not confirmed running' if r.get('family') and r['family']['status'].startswith('dispatched') else 'UNOWNED/parked') for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut')
     content = [
         '# 2026.1 release decision record', '',
         f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
-        f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Every issue + reasons + separate implementation/qualification columns](2026.1-release-decision-ledger.json)', '',
+        f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
         tables(rows), '',
-        '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + ' Dispatched packets retain ownership references; their current execution/completion is unverified.', '',
+        '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + ' P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '| Supported scope | Denominator / accepted limitations | Accountable owner |', '|---|---|---|',
         f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")} |',
         f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Lambda; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
@@ -331,7 +333,7 @@ def main():
         data = refresh(data)
         rows = decisions(data, rules)
         verify_labels(rows, rules)
-    elif args.verify_live:
+    elif args.verify_live or args.check:
         verify_labels(rows, rules)
     artifacts = {RECORD: render(data, rows), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
