@@ -139,7 +139,7 @@ jobs:
           REQUESTED_RC_RUN_ID: ${{ inputs.train_run_id }}
         run: |
           set -euo pipefail
-          [[ "$PROMOTION_RECORD" =~ ^certification/promotions/[0-9]+\.[0-9]+-rc\.[1-9][0-9]*\.json$ ]] || {
+          [[ "$PROMOTION_RECORD" =~ ^certification/promotions/[0-9]+\.[0-9]+(\.[0-9]+)?-rc\.[1-9][0-9]*\.json$ ]] || {
             echo "::error::promotion_record must be a canonical committed RC record path"; exit 1;
           }
           test -f "$PROMOTION_RECORD" || { echo "::error::promotion record does not exist on the default branch"; exit 1; }
@@ -249,7 +249,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
 
       - name: Fetch the exact certified candidate bundle from the train run
         env:
@@ -261,6 +261,24 @@ jobs:
             --name certified-candidate --dir candidate
           echo "bound gate-report:"
           cat candidate/gate-report.json
+
+      - name: Verify the frozen lock signature and all derived release records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+          TRAIN_SOURCE_SHA: ${{ steps.train.outputs.source_sha }}
+          TRAIN_SOURCE_BRANCH: ${{ steps.train.outputs.source_branch }}
+        run: |
+          set -euo pipefail
+          gh attestation verify candidate/platform-lock.json \
+            --bundle candidate/platform-lock.sigstore.json \
+            --repo honua-io/honua-release \
+            --signer-workflow honua-io/honua-release/.github/workflows/release-train.yml \
+            --source-digest "$TRAIN_SOURCE_SHA" --source-ref "refs/heads/$TRAIN_SOURCE_BRANCH" \
+            --deny-self-hosted-runners
+          python tools/platform_lock_bundle.py candidate/platform-lock.json \
+            --manifest candidate/platform-manifest.yaml --matrix candidate/compatibility-matrix.yaml \
+            --label "$PLATFORM_LABEL" --out-dir candidate --check
 
       - name: Finalize (fail closed unless all-green) + generate notes
         id: finalize
@@ -290,12 +308,8 @@ jobs:
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md
-          # The platform BOM (CycloneDX) — the customer-facing bill of materials for this label.
-          python tools/generate_bom.py \
-            --label "$LABEL" \
-            --timestamp "$STAMP" \
-            --manifest candidate/platform-manifest.yaml \
-            --out bom.cdx.json
+          # Publish the BOM derived from the attested candidate lock at freeze.
+          cp candidate/bom.cdx.json bom.cdx.json
 
       - name: Install cosign (Sigstore)
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -343,6 +357,10 @@ jobs:
             candidate/compatibility-matrix.yaml.bundle \
             candidate/platform-lock.json \
             candidate/platform-lock.json.bundle \
+            candidate/platform-lock.sigstore.json \
+            candidate/compatibility-ledger.v1.json \
+            candidate/SDK-SERVER-COMPATIBILITY.md \
+            candidate/platform-release.v1.json \
             finalized-manifest.yaml \
             bom.cdx.json \
             finalized-manifest.yaml.bundle \

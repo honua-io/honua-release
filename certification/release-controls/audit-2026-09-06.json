@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "issue": "honua-io/honua-release#236",
+  "status": "fail",
+  "unexpected_repositories": [],
+  "repositories": {
+    "geospatial-grpc": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "geospatial-mcp": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-console": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-demo-infra": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-devops": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-esri-compat": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-evidence": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-helm": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-iac": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-release": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes",
+      "immutable native publication tag ruleset missing or drifted",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-sdk-dotnet": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-sdk-js": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-sdk-python": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes",
+      "immutable native publication tag ruleset missing or drifted",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-server": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-site": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-studio": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ],
+    "honua-support": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "no independent human code owner available to approve owner-authored changes"
+    ]
+  },
+  "snapshot_sha256": "58dcc2ac29bee29ac8d407a43c2a938eff4570703ee9926439e807d9efd4d08d",
+  "policy_sha256": "3c648eac60e70b1a565d745443e5a593f5e6f6221bad30d9a6df828755d82174"
+}
