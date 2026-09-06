@@ -16,7 +16,7 @@ an index response is availability evidence, not consumer certification.
 | Channel | Current evidence | Disposition / next concrete boundary |
 |---|---|---|
 | Geospatial.Grpc / BSR | Public NuGet `1.0.0`; BSR commit `f52df33b3b5d4723881ad0bacaf8a754`; both anonymous downloads match the independent release receipt. Fresh native Windows restore passes from nuget.org alone. | Publication prerequisite satisfied. Preserve the immutable receipts; candidate-bound certification still uses the exact selected bytes. |
-| .NET SDK | **All 16 package IDs return 404**, including `Honua.Sdk.Cli`. The attempted first-publication version is now `1.6.2`, not the obsolete `1.6.1` proposal. | Finish the protected publication transaction and collect the complete public package/symbol receipts. Do not treat closed SDK #263 or a dry run as publication. |
+| .NET SDK | **All 16 package IDs return 404**, including `Honua.Sdk.Cli`. The attempted first-publication version is now `1.6.2`, not the obsolete `1.6.1` proposal. `platform-manifest.yaml` still binds the SDK to `1.6.0` (`components.honua-sdk-dotnet.version`, `clientArtifacts.honua-sdk-dotnet.version`). | **Bind the train first** — see [Train-binding prerequisite](#train-binding-prerequisite-blocking). Only after the manifest pins the exact published version and its protected-branch SHA and validates against `compatibility-matrix.yaml` may the protected publication transaction be finished and the complete public package/symbol receipts collected. Do not treat closed SDK #263 or a dry run as publication. |
 | Mobile NuGet | `Honua.Mobile.Sdk`, `Honua.Mobile.Offline`, `Honua.Mobile.Maui`: 404. Publication PR #361 remains open at `efb840bd758935b817cdf3eb25ba75576b58ad28`, with provisional SDK `1.6.0` references. | Bind to the actual reviewed, public SDK train, regenerate locks from public packages, pass anonymous restore/tests, then publish through the protected workflow. A speculative version substitution cannot produce public restore evidence. |
 | Mobile npm | `@honua-io/embed`: 404. | Complete the protected first publication and anonymous tarball/provenance comparison. Prior local packaging success is not a public receipt. |
 | Console | PR #356 remains open at `1e81f24e2658bae43d5cdc3d8b231afd7d8a7a01`, provisionally consuming `Honua.Sdk.Studio 1.6.0`; the public package ID is absent. | Rebase onto the reviewed focused Console, bind the actual public SDK version, regenerate locks, and pass nuget.org-only restore/build/test with empty caches. No package credential should be needed. |
@@ -54,6 +54,31 @@ do not reintroduce that path. `public-nuget` currently requires a human reviewer
 disables admin bypass and restricts deployment refs. The external nuget.org owner
 policy must match its approved repository/workflow/environment/package scope;
 this lane did not inspect or modify the private owner account.
+
+### Train-binding prerequisite (blocking)
+
+This prerequisite is carried forward unchanged from the superseded 2026-08-31
+operator boundary; the refreshed version numbers do not release it. Before any
+SDK publication transaction is started:
+
+1. Merge the reviewed release candidate to its protected default branch and
+   record the resulting merge SHA. A PR head is evidence only and must never be
+   tagged or published directly.
+2. Bind the **exact** SDK version selected for this train and that
+   protected-branch SHA in `platform-manifest.yaml`. Both coordinates still read
+   `1.6.0` today, so publishing `1.6.2` from the current manifest would cut the
+   first public SDK outside the platform train's declared source of truth.
+3. Validate the bound manifest against `compatibility-matrix.yaml` with
+   `python tools/validate_platform.py --exact-candidate` and retain the
+   successful receipt. Change the matrix only if this train changes an actual
+   compatibility rule; its SDK ranges are support windows, not candidate pins.
+4. Prove the tag target is that manifest-bound merge SHA and is reachable from
+   the protected default branch. Existing tags must never be moved.
+
+`Geospatial.Grpc 1.0.0` is already publicly restorable, so the SDK gate must be
+rerun against that public dependency at the manifest-bound SDK merge SHA before
+the transaction proceeds. Mobile and Console re-pins consume whatever version
+this step binds, not a speculative substitution.
 
 ## Independent gRPC checks
 
