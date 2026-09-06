@@ -25,8 +25,31 @@ def test_schema_is_well_formed():
 def test_all_documented_row_ids_are_accepted():
     document = (ROOT / "docs/2026.1-evidence-map.md").read_text()
     ids = re.findall(r"^\| \*\*([A-Z]+-\d+)\*\* / P[012]", document, re.M)
-    assert len(ids) == len(set(ids)) == 62
+    assert len(ids) == len(set(ids)) == 104
     assert all(valid(ROW["id"], row_id) for row_id in ids)
+
+
+def test_emitted_instances_carry_the_packet_their_rows_belong_to():
+    """The document holds both packets; neither may be published under the other's identity."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cem", ROOT / "tools/check_evidence_map.py")
+    cem = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cem)
+
+    by_packet = cem.instances(ROOT / "docs/2026.1-evidence-map.md")
+    assert set(by_packet) == {"part1", "part2"}
+    for packet, payload in by_packet.items():
+        assert payload["packet"] == packet
+        assert valid(SCHEMA["properties"]["packet"], payload["packet"])
+        assert payload["rows"], f"{packet} must not be emitted empty"
+    part1 = [r["id"] for r in by_packet["part1"]["rows"]]
+    part2 = [r["id"] for r in by_packet["part2"]["rows"]]
+    assert not set(part1) & set(part2)
+    assert len(part1) + len(part2) == 104
+    # The families part 2 introduced cannot appear in the part-1 instance.
+    assert not [r for r in part1 if r.startswith(("I-", "R-"))]
+    assert {"GP-07", "I-01", "R-24"} <= set(part2)
 
 
 @pytest.mark.parametrize("row_id", ["P1-01", "P2-01", "X-01", "A-1", "GP-001"])
