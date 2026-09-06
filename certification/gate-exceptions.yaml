@@ -95,3 +95,13 @@ gates:
       scene.catalog, serve.wms, serve.wmts). This is independent of the platform manifest — the gate
       reads honua-evidence's matrix, whose server producer tracks honua-server trunk rather than the
       pinned SHA — so a re-pin cannot fix it. scene.catalog overlaps honua-release#86.
+
+  upgrade:
+    issue: https://github.com/honua-io/honua-release/issues/226
+    why: >-
+      Every kind-upgrade run before #226 was vacuous: the honua-2026.1 image and candidate both
+      stopped at migration 106, PostGIS started empty because e2e/harness/seed/seed.sh was never
+      invoked, and rollback compatibility was reported by a success string instead of querying the
+      prior image against the migrated database. Keep this acknowledgement until CI is green on the
+      replacement proof: schema_versions must advance to 107 or later, deterministic seed rows must
+      survive, and the rolled-back honua-2026.1 image must serve those rows from the forward schema.

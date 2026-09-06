@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def _report(overall, label="2026.1-rc.3", gates=None):
     return {"platform_label": label, "dry_run": False, "overallStatus": overall,
             "gates": gates or [{"gate": "manifest", "decided": "pass"}],
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
             "evidence_url": "https://example/run/1"}
 
 
@@ -48,13 +50,11 @@ def test_label_mismatch_is_refused():
     assert not ok and "2026.2" in why
 
 
-def test_allowed_skip_is_promotable():
-    # cloud-parity self-skipped (cloud-creds-unset) is on the allowed-skip list -> still promotable.
+def test_required_cloud_skip_is_refused():
     rep = _report("pass", gates=[{"gate": "manifest", "status": "pass"},
                                  {"gate": "cloud-parity", "status": "skipped"}])
     ok, why = fr.verify_gate_report(rep, "2026.1")
-    assert ok, why
-    assert "cloud-parity" in why
+    assert not ok and "cloud-parity" in why
 
 
 def test_skip_of_non_allowlisted_gate_is_refused():
@@ -112,7 +112,9 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "certification_mode": "live",
     }
     report = cb.bind_gate_report(
-        _report("pass"),
+        {**_report("pass"),
+         "gates": [{"gate": gate, "status": "pass"}
+                   for gate in sorted(cb.REQUIRED_RELEASE_GATES)]},
         manifest,
         matrix,
         **identity,
@@ -156,12 +158,43 @@ def _real():
 
 def test_release_notes_include_every_component_and_header():
     manifest, matrix = _real()
-    notes = fr.render_release_notes(manifest, matrix, "2026.1", "https://example/run/1")
+    notes = fr.render_release_notes(
+        manifest, matrix, "2026.1", _report("pass"), "https://example/run/1")
     assert notes.startswith("# Honua 2026.1")
     for name in (manifest.get("components") or {}):
         assert name in notes, f"{name} missing from generated notes"
     assert "Breaking changes & upgrade actions" in notes
     assert "Verification & provenance" in notes
+    assert "Every wired release gate passed" in notes
+    assert "- manifest: passed" in notes
+
+
+def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_passed():
+    manifest, matrix = _real()
+    report = _report("pass", gates=[
+        {"gate": "manifest", "status": "pass"},
+        {"gate": "cloud-parity", "status": "skipped"},
+    ])
+
+    notes = fr.render_release_notes(manifest, matrix, "2026.1", report)
+
+    assert "- manifest: passed" in notes
+    assert "- cloud-parity: skipped (creds-gated; never executed)" in notes
+    assert "Every wired release gate passed" not in notes
+
+
+def test_release_notes_do_not_claim_all_passed_for_empty_or_red_gate_rows():
+    manifest, matrix = _real()
+    for gates in (
+        [],
+        [{"gate": "security", "status": "fail"}],
+        [{"gate": "upgrade", "status": "blocked"}],
+        [{"gate": "future", "status": "unexpected"}],
+        ["malformed-row"],
+    ):
+        report = {"overallStatus": "pass", "gates": gates}
+        notes = fr.render_release_notes(manifest, matrix, "2026.1", report)
+        assert "Every wired release gate passed" not in notes
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+      capacity_receipt_url: { description: "HTTPS URL of the candidate capacity-soak receipt", required: true, type: string }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -82,6 +83,7 @@ jobs:
           fi
           python tools/validate_platform.py "${ARGS[@]}"
           if [ "$DRY_RUN" = "false" ]; then
+            python tools/verify_sdk_baseline_sources.py platform-lock.json
             python tools/verify_client_artifacts.py
             python tools/verify_evidence_sources.py
           fi
@@ -119,7 +121,9 @@ jobs:
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            platform-lock.json
             release-evidence-pins.json
+          if-no-files-found: error
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -222,6 +226,10 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
+    needs: freeze
+    uses: ./.github/workflows/rollback-certification.yml
+
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
                                  # matrix backing #59's capability-key claims must be about this
                                  # candidate's pinned honua-server sha and not stale. Wired at freeze.
@@ -255,6 +263,12 @@ jobs:
       expected_geospatial_mcp_sha: ${{ needs.freeze.outputs.geospatial_mcp_sha }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
+  gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
+    needs: freeze
+    uses: ./.github/workflows/capacity-soak.yml
+    with:
+      receipt_url: ${{ inputs.capacity_receipt_url }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -271,8 +285,10 @@ jobs:
       - gate_observability
       - gate_docs
       - gate_upgrade
+      - gate_one_operation_rollback
       - gate_evidence
       - gate_protocol_certification
+      - gate_capacity_soak
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -293,15 +309,6 @@ jobs:
         with:
           name: candidate-manifest
           path: candidate-input
-
-      - name: Collect sub-gate reports (best-effort)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          # the wired gates upload their own machine-readable reports; pull whatever exists.
-          pattern: "*gate-report*"
-          path: subreports
-          merge-multiple: true
-        continue-on-error: true
 
       - name: Assemble platform gate-report.json
         id: assemble
@@ -325,8 +332,10 @@ jobs:
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
           S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
+          S_ROLLBACK: ${{ needs.gate_one_operation_rollback.outputs.overall_status || needs.gate_one_operation_rollback.result }}
           S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
+          S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -346,8 +355,10 @@ jobs:
           observability|$S_OBS
           docs|$S_DOCS
           upgrade|$S_UPGRADE
+          one-operation-rollback|$S_ROLLBACK
           evidence|$S_EVIDENCE
           protocol-certification|$S_PROTOCOL
+          capacity-soak|$S_CAPACITY
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -378,7 +389,8 @@ jobs:
                 overallStatus: (
                   if   any(.[]; .status=="fail")    then "fail"
                   elif any(.[]; .status=="blocked") then "blocked"
-                  else "pass" end)     # a `skipped` gate does not reduce overall below pass
+                  elif ($dry=="false" and any(.[]; .status=="skipped")) then "fail"
+                  else "pass" end)
               }' > out/gate-report.json
 
           # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
@@ -462,6 +474,12 @@ jobs:
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
+          # The lock is the atomic RC identity. A real train without it cannot produce promotion
+          # evidence; copying the committed bytes into every train bundle makes comparisons immutable.
+          test -f platform-lock.json || {
+            echo "::error::platform-lock.json is required for a strict release train"; exit 1;
+          }
+          cp platform-lock.json out/certified-candidate/platform-lock.json
           python tools/generate_evidence_index.py \
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json

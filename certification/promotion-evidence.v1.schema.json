@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/promotion-evidence.v1.schema.json",
+  "title": "Honua immutable promotion evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "platformLabel", "rcTrainRunId", "lock", "strictTrains", "demoCanaries"],
+  "properties": {
+    "schemaVersion": {"const": "promotion-evidence.v1"},
+    "platformLabel": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"},
+    "rcTrainRunId": {"$ref": "#/$defs/runId"},
+    "lock": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "digest", "burnStartedAt", "burnStartCommit"],
+      "properties": {
+        "path": {"const": "platform-lock.json"},
+        "digest": {"$ref": "#/$defs/digest"},
+        "burnStartedAt": {"$ref": "#/$defs/time"},
+        "burnStartCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "strictTrains": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/run"}},
+    "demoCanaries": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/run"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runId": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "time": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runId", "completedAt", "status", "lockDigest"],
+      "properties": {
+        "runId": {"$ref": "#/$defs/runId"}, "completedAt": {"$ref": "#/$defs/time"},
+        "status": {"const": "pass"}, "lockDigest": {"$ref": "#/$defs/digest"},
+        "phase": {"enum": ["freeze", "during", "after"]}
+      }
+    }
+  }
+}

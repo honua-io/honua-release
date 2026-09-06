@@ -24,6 +24,9 @@ provider-neutral:
   select `bearer` and fail closed if the secret is absent. Only the environment-variable reference is
   recorded.
 - `TERMINAL_MODEL_RUNTIME` and `TERMINAL_MODEL_QUANTIZATION` — explicit receipt metadata.
+- `TERMINAL_MODEL_SIGNING_MANIFEST_SHA256` — required platform-controlled SHA-256 of the canonical
+  candidate transcript-signing manifest. Candidate-published keys are accepted only when that
+  manifest matches this independently configured trust anchor.
 
 Missing endpoint configuration produces a `skipped` receipt and a visible notice. It can never produce
 `pass`. A configured endpoint without the #123 adapter produces `blocked`, naming that dependency.
@@ -45,7 +48,9 @@ Model actions must reference the redacted assistant transcript entry that select
 injects one recoverable error through the driver, records the harness action that armed it, the model
 action whose driver result reports that exact error ID, and the later model action whose driver result
 reports recovery of that ID. Prompts, responses, requests, and results are recursively redacted before
-they enter the receipt. Credential values are never included in the prompt or receipt.
+they enter the receipt. Credential values are never included in the prompt or receipt. Each live run
+uses a cryptographically random nonce, signed provider-event bytes bind both SSE names and data, and
+the signed reported model must exactly match the requested model.
 
 The manual workflow supports `ubuntu-latest` for hosted endpoints and `self-hosted` for a locally
 reachable endpoint. It has no schedule. Until #123 supplies the live adapter, its honest terminal

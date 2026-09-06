@@ -8,6 +8,7 @@ ever reading as a pass.
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -67,6 +68,7 @@ def build(**overrides):
         mode="build",
         target=None,
         target_path=None,
+        target_base_url=None,
         workspace=pins.ClientWorkspace(status="blocked", root=None, reason="test"),
         stage_results=None,
         notices=[],
@@ -199,6 +201,7 @@ class StageDisciplineTests(unittest.TestCase):
             root=None,
             reason=None,
             command_surface=[
+                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 4, 5, 6, 7]},
                 {
                     "command": "honua admin",
                     "requiredBy": [2, 3, 8],
@@ -212,6 +215,46 @@ class StageDisciplineTests(unittest.TestCase):
         self.assertTrue(workspace.missing_for_stage(3))
         self.assertTrue(workspace.missing_for_stage(8))
         self.assertFalse(workspace.missing_for_stage(4))
+
+    def test_present_admin_does_not_claim_credential_or_mutation_execution(self):
+        workspace = pins.ClientWorkspace(status="pass", root=None, reason=None,
+            command_surface=[{"command": "honua admin", "status": "present"}])
+        observation = stagelib.Observation(anonymous_api_keys_status=401)
+        for number in (2, 3, 8):
+            with self.subTest(stage=number):
+                checks = stagelib.STAGE_IMPLEMENTATIONS[number](observation, workspace.missing_for_stage)
+                discovery = next(c for c in checks if c.id == f"{number}.1-admin-cli")
+                self.assertEqual(discovery.status, "pass")
+                result = stagelib._resolve(checks, number, "test", "test")
+                self.assertEqual(result.status, "blocked")
+                self.assertIn(stagelib.JOURNEY_DRIVER, result.blocked_by)
+                self.assertNotIn(stagelib.INSTALLED_CLIENTS, result.blocked_by)
+                self.assertFalse(any("unshipped" in c.detail or "not available on the candidate" in c.detail for c in checks))
+
+    def test_incomplete_or_ambiguous_command_evidence_blocks(self):
+        for rows in ([], [{"command": "honua admin", "status": "unknown"}],
+                     [{"command": "honua admin", "status": "present"}] * 2):
+            with self.subTest(rows=rows):
+                workspace = pins.ClientWorkspace(status="pass", root=None, reason=None, command_surface=rows)
+                for number in (2, 3, 8):
+                    self.assertTrue(workspace.missing_for_stage(number))
+        workspace = pins.ClientWorkspace(status="blocked", root=None, reason="integrity mismatch",
+            command_surface=[{"command": "honua admin", "status": "present"}])
+        self.assertEqual(workspace.missing_for_stage(2), ["integrity mismatch"])
+
+    def test_failed_help_cannot_certify_admin_even_if_it_prints_the_verb(self):
+        # Real child process: fixed fixture advertises admin then exits nonzero.
+        # The expected result follows from its exit code, not a captured receipt.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cli = root / "cli.js"
+            artifact = pins.ResolvedArtifact("test", "test", "0.0.0", "npm", None,
+                                             True, "a" * 64, {"honua": "cli.js"}, root=root)
+            for code, expected in ((0, True), (2, False)):
+                with self.subTest(exit_code=code):
+                    cli.write_text(f'console.log("  admin  Admin commands"); process.exit({code});')
+                    present, detail = pins._honua_has_admin(artifact, "cli.js")
+                    self.assertEqual(present, expected, detail)
 
     def test_candidate_identity_must_match_manifest_revision(self):
         observation = stagelib.Observation(
@@ -250,6 +293,16 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(len(receipt["stages"]), 8)
         self.assertTrue(all(s["status"] == "blocked" and s["blockedBy"] for s in receipt["stages"]))
+
+    def test_live_receipt_records_effective_target_url(self):
+        receipt = build(
+            mode="live",
+            target=json.loads((HERE / "targets" / "local-docker.json").read_text()),
+            target_path=HERE / "targets" / "local-docker.json",
+            target_base_url="http://127.0.0.1:8137",
+        )
+        self.assertEqual(receipt["target"]["baseUrl"], "http://127.0.0.1:8137")
+        validate(receipt)
 
     def test_build_mode_cannot_claim_pass(self):
         receipt = build()
