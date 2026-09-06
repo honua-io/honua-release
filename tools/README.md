@@ -166,6 +166,26 @@ python tools/check_capabilities.py --capability-matrix path/to/capability-matrix
 python -m pytest tools/test_check_capabilities.py -q
 ```
 
+## `check_evidence_map.py` — docs gate (h): the 2026.1 GA evidence map validates against its schema
+
+Parses the Markdown table in `docs/2026.1-evidence-map.md` into a machine-readable instance and
+validates the fields it encodes (row id family, priority, disposition set) against
+`schemas/2026.1-evidence-map.schema.json`, plus the invariants prose cannot carry: six non-empty
+cells per row, unique ids, at least one named disposition, and proof links pinned to a single
+audited source revision rather than a mutable `trunk` ref.
+
+```bash
+python tools/check_evidence_map.py                                  # verdict only
+python tools/check_evidence_map.py --emit out/evidence-map.instance.json
+python tools/check_evidence_map.py --self-test                      # prove the gate can fail
+python -m pytest tools/test_evidence_map_schema.py -q               # prove the schema can fail
+```
+
+Runs as the `evidence-map` job of `gate-docs`; a violation is a hard `fail` in bootstrap and
+strict alike. Both self-tests run before the real check — `test_evidence_map_schema.py` rejects
+fabricated receipts and contradictory proof states, `--self-test` rejects three schema defects and
+one row-shape defect — so a green verdict is never a checker that stopped working.
+
 ## `check_ga_surface.py` — docs gate (h): advertised-GA ⊆ evidenced-GA (honua-release#59)
 
 Sibling of the above: applies the SAME GA criteria (`check_capabilities.resolve_capability_key`) to
