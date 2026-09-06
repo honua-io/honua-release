@@ -1,0 +1,94 @@
+{
+  "artifacts": [
+    {
+      "name": "Geospatial.Grpc.1.0.0.nupkg",
+      "sha256": "d5233d2aafd7afd902412ea1e23d148d1e3b3e7200ff2252c54e3f298e9ab00c",
+      "size": 465817
+    },
+    {
+      "name": "Geospatial.Grpc.1.0.0.snupkg",
+      "sha256": "6719f9957be2a5f3663821ceacecdd7df49b0376712f204df5b09152c2f87576",
+      "size": 458310
+    },
+    {
+      "name": "conformance-fixtures-1.0.0.tar.gz",
+      "sha256": "b517e40fda9665e018680ed96895cbee41a7c985973b73bb2d525ecdf7f8d898",
+      "size": 12578
+    },
+    {
+      "name": "conformance-fixtures-1.0.0.tar.gz.sha256",
+      "sha256": "897c672f948d4d4ca7f7ef7cd527f3bc751bd57c2dc6a5986c60dab5dd95fd9a",
+      "size": 100
+    },
+    {
+      "name": "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip",
+      "sha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
+      "size": 68007
+    },
+    {
+      "name": "public-consumption.json",
+      "sha256": "7fc5a9292dc3afcae875849a2ff390d85e218d741e5b9703afdef440f5155f43",
+      "size": 383
+    }
+  ],
+  "bsr": {
+    "archiveSha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
+    "archiveUrl": "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip",
+    "commit": "f52df33b3b5d4723881ad0bacaf8a754",
+    "fileCount": 23,
+    "immutableRef": "buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754",
+    "module": "buf.build/honua-io/geospatial-grpc",
+    "moduleContentSha256": "46946ab9e5de2ba56da8066dd3a766af852ce23c719de4bed8ae96b7a3280fa1",
+    "releaseLabel": "v1.0.0"
+  },
+  "nuget": {
+    "canonicalSource": {
+      "payloadMatch": true,
+      "sourceContentSha256": "3a5fb1390a64aeba916509ca424e24fcffa68e5380771bdecfa01aaaaffc7b96",
+      "sourceFileCount": 22
+    },
+    "localPackage": {
+      "contentSha256": "398d92831fb38dcfd0f0a07ebcf74a5d3630cd3ddff1c7a025d6528ea3878cb1",
+      "fileCount": 28,
+      "packageId": "Geospatial.Grpc",
+      "rawSha256": "d5233d2aafd7afd902412ea1e23d148d1e3b3e7200ff2252c54e3f298e9ab00c",
+      "version": "1.0.0"
+    },
+    "packageId": "Geospatial.Grpc",
+    "packageUrl": "https://www.nuget.org/packages/Geospatial.Grpc/1.0.0",
+    "payloadMatch": true,
+    "publicPackage": {
+      "contentSha256": "398d92831fb38dcfd0f0a07ebcf74a5d3630cd3ddff1c7a025d6528ea3878cb1",
+      "fileCount": 29,
+      "packageId": "Geospatial.Grpc",
+      "rawSha256": "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f",
+      "version": "1.0.0"
+    },
+    "symbolPackage": {
+      "contentSha256": "5a4eb5c8d13e6a90e2976ddd4974c1fc4cda67e3ee8fc5c9c029a3a3841ae062",
+      "fileCount": 5,
+      "packageId": "Geospatial.Grpc",
+      "portablePdbSha256": "cc0cecae42578c84fecc5287192b6d7fb6e2ffc966c9f11d06fd68abc790bc99",
+      "rawSha256": "6719f9957be2a5f3663821ceacecdd7df49b0376712f204df5b09152c2f87576",
+      "version": "1.0.0"
+    },
+    "version": "1.0.0"
+  },
+  "publicConsumption": {
+    "bsrCommit": "f52df33b3b5d4723881ad0bacaf8a754",
+    "bsrDescriptorImageSha256": "a8b22581b5b6a17a2f9fb260f8f6cb477babe4a7373f3e505c6c139d2d6527c5",
+    "bsrRef": "buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754",
+    "credentialFree": true,
+    "nugetSource": "https://api.nuget.org/v3/index.json",
+    "schemaVersion": 1,
+    "status": "passed",
+    "version": "1.0.0"
+  },
+  "release": {
+    "gitCommit": "0f701ecc6b0c41a5ea43e2dff3c46ce654312576",
+    "tag": "v1.0.0",
+    "version": "1.0.0",
+    "workflowRunUrl": "https://github.com/honua-io/geospatial-grpc/actions/runs/33449084727"
+  },
+  "schemaVersion": 1
+}
