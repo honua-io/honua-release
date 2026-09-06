@@ -108,6 +108,22 @@ def test_manifest_bytes_cannot_move_after_freeze(candidate):
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda m: m["clientArtifacts"]["sdk"].pop("integrity"), "incomplete published identity"),
+    (lambda m: m["clientArtifacts"]["sdk"].update(repository="honua-io/missing"), "exactly one component"),
+    (lambda m: m["components"]["sdk"].update(artifactSourceRevision="f" * 40), "published identity conflicts"),
+    (lambda m: m["clientArtifacts"].update(duplicate=copy.deepcopy(m["clientArtifacts"]["sdk"])), "duplicate published"),
+])
+def test_inventory_refusals_block_an_otherwise_complete_lock(candidate, mutation, reason):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    mutation(manifest)
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match=reason):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
 def test_requested_patch_candidate_identity_is_preserved(candidate):
     lock, paths, _ = candidate
     manifest = yaml.safe_load(paths[0].read_text())
