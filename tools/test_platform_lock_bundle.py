@@ -29,7 +29,7 @@ def candidate(tmp_path):
         comp["artifacts"] = [{"kind": "npm", "coordinate": f"@honua/{name}",
                               "version": "1.2.3", "sourceRevision": "c" * 40,
                               "integrity": integrity}]
-        # SDK baseline declarations cover both source head and artifact revision.
+        # SDK baseline declarations describe the published artifact revision.
         if "serverCompatibility" in comp:
             declaration = copy.deepcopy(comp["serverCompatibility"]["declarations"][0])
             declaration["revision"] = "c" * 40
@@ -101,6 +101,27 @@ def test_manifest_bytes_cannot_move_after_freeze(candidate):
     lock, paths, _ = candidate
     paths[0].write_text(paths[0].read_text() + "# edited after freeze\n")
     with pytest.raises(ValueError, match="sourceInputs.platformManifest.sha256"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_requested_patch_candidate_identity_is_preserved(candidate):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformRelease"] = "2026.1.0-rc.1"
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["platform"]["id"] = "honua-2026.1.0-rc.1"
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    bundle.bind(lock, *paths, "2026.1.0-rc.1")
+    assert bundle.build_bom(lock)["metadata"]["component"]["version"] == "honua-2026.1.0-rc.1"
+
+
+def test_pending_published_client_is_never_omitted(candidate):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["components"]["sdk"]["pendingPublishedClients"] = {"python": "publication-issue"}
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="published package coordinate is pending"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 

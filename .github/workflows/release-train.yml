@@ -80,18 +80,6 @@ jobs:
             --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
             --label "$PLATFORM_LABEL" --out-dir frozen-lock
 
-      - name: Attest the frozen atomic candidate identity
-        if: inputs.dry_run == false
-        id: lock_attestation
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: frozen-lock/platform-lock.json
-
-      - name: Retain the candidate signature bundle
-        if: inputs.dry_run == false
-        env:
-          BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
-        run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
       # A train cut freezes a candidate manifest. Phase 2 will regenerate it by snapshotting each
       # component's current green main SHA; today (Phase 0/1) the committed platform-manifest.yaml IS
       # the candidate snapshot, so freeze VALIDATES it (structure + coherence via validate_platform.py)
@@ -141,6 +129,18 @@ jobs:
           print(f"certification_sha256={ledger['sha256']}")
           print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
+      - name: Attest the frozen atomic candidate identity
+        if: inputs.dry_run == false
+        id: lock_attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: frozen-lock/platform-lock.json
+
+      - name: Retain the candidate signature bundle
+        if: inputs.dry_run == false
+        env:
+          BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-manifest

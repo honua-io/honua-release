@@ -51,6 +51,9 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
     if lock["platform"]["id"] != f"honua-{label}":
         raise ValueError("platform label differs from atomic candidate identity")
     draft = generate(manifest, matrix)
+    for refusal in draft.unresolved:
+        if "published package coordinate is pending" in refusal:
+            raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
     _declared(draft.lock["platform"], lock["platform"], "platform")
     if set(lock["components"]) != set(draft.lock["components"]):

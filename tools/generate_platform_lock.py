@@ -23,7 +23,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:-rc\.[0-9]+)?$")
+PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)?$")
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -91,7 +91,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     if not platform_id:
         unresolved.append(
             "$.platform.id: platformManifest.platformRelease is absent or not strict "
-            "YYYY.N[-rc.N]; refusing to infer the missing identity"
+            "YYYY.N[.P][-rc.N]; refusing to infer the missing identity"
         )
     combined = list((manifest.get("components") or {}).items()) + list((manifest.get("experimental") or {}).items())
     for name, component in combined:
