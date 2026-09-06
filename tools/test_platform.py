@@ -69,6 +69,11 @@ SDK_PINS = {
     "sdk-python": "2" * 40,
     "sdk-js": "3" * 40,
 }
+SDK_ARTIFACTS = {
+    "sdk-dotnet": "honua-sdk-dotnet",
+    "sdk-python": "honua-sdk-python-wheel",
+    "sdk-js": "honua-sdk-js",
+}
 
 
 def _bound_sdk_fixture():
@@ -81,6 +86,7 @@ def _bound_sdk_fixture():
     for source, sha in SDK_PINS.items():
         manifest["components"]["honua-" + source]["sha"] = sha
         requirements["source_revisions"][source] = {"commit": sha}
+        manifest["clientArtifacts"][SDK_ARTIFACTS[source]]["sourceSha"] = sha
     return manifest, matrix, requirements
 
 
@@ -111,6 +117,39 @@ def test_bound_ledger_rejects_missing_or_malformed_sdk_producer(source, producer
     requirements["source_revisions"][source] = producer
     f = vp.validate(manifest, matrix, None, requirements=requirements)
     assert any(f"source_revisions.{source}.commit" in error for error in f.errors)
+
+
+@pytest.mark.parametrize("source", SDK_PINS)
+@pytest.mark.parametrize("published_sha", ["e" * 40, None])
+def test_bound_ledger_rejects_nonshipping_or_missing_provenance(source, published_sha):
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    artifact = SDK_ARTIFACTS[source]
+    manifest["clientArtifacts"][artifact]["sourceSha"] = published_sha
+    # The working component and catalog agree; only package provenance differs.
+    f = vp.validate(manifest, matrix, None, exact_candidate=True, requirements=requirements)
+    assert not f.ok
+    assert any(
+        f"source_revisions.{source}.commit" in error
+        and f"clientArtifacts.{artifact}.sourceSha" in error
+        for error in f.errors
+    )
+
+
+def test_historical_dotnet_working_pin_cannot_certify_published_package():
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    manifest["components"]["honua-sdk-dotnet"]["sha"] = "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"
+    requirements["source_revisions"]["sdk-dotnet"]["commit"] = "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"
+    manifest["clientArtifacts"]["honua-sdk-dotnet"]["sourceSha"] = "a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4"
+    f = vp.validate(manifest, matrix, None, exact_candidate=True, requirements=requirements)
+    # Pending GA deploy qualification is a separate finding (test_deploy_qualification.py);
+    # the stale published-package binding must be the only certification error left.
+    certification_errors = [e for e in f.errors if ".architectures." not in e]
+    assert certification_errors == [
+        "manifest: bound protocol certification ledger requires catalog source_revisions."
+        "sdk-dotnet.commit to equal clientArtifacts.honua-sdk-dotnet.sourceSha "
+        "(catalog=8e4dd3d9d23f86b7f07d946ef0736d4529d332b6, "
+        "published=a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4)"
+    ]
 
 
 def test_bound_ledger_requires_catalog_source_revisions():

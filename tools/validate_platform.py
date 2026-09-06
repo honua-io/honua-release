@@ -255,10 +255,11 @@ def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Fin
     if not isinstance(source_revisions, dict):
         f.error("manifest: bound protocol certification ledger requires catalog source_revisions")
         return
-    for source, component in (
-        ("sdk-dotnet", "honua-sdk-dotnet"),
-        ("sdk-python", "honua-sdk-python"),
-        ("sdk-js", "honua-sdk-js"),
+    artifacts = manifest.get("clientArtifacts") or {}
+    for source, component, artifact in (
+        ("sdk-dotnet", "honua-sdk-dotnet", "honua-sdk-dotnet"),
+        ("sdk-python", "honua-sdk-python", "honua-sdk-python-wheel"),
+        ("sdk-js", "honua-sdk-js", "honua-sdk-js"),
     ):
         manifest_sha = (components.get(component) or {}).get("sha")
         producer = source_revisions.get(source)
@@ -268,6 +269,14 @@ def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Fin
                 "manifest: bound protocol certification ledger requires catalog source_revisions."
                 f"{source}.commit to equal components.{component}.sha "
                 f"(catalog={catalog_sha or 'missing'}, manifest={manifest_sha or 'missing'})"
+            )
+        published = artifacts.get(artifact)
+        published_sha = published.get("sourceSha") if isinstance(published, dict) else None
+        if not _full_sha(published_sha) or catalog_sha != published_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal clientArtifacts.{artifact}.sourceSha "
+                f"(catalog={catalog_sha or 'missing'}, published={published_sha or 'missing'})"
             )
 
 
