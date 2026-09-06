@@ -11,7 +11,8 @@ from release_controls import audit, audit_repository, branch_rules, rule_drift, 
 
 
 POLICY = {'release_refs': ['refs/heads/release/2026.1'],
-          'required_checks': ['validate'], 'tag_refs': []}
+          'required_checks': ['validate'], 'tag_refs': [],
+          'code_owners': ['mikemcdougall', 'independent-reviewer']}
 # Written from the contract/API shape, not captured from the renderer.
 LIVE = {
     'target': 'branch', 'enforcement': 'active', 'bypass_actors': [],
@@ -34,7 +35,7 @@ LIVE = {
 
 def snapshot():
     return {'source_sha': 'a' * 40, 'rulesets': [copy.deepcopy(LIVE)],
-            'codeowners': {'content': '* @mikemcdougall\n', 'source_sha': 'a' * 40},
+            'codeowners': {'content': '* @mikemcdougall @independent-reviewer\n', 'source_sha': 'a' * 40},
             'human_writers': ['mikemcdougall', 'independent-reviewer']}
 
 
@@ -146,3 +147,54 @@ def test_cli_returns_nonzero_and_binds_failure_receipt(tmp_path):
     import hashlib
     assert receipt['snapshot_sha256'] == hashlib.sha256(observed.read_bytes()).hexdigest()
     assert receipt['policy_sha256'] == hashlib.sha256(policy.read_bytes()).hexdigest()
+
+
+def test_an_independent_writer_without_code_ownership_cannot_approve():
+    data = snapshot()
+    policy = {**POLICY, 'code_owners': ['mikemcdougall']}
+    data['codeowners']['content'] = '* @mikemcdougall\n'
+    assert 'no independent human code owner available to approve owner-authored changes' in audit_repository(policy, data)
+
+
+def test_comments_in_codeowners_do_not_remove_coverage():
+    data = snapshot()
+    data['codeowners']['content'] = '# Ownership includes workflows\n\n' + data['codeowners']['content']
+    assert not audit_repository(POLICY, data)
+
+
+def test_committed_inventory_covers_the_adopted_denominator_and_manifest():
+    import yaml
+    root = Path(__file__).resolve().parents[1]
+    policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
+    expected = set('honua-server honua-sdk-js honua-sdk-python honua-sdk-dotnet honua-studio honua-console honua-release honua-iac honua-devops honua-helm honua-site honua-demo-infra honua-evidence honua-esri-compat geospatial-grpc geospatial-mcp honua-support'.split())
+    assert set(policy['repositories']) == expected
+    manifest = yaml.safe_load((root / 'platform-manifest.yaml').read_text())
+    assert set(manifest['components']) <= expected
+    assert all(row['release_refs'] == ['refs/heads/release/*'] for row in policy['repositories'].values())
+
+
+@pytest.mark.parametrize('error', ['error connecting to api.github.com', 'Could not resolve host',
+                                  'Connection reset by peer', 'net/http: TLS handshake timeout',
+                                  'gh: Forbidden (HTTP 403)'])
+def test_network_backoff_retries_the_same_read_without_reauthentication(monkeypatch, error):
+    import release_controls as controls
+    calls, sleeps = [], []
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1, '', error)
+    monkeypatch.setattr(controls.subprocess, 'run', run)
+    monkeypatch.setattr(controls.time, 'sleep', sleeps.append)
+    assert controls.github('repos/honua-io/example') == {'error': error}
+    assert sleeps == [10, 30, 60, 120, 60]
+    assert calls == [['gh', 'api', 'repos/honua-io/example']] * 6
+
+
+def test_paginated_repository_controls_are_not_truncated(monkeypatch):
+    import release_controls as controls
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, '[[{"id":1}],[{"id":2}]]', '')
+    monkeypatch.setattr(controls.subprocess, 'run', run)
+    assert controls.github('repos/example/rulesets', paginated=True) == [{'id': 1}, {'id': 2}]
+    assert calls == [['gh', 'api', 'repos/example/rulesets', '--paginate', '--slurp']]

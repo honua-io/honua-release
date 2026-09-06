@@ -7,11 +7,72 @@ Tag immutability is checked separately and must never be reported as signing pro
 from __future__ import annotations
 
 import argparse
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
+import subprocess
+import time
+from urllib.parse import quote
 
 POLICY = Path(__file__).resolve().parents[1] / 'certification/release-controls/policy.json'
+
+
+def github(path: str, *, paginated: bool = False):
+    """Read only, bounded backoff, including rate-limit/403 cooling; never authenticate."""
+    command = ['gh', 'api', path]
+    if paginated:
+        command += ['--paginate', '--slurp']
+    for delay in (0, 10, 30, 60, 120, 60):
+        if delay:
+            time.sleep(delay)
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return [item for page in data for item in page] if paginated else data
+        error = result.stderr.strip()
+        if not any(s in error.lower() for s in (
+            'error connecting', 'could not resolve host', 'connection reset',
+            'timeout', 'http 403', 'status code: 499',
+        )):
+            return {'error': error}
+    return {'error': error}
+
+
+def capture_repository(repo: str) -> dict:
+    base = f'repos/honua-io/{repo}'
+    metadata = github(base)
+    if 'error' in metadata:
+        return metadata
+    branch = metadata['default_branch']
+    tip = github(f'{base}/branches/{quote(branch, safe="")}')
+    if 'error' in tip:
+        return tip
+    sha = tip['commit']['sha']
+    listed = github(f'{base}/rulesets?includes_parents=true&per_page=100', paginated=True)
+    rulesets = [github(f'{base}/rulesets/{r["id"]}') for r in listed] if isinstance(listed, list) else listed
+    collaborators = github(f'{base}/collaborators?per_page=100', paginated=True)
+    reads = {}
+    owners = None
+    for path in ('.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'):
+        response = github(f'{base}/contents/{path}?ref={sha}')
+        reads[path] = {'error': response['error']} if 'error' in response else {'sha': response['sha']}
+        if owners is None and 'content' in response:
+            owners = {'path': path, 'content': base64.b64decode(response['content']).decode(),
+                      'source_sha': sha}
+    return {
+        'observed_at': datetime.now(timezone.utc).isoformat(),
+        'source_sha': sha, 'default_branch': branch,
+        'protection': github(f'{base}/branches/{quote(branch, safe="")}/protection'),
+        'rulesets': rulesets, 'codeowners': owners, 'codeowners_reads': reads,
+        'human_writers': [x['login'] for x in collaborators if x['type'] == 'User'
+                          and x.get('permissions', {}).get('push')] if isinstance(collaborators, list) else [],
+        'collaborator_read_error': collaborators.get('error') if isinstance(collaborators, dict) else None,
+        'api_source': f'https://api.github.com/{base}',
+    }
 
 
 def branch_rules(policy: dict) -> dict:
@@ -94,22 +155,26 @@ def audit_repository(policy: dict, snapshot: dict) -> list[str]:
     try:
         expected = branch_rules(policy)
     except ValueError as exc:
-        return [str(exc)]
+        errors.append(str(exc))
+        expected = None
     rulesets = snapshot.get('rulesets')
     if not isinstance(rulesets, list):
         return ['rulesets unreadable']
-    if not any(isinstance(r, dict) and not rule_drift(expected, r) for r in rulesets):
+    if expected and not any(isinstance(r, dict) and not rule_drift(expected, r) for r in rulesets):
         errors.append('complete active release-line ruleset missing or drifted')
     # The normalized snapshot binds CODEOWNERS to the exact inspected source SHA.
     owners = snapshot.get('codeowners')
-    if not isinstance(owners, dict) or owners.get('content') != '* @mikemcdougall\n':
+    content = owners.get('content', '') if isinstance(owners, dict) else ''
+    entries = [line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    designated = policy['code_owners']
+    if entries != ['* ' + ' '.join('@' + owner for owner in designated)]:
         errors.append('catch-all human CODEOWNERS not verified')
-    elif owners.get('source_sha') != snapshot.get('source_sha') or not owners.get('source_sha'):
+    elif owners.get('source_sha') != snapshot.get('source_sha') or not re.fullmatch('[0-9a-f]{40}', owners.get('source_sha', '')):
         errors.append('CODEOWNERS source SHA differs')
     # A designated owner must be able to approve a change authored by the release owner.
     humans = snapshot.get('human_writers', [])
-    if not any(h != 'mikemcdougall' for h in humans):
-        errors.append('no independent human writer available to approve owner-authored changes')
+    if not any(h != 'mikemcdougall' and h in designated for h in humans):
+        errors.append('no independent human code owner available to approve owner-authored changes')
     if policy['tag_refs']:
         tags = tag_rules(policy)
         if not any(isinstance(r, dict) and not rule_drift(tags, r) for r in rulesets):
@@ -143,8 +208,16 @@ def main() -> int:
     check = subs.add_parser('audit')
     check.add_argument('snapshot', type=Path)
     check.add_argument('--output', type=Path, required=True)
+    capture = subs.add_parser('capture')
+    capture.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     policy = json.loads(args.policy.read_text())
+    if args.command == 'capture':
+        repos = list(policy['repositories'])
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            rows = list(pool.map(capture_repository, repos))
+        args.output.write_text(json.dumps({'schema_version': 1, 'repositories': dict(zip(repos, rows))}, indent=2) + '\n')
+        return 0
     if args.command == 'render':
         row = policy['repositories'][args.repository]
         print(json.dumps(tag_rules(row) if args.tags else branch_rules(row), indent=2))
