@@ -1,2 +1,3 @@
 contracts/baselines/**/*.json text eol=lf
 certification/release-controls/** text eol=lf
+certification/first-publication/** text eol=lf
