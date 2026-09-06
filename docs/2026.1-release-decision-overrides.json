@@ -1257,6 +1257,186 @@
       "body_sha256": "47fd4c905d3a35965660e925a1e9b5744124d4066ca338ca3e137d332b3ddecf",
       "named_promise": true,
       "reason": "The documented supported backup/restore workflow excludes Redis even though enabled GP queues, execution logs and workflow state are durable there; following it can omit required state from disaster recovery."
+    },
+    "honua-server#4387": {
+      "body_sha256": "ed30974037eb48c3ecacc72ce90a47e51263700d985a6ba43c4de3422bb87edd",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: security/isolation floor on the GA WFS 2.0 protocol - per-operation write authorization and denied-reader visibility are proven only at a synthetic unit seam, never over HTTP."
+    },
+    "honua-server#4388": {
+      "body_sha256": "73cbf4cc9566232de3bb3c231b2fba46c220cfb80f0499a0158bdc6488c0644c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: security/isolation floor on the GA OGC classic surfaces - WMS GetFeatureInfo attribute data, WMTS GetTile and WCS GetCoverage have no authorization test at all."
+    },
+    "honua-server#4392": {
+      "body_sha256": "514ca689abfa6fabb3846954645c9eccdd4f44e3b23c84feae213a671249dee4",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: security floor on the GA OGC API Features and OData write surfaces - write-denial tests assert status only and never that the store is unchanged, and unauthenticated reads are untested."
+    },
+    "honua-server#4393": {
+      "body_sha256": "fff8ab9d663308ba34b07c97c3f420fa3727f8a684be9529b936f11c93d8cc62",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data on the GA OGC API Features surface - the bbox and CQL2 filtering tests pass on an empty or unfiltered result set."
+    },
+    "honua-server#4394": {
+      "body_sha256": "78af74a527a07e31b727741809944bd9c6eddd1865809d572326efdbaa89bb64",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the GA cloud-native serving promise (operator decision 3, 2026-09-04) - COG is one of the four named formats and no test serves a COG-derived tile over HTTP."
+    },
+    "honua-server#4395": {
+      "body_sha256": "4de29ce6b2bb9fca9ad4fa8a09ff96858c5cbf98997e3a8e4923eac5d904d590",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the GA cloud-native serving promise (operator decision 3, 2026-09-04) - Zarr chunk, index, axis, CRS and nodata semantics are unproven; the datacube tile route has only a 404 test."
+    },
+    "honua-server#4396": {
+      "body_sha256": "f7f0d5d8e23e0e4849227fb8c9683a8a4d6ec5948af8731bb606ce672dd5924c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the GA cloud-native serving promise (operator decision 3, 2026-09-04) - the only independent-consumer GeoParquet test self-skips and the HTTP test asserts four magic bytes."
+    },
+    "honua-server#4397": {
+      "body_sha256": "0793c2c729dce9365443514880df3ed4d96b5b791d7fca4dc8ea4145d13de017",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the GA cloud-native serving promise (operator decision 3, 2026-09-04) - PMTiles range coverage is seven bytes, no compressed tile is decoded and no independent reader reads a served archive."
+    },
+    "honua-server#4400": {
+      "body_sha256": "674081efaa26fada3180ea27f60c78f24f29f89f9d012fa950f25c40cbdebbc3",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the whole-BuiltInProcessCatalog GA promise with no per-operation carve-out (operator reaffirmation, 2026-09-04) - public-API execution tests cannot tell a completed job from a 500 and a staged-artifact test claims gdal provenance over random bytes."
+    },
+    "honua-server#4401": {
+      "body_sha256": "73f9672e79c2702de3c9d4f734e4b74793517992868cc71e8b6aad68d3d2cea0",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the whole-BuiltInProcessCatalog GA promise with no per-operation carve-out (operator reaffirmation, 2026-09-04) - PDAL never executes and the real-worker lane can silently execute zero cases."
+    },
+    "honua-server#4402": {
+      "body_sha256": "581c0c5dc36ddf2199b515ff2d51b36b865cedabbfe3d79759f575fb759461ef",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: a documented supported workflow that fails - the shipped /featureLocks lease endpoints and the advertised FeatureServer edit capabilities are enforced on no write path and IFeatureEditGuard is dead code."
+    },
+    "honua-server#4403": {
+      "body_sha256": "65a023ad3979686b8234cf264e2bffc689f6348f79aa0ef3db1ed56336046f5b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data and lost work on the durable job queue - the at-most-once claim losing branch is unreached and the test named for the do-not-steal-a-live-claim guarantee asserts nothing."
+    },
+    "honua-server#4404": {
+      "body_sha256": "e65575f0d39cbbbd97052e5bd3d677dd08bbc8ea456b154b8fc78f6dbc52175e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: data corruption on the GA FeatureServer attachments surface - metadata and object bytes are written with no shared transaction or two-phase protocol and the round trip is never byte-verified."
+    },
+    "honua-server#4405": {
+      "body_sha256": "b2dce868397b45e4a3ccfb2c71cffb431aca7b6daafaaaa19d06835f70b9df1c",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the retained security/isolation floor on replica management - the admin-only proof is anonymous-401 only, one case is vacuous, and a replica has no owner."
+    },
+    "honua-server#4406": {
+      "body_sha256": "4dac3071286b0e9e2cd86e034fdc3a54d48838dd76ea4154161ab4fe4eca1125",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data on the GA applyEdits editing surface - documented concurrent-editor conflict codes are never produced over HTTP and idempotency proves no duplicate response rather than no duplicate rows."
+    },
+    "honua-server#4412": {
+      "body_sha256": "cead1003bd4dfd3d1f661fcf43864db8036bf7fb55b1792ec56782f463262cf2",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: a documented supported workflow that cannot be performed - versioning-and-support.md and ADR-0005 promise per-migration rollback scripts that have never existed in either DbUp root."
+    },
+    "honua-server#4417": {
+      "body_sha256": "3c4e3750d0e4c8f155db3092dbb76d16a683c2cfaaa6df169b0073dc9ea67fde",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: a documented supported workflow that fails - the capability manifest advertises thirteen export formats as Implemented while three export writers exist, and the required PR gate certifies the claim without checking export."
+    },
+    "honua-server#4419": {
+      "body_sha256": "2b59b4db8d1d9ca5c0bdfa888e0e752e76b85c90f318a4621f42cfd22048f96e",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data on documented import and export workflows - KML never asserts X/Y, shapefile .prj is never written under test, and CSV export drops the SRID."
+    },
+    "honua-server#4421": {
+      "body_sha256": "46ced41f0b6db18c135291acf093277aa3758bf78ca6eb2db5ca238532946fdd",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data on a GA serving path - no test decodes an MVT, clipping and simplification are disabled everywhere, and the two classes that render tiles have no tests."
+    },
+    "honua-server#4425": {
+      "body_sha256": "77d8175364f70275c889b34ac8322274528e9368991350e6b503d1478cd09756",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data on the GA STAC and OGC API Records catalog surface - bbox, intersects and datetime are unproven and the certification ledger declares CITE lanes that do not exist."
+    },
+    "honua-server#4389": {
+      "body_sha256": "c18080235604aaeff603d2223ca7bb653e358c323168623979560bd1e564892f",
+      "named_promise": false,
+      "reason": "Evidence strengthening on the MCP read path: the underlying resource-policy defect (#4255) is closed with tests, and the residual REST/MCP parity gap names no broken GA workflow or retained security floor."
+    },
+    "honua-server#4408": {
+      "body_sha256": "564920015f347937f7d636eb45bb0a3cd7de8181029e86710555038200920abf",
+      "named_promise": false,
+      "reason": "The body states all three defects are gate integrity in the geoprocessing evidence matrix rather than product behaviour, and declines first-release-gate under the 2026-09-04 admission rule."
+    },
+    "honua-server#4409": {
+      "body_sha256": "b180fd65c06124da33fb9b43846390d4a34190d2cc3bafd51e14e18df810b448",
+      "named_promise": false,
+      "reason": "The body asks for an operator ruling on catalog-claim coherence and states it is not a security floor, a data-corruption path or a failing documented workflow."
+    },
+    "honua-server#4411": {
+      "body_sha256": "0b7f807127d936777fa4b17fd5a5b175e785008b49fe521e5043db6568d8113b",
+      "named_promise": false,
+      "reason": "The gRPC functional tests cannot detect a wrong result, but the body records that nothing currently fails and declines first-release-gate under the 2026-09-04 admission rule."
+    },
+    "honua-server#4413": {
+      "body_sha256": "9c42482acead895188804b853cb0505d88b25374af507acfd8cf4b021b404e53",
+      "named_promise": false,
+      "reason": "The body records that the row-survival coverage exists one layer up in honua-release gate-upgrade.yml kind-upgrade and declines first-release-gate on that basis."
+    },
+    "honua-server#4414": {
+      "body_sha256": "e5963198f8448ede818b24ce43371d15e88c16a00eb95efa4a3ebe90de82b3ea",
+      "named_promise": false,
+      "reason": "The body states the three AWS certification defects are gate integrity rather than product behaviour and declines first-release-gate under the 2026-09-04 admission rule."
+    },
+    "honua-server#4415": {
+      "body_sha256": "88be72757e907e7e920351369edb2875012f783a15b4fb569152347c370b9ca4",
+      "named_promise": false,
+      "reason": "The body states items 1, 3 and 4 are weak or misdescribed evidence rather than product defects and item 2 is an owned red lane, and declines first-release-gate."
+    },
+    "honua-server#4416": {
+      "body_sha256": "714236c84cdd7d88971cf17419c311d5c453dd953ad37d4c824568e4bdc54853",
+      "named_promise": false,
+      "reason": "The Lambda GA bill is carried by release#282 under the 2026-09-06 amendment; the body declines the gate label here to avoid double-counting the same blocker."
+    },
+    "honua-server#4420": {
+      "body_sha256": "d3ebdca5dce3c23a1515d7ce242e7a6161eff8207bc5928b95d2081b0dca44b1",
+      "named_promise": false,
+      "reason": "Gate integrity on the import-fidelity scorecard; the body states the data-correctness half is #4419, which carries the gate."
+    },
+    "honua-server#4422": {
+      "body_sha256": "f50e67ec40eed415e5fc5f0af38fdcd2e966f2f08716998ba87cd1610fb76034",
+      "named_promise": false,
+      "reason": "Import job lifecycle proof gaps; the body states the data-correctness halves are #4419 and #4421, which carry the gate."
+    },
+    "honua-server#4424": {
+      "body_sha256": "7f09c88009593272bee59367e218e6aedc3568384ffcba9e4768d8d0cd9d8d9d",
+      "named_promise": false,
+      "reason": "EDR, Coverages and ImageServer are Preview surfaces whose functional defects the 2026-09-03 amendment dispositions to 2026.2; the security half is #4423."
+    },
+    "honua-server#4428": {
+      "body_sha256": "ab7aef119c6cc2bc4a56d4f9fc0cd887f66b26f39cc35d5626c14bd6e68463fe",
+      "named_promise": false,
+      "reason": "The absent UI accessibility and runtime-config gates are dischargeable by amending section 14 rather than by product work, and the body declines first-release-gate on that basis."
+    },
+    "honua-release#282": {
+      "body_sha256": "2beac3094e1eb125c34fc81a19ab52cd23193d5ea8649584e8850136c9c6205b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026-09-06 contract amendment (ruling A) promotes AWS Lambda from Preview to a 2026.1 GA target carrying the full ECS bill, and states the release cannot be cut with Lambda below it."
+    },
+    "honua-sdk-js#1620": {
+      "body_sha256": "9585d9ec34eb97873f487229248f0fa163691ecd36c09ce3d57ecbf25a1c98f6",
+      "named_promise": false,
+      "reason": "Gate integrity, not product behaviour: the CLI and MCP surfaces agree and the shipped validation message is correct; only the MCP mirror test still asserts the string retired by sdk-js#1598, so the fix is the test assertion. Red required gate with a named owner, on the 2026-09-04 admission rule precedent for red lanes."
+    },
+    "honua-sdk-js#1621": {
+      "body_sha256": "1915578d7d0c4787c8fd3b07678c23df682908a72af43fcd725fde3467aabc32",
+      "named_promise": false,
+      "reason": "Gate integrity, not product behaviour: a new upstream fflate advisory drifts the reviewed audit-policy package set for the examples/kepler-analytics example app, not the published SDK packages, and the fix is a scoped override onto the patched release. Red required gate with a named owner."
+    },
+    "honua-sdk-js#1622": {
+      "body_sha256": "c9c3a3a9154f9f96c213e94e4736bddd9e1465ab00112e20e43edaa98d01d5f4",
+      "named_promise": false,
+      "reason": "Release-automation hygiene, not product behaviour: the regeneration and audit-renewal workflows do not close the pull requests they supersede, so stale automation pull requests pile up. No shipped surface, security floor or documented workflow is named."
     }
   }
 }

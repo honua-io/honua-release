@@ -89,6 +89,19 @@ def test_closed_implementation_never_proves_candidate():
         decision.decisions({**data, 'issues':[row,row]}, rules())
 
 
+def test_release_label_drift_is_reported_and_never_silently_reconciled():
+    kept = {**issue('priority/P1', 'release/2026.2'), 'bucket':'post-cut-hardening'}
+    moved = {**issue('priority/P1', 'release/2026.1', number=2), 'bucket':'2026.2'}
+    agreed = {**issue('priority/P1', 'release/2026.1', number=3), 'bucket':'must-fix-before-cut'}
+    closed = {**issue('priority/P1', 'release/2026.2', number=4), 'bucket':'post-cut-hardening', 'state':'closed'}
+    drift = dict(decision.label_drift([kept, moved, agreed, closed]))
+    assert drift == {'honua-server#1':'recorded post-cut-hardening, labelled release/2026.2',
+                     'honua-server#2':'recorded 2026.2, labelled release/2026.1'}
+    # The recorded bucket is what the record and the totals keep; drift is reported, not applied.
+    assert decision.label_plan(kept, rules())[:2] == (['bucket/post-cut-hardening'], [])
+    assert 'release/2026.2' not in decision.label_plan(kept, rules())[1]
+
+
 def test_snapshot_and_generated_record_are_complete_and_current():
     data = json.loads(decision.INPUTS.read_text())
     config = json.loads(decision.OVERRIDES.read_text())
