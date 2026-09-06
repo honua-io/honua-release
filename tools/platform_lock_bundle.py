@@ -59,7 +59,38 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
     _declared(draft.lock["platform"], lock["platform"], "platform")
     if set(lock["components"]) != set(draft.lock["components"]):
         raise ValueError("component denominator differs from frozen manifest")
-    _declared(draft.lock["components"], lock["components"], "components")
+    matched = set()
+    for name, expected in draft.lock["components"].items():
+        _declared({k: v for k, v in expected.items() if k != "artifacts"},
+                  lock["components"][name], f"components.{name}")
+        artifacts = lock["components"][name]["artifacts"]
+        if len(artifacts) < len(expected["artifacts"]):
+            raise ValueError(f"{name}: artifact denominator differs from manifest")
+        for index, artifact in enumerate(expected["artifacts"]):
+            _declared(artifact, artifacts[index], f"components.{name}.artifacts[{index}]")
+            matched.add((name, index))
+    # clientArtifacts is the registry-verification denominator. It can include a
+    # second package from the same component (notably @honua/mcp-server). Joining
+    # only the component's primary artifact silently dropped those bytes before.
+    inputs = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    for client, published in (inputs.get("clientArtifacts") or {}).items():
+        kind = {"npm": "npm", "pypi": "wheel", "nuget": "nuget"}.get(published.get("ecosystem"))
+        expected = {"kind": kind, "coordinate": published.get("package"),
+                    "version": published.get("version"), "sourceRevision": published.get("sourceSha")}
+        hash_key = "integrity" if kind == "npm" else "sha256"
+        expected[hash_key] = published.get("integrity" if kind == "npm" else "digest")
+        if not all(expected.values()):
+            raise ValueError(f"clientArtifacts.{client}: incomplete published identity")
+        matches = [(name, index) for name, component in lock["components"].items()
+                   for index, artifact in enumerate(component["artifacts"])
+                   if all(artifact.get(key) == value for key, value in expected.items())]
+        if len(matches) != 1:
+            raise ValueError(f"clientArtifacts.{client}: must resolve to exactly one identical lock artifact")
+        matched.update(matches)
+    for name, component in lock["components"].items():
+        for index, _ in enumerate(component["artifacts"]):
+            if (name, index) not in matched:
+                raise ValueError(f"{name}.artifacts[{index}]: artifact is not declared by frozen inputs")
     # The operator allows source-only identities for these two experimental apps.
     # A missing SDK/image cannot silently become a source-only release component.
     for name, component in lock["components"].items():

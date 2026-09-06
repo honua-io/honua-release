@@ -41,7 +41,8 @@ def candidate(tmp_path):
             "serverCompatibility": comp.get("serverCompatibility"),
         }
     manifest["clientArtifacts"] = {
-        name: {"integrity": integrity, "sourceSha": "c" * 40}
+        name: {"ecosystem": "npm", "package": f"@honua/{name}", "version": "1.2.3",
+               "integrity": integrity, "sourceSha": "c" * 40}
         for name in lock["components"]
     }
     paths = [tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"]
@@ -124,6 +125,25 @@ def test_pending_published_client_is_never_omitted(candidate):
     lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
     with pytest.raises(ValueError, match="published package coordinate is pending"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_secondary_mcp_package_must_match_published_version_and_hash(candidate):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    published = {**manifest["clientArtifacts"]["sdk"], "package": "@honua/mcp-server", "version": "4.5.6"}
+    manifest["clientArtifacts"]["honua-mcp-server"] = published
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+    artifact = {**lock["components"]["sdk"]["artifacts"][0], "coordinate": "@honua/mcp-server", "version": "4.5.6"}
+    lock["components"]["sdk"]["artifacts"].append(artifact)
+    bundle.bind(lock, *paths, "2026.1-rc.1")
+    for field, value in (("version", "4.5.7"), ("integrity", "sha512-" + base64.b64encode(b"x" * 64).decode())):
+        changed = copy.deepcopy(lock)
+        changed["components"]["sdk"]["artifacts"][1][field] = value
+        with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+            bundle.bind(changed, *paths, "2026.1-rc.1")
 
 
 def test_cli_rejects_tampering_and_refuses_to_replace_identity(candidate, tmp_path):
