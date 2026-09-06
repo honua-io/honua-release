@@ -48,21 +48,22 @@ checkout, workspace, regenerated or floating-`npx` fallback, and the workspace i
 materialized fresh on every run so stale bytes can never stand in for the pins under
 certification.
 
-The driver then proves which terminal commands the pinned bytes actually ship, rather
-than trusting the manifest's `targets` labels. Against the 2026.1-rc.2 candidate:
+The driver proves which terminal commands the pinned bytes actually ship, using
+`clientWorkspace.commandSurface` in each run. `honua` and its `admin` command come
+from `@honua/sdk-js`; `honua-mcp-proxy` comes from `@honua/mcp-server`. A successful
+`honua --help` probe must advertise `admin`. A failed process, missing verification,
+or ambiguous command row cannot certify presence.
 
-| Command | Shipped by | Status |
-| --- | --- | --- |
-| `honua` | `@honua/sdk-js@0.1.7-beta.0` | present |
-| `honua-mcp-proxy` | `@honua/mcp-server@0.1.4-beta.0` | present |
-| `honua admin` | — | **absent** |
+The historical smoke fixture used SDK 0.1.7-beta.0 without Admin. The later
+[issue #123 run](../../artifacts/terminal-journey-issue-123.md) verified Admin in
+SDK 0.1.9-beta.0, but preserved obsolete stage blockers. Both are immutable
+observations, not the current command inventory. New receipts distinguish command
+discovery from credentialed execution: discovering Admin does not prove effective
+permissions, service mutations, approval, or publication. The unimplemented
+execution checks remain blocked on #123 even when discovery passes.
 
-`@honua/mcp-server` is labelled `targets: [node, honua-cli, honua-admin, honua-mcp-proxy]`
-in the manifest, but its published `bin` map is `honua-mcp` and `honua-mcp-proxy` only,
-and the `honua` CLI it is credited with actually ships from `@honua/sdk-js`. No pinned
-artifact ships an `honua admin` command surface, so stages 2, 3 and 8 have no runnable
-client verb regardless of server readiness. The Admin REST surface those stages need
-does exist on the candidate; the gap is the client, and it belongs to #7.
+See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
+pre-cut implementation gaps and separately released exact-candidate reruns.
 
 ## Running it
 
