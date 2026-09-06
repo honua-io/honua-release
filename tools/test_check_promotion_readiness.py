@@ -4,6 +4,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import check_promotion_readiness as readiness
+import pytest
+import yaml
+from jsonschema import Draft202012Validator
+import subprocess
+import os
 
 
 NOW = datetime(2026, 9, 3, 12, tzinfo=timezone.utc)
@@ -74,6 +79,31 @@ def test_complete_record_promotes_exact_freeze_rc(tmp_path):
     assert decision["rcTrainRunId"] == "101"
     assert set(decision["checks"]) == {"record-schema", "platform-label", "lock-digest", "lock-unchanged",
                                         "burn-window", "strict-trains", "demo-canaries", "exact-rc"}
+
+
+@pytest.mark.parametrize("label,accepted", [
+    ("2026.1-rc.1", True), ("2026.1.0-rc.1", True), ("2026.1.2-rc.3", True),
+    ("2026.1.0-rc.0", False), ("2026.1.0", False), ("2026.1.0-rc.latest", False),
+    ("../2026.1-rc.1", False), ("2026.1.0.0-rc.1", False),
+])
+def test_promotion_path_schema_and_readiness_agree_on_patch_rc(tmp_path, label, accepted):
+    root = Path(__file__).resolve().parents[1]
+    record, lock, evidence, history = _fixture(tmp_path)
+    record["platformLabel"] = label
+    decision, failures = readiness.evaluate(record, lock_path=lock, evidence_dir=evidence,
+                                             lock_history=history, now=NOW)
+    assert (decision["status"] == "pass") == accepted, failures
+    schema = json.loads((root / "certification/promotion-evidence.v1.schema.json").read_text())
+    assert Draft202012Validator(schema).is_valid(record) == accepted
+    workflow = yaml.safe_load((root / ".github/workflows/promote.yml").read_text())
+    command = next(s["run"] for s in workflow["jobs"]["promote"]["steps"]
+                   if "canonical committed RC record path" in s.get("run", ""))
+    # Execute the actual path admission condition without performing any GitHub calls.
+    condition = next(line.strip().split(" ||", 1)[0] for line in command.splitlines()
+                     if line.strip().startswith('[[ "$PROMOTION_RECORD"'))
+    result = subprocess.run(["bash", "-c", condition], env={**os.environ,
+                            "PROMOTION_RECORD": f"certification/promotions/{label}.json"})
+    assert (result.returncode == 0) == accepted
 
 
 def test_lock_digest_change_resets_every_candidate_bound_condition(tmp_path):
