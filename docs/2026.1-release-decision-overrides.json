@@ -1417,6 +1417,26 @@
       "body_sha256": "ab7aef119c6cc2bc4a56d4f9fc0cd887f66b26f39cc35d5626c14bd6e68463fe",
       "named_promise": false,
       "reason": "The absent UI accessibility and runtime-config gates are dischargeable by amending section 14 rather than by product work, and the body declines first-release-gate on that basis."
+    },
+    "honua-release#282": {
+      "body_sha256": "2beac3094e1eb125c34fc81a19ab52cd23193d5ea8649584e8850136c9c6205b",
+      "named_promise": true,
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026-09-06 contract amendment (ruling A) promotes AWS Lambda from Preview to a 2026.1 GA target carrying the full ECS bill, and states the release cannot be cut with Lambda below it."
+    },
+    "honua-sdk-js#1620": {
+      "body_sha256": "9585d9ec34eb97873f487229248f0fa163691ecd36c09ce3d57ecbf25a1c98f6",
+      "named_promise": false,
+      "reason": "Gate integrity, not product behaviour: the CLI and MCP surfaces agree and the shipped validation message is correct; only the MCP mirror test still asserts the string retired by sdk-js#1598, so the fix is the test assertion. Red required gate with a named owner, on the 2026-09-04 admission rule precedent for red lanes."
+    },
+    "honua-sdk-js#1621": {
+      "body_sha256": "1915578d7d0c4787c8fd3b07678c23df682908a72af43fcd725fde3467aabc32",
+      "named_promise": false,
+      "reason": "Gate integrity, not product behaviour: a new upstream fflate advisory drifts the reviewed audit-policy package set for the examples/kepler-analytics example app, not the published SDK packages, and the fix is a scoped override onto the patched release. Red required gate with a named owner."
+    },
+    "honua-sdk-js#1622": {
+      "body_sha256": "c9c3a3a9154f9f96c213e94e4736bddd9e1465ab00112e20e43edaa98d01d5f4",
+      "named_promise": false,
+      "reason": "Release-automation hygiene, not product behaviour: the regeneration and audit-renewal workflows do not close the pull requests they supersede, so stale automation pull requests pile up. No shipped surface, security floor or documented workflow is named."
     }
   }
 }
