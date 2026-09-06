@@ -224,12 +224,13 @@ jobs:
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           echo "why=$(sed -n 's/^== evidence-map gate — //p' /tmp/evidence-map.log | head -1)" >> "$GITHUB_OUTPUT"
 
-      - name: Upload the parsed instance
+      # One file per packet: out/evidence-map.instance.part1.json and .part2.json.
+      - name: Upload the parsed instances
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: evidence-map-instance
-          path: out/evidence-map.instance.json
+          path: out/evidence-map.instance.*.json
           if-no-files-found: warn
 
       - name: Emit fragment
