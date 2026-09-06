@@ -10,7 +10,10 @@ candidate acceptance is proven. This document does not change its release bucket
 A strict release train validates `platform-lock.json` before qualification. The
 lock must match the requested platform ID (including an optional patch number),
 the byte hashes of both frozen inputs, every declared component/artifact fact,
-and the exact component denominator. Pending published clients cannot disappear.
+and the exact component denominator. Every `clientArtifacts` entry, including
+secondary `@honua/mcp-server` packages, must resolve to exactly one artifact with
+the same published version, source revision and hash. Pending published clients
+cannot disappear.
 Only honua-mobile and honua-collect may use the operator-approved experimental
 source-only model. Published artifact source revisions remain independent of the
 component source head.
@@ -86,6 +89,9 @@ publication plumbing; that is not a public artifact receipt.
 [Release #57](https://github.com/honua-io/honua-release/issues/57) still records the
 SDK publication/receipts, Console dependency and stable server/chart prerequisites.
 [gRPC #88](https://github.com/honua-io/geospatial-grpc/issues/88) remains open.
+
+The generator also does not yet seed secondary client packages such as
+`@honua/mcp-server`; the complete-lock binding now refuses that omission.
 
 The unmodified authoritative manifest/matrix produce **43 refusals: 29 AT-CUT,
 14 PUBLISH**. These are the generator's classifications, not a blanket release
