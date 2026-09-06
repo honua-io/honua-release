@@ -25,7 +25,7 @@ def test_schema_is_well_formed():
 def test_all_documented_row_ids_are_accepted():
     document = (ROOT / "docs/2026.1-evidence-map.md").read_text()
     ids = re.findall(r"^\| \*\*([A-Z]+-\d+)\*\* / P[012]", document, re.M)
-    assert len(ids) == len(set(ids)) == 62
+    assert len(ids) == len(set(ids)) == 104
     assert all(valid(ROW["id"], row_id) for row_id in ids)
 
 
