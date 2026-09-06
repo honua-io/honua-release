@@ -53,7 +53,8 @@ CI: `.github/workflows/manifest-validate.yml` runs this per-PR (drift vs the PR 
 callable by the release train as a reusable gate (`workflow_call`, input `baseline_ref`).
 
 A `bound` protocol ledger requires all three SDK catalog producer commits to equal the
-manifest component SHAs. `--requirements PATH` selects the catalog for an alternate manifest.
+manifest component SHAs and published `clientArtifacts.*.sourceSha` provenance.
+`--requirements PATH` selects the catalog for an alternate manifest.
 A `pending` ledger permits staging a rebind but fails `--exact-candidate`; FINALIZE restores
 `bound` with the verified ledger commit, digest, and requirements revision together.
 
