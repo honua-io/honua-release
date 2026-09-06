@@ -1,0 +1,31 @@
+# #236 current vs required — 2026-09-06 UTC
+
+Read-only live API inventory before settings changes. Release promise: quality contract §10.1/§14 requires reviewed, non-bypassable maintenance lines with exact required checks and signed publication tags. Ruling B keeps #236 must-fix-before-cut.
+
+Every row requires a strict, GitHub-Actions-bound check denominator on `release/*`, one human/CODEOWNERS approval, stale-review dismissal, last-push approval, resolved threads, no bypass, no deletion/force push, and immutable signed native tags where published. The existing exact check sets below are preserved as a rollout baseline; their presence does not newly certify their workflow implementations as fail-closed aggregates. Server trunk strict=false is preserved per the 2026-09-04 amendment.
+
+| Repository | Current required check contexts on default branch | Reviews / CODEOWNERS / admin enforcement | Ruleset bypass | Required delta |
+|---|---|---|---|---|
+| `geospatial-grpc` | `Analyze (actions)`, `Check for committed build output / binaries`, `CodeQL`, `Notify Success`, `scorecard / Scorecard analysis`, `trivy / Trivy fs` | 0 / absent / False | none | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `geospatial-mcp` | `Markdown lint`, `Relative link check` | 0 / absent / False | Required CI checks | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-console` | `Validate Console` | 0 / absent / True | Require Validate Console | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-demo-infra` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-devops` | `bootstrap-smoke` | 0 / absent / False | trunk required CI gate | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-esri-compat` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-evidence` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-helm` | `install-upgrade-rollback-smoke`, `lint-chart` | 0 / absent / False | Require Helm CI | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-iac` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-release` | `validate` | 0 / absent / True | none | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-sdk-dotnet` | `.NET SDK (Abstractions)`, `.NET SDK (Admin)`, `.NET SDK (Catalogs)`, `.NET SDK (ConsoleShare)`, `.NET SDK (Field)`, `.NET SDK (GeoServices)`, `.NET SDK (Geometry)`, `.NET SDK (Grpc)`, `.NET SDK (Meta)`, `.NET SDK (Offline)`, `.NET SDK (OgcFeatures)`, `.NET SDK (Processes)`, `.NET SDK (Scenes)`, `.NET SDK (Spec)`, `.NET SDK (Studio)`, `API Compatibility`, `Admin Bootstrap Sample`, `Analyze (csharp)`, `Browser WASM Smoke`, `Code Coverage`, `CodeQL`, `Contract Conformance (pinned)`, `Security Audit (NuGet)` | 0 / absent / False | trunk required CI checks | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-sdk-js` | `JS SDK`, `MCP SDK`, `PR Issue Disposition` | 0 / absent / False | Code Quality Copilot review for default branch, Require CI checks | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-sdk-python` | `compatibility`, `lint`, `package`, `security-audit`, `test (macos-latest, 3.11, grpc,geopandas)`, `test (ubuntu-latest, 3.11, grpc)`, `test (ubuntu-latest, 3.11, grpc,geopandas)`, `test (ubuntu-latest, 3.12, grpc)`, `test (ubuntu-latest, 3.12, grpc,geopandas)`, `test (ubuntu-latest, 3.13, grpc)`, `test (ubuntu-latest, 3.13, grpc,geopandas)`, `test (windows-latest, 3.11, grpc,geopandas)`, `typecheck (3.11)`, `typecheck (3.12)`, `typecheck (3.13)` | 0 / absent / False | Required Python SDK CI checks | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-server` | `PR Gate` | 0 / absent / False | Require conversation resolution | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-site` | `validate` | 0 / absent / False | Require CI validate | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-studio` | `Blazor Web App test host smoke (honua-io/honua-studio#5)`, `Browser smoke (mock + live dev modes)`, `Build`, `Code style`, `PR Issue Disposition`, `Typecheck`, `Unit tests` | 0 / absent / False | none | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+| `honua-support` | `Build & Test` | 0 / absent / False | Required CI: Build & Test | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
+
+All 17 collaborator inventories contain only `mikemcdougall`. No additional human can approve a Mike-authored change today. No repository controls were changed by this collection. An absent branch is not proof of protection; the proposal installs a future-facing ruleset, without creating maintenance branches before their exact GA lock exists.
+
+The token has repository admin permission but the organization rules endpoint returns HTTP 404 with an explicit `admin:org` scope requirement. Repository-scoped rulesets remain available; reauthentication is unnecessary.
+
+Signed tag verification is distinct from tag immutability and signed commits. The current platform promotion signs release blobs with Sigstore and creates a lightweight tag via `gh release create`; that is not an annotated signed Git tag. The candidate receipt can only exist after a candidate tag exists, but preparing a signing producer and trust policy is pre-cut work and is not released by that sequencing exception.
