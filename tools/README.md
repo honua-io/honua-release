@@ -88,6 +88,14 @@ attested by its released artifact.
 
 ## Compatibility ledger and release inspection (issue #233, part 1)
 
+`verify_sdk_baseline_sources.py LOCK` verifies consumed manifest contents and SDK
+declaration byte hashes against their immutable GitHub sources. It runs in the
+live train before artifact certification and in the compatibility table's strict
+`--check`. Offline usage: `--source-root ROOT`, with Git repositories at
+`ROOT/OWNER/REPO`; pinned commit objects are read instead of working files.
+Missing introduction metadata still fails qualification. Source byte verification
+does not replace each SDK's runtime declaration generation/drift checks.
+
 SDK minimum-server derivation and unresolved publisher requirements are documented
 in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
 [customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
