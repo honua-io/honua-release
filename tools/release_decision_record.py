@@ -241,6 +241,24 @@ def verify_labels(rows, rules):
         raise ValueError('Live bucket labels disagree:\n' + '\n'.join(errors))
 
 
+def label_drift(rows):
+    """Open rows whose live release label contradicts the recorded bucket.
+
+    A recorded scope/sequence exception outranks a live label, so the bucket is kept
+    as decided; the disagreement is reported rather than silently reconciled either way.
+    """
+    drift = []
+    for row in rows:
+        if row['state'] != 'open':
+            continue
+        labels = set(row['labels'])
+        if row['bucket'] == '2026.2' and 'release/2026.1' in labels:
+            drift.append((issue_key(row), 'recorded 2026.2, labelled release/2026.1'))
+        elif row['bucket'] != '2026.2' and 'release/2026.2' in labels:
+            drift.append((issue_key(row), f"recorded {row['bucket']}, labelled release/2026.2"))
+    return drift
+
+
 def family_text(row):
     family = row.get('family')
     if not family or family['status'] == 'parked':
@@ -290,9 +308,10 @@ def render(data, rows):
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
+        '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',
         '| Supported scope | Denominator / accepted limitations | Accountable owner |', '|---|---|---|',
-        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")} |',
-        f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Lambda; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
+        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")} |',
+        f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
         f'| Excluded from GA | 3D/I3S/terrain/point-cloud/BIM and warehouses remain Experimental, opt-in; this does not demote GA pcloud.translate. ARM64/Fargate, Azure, air-gap, broad deployment variants excluded; broad MCP/OKF Experimental. Branch-versioning expansion and marketplace/billing automation: 2026.2. | {link("honua-server#3249")}, {link("honua-server#3250")}, {link("honua-release#98")} |', '',
         '| Required evidence → consuming §14 gate | Accountable repo + issue | Implementation ticket closed | Qualified against candidate |', '|---|---|---|---|',
     ]
