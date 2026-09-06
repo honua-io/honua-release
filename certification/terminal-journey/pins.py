@@ -135,12 +135,19 @@ class ClientWorkspace:
 
     def missing_for_stage(self, number: int) -> list[str]:
         """Blockers this workspace imposes on one numbered stage."""
+        if self.status != "pass":
+            return [self.reason or "pinned client artifacts were not verified"]
         blockers = []
-        for row in self.command_surface:
-            if row["status"] == "absent" and number in row["requiredBy"]:
+        for required in REQUIRED_COMMANDS:
+            if number not in required.required_by:
+                continue
+            rows = [row for row in self.command_surface if row.get("command") == required.command]
+            if len(rows) != 1 or rows[0].get("status") not in {"present", "absent"}:
+                blockers.append(f"pinned command verification is missing or ambiguous for `{required.command}`")
+            elif rows[0]["status"] == "absent":
                 blockers.append(
-                    f"pinned clientArtifacts ship no `{row['command']}` executable "
-                    f"({row['detail']})"
+                    f"pinned clientArtifacts ship no `{required.command}` executable "
+                    f"({rows[0].get('detail', 'not shipped')})"
                 )
         return blockers
 
@@ -305,6 +312,8 @@ def _honua_has_admin(artifact: ResolvedArtifact, bin_path: str) -> tuple[bool, s
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"could not execute the pinned honua CLI: {exc}"
     text = f"{completed.stdout}\n{completed.stderr}"
+    if completed.returncode != 0:
+        return False, f"the pinned honua CLI --help exited with status {completed.returncode}"
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("honua admin") or stripped.split()[:1] == ["admin"]:
