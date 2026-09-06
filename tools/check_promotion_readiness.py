@@ -69,7 +69,7 @@ def evaluate(
     check("record-schema", record.get("schemaVersion") == "promotion-evidence.v1",
           f"schemaVersion={record.get('schemaVersion')!r}")
     label = record.get("platformLabel")
-    check("platform-label", isinstance(label, str) and bool(re.fullmatch(r"[0-9]+\.[0-9]+-rc\.[1-9][0-9]*", label or "")),
+    check("platform-label", isinstance(label, str) and bool(re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?-rc\.[1-9][0-9]*", label or "")),
           f"platformLabel={label!r}")
 
     lock = record.get("lock") if isinstance(record.get("lock"), dict) else {}

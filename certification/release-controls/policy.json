@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "owner": "mikemcdougall",
+  "issue": "honua-io/honua-release#236",
+  "repositories": {
+    "geospatial-grpc": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "Analyze (actions)",
+        "Check for committed build output / binaries",
+        "CodeQL",
+        "Notify Success",
+        "scorecard / Scorecard analysis",
+        "trivy / Trivy fs"
+      ],
+      "tag_refs": [
+        "refs/tags/v*"
+      ],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "signed-tag producer/trust policy pending",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "geospatial-mcp": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "Markdown lint",
+        "Relative link check"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-console": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "Validate Console"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-demo-infra": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-devops": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "bootstrap-smoke"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-esri-compat": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-evidence": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-helm": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "install-upgrade-rollback-smoke",
+        "lint-chart"
+      ],
+      "tag_refs": [
+        "refs/tags/chart-v*"
+      ],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "signed-tag producer/trust policy pending",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-iac": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-release": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "validate"
+      ],
+      "tag_refs": [
+        "refs/tags/honua-2026.1.*"
+      ],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "signed-tag producer/trust policy pending",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-sdk-dotnet": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        ".NET SDK (Abstractions)",
+        ".NET SDK (Admin)",
+        ".NET SDK (Catalogs)",
+        ".NET SDK (ConsoleShare)",
+        ".NET SDK (Field)",
+        ".NET SDK (GeoServices)",
+        ".NET SDK (Geometry)",
+        ".NET SDK (Grpc)",
+        ".NET SDK (Meta)",
+        ".NET SDK (Offline)",
+        ".NET SDK (OgcFeatures)",
+        ".NET SDK (Processes)",
+        ".NET SDK (Scenes)",
+        ".NET SDK (Spec)",
+        ".NET SDK (Studio)",
+        "API Compatibility",
+        "Admin Bootstrap Sample",
+        "Analyze (csharp)",
+        "Browser WASM Smoke",
+        "Code Coverage",
+        "CodeQL",
+        "Contract Conformance (pinned)",
+        "Security Audit (NuGet)"
+      ],
+      "tag_refs": [
+        "refs/tags/dotnet-sdk-v*"
+      ],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "signed-tag producer/trust policy pending",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-sdk-js": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "JS SDK",
+        "MCP SDK",
+        "PR Issue Disposition"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-sdk-python": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "compatibility",
+        "lint",
+        "package",
+        "security-audit",
+        "test (macos-latest, 3.11, grpc,geopandas)",
+        "test (ubuntu-latest, 3.11, grpc)",
+        "test (ubuntu-latest, 3.11, grpc,geopandas)",
+        "test (ubuntu-latest, 3.12, grpc)",
+        "test (ubuntu-latest, 3.12, grpc,geopandas)",
+        "test (ubuntu-latest, 3.13, grpc)",
+        "test (ubuntu-latest, 3.13, grpc,geopandas)",
+        "test (windows-latest, 3.11, grpc,geopandas)",
+        "typecheck (3.11)",
+        "typecheck (3.12)",
+        "typecheck (3.13)"
+      ],
+      "tag_refs": [
+        "refs/tags/python-admin-v*",
+        "refs/tags/python-sdk-v*"
+      ],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "signed-tag producer/trust policy pending",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-server": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "PR Gate"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-site": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "validate"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-studio": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "Blazor Web App test host smoke (honua-io/honua-studio#5)",
+        "Browser smoke (mock + live dev modes)",
+        "Build",
+        "Code style",
+        "PR Issue Disposition",
+        "Typecheck",
+        "Unit tests"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
+    "honua-support": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "Build & Test"
+      ],
+      "tag_refs": [],
+      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "tag_qualification": "publication tag namespace and signing applicability require qualification",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    }
+  }
+}
