@@ -29,6 +29,10 @@ on:
       - "tools/test_check_capabilities.py"
       - "tools/test_check_ga_surface.py"
       - ".github/workflows/gate-docs.yml"
+      - "docs/2026.1-evidence-map.md"
+      - "schemas/2026.1-evidence-map.schema.json"
+      - "tools/check_evidence_map.py"
+      - "tools/test_evidence_map_schema.py"
   schedule:
     - cron: "57 5 * * *"
   workflow_dispatch:
@@ -190,8 +194,57 @@ jobs:
           prefix: docs-
 
   # ── report — aggregate the docs- fragments; fail per enforcement (same pattern as other gates) ─────
+  # ── the 2026.1 GA evidence map: parse the Markdown rows and validate them against the schema ──────
+  evidence-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "jsonschema>=4.20" pytest
+
+      # Prove both halves can FAIL before trusting a verdict: the schema rejects a fabricated
+      # receipt and a contradictory proof state; the parser rejects a malformed row.
+      - name: Self-test the evidence-map gate
+        run: |
+          python -m pytest tools/test_evidence_map_schema.py -q
+          python tools/check_evidence_map.py --self-test
+
+      - name: Validate the evidence map
+        id: check
+        run: |
+          set -uo pipefail
+          set +e
+          python tools/check_evidence_map.py --emit out/evidence-map.instance.json > /tmp/evidence-map.log 2>&1
+          RC=$?
+          set -e
+          cat /tmp/evidence-map.log
+          if [ "$RC" -eq 0 ]; then STATUS=pass; else STATUS=fail; fi
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "why=$(sed -n 's/^== evidence-map gate — //p' /tmp/evidence-map.log | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the parsed instance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evidence-map-instance
+          path: out/evidence-map.instance.json
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: evidence-map
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: local
+          why: ${{ steps.check.outputs.why || 'checker did not report a verdict' }}
+          enforcement: ${{ inputs.enforcement || 'bootstrap' }}
+          prefix: docs-
+
   report:
-    needs: [advertised-vs-actual, ga-surface]
+    needs: [advertised-vs-actual, ga-surface, evidence-map]
     if: always()
     runs-on: ubuntu-latest
     outputs:
