@@ -116,12 +116,19 @@ def inspect(lock: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
             "sourceRevision": (component.get("source") or {}).get("revision"),
             "lifecycleStatus": component.get("lifecycleStatus"),
             "artifacts": artifacts,
+            "certifiedReleases": [
+                {"platform": candidate["platformLock"]["platform"]["id"],
+                 "lockDigest": candidate_digest, "certifications": candidate["certifications"]}
+                for candidate_digest in ledger.get("componentReleases", {}).get(name, [])
+                if (candidate := ledger.get("platformLocks", {}).get(candidate_digest))
+                and candidate.get("certifications")
+                and candidate["platformLock"].get("components", {}).get(name) == component
+            ],
         })
     receipts = [] if not record else [r for r in record.get("certifications", []) if isinstance(r, dict) and r]
     server_digests = {
         artifact.get("digest")
-        for component in (lock.get("components") or {}).values()
-        for artifact in component.get("artifacts") or []
+        for artifact in ((lock.get("components") or {}).get("honua-server") or {}).get("artifacts") or []
         if artifact.get("kind") == "image" and artifact.get("digest")
     }
     pair_receipts = [
@@ -139,6 +146,8 @@ def inspect(lock: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
         "certifications": receipts,
         "clientServerCertifications": pair_receipts,
         "experimentalExclusions": exclusions,
+        "upgradeEdges": [edge for edge in ledger.get("upgradeEdges", [])
+                         if digest in (edge["fromLockDigest"], edge["toLockDigest"])],
         "components": components,
     }
 
@@ -155,6 +164,8 @@ def render(result: dict[str, Any]) -> str:
         lines.append(f"  {component['name']} @ {component['sourceRevision']} [{component['lifecycleStatus']}]")
         for artifact in component["artifacts"]:
             lines.append(f"    -> {artifact['coordinate']} @ {artifact['identity']} (source {artifact['sourceRevision']})")
+        for release in component["certifiedReleases"]:
+            lines.append(f"    certified release: {release['platform']} {release['lockDigest']}")
     lines.append("certifications:")
     if not result["certifications"]:
         lines.append("  none — not certified")
@@ -174,6 +185,13 @@ def render(result: dict[str, Any]) -> str:
         lines.append("  none")
     for exclusion in result["experimentalExclusions"]:
         lines.append(f"  {exclusion['component']}: {exclusion['reason']}")
+    lines.append("upgrade edges (generic rollback result; schema-read/database recovery require separate evidence):")
+    if not result["upgradeEdges"]:
+        lines.append("  none — unqualified")
+    for edge in result["upgradeEdges"]:
+        lines.append(f"  {edge['fromLockDigest']} -> {edge['toLockDigest']} "
+                     f"receipt {edge['receipt']['sha256']}; rollback {edge['rollback']['result']} "
+                     f"receipt {edge['rollback']['receipt']['sha256']}")
     return "\n".join(lines)
 
 
