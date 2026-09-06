@@ -101,3 +101,20 @@ tools/test_contract_surface.py::test_extract_js_falls_back_when_no_entry_point_r
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 753 passed, 2 warnings in 128.15s (0:02:08)
 ```
+
+Final regenerated snapshot verification (transient GitHub failures recovered with
+the generator's same-request backoff; the final refresh/apply exited 0):
+
+```text
+$ python3 tools/release_decision_record.py --refresh --apply
+{"2026.2": 20, "must-fix-before-cut": 140, "post-cut-hardening": 45, "prove-against-candidate": 27}
+
+$ python3 tools/release_decision_record.py --check
+{"2026.2": 20, "must-fix-before-cut": 140, "post-cut-hardening": 45, "prove-against-candidate": 27}
+```
+
+```text
+$ python3 -m pytest tools/test_release_decision_record.py -q
+..................                                                       [100%]
+18 passed in 0.14s
+```
