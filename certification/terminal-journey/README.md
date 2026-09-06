@@ -85,7 +85,8 @@ python certification/terminal-journey/run.py --mode live \
 The live run brings the compose stack up on the manifest-pinned digest, probes it, and
 tears it down. `--base-url` reuses an already-running stack; `--keep-stack` leaves it up.
 
-Self-tests need no stack, no Docker and no network:
+Self-tests need Python with PyYAML/jsonschema and Node.js (the CLI subprocess
+fixture), but no stack, Docker or network:
 
 ```
 python certification/terminal-journey/test_run.py -v
