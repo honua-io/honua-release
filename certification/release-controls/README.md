@@ -1,7 +1,8 @@
 # Release-line control rollout — #236
 
 This is a **blocked rollout proposal**, not evidence that #236 is complete. The
-2026-09-06 live inventory finds no CODEOWNERS files and only one human collaborator
+2026-09-06 Windows recheck after PR #287 merged finds CODEOWNERS in honua-release,
+none in the other 16 repositories, and only one human collaborator
 (`mikemcdougall`) in every one of the 17 repositories. GitHub does not permit an
 author to approve their own PR. Another human must have write access **and** appear
 in CODEOWNERS; adding a reviewer who is not an owner does not satisfy the rule.
@@ -11,6 +12,30 @@ cannot manufacture an independent approving human.
 The current-versus-required inventory was posted before any settings changes:
 https://github.com/honua-io/honua-release/issues/236#issuecomment-5557114421
 No live settings have been changed. #236 remains must-fix-before-cut.
+
+## Windows verification after merge
+
+The fresh `snapshot-2026-09-06-windows.json` records each repository's exact
+default-branch SHA, observed controls, and observation time. Its companion
+`audit-2026-09-06-windows.json` remains **fail for all 17 repositories**. The release
+promise still unmet is the adopted quality contract sections 4.4, 10.1 and 14:
+reviewed release lines with required checks, no unreviewed bypass, and signed
+native publication tags where applicable. Merging the proposal did not activate
+these controls or provide an independent reviewer.
+
+The four missing check denominators remain IaC, demo-infra, evidence and Esri
+compatibility. The existing contexts in the other repositories still need the
+implementation qualification described below. No collaborator was added and no
+repository setting was changed. The lane requested an authorized additional
+human owner; it cannot invent one or approve Mike-authored work as Mike.
+
+Evidence files use UTF-8/LF on Windows and in Git. Capture and audit explicitly
+write LF, and `.gitattributes` preserves the policy/snapshot bytes across
+checkouts so their SHA-256 bindings remain reproducible. The native Windows
+focused suite covers both capture and failure-receipt serialization, alongside
+the independently specified control fixtures. An observed failure is not a
+released pre-cut criterion; only the actual-candidate signature receipt must
+wait for its tag.
 
 ## Concrete proposal
 
