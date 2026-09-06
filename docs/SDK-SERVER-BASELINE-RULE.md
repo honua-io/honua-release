@@ -22,8 +22,15 @@ The component's `serverCompatibility` lock entry contains `manifests`, the deriv
 `minimumServerVersion`, and `declarations`. Each declaration pins its source
 revision, path, byte SHA-256, and declared `minimumServerVersion`. Runtime constants,
 package metadata, public API snapshots, and documentation must agree. Validate
-the bytes at each pinned source before accepting the declaration into the lock;
-the local derivation checker verifies lock-internal agreement, not remote bytes.
+the bytes at each pinned source before accepting the declaration into the lock.
+`verify_sdk_baseline_sources.py` reads the manifest at its repository/commit/path
+and compares its canonical JSON with the locked content and digest. It also
+checks each declaration's byte SHA-256 at the artifact source revision. The live
+release train runs this verification before artifact certification; the strict
+table check runs it as well. Missing sources and mismatched bytes fail closed.
+This verifies source identity, not the semantics of arbitrary SDK source code:
+SDK-owned declaration generation and drift tests remain necessary to prove the
+runtime constants and consumed capability set match the declared requirement.
 An artifact declaration must bind the artifact's source revision, not just a newer
 working component revision. SDK release CI must also check generated constants
 against its consumed manifest before publishing.
@@ -64,6 +71,14 @@ Generate the table with `python tools/generate_compatibility_table.py
 docs/platform-lock.v1.draft.yaml`. Use `--check-output` to verify deterministic
 documentation, and **`--check`** to require every declared baseline to equal the
 derived lock floor. The latter fails on absent manifests as well as disagreements.
+It also verifies source bytes through the GitHub contents API at the pinned
+commit, using the existing `gh` authentication. It never changes authentication.
+For offline verification, pass `--source-root /path/to/sources`, with Git
+repositories at `sources/OWNER/REPO` containing the pinned commits. The checker
+uses Git objects, so dirty working files and newer branch heads cannot substitute
+for the pinned source. The standalone equivalent is
+`python tools/verify_sdk_baseline_sources.py platform-lock.json [--source-root /path/to/sources]`.
+`--check-output` verifies documentation freshness only and performs no source fetch.
 
 The committed Markdown is a documentation source; the site's import/publish
 wiring must be completed before claiming that the customer website consumes it.
