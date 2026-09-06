@@ -8,6 +8,7 @@ import yaml
 
 from sdk_baselines import SDK_COMPONENTS, check_component, content_digest, findings
 from validate_platform_lock import validate
+from verify_sdk_baseline_sources import SourceReader, verify_sources
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=ROOT / "docs/SDK-SERVER-COMPATIBILITY.md")
     parser.add_argument("--check", action="store_true", help="fail for stale output or any unqualified/disagreeing baseline")
     parser.add_argument("--check-output", action="store_true", help="check documentation freshness only; not a release qualification gate")
+    parser.add_argument("--source-root", type=Path, help="offline git sources at ROOT/OWNER/REPO for --check; otherwise query GitHub")
     args = parser.parse_args(argv)
     try:
         lock = yaml.safe_load(args.lock.read_text(encoding="utf-8"))
@@ -79,9 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         errors = findings(lock)
         if args.check and errors:
             raise ValueError("; ".join(errors))
+        if args.check:
+            verify_sources(lock, SourceReader(args.source_root))
         print("PASS: documentation matches lock" if args.check_output else ("UNQUALIFIED: table written; use --check for release qualification" if errors else "PASS: declared baselines match lock"))
         return 0
-    except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
         print(f"BLOCKED: {exc}")
         return 1
 

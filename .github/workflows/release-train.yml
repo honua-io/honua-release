@@ -102,6 +102,7 @@ jobs:
           fi
           python tools/validate_platform.py "${ARGS[@]}"
           if [ "$DRY_RUN" = "false" ]; then
+            python tools/verify_sdk_baseline_sources.py platform-lock.json
             python tools/verify_client_artifacts.py
             python tools/verify_evidence_sources.py
           fi

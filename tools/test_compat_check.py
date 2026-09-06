@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import tarfile
 import copy
@@ -98,7 +99,9 @@ def test_valid_wheel_identity(tmp_path):
     package = tmp_path / "client.whl"
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("client.dist-info/METADATA", "Name: Example.Client\nVersion: 1.0.0\n")
-    assert compat_check.resolve_client(str(package)) == {"coordinate": "Example.Client", "identity": "1.0.0"}
+    assert compat_check.resolve_client(str(package)) == {
+        "coordinate": "Example.Client", "identity": "1.0.0",
+        "sha256": "sha256:" + hashlib.sha256(package.read_bytes()).hexdigest()}
 
 
 @pytest.mark.parametrize("mutation", ["truncated", "version", "components", "baseline"])

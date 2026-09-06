@@ -340,8 +340,11 @@ def test_exact_candidate_rejects_required_producer_without_pin():
 
 
 def test_exact_candidate_accepts_committed_pins():
-    manifest, matrix = _real_files()
-    f = vp.validate(manifest, matrix, None, exact_candidate=True)
+    manifest, _ = _real_files()
+    # Pin validity is separate from pending deploy qualification, tested in
+    # test_deploy_qualification.py through the full validate() entry point.
+    f = vp.Findings()
+    vp.check_exact_candidate(manifest, f)
     assert f.ok, f.errors
 
 

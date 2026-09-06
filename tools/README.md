@@ -88,6 +88,14 @@ attested by its released artifact.
 
 ## Compatibility ledger and release inspection (issue #233, part 1)
 
+`verify_sdk_baseline_sources.py LOCK` verifies consumed manifest contents and SDK
+declaration byte hashes against their immutable GitHub sources. It runs in the
+live train before artifact certification and in the compatibility table's strict
+`--check`. Offline usage: `--source-root ROOT`, with Git repositories at
+`ROOT/OWNER/REPO`; pinned commit objects are read instead of working files.
+Missing introduction metadata still fails qualification. Source byte verification
+does not replace each SDK's runtime declaration generation/drift checks.
+
 SDK minimum-server derivation and unresolved publisher requirements are documented
 in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
 [customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
@@ -105,26 +113,41 @@ Inspect a local lock or a server (servers expose the lock at
 `/.well-known/honua/platform-lock`):
 
 ```bash
-python3 tools/release_inspect.py path/to/platform-lock.v1.yaml --ledger compatibility-ledger.v1.yaml
-python3 tools/release_inspect.py https://server.example --ledger compatibility-ledger.v1.yaml
+./honua release inspect path/to/platform-lock.v1.yaml --ledger compatibility-ledger.v1.yaml
+./honua release inspect https://server.example --ledger compatibility-ledger.v1.yaml
 python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 ```
 
+Run from this checkout with Python 3, PyYAML, jsonschema, and referencing installed;
+adding the checkout directory to PATH also enables `honua release inspect` and
+`honua compat check`. The direct Python tool invocations remain supported.
+
 Only an immutable receipt attached to the exact lock digest is reported as certification. Matching
 versions, a known release, or an absent receipt never imply compatibility or certification.
+Inspection includes each exact component record's certified releases and incoming/outgoing
+upgrade edges with their recorded rollback result. A generic rollback result does not establish
+that the previous application can read the migrated schema or that database rollback is safe.
 
 Check an exact server digest (or endpoint exposing a platform lock) against a client coordinate or
 local `.nupkg`, `.whl`, or npm tarball:
 
 ```bash
-python3 tools/compat_check.py sha256:<server-digest> '@honua/sdk-js@0.0.12-alpha.0'
-python3 tools/compat_check.py https://server.example path/to/Geospatial.Grpc.1.0.0.nupkg
+./honua compat check sha256:<server-digest> '@honua/sdk-js@0.0.12-alpha.0'
+./honua compat check https://server.example path/to/Geospatial.Grpc.1.0.0.nupkg
 ```
 
 The result is `CERTIFIED`, `INCOMPATIBLE`, or `NOT-CERTIFIED`. Only an exact pair receipt can yield
 the first two states. Artifact publication receipts and version matches are deliberately ignored
 when deciding server/client compatibility. Exit status is 0 only for `CERTIFIED`, 1 for either
 non-certified result, and 2 when an input or ledger cannot be resolved safely.
+
+A local archive is hashed and inspected from the same bytes. Its name, version, and SHA-256
+must all match `clientServerCertifications[].client`, including the optional `sha256` field.
+Historical receipts without a package digest remain usable for coordinate lookup; they cannot
+certify local bytes. A coordinate lookup answers the ledger's declaration for that exact spelling
+and version; use the package path to verify downloaded bytes. Rebuilt packages with unchanged
+versions return `NOT-CERTIFIED`. Multiple matching receipts or ambiguous archive identities
+are refused. npm identity comes only from `package/package.json`, not bundled dependencies.
 
 ## `candidate_binding.py` — certified-candidate integrity boundary
 

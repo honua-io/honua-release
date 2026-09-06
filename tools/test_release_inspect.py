@@ -80,7 +80,8 @@ def test_render_identifies_incompatible_client_server_receipt():
         "result": "incompatible",
         "receipt": {"schema": "test/v1", "uri": "https://example.invalid/receipt", "sha256": DIGEST},
     }]
-    lock["components"]["sdk"]["artifacts"][0].update(kind="image", digest=DIGEST)
+    lock["components"]["honua-server"] = copy.deepcopy(lock["components"]["sdk"])
+    lock["components"]["honua-server"]["artifacts"][0].update(kind="image", digest=DIGEST)
 
     rendered = release_inspect.render(release_inspect.inspect(lock, ledger))
 
