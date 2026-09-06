@@ -94,6 +94,39 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             "YYYY.N[.P][-rc.N]; refusing to infer the missing identity"
         )
     combined = list((manifest.get("components") or {}).items()) + list((manifest.get("experimental") or {}).items())
+    # Join by package coordinate, not the manifest's arbitrary client row name.
+    # A repository may publish several packages at different source revisions.
+    published_by_component: dict[str, list[dict[str, Any]]] = {name: [] for name, _ in combined}
+    for client, published in (manifest.get("clientArtifacts") or {}).items():
+        path = f"$.clientArtifacts.{client}"
+        if not isinstance(published, dict):
+            refuse(f"{path}: published identity must be a mapping", "PUBLISH")
+            continue
+        kind = {"npm": "npm", "pypi": "wheel", "nuget": "nuget"}.get(published.get("ecosystem"))
+        identity = {"kind": kind, "coordinate": published.get("package"),
+                    "version": published.get("version"), "sourceRevision": published.get("sourceSha")}
+        identity["integrity" if kind == "npm" else "sha256"] = published.get(
+            "integrity" if kind == "npm" else "digest")
+        if not all(identity.values()):
+            refuse(f"{path}: incomplete published identity", "PUBLISH")
+            continue
+        owners = [name for name, component in combined
+                  if _artifact_seed(component) == {"kind": kind, "coordinate": identity["coordinate"]}]
+        repository = published.get("repository")
+        if repository:
+            repository = repository.removeprefix("https://github.com/")
+            repository_owners = [name for name, component in combined
+                                 if component.get("repository") == f"https://github.com/{repository}"]
+            owners = [name for name in owners if name in repository_owners] if owners else repository_owners
+        if len(owners) != 1:
+            refuse(f"{path}: published package must resolve to exactly one component repository", "PUBLISH")
+            continue
+        name = owners[0]
+        if any(item["kind"] == kind and item["coordinate"] == identity["coordinate"]
+               for item in published_by_component[name]):
+            refuse(f"{path}: duplicate published package coordinate", "PUBLISH")
+            continue
+        published_by_component[name].append(identity)
     for name, component in combined:
         cpath = f"$.components.{name}"
         entry: dict[str, Any] = {
@@ -131,7 +164,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"]:
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed and not component.get("sourcePinnedOnly"):
+        if not seed and not component.get("sourcePinnedOnly") and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
         elif seed:
             apath = f"{cpath}.artifacts[0]"
@@ -144,23 +177,29 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             artifact_revision = component.get("artifactSourceRevision")
             if artifact_revision:
                 seed["sourceRevision"] = artifact_revision
+            published = next((item for item in published_by_component[name]
+                              if item["kind"] == seed["kind"] and item["coordinate"] == seed["coordinate"]), {})
+            conflicts = [key for key, value in published.items() if key in seed and seed[key] != value]
+            component_hash = component.get("artifactSha256")
+            if component_hash and published.get("sha256") and component_hash != published["sha256"]:
+                conflicts.append("sha256")
+            if conflicts:
+                refuse(f"$.clientArtifacts.{name}: published identity conflicts with component artifact: "
+                       + ", ".join(conflicts), "PUBLISH")
+                published = {}
             if seed["kind"] == "npm":
-                published = (manifest.get("clientArtifacts") or {}).get(name) or {}
                 if published.get("integrity"):
                     seed["integrity"] = published["integrity"]
-                    seed["sourceRevision"] = published.get("sourceSha")
+                    seed["sourceRevision"] = published["sourceRevision"]
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
             elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive"):
-                published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
-                published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
-                digest = component.get("artifactSha256") or published.get("digest")
-                if digest and (component.get("artifactSourceRevision") or published.get("sourceSha")):
+                digest = component_hash or published.get("sha256")
+                if digest and (component.get("artifactSourceRevision") or published.get("sourceRevision")):
                     seed["sha256"] = digest
-                    seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceSha")
+                    seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceRevision")
                 else:
-                    blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
-                    refuse(f"{apath}.sha256: package hash is not declared{blocker}", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
+                    refuse(f"{apath}.sha256: package hash is not declared", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
             elif seed["kind"] in ("image", "oci-chart"):
                 digest = component.get("digest")
                 if isinstance(digest, str) and digest.startswith("sha256:"):
@@ -191,9 +230,11 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     resolution = "PUBLISH"
                 else:
                     resolution = "MECHANICAL"
-                blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
-                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision{blocker}", resolution)
+                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision", resolution)
 
+        for published in published_by_component[name]:
+            if not seed or (published["kind"], published["coordinate"]) != (seed["kind"], seed["coordinate"]):
+                entry["artifacts"].append(published)
         if name in SDK_COMPONENTS:
             try:
                 check_component(entry)
