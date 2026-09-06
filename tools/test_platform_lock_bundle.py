@@ -225,3 +225,18 @@ def test_report_signature_boundary_allows_dry_run_but_refuses_unsigned_live(tmp_
     assert run("live").returncode == 0
     assert (output / "platform-lock.json").read_bytes() == b"canonical lock transport fixture"
     assert (output / "platform-lock.sigstore.json").read_bytes() == b"signature transport fixture"
+
+
+def test_freeze_requires_committed_and_attested_lock_bytes_to_match(candidate, tmp_path):
+    lock, _, _ = candidate
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release-train.yml").read_text())
+    command = next(s["run"] for s in workflow["jobs"]["freeze"]["steps"]
+                   if "platform_lock_bundle.py" in s.get("run", ""))
+    condition = next(line.strip() for line in command.splitlines() if line.strip().startswith("cmp "))
+    (tmp_path / "frozen-lock").mkdir()
+    (tmp_path / "frozen-lock/platform-lock.json").write_bytes(bundle.canonical_bytes(lock))
+    source = tmp_path / "platform-lock.json"
+    source.write_text(json.dumps(lock, indent=2) + "\n")
+    assert subprocess.run(["bash", "-c", condition], cwd=tmp_path, capture_output=True).returncode == 1
+    source.write_bytes(bundle.canonical_bytes(lock))
+    assert subprocess.run(["bash", "-c", condition], cwd=tmp_path, capture_output=True).returncode == 0

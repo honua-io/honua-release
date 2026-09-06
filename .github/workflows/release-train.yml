@@ -80,6 +80,9 @@ jobs:
           python tools/platform_lock_bundle.py platform-lock.json \
             --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
             --label "$PLATFORM_LABEL" --out-dir frozen-lock
+          # Burn-in hashes the committed lock bytes. They must be exactly the
+          # canonical bytes attested here, not a second JSON/YAML serialization.
+          cmp platform-lock.json frozen-lock/platform-lock.json
 
       # A train cut freezes a candidate manifest. Phase 2 will regenerate it by snapshotting each
       # component's current green main SHA; today (Phase 0/1) the committed platform-manifest.yaml IS

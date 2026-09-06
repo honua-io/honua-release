@@ -42,6 +42,10 @@ python3 tools/platform_lock_bundle.py platform-lock.json \
   --label 2026.1.0-rc.1 --out-dir frozen-lock
 ```
 
+Commit `frozen-lock/platform-lock.json` as `platform-lock.json` before dispatching
+the strict train. Freeze requires byte equality with this canonical serialization
+so the committed burn-in lock hash and attested candidate hash cannot diverge.
+
 A customer who has downloaded the certified candidate bundle can verify its
 signature with `gh attestation verify platform-lock.json --bundle
 platform-lock.sigstore.json --repo honua-io/honua-release --signer-workflow
