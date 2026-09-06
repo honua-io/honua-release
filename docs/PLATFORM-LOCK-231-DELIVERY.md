@@ -82,23 +82,64 @@ A complete lock is separately supplied and must pass the binding checks. The
 site record is supplied as a publication artifact; deployment into honua-site is
 not evidence supplied by this PR.
 
+## Published-client reconciliation (2026-09-06, Windows)
+
+The follow-up at trunk baseline `6774e00` fixes the generator's published-client
+join. Primary packages match ecosystem and coordinate instead of an arbitrary
+client row name. Secondary packages join their unique component repository.
+`@honua/mcp-server` belongs to **honua-sdk-js**, not geospatial-mcp, and retains
+its own published version, hash and revision. Conflicting component/package
+versions, revisions or hashes, incomplete identities, duplicate coordinates and
+ambiguous ownership remain explicit signing blockers. Binding refuses those
+inventory errors even when supplied with an otherwise complete lock.
+
+The obsolete special case that ignored the declared Honua.Sdk package has been
+removed. No manifest version, registry, hash, source pin or lifecycle changed.
+The following command downloaded all four declared artifacts on the native
+Windows host, without building source, and returned exit 0:
+
+```powershell
+python tools/verify_client_artifacts.py
+```
+
+The existing GitHub credential was supplied through `GITHUB_TOKEN` for the
+declared GitHub Packages NuGet feed. Public npm/PyPI downloads used no token.
+The verifier checked downloaded bytes against the manifest hash and checked
+the package name/version inside each archive:
+
+| Artifact | Result |
+| --- | --- |
+| npm `@honua/mcp-server@0.1.4-beta.0` | SHA-512 integrity and package metadata match |
+| GitHub Packages `Honua.Sdk@1.6.0` | SHA-256 `e5c3bf0a243822cb3d76cca6ef090b226f8502480c6a6699d7e34e24c1aeeadc` and package metadata match |
+| npm `@honua/sdk-js@0.1.9-beta.0` | SHA-512 integrity and package metadata match |
+| PyPI `honua_sdk-0.1.11-py3-none-any.whl` | SHA-256 `80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9` and package metadata match |
+
+These downloads prove the current manifest's four client packages are accessible
+with the declared access model. They do not prove their source provenance or
+certify the future candidate's full artifact set. The generator preserves the
+manifest's artifact source declarations separately from component source heads.
+
+The new regression fixture creates real npm tarballs and a NuGet archive, computes
+expected SHA-512/SHA-256 directly from their bytes, and asserts all three artifacts
+reach the lock-derived BOM with their exact versions, hashes and source revisions.
+It also challenges conflicting versions/revisions/hashes, missing or ambiguous
+repository ownership, duplicate coordinates and incomplete identities. Existing
+secondary-package tampering assertions now fail at the earlier generated-input
+binding check. No rejection case was removed.
+
 ## Current factual blockers
 
-At the remote trunk baseline `d02d459587844c99942a4854fe9e705d67e0f61b`
-(checked 2026-09-06 UTC), `gh release list` listed only the historical
-`honua-2026.1` prerelease. Anonymous retrieval of
-`https://api.nuget.org/v3-flatcontainer/honua.sdk/index.json` returned HTTP 404.
-[SDK #263](https://github.com/honua-io/honua-sdk-dotnet/issues/263) is closed for
-publication plumbing; that is not a public artifact receipt.
+At the remote trunk baseline `6774e00` (checked 2026-09-06 UTC),
+`gh release list` still listed only the historical `honua-2026.1` prerelease.
+The earlier NuGet.org HTTP 404 is not a blocker for the manifest's declared
+GitHub Packages feed; its exact Honua.Sdk 1.6.0 download passed above.
 [Release #57](https://github.com/honua-io/honua-release/issues/57) still records the
 SDK publication/receipts, Console dependency and stable server/chart prerequisites.
 [gRPC #88](https://github.com/honua-io/geospatial-grpc/issues/88) remains open.
 
-The generator also does not yet seed secondary client packages such as
-`@honua/mcp-server`; the complete-lock binding now refuses that omission.
-
-The unmodified authoritative manifest/matrix produce **43 refusals: 29 AT-CUT,
-14 PUBLISH**. These are the generator's classifications, not a blanket release
+The updated generator and unmodified authoritative manifest/matrix produce
+**41 refusals: 29 AT-CUT, 12 PUBLISH**, down from 43 after consuming the already
+declared .NET hash and artifact revision. These are the generator's classifications, not a blanket release
 of every AT-CUT line: non-candidate metadata must still be resolved before cut.
 No registry value, lifecycle ruling, or source pin was invented to clear them.
 
@@ -113,8 +154,6 @@ No registry value, lifecycle ruling, or source pin was invented to clear them.
 - [PUBLISH] $.components.honua-console.artifacts[0].version: source snapshot/pre-release is not a released artifact version
 - [AT-CUT] $.components.honua-console.artifacts[0].platformDigests: platform-specific image digests are not declared
 - [AT-CUT] $.components.honua-sdk-dotnet.schemaVersions: not declared
-- [PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sha256: package hash is not declared (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)
-- [PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)
 - [PUBLISH] $.components.honua-sdk-dotnet.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
 - [AT-CUT] $.components.honua-sdk-js.schemaVersions: not declared
 - [PUBLISH] $.components.honua-sdk-js.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
