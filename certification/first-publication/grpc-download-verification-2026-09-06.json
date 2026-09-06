@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-09-06T20:23:54.588637+00:00",
+  "method": "Anonymous downloads; SHA-256 asserted against the independently published v1.0.0 release receipt. Public NuGet repository-signed bytes are compared with publicPackage.rawSha256, not the unsigned local pack.",
+  "release_receipt_sha256": "4acea959105c89e0994420031eb9459e02a79858700430be0dc3e9e8fdf3c4b2",
+  "checks": [
+    {
+      "name": "Geospatial.Grpc.1.0.0.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg",
+      "sha256": "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f",
+      "expected_sha256": "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f",
+      "bytes": 478905,
+      "zip_entries": 29,
+      "status": "pass"
+    },
+    {
+      "name": "bsr.zip",
+      "url": "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip",
+      "sha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
+      "expected_sha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
+      "bytes": 68007,
+      "zip_entries": 23,
+      "status": "pass"
+    }
+  ]
+}
