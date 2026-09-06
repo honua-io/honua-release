@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 import tarfile
 import zipfile
+import xml.etree.ElementTree as ET
 from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
@@ -58,32 +60,43 @@ def _coordinate(value: str) -> dict[str, str]:
 
 def _local_package(path: Path) -> dict[str, str]:
     try:
+        # Parse and hash the same bytes: reopening the path permits replacement
+        # between identity inspection and digest calculation.
+        import io
+        payload = path.read_bytes()
+        stream = io.BytesIO(payload)
         if path.suffix.lower() in (".nupkg", ".zip"):
-            with zipfile.ZipFile(path) as archive:
-                member = next(n for n in archive.namelist() if n.lower().endswith(".nuspec"))
-                text = archive.read(member).decode("utf-8")
-                name = re.search(r"<(?:\w+:)?id>([^<]+)</", text)
-                version = re.search(r"<(?:\w+:)?version>([^<]+)</", text)
+            with zipfile.ZipFile(stream) as archive:
+                member = _single([n for n in archive.namelist() if n.lower().endswith(".nuspec")])
+                root = ET.fromstring(archive.read(member))
+                metadata = _single([node for node in root if node.tag.split("}")[-1] == "metadata"])
+                name = _single([node.text for node in metadata if node.tag.split("}")[-1] == "id"])
+                version = _single([node.text for node in metadata if node.tag.split("}")[-1] == "version"])
         elif path.suffix.lower() == ".whl":
-            with zipfile.ZipFile(path) as archive:
-                member = next(n for n in archive.namelist() if n.endswith(".dist-info/METADATA"))
+            with zipfile.ZipFile(stream) as archive:
+                member = _single([n for n in archive.namelist() if n.endswith(".dist-info/METADATA")])
                 metadata = BytesParser().parsebytes(archive.read(member))
-                name, version = metadata["Name"], metadata["Version"]
-                if not name or not name.strip() or not version or not version.strip():
-                    raise CompatError(f"cannot read package identity from {path}: Name and Version must be non-empty")
-                return {"coordinate": name, "identity": version}
+                name = _single(metadata.get_all("Name", [None]))
+                version = _single(metadata.get_all("Version", [None]))
         elif path.name.endswith((".tgz", ".tar.gz")):
-            with tarfile.open(path, "r:*") as archive:
-                member = next(m for m in archive.getmembers() if m.name.endswith("/package.json"))
+            with tarfile.open(fileobj=stream, mode="r:*") as archive:
+                member = _single([m for m in archive.getmembers() if m.name == "package/package.json" and m.isfile()])
                 package = json.load(archive.extractfile(member))
-                return {"coordinate": package["name"], "identity": package["version"]}
+                name, version = package["name"], package["version"]
         else:
             raise CompatError(f"unsupported local package type: {path.name}")
-        if not name or not version:
-            raise CompatError(f"cannot read package identity from {path}")
-        return {"coordinate": name.group(1), "identity": version.group(1)}
-    except (OSError, KeyError, StopIteration, zipfile.BadZipFile, tarfile.TarError, json.JSONDecodeError) as exc:
+        if any(not isinstance(value, str) or not value.strip() for value in (name, version)):
+            raise CompatError(f"cannot read package identity from {path}: Name and Version must be non-empty strings")
+        return {"coordinate": name.strip(), "identity": version.strip(),
+                "sha256": "sha256:" + hashlib.sha256(payload).hexdigest()}
+    except (OSError, KeyError, TypeError, ET.ParseError, zipfile.BadZipFile, tarfile.TarError, json.JSONDecodeError) as exc:
         raise CompatError(f"cannot inspect local package {path}: {exc}") from exc
+
+
+def _single(values):
+    if len(values) != 1:
+        raise CompatError("package must contain exactly one unambiguous identity record")
+    return values[0]
 
 
 def resolve_client(value: str) -> dict[str, str]:
@@ -95,8 +108,9 @@ def check(server_digest: str, client: dict[str, str], ledger: dict[str, Any]) ->
     matches = [
         edge for edge in ledger.get("clientServerCertifications", [])
         if edge["serverDigest"] == server_digest
-        and edge["client"]["coordinate"].casefold() == client["coordinate"].casefold()
+        and edge["client"]["coordinate"] == client["coordinate"]
         and edge["client"]["identity"] == client["identity"]
+        and ("sha256" not in client or edge["client"].get("sha256") == client["sha256"])
     ]
     if len(matches) > 1:
         raise CompatError("ledger has multiple receipts for the exact server/client pair")
