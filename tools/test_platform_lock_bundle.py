@@ -43,8 +43,9 @@ def candidate(tmp_path):
         }
     manifest["clientArtifacts"] = {
         name: {"ecosystem": "npm", "package": f"@honua/{name}", "version": "1.2.3",
-               "integrity": integrity, "sourceSha": "c" * 40}
-        for name in lock["components"]
+               "integrity": integrity, "sourceSha": "c" * 40,
+               "repository": comp["source"]["repository"]}
+        for name, comp in lock["components"].items()
     }
     paths = [tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"]
     paths[0].write_text(yaml.safe_dump(manifest))
@@ -107,6 +108,22 @@ def test_manifest_bytes_cannot_move_after_freeze(candidate):
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda m: m["clientArtifacts"]["sdk"].pop("integrity"), "incomplete published identity"),
+    (lambda m: m["clientArtifacts"]["sdk"].update(repository="honua-io/missing"), "exactly one component"),
+    (lambda m: m["components"]["sdk"].update(artifactSourceRevision="f" * 40), "published identity conflicts"),
+    (lambda m: m["clientArtifacts"].update(duplicate=copy.deepcopy(m["clientArtifacts"]["sdk"])), "duplicate published"),
+])
+def test_inventory_refusals_block_an_otherwise_complete_lock(candidate, mutation, reason):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    mutation(manifest)
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match=reason):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
 def test_requested_patch_candidate_identity_is_preserved(candidate):
     lock, paths, _ = candidate
     manifest = yaml.safe_load(paths[0].read_text())
@@ -135,7 +152,7 @@ def test_secondary_mcp_package_must_match_published_version_and_hash(candidate):
     manifest["clientArtifacts"]["honua-mcp-server"] = published
     paths[0].write_text(yaml.safe_dump(manifest))
     lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
-    with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+    with pytest.raises(ValueError, match="sdk: artifact denominator differs"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
     artifact = {**lock["components"]["sdk"]["artifacts"][0], "coordinate": "@honua/mcp-server", "version": "4.5.6"}
     lock["components"]["sdk"]["artifacts"].append(artifact)
@@ -143,7 +160,7 @@ def test_secondary_mcp_package_must_match_published_version_and_hash(candidate):
     for field, value in (("version", "4.5.7"), ("integrity", "sha512-" + base64.b64encode(b"x" * 64).decode())):
         changed = copy.deepcopy(lock)
         changed["components"]["sdk"]["artifacts"][1][field] = value
-        with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+        with pytest.raises(ValueError, match=r"components.sdk.artifacts\[1\].*frozen input"):
             bundle.bind(changed, *paths, "2026.1-rc.1")
 
 

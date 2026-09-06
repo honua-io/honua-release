@@ -53,7 +53,7 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
         raise ValueError("platform label differs from atomic candidate identity")
     draft = generate(manifest, matrix)
     for refusal in draft.unresolved:
-        if "published package coordinate is pending" in refusal:
+        if "published package coordinate is pending" in refusal or "$.clientArtifacts." in refusal:
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
     _declared(draft.lock["platform"], lock["platform"], "platform")
