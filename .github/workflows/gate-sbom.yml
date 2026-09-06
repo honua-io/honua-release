@@ -60,20 +60,31 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0" pytest
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" pytest
 
       - name: Self-test the BOM builder
         run: python -m pytest tools/test_generate_bom.py -q
 
       - name: Generate aggregated platform BOM
         id: gen
+        env:
+          ENFORCEMENT: ${{ inputs.enforcement }}
         run: |
           set -uo pipefail
           GATE=sbom-platform; STATUS=fail; WHY=""
           mkdir -p bom
           LABEL='${{ inputs.platform_label }}'
           OUT="bom/honua-platform-${LABEL}.cdx.json"
-          if python tools/generate_bom.py --label "$LABEL" --timestamp "$(date -u +%FT%TZ)" --out "$OUT" >/tmp/bom.log 2>&1; then
+          generate_bom() {
+            if [ "$ENFORCEMENT" = "strict" ]; then
+              python tools/platform_lock_bundle.py platform-lock.json \
+                --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
+                --label "$LABEL" --out-dir bom/locked && cp bom/locked/bom.cdx.json "$OUT"
+            else
+              python tools/generate_bom.py --label "$LABEL" --timestamp "$(date -u +%FT%TZ)" --out "$OUT"
+            fi
+          }
+          if generate_bom >/tmp/bom.log 2>&1; then
             N="$(jq '.components|length' "$OUT")"
             # A platform BOM with zero components is not a real BOM.
             if [ "$N" -gt 0 ] 2>/dev/null; then

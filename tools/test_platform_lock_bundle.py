@@ -60,6 +60,7 @@ def test_bundle_keeps_published_identity_independent_of_source_head(candidate, t
     bom = bundle.build_bom(lock)
     entry = next(c for c in bom["components"] if c["name"] == "sdk")
     assert entry["version"] == "1.2.3"
+    assert entry["purl"] == "pkg:npm/%40honua/sdk@1.2.3"
     assert entry["hashes"] == [{"alg": "SHA-512", "content": hashlib.sha512(data).hexdigest()}]
     props = {p["name"]: p["value"] for p in entry["properties"]}
     assert props["honua:artifactSourceRevision"] == "c" * 40

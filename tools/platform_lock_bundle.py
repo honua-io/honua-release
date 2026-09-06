@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from generate_compatibility_table import render
+from generate_bom import _purl
 from generate_platform_lock import generate
 from release_inspect import canonical_digest
 from validate_platform_lock import load_lock, validate
@@ -104,6 +105,9 @@ def build_bom(lock: dict) -> dict:
                 hashes.append({"alg": "SHA-512", "content": raw.hex()})
             if hashes:
                 entry["hashes"] = hashes
+            ecosystem = {"npm": "npm", "nuget": "nuget", "wheel": "pypi"}.get(artifact["kind"])
+            if ecosystem:
+                entry["purl"] = _purl(f"{ecosystem}:{artifact['coordinate']}", artifact["version"])
             entries.append(entry)
     return {
         "bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
@@ -173,7 +177,10 @@ def main(argv=None) -> int:
                 if path.exists() and path.read_bytes() != expected:
                     raise ValueError(f"{path}: refusing to overwrite a different candidate")
             for name, expected in files.items():
-                (args.out_dir / name).write_bytes(expected)
+                path = args.out_dir / name
+                if not path.exists():
+                    with path.open("xb") as stream:
+                        stream.write(expected)
         print(f"PASS: bound candidate {lock['platform']['id']} {canonical_digest(lock)}")
         return 0
     except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError) as exc:
