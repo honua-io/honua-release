@@ -74,6 +74,39 @@
       "required": ["source", "lifecycleStatus", "supportTier", "artifactIdentityModel", "contractVersions", "schemaVersions", "artifacts"],
       "properties": {
         "source": {"$ref": "#/$defs/sourceRef"},
+        "serverCompatibility": {
+          "type": "object", "additionalProperties": false,
+          "required": ["minimumServerVersion", "manifests", "declarations"],
+          "properties": {
+            "minimumServerVersion": {"type": "string", "minLength": 1},
+            "manifests": {
+              "type": "array", "minItems": 1,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["source", "sha256", "content", "requiredCapabilities"],
+                "properties": {
+                  "source": {"$ref": "#/$defs/sourceRef"},
+                  "sha256": {"$ref": "#/$defs/sha256"},
+                  "content": {"type": "object", "required": ["capabilities"], "properties": {"capabilities": {"type": "object"}}},
+                  "requiredCapabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+                }
+              }
+            },
+            "declarations": {
+              "type": "array", "minItems": 1,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["revision", "path", "sha256", "minimumServerVersion"],
+                "properties": {
+                  "revision": {"$ref": "#/$defs/gitRevision"},
+                  "path": {"type": "string", "minLength": 1},
+                  "sha256": {"$ref": "#/$defs/sha256"},
+                  "minimumServerVersion": {"type": "string", "minLength": 1}
+                }
+              }
+            }
+          }
+        },
         "lifecycleStatus": {"enum": ["GA", "Preview", "Experimental", "Excluded"]},
         "supportTier": {"type": "string", "minLength": 1},
         "artifactIdentityModel": {"enum": ["published", "source-pinned"]},

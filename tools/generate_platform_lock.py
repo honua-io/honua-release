@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sdk_baselines import SDK_COMPONENTS, check_component
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
@@ -111,6 +113,9 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         if seed:
             entry["artifacts"].append(seed)
         lock["components"][name] = entry
+        if name in SDK_COMPONENTS:
+            if component.get("serverCompatibility"):
+                entry["serverCompatibility"] = component["serverCompatibility"]
         if not component.get("repository"):
             refuse(f"{cpath}.source.repository: not declared by platform manifest", "MECHANICAL")
         lifecycle_status = component.get("lifecycleStatus")
@@ -188,6 +193,12 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     resolution = "MECHANICAL"
                 blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
                 refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision{blocker}", resolution)
+
+        if name in SDK_COMPONENTS:
+            try:
+                check_component(entry)
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                refuse(f"{cpath}.serverCompatibility: {exc}", "PUBLISH")
 
         for client, blocker in (component.get("pendingPublishedClients") or {}).items():
             refuse(f"{cpath}.artifacts[{client}]: published package coordinate is pending {blocker}", "PUBLISH")

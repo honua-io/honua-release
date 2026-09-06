@@ -86,6 +86,69 @@ Validation refuses placeholders, floating tags, carried-forward/source-built ide
 type-specific integrity, and any mismatch between a component source revision and the revision
 attested by its released artifact.
 
+## Compatibility ledger and release inspection (issue #233, part 1)
+
+`verify_sdk_baseline_sources.py LOCK` verifies consumed manifest contents and SDK
+declaration byte hashes against their immutable GitHub sources. It runs in the
+live train before artifact certification and in the compatibility table's strict
+`--check`. Offline usage: `--source-root ROOT`, with Git repositories at
+`ROOT/OWNER/REPO`; pinned commit objects are read instead of working files.
+Missing introduction metadata still fails qualification. Source byte verification
+does not replace each SDK's runtime declaration generation/drift checks.
+
+SDK minimum-server derivation and unresolved publisher requirements are documented
+in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
+[customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
+`python tools/generate_compatibility_table.py <lock>`. `--check` fails on absent
+capability introduction evidence or declaration/lock drift. `--check-output` only
+checks documentation freshness and does not qualify a release. The complete lock
+validator also requires the derived baseline for each official SDK/protocol entry.
+
+`schemas/compatibility-ledger.v1.schema.json` defines digest-keyed release/artifact,
+component/release, server/client receipt, upgrade/rollback, and experimental-exclusion edges. It
+references packet 66's `platform-lock.v1` schema rather than redefining the lock contract. Lock keys
+are SHA-256 digests of UTF-8 canonical JSON (`sort_keys=True`, compact separators, no NaN).
+
+Inspect a local lock or a server (servers expose the lock at
+`/.well-known/honua/platform-lock`):
+
+```bash
+./honua release inspect path/to/platform-lock.v1.yaml --ledger compatibility-ledger.v1.yaml
+./honua release inspect https://server.example --ledger compatibility-ledger.v1.yaml
+python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
+```
+
+Run from this checkout with Python 3, PyYAML, jsonschema, and referencing installed;
+adding the checkout directory to PATH also enables `honua release inspect` and
+`honua compat check`. The direct Python tool invocations remain supported.
+
+Only an immutable receipt attached to the exact lock digest is reported as certification. Matching
+versions, a known release, or an absent receipt never imply compatibility or certification.
+Inspection includes each exact component record's certified releases and incoming/outgoing
+upgrade edges with their recorded rollback result. A generic rollback result does not establish
+that the previous application can read the migrated schema or that database rollback is safe.
+
+Check an exact server digest (or endpoint exposing a platform lock) against a client coordinate or
+local `.nupkg`, `.whl`, or npm tarball:
+
+```bash
+./honua compat check sha256:<server-digest> '@honua/sdk-js@0.0.12-alpha.0'
+./honua compat check https://server.example path/to/Geospatial.Grpc.1.0.0.nupkg
+```
+
+The result is `CERTIFIED`, `INCOMPATIBLE`, or `NOT-CERTIFIED`. Only an exact pair receipt can yield
+the first two states. Artifact publication receipts and version matches are deliberately ignored
+when deciding server/client compatibility. Exit status is 0 only for `CERTIFIED`, 1 for either
+non-certified result, and 2 when an input or ledger cannot be resolved safely.
+
+A local archive is hashed and inspected from the same bytes. Its name, version, and SHA-256
+must all match `clientServerCertifications[].client`, including the optional `sha256` field.
+Historical receipts without a package digest remain usable for coordinate lookup; they cannot
+certify local bytes. A coordinate lookup answers the ledger's declaration for that exact spelling
+and version; use the package path to verify downloaded bytes. Rebuilt packages with unchanged
+versions return `NOT-CERTIFIED`. Multiple matching receipts or ambiguous archive identities
+are refused. npm identity comes only from `package/package.json`, not bundled dependencies.
+
 ## `candidate_binding.py` — certified-candidate integrity boundary
 
 Packages the frozen `platform-manifest.yaml` and `compatibility-matrix.yaml` with the platform gate
@@ -125,6 +188,26 @@ resolves every `capability-key` claim to `blocked`, never a fake pass.
 python tools/check_capabilities.py --capability-matrix path/to/capability-matrix.v1.json
 python -m pytest tools/test_check_capabilities.py -q
 ```
+
+## `check_evidence_map.py` — docs gate (h): the 2026.1 GA evidence map validates against its schema
+
+Parses the Markdown table in `docs/2026.1-evidence-map.md` into a machine-readable instance and
+validates the fields it encodes (row id family, priority, disposition set) against
+`schemas/2026.1-evidence-map.schema.json`, plus the invariants prose cannot carry: six non-empty
+cells per row, unique ids, at least one named disposition, and proof links pinned to a single
+audited source revision rather than a mutable `trunk` ref.
+
+```bash
+python tools/check_evidence_map.py                                  # verdict only
+python tools/check_evidence_map.py --emit out/evidence-map.instance.json
+python tools/check_evidence_map.py --self-test                      # prove the gate can fail
+python -m pytest tools/test_evidence_map_schema.py -q               # prove the schema can fail
+```
+
+Runs as the `evidence-map` job of `gate-docs`; a violation is a hard `fail` in bootstrap and
+strict alike. Both self-tests run before the real check — `test_evidence_map_schema.py` rejects
+fabricated receipts and contradictory proof states, `--self-test` rejects three schema defects and
+one row-shape defect — so a green verdict is never a checker that stopped working.
 
 ## `check_ga_surface.py` — docs gate (h): advertised-GA ⊆ evidenced-GA (honua-release#59)
 
