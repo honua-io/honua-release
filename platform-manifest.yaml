@@ -17,10 +17,9 @@
 # health. This refresh advances the working pins so aggregation can see the migrated producers.
 #
 # WHAT THIS REFRESH DELIBERATELY DOES NOT DO:
-#   - It does NOT touch protocolCertification.ledger. The ledger rebind happens AFTER re-aggregation,
-#     via tools/convergence_rebind.py's post-merge block (squash SHA -> honua-evidence aggregate.yml
-#     -> then re-pin ledger.commit/requirementsSourceRevision/sha256). Binding a ledger here would
-#     name bytes that do not exist yet.
+#   - That refresh did not rebind protocolCertification.ledger. #181 now explicitly marks the
+#     stale binding pending. The atomic convergence-rebind workflow stages a catalog commit,
+#     aggregates and verifies its ledger, then finalizes the binding in one reviewed merge PR.
 #   - It does NOT advance any clientArtifacts.*.version or clientArtifacts.*.sourceSha. See the
 #     clientArtifacts block for the per-artifact evidence.
 #   - It does NOT re-read the honua-server derived values (contractVersions, dbSchema beyond the
@@ -80,12 +79,12 @@ protocolCertification:
   # tools/convergence_rebind.py post_merge_commands(). Until that runs, the certification tier is
   # knowingly behind this manifest — that is the intended sequencing, not an oversight.
   ledger:
-    status: bound
+    status: pending
     repository: "honua-io/honua-evidence"
-    commit: "c595f9d6c01e9e31aa46d460506950378f14ad85"
-    requirementsSourceRevision: "47ec70604bb0db43b03f32dac1b114f1154bc2ca"
+    commit: "pending"
+    requirementsSourceRevision: "pending"
     path: "data/protocol-certification.v1.json"
-    sha256: "sha256:a2c8ae757e1d8671f037873605985a0446d66d75e09936632ffa73148a2d58c7"
+    sha256: "pending"
 
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:

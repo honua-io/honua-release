@@ -52,6 +52,11 @@ python -m pytest tools/test_platform.py                # self-test (proves each 
 CI: `.github/workflows/manifest-validate.yml` runs this per-PR (drift vs the PR base) and is
 callable by the release train as a reusable gate (`workflow_call`, input `baseline_ref`).
 
+A `bound` protocol ledger requires all three SDK catalog producer commits to equal the
+manifest component SHAs. `--requirements PATH` selects the catalog for an alternate manifest.
+A `pending` ledger permits staging a rebind but fails `--exact-candidate`; FINALIZE restores
+`bound` with the verified ledger commit, digest, and requirements revision together.
+
 The validators require `pyyaml`; schema self-tests also require `jsonschema`. `semver.py` is a
 minimal stdlib SemVer + range implementation (no third-party semver lib). The two remote pin
 verifiers run only for a non-dry-run release cut; they fail closed when published bytes or trusted
