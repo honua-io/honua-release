@@ -15,12 +15,12 @@
   "receiptRequired": ["release", "clientArtifacts", "clientWorkspace", "server", "fixtureRevision", "configRevision", "authPolicyRevision", "stage", "command", "operationId", "policyDecisionId", "approvalId", "actuatorId", "verificationId", "evidence", "status"],
   "clientCommandSources": {
     "honua": "honua-sdk-js",
-    "honua admin": "unshipped",
+    "honua admin": "honua-sdk-js",
     "honua-mcp-proxy": "honua-mcp-server"
   },
   "notes": [
     "`clientCommands` names the terminal commands each stage needs from the pinned #136 clientArtifacts. A stage whose command is not shipped by the pinned bytes is blocked on honua-release#7 regardless of server readiness.",
-    "As of the 2026.1-rc.2 candidate the pinned artifacts ship `honua` (from @honua/sdk-js) and `honua-mcp-proxy` (from @honua/mcp-server). No pinned artifact ships an `honua admin` command surface, so stages 2, 3 and 8 have no runnable client verb.",
+    "Command providers describe the expected package. The per-run integrity-verified commandSurface, including a successful `honua --help` probe for `admin`, determines presence; metadata cannot prove execution of credentialed or mutating verbs.",
     "`blockedBy` lists the upstream contracts a stage waits on. It is contract metadata; the live driver derives the authoritative per-run blocker set from its own probes."
   ]
 }

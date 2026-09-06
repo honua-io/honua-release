@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "evidenceKey": "release.e2e.ai-terminal-arc",
+  "release": "2026.1-rc.2-current-trunk-at-cut",
+  "status": "blocked",
+  "promotionEligible": false,
+  "sourceReceipt": {
+    "evidenceKey": "release.e2e.terminal-zero-to-map",
+    "status": "blocked",
+    "pullRequest": "https://github.com/honua-io/honua-release/pull/217",
+    "commit": "e40df88f6580ba171e5e3a347862b2ccaa7e0fa5",
+    "receiptPath": "artifacts/terminal-journey-issue-123.json",
+    "receiptSha256": "8b709b44cc31f1a63ef70eb66833be40cd35154671490c56da278dd488b26d69"
+  },
+  "candidate": {
+    "serverSourceSha": "6b5f34fe725ec58b785d12b143942eb5f0a66aff",
+    "serverImage": "honua-server:release-123-6b5f34f@sha256:5ae2ed71fca3cb0c0d73f962c6cef90cd58b497e124c57c64caec226785c446b",
+    "clients": [
+      {"package": "@honua/sdk-js", "version": "0.1.9-beta.0", "integrity": "sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ==", "sourceSha": "c99e71197dd940ed952aecb024c6de273456f2ae"},
+      {"package": "@honua/mcp-server", "version": "0.1.4-beta.0", "integrity": "sha512-TqqVscgNZMg+y+qUs3f9ShpKT8n38W3njXkTciqXKdXsk5PILG1fjwQur5/Da0KVg895L0qH5EqXRAwnjzO30w==", "sourceSha": "ac29d1601f499ebd9b099fd4629b0997fdc81f1f"}
+    ],
+    "fixtureRevision": "terminal-zero-to-map-v1",
+    "configRevision": "terminal-profiles-v1",
+    "authPolicyRevision": "terminal-separate-principals-v1"
+  },
+  "stages": [
+    {"number": 1, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3428", "https://github.com/honua-io/honua-server/issues/3741"]},
+    {"number": 2, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-release/pull/217"]},
+    {"number": 3, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3411"]},
+    {"number": 4, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3411"]},
+    {"number": 5, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-release/issues/202", "https://github.com/honua-io/honua-server/issues/3583", "https://github.com/honua-io/honua-server/issues/3741"]},
+    {"number": 6, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3411", "https://github.com/honua-io/honua-server/issues/3475"]},
+    {"number": 7, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3411", "https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3583"]},
+    {"number": 8, "status": "blocked", "blockers": ["https://github.com/honua-io/honua-server/issues/3431", "https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3599"]}
+  ],
+  "andGates": {
+    "localCandidate": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-release/pull/217"]},
+    "awsCandidate": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-release/issues/129"]},
+    "clientMatrix": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-release/issues/157"]},
+    "browserStudio": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-release/issues/121"]},
+    "browserConsole": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-console/issues/351"]},
+    "controlPlaneRoster": {"status": "blocked", "evidence": ["https://github.com/honua-io/honua-server/issues/3363"]}
+  },
+  "requiredOutcomes": {
+    "terminalApproval": false,
+    "styleRenderPixels": false,
+    "dashboardComposition": false,
+    "ownerAuthorization": false,
+    "finalUrl": false
+  },
+  "blockers": [
+    "https://github.com/honua-io/honua-release/pull/217",
+    "https://github.com/honua-io/honua-release/issues/129",
+    "https://github.com/honua-io/honua-release/issues/157",
+    "https://github.com/honua-io/honua-server/issues/3363",
+    "https://github.com/honua-io/honua-server/issues/3411",
+    "https://github.com/honua-io/honua-server/issues/3428",
+    "https://github.com/honua-io/honua-server/issues/3431",
+    "https://github.com/honua-io/honua-server/issues/3474",
+    "https://github.com/honua-io/honua-server/issues/3475",
+    "https://github.com/honua-io/honua-server/issues/3583",
+    "https://github.com/honua-io/honua-server/issues/3599",
+    "https://github.com/honua-io/honua-server/issues/3741"
+  ]
+}

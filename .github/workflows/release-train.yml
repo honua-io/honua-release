@@ -25,6 +25,7 @@ on:
     inputs:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
+      capacity_receipt_url: { description: "HTTPS URL of the candidate capacity-soak receipt", required: true, type: string }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -40,6 +41,12 @@ permissions:
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      id-token: write
+      attestations: write
     outputs:
       server_sha: ${{ steps.candidate.outputs.server_sha }}
       server_digest: ${{ steps.candidate.outputs.server_digest }}
@@ -63,7 +70,20 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - name: Bind the complete atomic platform lock before qualification
+        if: inputs.dry_run == false
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+        run: |
+          set -euo pipefail
+          python tools/platform_lock_bundle.py platform-lock.json \
+            --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
+            --label "$PLATFORM_LABEL" --out-dir frozen-lock
+          # Burn-in hashes the committed lock bytes. They must be exactly the
+          # canonical bytes attested here, not a second JSON/YAML serialization.
+          cmp platform-lock.json frozen-lock/platform-lock.json
+
       # A train cut freezes a candidate manifest. Phase 2 will regenerate it by snapshotting each
       # component's current green main SHA; today (Phase 0/1) the committed platform-manifest.yaml IS
       # the candidate snapshot, so freeze VALIDATES it (structure + coherence via validate_platform.py)
@@ -82,6 +102,7 @@ jobs:
           fi
           python tools/validate_platform.py "${ARGS[@]}"
           if [ "$DRY_RUN" = "false" ]; then
+            python tools/verify_sdk_baseline_sources.py platform-lock.json
             python tools/verify_client_artifacts.py
             python tools/verify_evidence_sources.py
           fi
@@ -113,13 +134,28 @@ jobs:
           print(f"certification_sha256={ledger['sha256']}")
           print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
+      - name: Attest the frozen atomic candidate identity
+        if: inputs.dry_run == false
+        id: lock_attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: frozen-lock/platform-lock.json
+
+      - name: Retain the candidate signature bundle
+        if: inputs.dry_run == false
+        env:
+          BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-manifest
           path: |
             platform-manifest.yaml
             compatibility-matrix.yaml
+            platform-lock.json
             release-evidence-pins.json
+            frozen-lock/
+          if-no-files-found: error
 
   # ── REAL gates (wired to the reusable workflows that also run in per-PR CI) ──────────────────
 
@@ -222,6 +258,10 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
+    needs: freeze
+    uses: ./.github/workflows/rollback-certification.yml
+
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
                                  # matrix backing #59's capability-key claims must be about this
                                  # candidate's pinned honua-server sha and not stale. Wired at freeze.
@@ -255,6 +295,12 @@ jobs:
       expected_geospatial_mcp_sha: ${{ needs.freeze.outputs.geospatial_mcp_sha }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
+  gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
+    needs: freeze
+    uses: ./.github/workflows/capacity-soak.yml
+    with:
+      receipt_url: ${{ inputs.capacity_receipt_url }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -271,8 +317,10 @@ jobs:
       - gate_observability
       - gate_docs
       - gate_upgrade
+      - gate_one_operation_rollback
       - gate_evidence
       - gate_protocol_certification
+      - gate_capacity_soak
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -293,15 +341,6 @@ jobs:
         with:
           name: candidate-manifest
           path: candidate-input
-
-      - name: Collect sub-gate reports (best-effort)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          # the wired gates upload their own machine-readable reports; pull whatever exists.
-          pattern: "*gate-report*"
-          path: subreports
-          merge-multiple: true
-        continue-on-error: true
 
       - name: Assemble platform gate-report.json
         id: assemble
@@ -325,8 +364,10 @@ jobs:
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
           S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
           S_UPGRADE: ${{ needs.gate_upgrade.outputs.overall_status || needs.gate_upgrade.result }}
+          S_ROLLBACK: ${{ needs.gate_one_operation_rollback.outputs.overall_status || needs.gate_one_operation_rollback.result }}
           S_EVIDENCE: ${{ needs.gate_evidence.outputs.overall_status || needs.gate_evidence.result }}
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
+          S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -346,8 +387,10 @@ jobs:
           observability|$S_OBS
           docs|$S_DOCS
           upgrade|$S_UPGRADE
+          one-operation-rollback|$S_ROLLBACK
           evidence|$S_EVIDENCE
           protocol-certification|$S_PROTOCOL
+          capacity-soak|$S_CAPACITY
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -378,7 +421,8 @@ jobs:
                 overallStatus: (
                   if   any(.[]; .status=="fail")    then "fail"
                   elif any(.[]; .status=="blocked") then "blocked"
-                  else "pass" end)     # a `skipped` gate does not reduce overall below pass
+                  elif ($dry=="false" and any(.[]; .status=="skipped")) then "fail"
+                  else "pass" end)
               }' > out/gate-report.json
 
           # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
@@ -462,6 +506,13 @@ jobs:
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
+          # Use only the attested freeze output, never a second checkout of lock bytes.
+          if [ "$CERTIFICATION_MODE" = "live" ]; then
+            test -f candidate-input/frozen-lock/platform-lock.sigstore.json || {
+              echo "::error::a signed frozen platform lock is required for promotion evidence"; exit 1;
+            }
+            cp candidate-input/frozen-lock/* out/certified-candidate/
+          fi
           python tools/generate_evidence_index.py \
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json

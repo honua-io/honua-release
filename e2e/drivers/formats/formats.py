@@ -14,14 +14,19 @@ Raster/tile formats that are not a FeatureServer-import path report "na" with a 
 Statuses: pass | fail | blocked | na
 """
 from __future__ import annotations
-import json, os, subprocess, sys, urllib.request, urllib.error
+import json, os, subprocess, sys, urllib.request, urllib.error, zipfile
 from pathlib import Path
 
 BASE = os.environ.get("E2E_BASE", "http://localhost:8080").rstrip("/")
 KEY = os.environ.get("E2E_API_KEY", "honua-console-dev-key")
 OUT = Path(os.environ.get("E2E_OUT", "out"))
 FIX = Path(__file__).resolve().parents[2] / "harness" / "seed" / "fixtures" / "formats"
-GDAL_IMAGE = os.environ.get("E2E_GDAL_IMAGE", "ghcr.io/osgeo/gdal:alpine-small-latest")
+# Alpine-small deliberately omits Arrow/Parquet. Pin a full multi-architecture image index so a
+# mutable `*-latest` update cannot silently change the format-certification surface.
+GDAL_IMAGE = os.environ.get(
+    "E2E_GDAL_IMAGE",
+    "ghcr.io/osgeo/gdal@sha256:0569eb8e7cfb757b1866b4d4a698087d237f57087af0434bfc0266d488e55271",
+)
 WORK = OUT / "format-samples"
 WORK.mkdir(parents=True, exist_ok=True)
 
@@ -94,19 +99,81 @@ def export_layer(fmt: str) -> bytes | None:
         return None
 
 
+def query_binary_output(fmt: str, expected_content_type: str) -> tuple[str, str]:
+    """Exercise a FeatureServer binary output format against the seeded layer."""
+    if EXPORT_LAYER is None:
+        return "blocked", "seed manifest does not identify the output layer"
+    query = (f"{BASE}/rest/services/{EXPORT_SVC}/FeatureServer/{EXPORT_LAYER}/query"
+             f"?where=1%3D1&outFields=*&returnGeometry=true&f={fmt}")
+    req = urllib.request.Request(query, headers={"X-API-Key": KEY})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            payload = response.read()
+            content_type = response.headers.get_content_type()
+    except urllib.error.HTTPError as e:
+        return "fail", f"FeatureServer f={fmt} returned HTTP {e.code}"
+    except Exception as e:
+        return "fail", f"FeatureServer f={fmt} request failed: {str(e)[:120]}"
+    if not payload:
+        return "fail", f"FeatureServer f={fmt} returned an empty payload ({content_type})"
+    if content_type != expected_content_type:
+        return "fail", (f"FeatureServer f={fmt} content type {content_type!r}, "
+                        f"expected {expected_content_type!r}; {len(payload)}B")
+    return "pass", f"FeatureServer f={fmt} returned {len(payload)}B ({content_type})"
+
+
+def docker_user_args() -> list[str]:
+    """Preserve host-owned generated files on POSIX without breaking Docker Desktop on Windows."""
+    if hasattr(os, "getuid") and hasattr(os, "getgid"):
+        return ["--user", f"{os.getuid()}:{os.getgid()}"]
+    return []
+
+
 def gdal_convert(driver: str, out_name: str, extra_args=None) -> Path | None:
     """Convert source.geojson to `out_name` via GDAL-in-docker. Returns path or None if unavailable."""
     src = FIX / "source.geojson"
     (WORK / "source.geojson").write_bytes(src.read_bytes())
     args = ["ogr2ogr", "-f", driver, f"/d/{out_name}", "/d/source.geojson"] + (extra_args or [])
     try:
-        p = subprocess.run(["docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{WORK}:/d", "-w", "/d", GDAL_IMAGE] + args,
+        p = subprocess.run(["docker", "run", "--rm", *docker_user_args(), "-v", f"{WORK}:/d", "-w", "/d", GDAL_IMAGE] + args,
                            capture_output=True, timeout=180)
     except Exception as e:
         print(f"    gdal unavailable: {e}", file=sys.stderr)
         return None
     out = WORK / out_name
+    if p.returncode != 0:
+        detail = p.stderr.decode("utf-8", "replace").strip()[-200:]
+        print(f"    {driver} sample generation failed: {detail}", file=sys.stderr)
+        return None
     return out if out.exists() and out.stat().st_size > 0 else None
+
+
+def gdal_filegdb_zip() -> Path | None:
+    """Generate Honua's documented `.gdb.zip` upload artifact with OpenFileGDB."""
+    src = FIX / "source.geojson"
+    (WORK / "source.geojson").write_bytes(src.read_bytes())
+    gdb = WORK / "sample.gdb"
+    zip_path = WORK / "sample.gdb.zip"
+    try:
+        p = subprocess.run(
+            ["docker", "run", "--rm", *docker_user_args(),
+             "-v", f"{WORK}:/d", "-w", "/d", GDAL_IMAGE,
+             "ogr2ogr", "-f", "OpenFileGDB", "/d/sample.gdb", "/d/source.geojson"],
+            capture_output=True,
+            timeout=180,
+        )
+    except Exception as e:
+        print(f"    FileGDB sample generation unavailable: {e}", file=sys.stderr)
+        return None
+    if p.returncode != 0 or not gdb.is_dir():
+        detail = p.stderr.decode("utf-8", "replace").strip()[-200:]
+        print(f"    OpenFileGDB sample generation failed: {detail}", file=sys.stderr)
+        return None
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for part in gdb.rglob("*"):
+            if part.is_file():
+                archive.write(part, part.relative_to(WORK))
+    return zip_path if zip_path.stat().st_size > 0 else None
 
 
 def gdal_shapefile_zip() -> Path | None:
@@ -116,7 +183,7 @@ def gdal_shapefile_zip() -> Path | None:
     script = ("ogr2ogr -f 'ESRI Shapefile' /d/shp /d/source.geojson && "
               "cd /d/shp && (command -v zip >/dev/null && zip -q ../sample_shp.zip * || true)")
     try:
-        subprocess.run(["docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
+        subprocess.run(["docker", "run", "--rm", *docker_user_args(),
                         "-v", f"{WORK}:/d", "-w", "/d", GDAL_IMAGE, "sh", "-c", script],
                        capture_output=True, timeout=180)
     except Exception:
@@ -227,11 +294,21 @@ def main():
     emit("KML", r, "na", "na", n); passed += r == "pass"
 
     # GeoParquet / GeoArrow / GeoBuf — sample generation needs GDAL drivers absent from the small image.
-    for fmt, drv in (("GeoParquet", "Parquet"), ("GeoArrow", "Arrow"), ("GeoBuf", "GeoJSONSeq")):
-        emit(fmt, "blocked", "na", "na", f"sample-gen unavailable ({drv} driver not in {GDAL_IMAGE})")
+    r, _, n = do_read(
+        "GeoParquet",
+        gdal_convert("Parquet", "sample.geoparquet", ["-lco", "GEOMETRY_ENCODING=WKB"]),
+    )
+    emit("GeoParquet", r, "na", "na", n + " (WKB GeoParquet upload)")
+    passed += r == "pass"
 
     # FileGDB — read-capable (OpenFileGDB) but sample generation is not automated here.
-    emit("FileGDB", "blocked", "na", "na", "sample-gen not automated (FileGDB writer needs Esri SDK)")
+    r, _, n = do_read("FileGDB", gdal_filegdb_zip())
+    emit("FileGDB", r, "na", "na", n + " (.gdb.zip upload)")
+    passed += r == "pass"
+    arrow, note = query_binary_output("arrow", "application/vnd.apache.arrow.stream")
+    emit("GeoArrow", "na", arrow, "na", note)
+    geobuf, note = query_binary_output("geobuf", "application/geobuf")
+    emit("GeoBuf", "na", geobuf, "na", note)
 
     # Tile / raster formats are not a FeatureServer feature-import path.
     emit("MVT", "na", "na", "na", "vector tile OUTPUT format, not a feature-import path")

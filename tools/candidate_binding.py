@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 BINDING_SCHEMA_VERSION = 1
@@ -25,10 +26,65 @@ MAX_REQUIRED_REVIEWERS = 6
 _ARTIFACT_FILENAMES = (PLATFORM_MANIFEST, COMPATIBILITY_MATRIX)
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+LIVE_REPORT_MAX_AGE_HOURS = 24
+REQUIRED_RELEASE_GATES = frozenset({
+    "manifest", "artifact-consume", "e2e", "cloud-parity", "build-test", "contract",
+    "conformance", "security", "sbom", "observability", "docs", "upgrade", "evidence",
+    "protocol-certification",
+})
 
 
 class CandidateBindingError(ValueError):
     """Raised when a candidate bundle cannot be safely created."""
+
+
+def validate_live_report(report: dict, *, now: datetime | None = None) -> tuple[bool, str]:
+    """Require a fresh, complete, skip-free report before live certification or promotion."""
+    if not isinstance(report, dict):
+        return False, "gate report must be an object"
+    if report.get("dry_run") is not False:
+        return False, "live certification requires dry_run=false"
+    if report.get("overallStatus") != "pass":
+        return False, f"live gate report overallStatus is {report.get('overallStatus')!r}, expected 'pass'"
+
+    generated = report.get("generatedAt")
+    try:
+        generated_at = datetime.fromisoformat(str(generated).replace("Z", "+00:00"))
+        if generated_at.tzinfo is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        return False, "live gate report has no valid timezone-aware generatedAt receipt timestamp"
+    age_hours = ((now or datetime.now(timezone.utc)) - generated_at).total_seconds() / 3600
+    if age_hours < -1:
+        return False, "live gate report generatedAt is implausibly in the future"
+    if age_hours > LIVE_REPORT_MAX_AGE_HOURS:
+        return False, (
+            f"live gate report is stale ({age_hours:.1f}h old; max-age "
+            f"{LIVE_REPORT_MAX_AGE_HOURS}h)"
+        )
+
+    gates = report.get("gates")
+    if not isinstance(gates, list):
+        return False, "live gate report gates must be a list"
+    by_name = {}
+    for row in gates:
+        if not isinstance(row, dict) or not isinstance(row.get("gate"), str):
+            return False, "live gate report contains a malformed gate receipt"
+        name = row["gate"]
+        if name in by_name:
+            return False, f"live gate report contains duplicate receipt for required gate {name!r}"
+        by_name[name] = row
+    missing = sorted(REQUIRED_RELEASE_GATES - by_name.keys())
+    if missing:
+        return False, f"live gate report is missing required gate receipt(s): {', '.join(missing)}"
+    non_pass = sorted(
+        f"{name}={by_name[name].get('status')!r}"
+        for name in REQUIRED_RELEASE_GATES
+        if by_name[name].get("status") != "pass"
+    )
+    if non_pass:
+        return False, "live required gates must be pass (skip/blocked/fail is RED): " + ", ".join(non_pass)
+    return True, f"all {len(REQUIRED_RELEASE_GATES)} required gates have fresh pass receipts"
 
 
 def _sha256(path: Path) -> str:
@@ -296,6 +352,10 @@ def bind_gate_report(report: dict, manifest_path: Path, matrix_path: Path, **ide
     report_mode = "dry-run" if dry_run else "live"
     if identity.get("certification_mode") != report_mode:
         raise CandidateBindingError("gate report dry_run does not match candidate certification mode")
+    if report_mode == "live":
+        ok, why = validate_live_report(report)
+        if not ok:
+            raise CandidateBindingError(why)
     bound = dict(report)
     bound["candidate"] = build_candidate_binding(manifest_path, matrix_path, **identity)
     return bound
@@ -378,6 +438,10 @@ def verify_candidate_binding(
     report_mode = "dry-run" if dry_run else "live"
     if train.get("certificationMode") != report_mode:
         return False, "gate report dry_run does not match bound train certificationMode"
+    if report_mode == "live":
+        ok, why = validate_live_report(report)
+        if not ok:
+            return False, why
 
     artifacts = candidate.get("artifacts")
     if not isinstance(artifacts, dict) or set(artifacts) != set(_ARTIFACT_FILENAMES):

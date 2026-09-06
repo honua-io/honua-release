@@ -23,3 +23,10 @@ exclusions that remain CLI-only with a private secret sink. Console and browser 
 client receipts; neither defines terminal completeness. Live journey certification remains blocked
 on the upstream operation/runtime, session/scope, proposal authorization, and evidence-posture work
 recorded in `certification/terminal-journey/journey.v1.json`.
+
+The current-trunk at-cut run is adjudicated in
+`certification/terminal-journey/certification.issue-122.md`. It is a blocked release
+receipt, not a promotion claim: all eight stages and the independent local/AWS,
+browser-client, exact-client-matrix, and control-plane-roster AND gates must be green on
+one joined candidate before release. That record also contains the verbatim operator
+walkthrough; its presence does not substitute for live execution.

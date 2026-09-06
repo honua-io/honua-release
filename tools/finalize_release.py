@@ -45,14 +45,9 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
-# Explicit allow-list of gates that MAY be `skipped` on a promote (task requirement: promote requires
-# every non-skipped gate green — gates[].status in {pass, skipped} — with an explicit allowed-skip
-# list). These are the creds/infra-gated tiers that self-skip (status: skipped) when their per-RC
-# secrets are unset; an org opts a label into enforcing them by wiring those secrets. A gate NOT on
-# this list may never be skipped for a promote — a skip there is a refusal, so nothing is green-washed.
-ALLOWED_SKIP: frozenset[str] = frozenset({
-    "cloud-parity",   # Slice-2 cloud cert (e2e-cloud-aws): self-skips when HONUA_AWS_ROLE_ARN is unset.
-})
+# Development/dry-run workflows may self-skip, but the adopted live GA denominator has no optional
+# release gate. Promotion therefore has no skip exception.
+ALLOWED_SKIP: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------------------------------
@@ -117,7 +112,8 @@ def _component_artifact(comp: dict) -> str:
     return str(comp.get("image") or comp.get("artifact") or "—")
 
 
-def render_release_notes(manifest: dict, matrix: dict, label: str, evidence_url: str = "") -> str:
+def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: dict,
+                         evidence_url: str = "") -> str:
     base = _base_label(label)
     components = manifest.get("components") or {}
     lines: list[str] = []
@@ -175,8 +171,24 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, evidence_url:
 
     lines.append("## Verification & provenance")
     lines.append("")
-    lines.append("- Every wired release gate passed (manifest validity, per-repo CI on the pinned SHAs, "
-                 "artifact-consumption, cross-component seam, cross-cloud parity, cross-repo conformance).")
+    gates = gate_report.get("gates") or []
+    skipped = [gate for gate in gates if isinstance(gate, dict) and _gate_status(gate) == "skipped"]
+    all_passed = bool(gates) and all(
+        isinstance(gate, dict) and _gate_status(gate) == "pass" for gate in gates
+    )
+    if all_passed:
+        lines.append("- Every wired release gate passed.")
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        name = str(gate.get("gate") or "unnamed-gate")
+        status = _gate_status(gate)
+        if status == "pass":
+            lines.append(f"- {name}: passed")
+        elif status == "skipped" and name == "cloud-parity":
+            lines.append(f"- {name}: skipped (creds-gated; never executed)")
+        else:
+            lines.append(f"- {name}: {status or 'unknown'}")
     lines.append("- The pinned `platform-manifest.yaml` + `compatibility-matrix.yaml` are attached and "
                  "OIDC-signed; verify the signature before deploying.")
     lines.append("")
@@ -236,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     finalized = finalize_manifest(manifest, args.label, args.released_at)
     Path(args.out_manifest).write_text(yaml.safe_dump(finalized, sort_keys=False), encoding="utf-8")
 
-    notes = render_release_notes(manifest, matrix, args.label, str(report.get("evidence_url", "")))
+    notes = render_release_notes(
+        manifest, matrix, args.label, report, str(report.get("evidence_url", "")))
     Path(args.out_notes).write_text(notes, encoding="utf-8")
 
     print(f"finalized manifest -> {args.out_manifest}")

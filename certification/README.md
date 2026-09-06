@@ -4,6 +4,10 @@ Cross-repo certification gates run by the release train against a candidate mani
 gate (issue #3) lives here as `.github/workflows/certification.yml` and is wired into the train's
 `gate_conformance`.
 
+Certification evidence producers must follow the producer-strict
+[receipt v2 contract](RECEIPT-V2.md). Consumers reject v1 and context-less receipts fail-closed; the
+linked migration ledger owns the resulting producer reds.
+
 ## Conformance gate (real assertions, no false-pass)
 
 Retires the audit's "false conformance" findings at the gate level (both now fixed upstream):

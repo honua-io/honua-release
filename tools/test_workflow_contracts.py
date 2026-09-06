@@ -33,6 +33,16 @@ def test_manifest_validate_runs_for_every_pull_request_with_stable_check_name():
     assert "validate" in workflow["jobs"]
 
 
+def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
+    workflow = _workflow("capacity-soak.yml")
+    job = workflow["jobs"]["frozen-slo"]
+    commands = "\n".join(_step_text(step) for step in job["steps"])
+    assert "capacity-envelope.v1.json" in commands
+    assert "check_capacity_soak.py" in commands
+    assert 'gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server' in commands
+    assert "continue-on-error" not in str(job)
+
+
 def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     freeze = _workflow("release-train.yml")["jobs"]["freeze"]
     commands = "\n".join(_step_text(step) for step in freeze["steps"])
@@ -41,6 +51,33 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert "verify_evidence_sources.py" in commands
     assert "generate_evidence_index.py" in commands
     assert 'DRY_RUN" = "false' in commands
+
+
+def test_live_release_aggregate_fails_on_any_skipped_required_gate():
+    report = _workflow("release-train.yml")["jobs"]["report"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert '($dry=="false" and any(.[]; .status=="skipped")) then "fail"' in commands
+    assert "best-effort" not in commands
+    assert not any(_neutralised(step) for step in report["steps"])
+
+
+def test_required_cloud_cell_cannot_self_skip_on_real_cut():
+    workflow = _workflow("e2e-cloud-aws.yml")
+    run = next(step["run"] for step in workflow["jobs"]["iac-live"]["steps"] if step.get("id") == "iac")
+    assert '[ "$REQUIRE_REAL" = "true" ]' in run
+    assert 'STATUS=fail; WHY="required cloud certification evidence missing' in run
+
+
+def test_fail_closed_demo_deliberately_skips_required_cell_and_goes_red():
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"] if str(step.get("name", "")).startswith("Acceptance demo"))
+    commands = _step_text(step)
+    assert "endsWith(github.ref_name, '-red-demo')" in step["if"]
+    assert "validate_live_report" in commands
+    assert '"status": "skipped" if gate == skipped else "pass"' in commands
+    assert "raise SystemExit(1)" in commands
+    assert not _neutralised(job)
+    assert not _neutralised(step)
 
 
 def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks():
@@ -349,9 +386,26 @@ def test_every_promote_step_that_can_refuse_is_allowed_to_refuse():
         text = _step_text(step)
         if any(
             guard in text
-            for guard in ("check_release_promotion_approval.py", "candidate_binding.py", "finalize_release.py")
+            for guard in ("check_release_promotion_approval.py", "check_promotion_readiness.py",
+                          "candidate_binding.py", "finalize_release.py")
         ):
             assert not _neutralised(step), f"guard step is neutralised: {step.get('name')}"
+
+
+def test_promotion_requires_committed_burn_evidence_and_retags_the_freeze_rc():
+    workflow = _workflow("promote.yml")
+    assert workflow["jobs"]["promote"]["environment"] == "release-promotion"
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["promotion_record"]["required"] is True
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["promote"]["steps"])
+    for required in (
+        "certification/promotions/[0-9]+", "check_promotion_readiness.py", "burnStartCommit",
+        "git log", "platform-lock.json", "strictTrains", "demoCanaries",
+        "steps.readiness.outputs.rc_train_run_id", "candidate/platform-lock.json",
+    ):
+        assert required in commands
+    assert "docker build" not in commands
+    assert "dotnet build" not in commands
+    assert "npm pack" not in commands
 
 
 def test_promotion_request_uses_the_scoped_claude_app_identity():
@@ -422,6 +476,118 @@ def test_contract_gate_report_cannot_be_assembled_from_survivors():
     for gate in ("contract-proto", "contract-rest-sdk", "contract-suppression"):
         assert gate in commands, f"{gate} is not required by name in the report job"
     assert '"fail"' in commands, "a missing fragment must be recorded as a failure"
+
+
+def test_upgrade_gate_proves_exact_lock_bytes_seeded_migration_and_prior_compatibility():
+    """The kind lane must not regress to tags, floating charts, schema floors, or empty data."""
+    workflow = _workflow("gate-upgrade.yml")
+    commands = "\n".join(
+        _step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"]
+    )
+
+    assert "platform-manifest.yaml" in commands
+    assert "platform-lock.json" in commands
+    assert "validate_platform_lock.py" in commands
+    assert "gh attestation verify" in commands
+    assert "source-input bytes do not match this checkout" in commands
+    assert "gh release download \"$PREV\"" in commands
+    assert "e2e/harness/seed/seed.sh" in commands
+    assert "SELECT count(*) FROM public.schema_versions" in commands
+    assert "AFTER_VERSIONS" in commands and '"-gt"' not in commands
+    assert '"$CANDIDATE_SCHEMA" = "$DECLARED_SCHEMA"' in commands
+    assert "image.digest" in commands and "imageID" in commands
+    assert "HONUA_PLATFORM_LOCK_DIGEST" in commands
+    assert "chart_sha256" in commands and "upgrade_lock_binding.py" in commands
+    assert "Checkout honua-helm chart" not in commands
+    assert "SELECT count(*) FROM honua_data.e2e_src_fs" in commands
+    assert "SELECT count(*) FROM honua_data.maui_zoning" in commands
+    assert "string_agg(to_jsonb(v)::text" in commands
+    assert "ORDER BY to_jsonb(v)::text" in commands
+    assert "/tmp/upg/rollback-fault-injection.log" in commands
+    assert ">> /tmp/upg/candidate.log" not in commands
+    assert "config.env.Operations__Policy__Enabled=true" in commands
+    assert "config.env.Operations__Policy__DefaultDecision=Deny" in commands
+    assert "helm rollback honua 1" in commands
+    assert "returnCountOnly=true" in commands
+    assert "down-migration noted" not in commands
+
+
+def test_release_train_requires_signed_one_operation_rollback_certification():
+    workflow = _workflow("release-train.yml")
+    assert "gate_one_operation_rollback" in workflow["jobs"]
+    rollback = workflow["jobs"]["gate_one_operation_rollback"]
+    assert rollback["uses"] == "./.github/workflows/rollback-certification.yml"
+    report = workflow["jobs"]["report"]
+    assert "gate_one_operation_rollback" in report["needs"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert "one-operation-rollback|$S_ROLLBACK" in commands
+
+
+def test_rollback_certification_signs_success_and_mixed_state_receipts():
+    workflow = _workflow("rollback-certification.yml")
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "test_release_rollback.py" in commands
+    assert "certify_release_rollback.py" in commands
+    assert "Succeeded" in commands and "ManualInterventionRequired" in commands
+    assert "candidate-manifest" in commands
+    assert "gh attestation verify _candidate/platform-lock.json" in commands
+    assert "gh attestation verify _retained/platform-lock.json" in commands
+    assert "--candidate-manifest _candidate/platform-manifest.yaml" in commands
+    assert "--compatibility-matrix _candidate/compatibility-matrix.yaml" in commands
+    rendered = str(workflow["jobs"]["certify"])
+    assert rendered.count("actions/attest-build-provenance@") == 2
+
+
+def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
+    workflow = _workflow("gate-upgrade.yml")
+    kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
+    assert "upg*-gate-fragment-*" in str(workflow["jobs"]["report"])
+    assert "/api/v1/admin/services/e2e/access-policy" in kind_commands
+    assert "FeatureServer/$SRC_ID/applyEdits" not in kind_commands
+    assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
+
+
+def test_upgrade_gate_consumes_verified_candidate_and_fails_closed_on_receipt_verification():
+    steps = _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    resolve = next(step for step in steps if step.get("name") == "Resolve exact signed locks, images, schema, and chart package")["run"]
+    assert "gh attestation verify _locks/candidate.json" in resolve
+    assert not any(step.get("name") == "Attest candidate platform lock" for step in steps)
+
+    capture = next(step for step in steps if step.get("name") == "Capture evidence")["run"]
+    assert "if ! python tools/upgrade_lock_binding.py" in capture
+    assert 'echo "status=fail" >> "$GITHUB_ENV"' in capture
+    assert 'echo "why=exact-lock receipt verification failed" >> "$GITHUB_ENV"' in capture
+
+
+def test_upgrade_gate_uses_each_locks_exact_chart_across_the_edge():
+    commands = "\n".join(
+        _step_text(step) for step in _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    )
+    assert 'helm install honua "$PRIOR_CHART"' in commands
+    assert 'helm upgrade honua "$CANDIDATE_CHART"' in commands
+    assert "prior_chart_sha256" in commands
+    assert "candidate_chart_sha256" in commands
+
+
+def test_release_train_requires_signed_one_operation_rollback_certification():
+    workflow = _workflow("release-train.yml")
+    assert "gate_one_operation_rollback" in workflow["jobs"]
+    rollback = workflow["jobs"]["gate_one_operation_rollback"]
+    assert rollback["uses"] == "./.github/workflows/rollback-certification.yml"
+    report = workflow["jobs"]["report"]
+    assert "gate_one_operation_rollback" in report["needs"]
+    commands = "\n".join(_step_text(step) for step in report["steps"])
+    assert "one-operation-rollback|$S_ROLLBACK" in commands
+
+
+def test_rollback_certification_signs_success_and_mixed_state_receipts():
+    workflow = _workflow("rollback-certification.yml")
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "test_release_rollback.py" in commands
+    assert "certify_release_rollback.py" in commands
+    assert "Succeeded" in commands and "ManualInterventionRequired" in commands
+    rendered = str(workflow["jobs"]["certify"])
+    assert rendered.count("actions/attest-build-provenance@") == 2
 
 
 # ── the read-only scanner must itself be proven, not assumed ────────────────────────────────────
@@ -556,3 +722,12 @@ def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test
 
     assert "-r e2e/requirements.txt" in steps[install_index]["run"]
     assert install_index < self_test_index
+
+
+def test_manifest_validate_gates_committed_compatibility_ledger():
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"]
+                if "validate_compatibility_ledger.py compatibility-ledger.v1.yaml" in step.get("run", ""))
+    assert "if" not in step
+    assert not _neutralised(job)
+    assert not _neutralised(step)

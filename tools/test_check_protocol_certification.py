@@ -66,12 +66,17 @@ def _cell(**overrides):
         if isinstance(value.get("test_ids"), list):
             identity["test_ids"] = value["test_ids"]
         value["evidence_receipt"] = {
-            "schema": "honua.certification-evidence-receipt/v1",
+            "schema": "honua.certification-evidence-receipt/v2",
             "identity": identity,
             "result": value["result"],
             "facets": {facet: "pass" for facet in value["scenario_facets"]},
             "payload_base64": "dGVzdA==",
         }
+        value["evidence_receipt"]["identity"].update({
+            "maturity": value["maturity"],
+            "required_tier": value["required_tier"],
+            "requirements_revision": "requirements-test-v1",
+        })
     if "evidence_digest" not in overrides:
         value["evidence_digest"] = cert._receipt_digest(value["evidence_receipt"])
     if "evidence_uri" not in overrides:
@@ -1107,28 +1112,28 @@ def test_licensed_receipt_requires_bound_live_entitlement_assertion():
         "checked_at": "2026-08-20T10:02:00Z",
         "license_fingerprint": "sha256:" + "a" * 64,
     }
-    assert cert._valid_receipt(value)
+    assert cert._valid_receipt(value, None, "requirements-test-v1")
 
     value["evidence_receipt"]["entitlement"]["deployment_target"] = "local-docker"
-    assert not cert._valid_receipt(value)
+    assert not cert._valid_receipt(value, None, "requirements-test-v1")
 
 
-def test_receipt_that_binds_requirement_context_must_bind_it_truthfully():
+def test_receipt_requirement_context_must_bind_truthfully():
     # contract_revision carries only the PRODUCER revision, so a policy-side
     # denominator change (preview -> supported, or a tier promotion) moves the
     # governed requirement without moving any SHA. A receipt that binds that
     # context must bind it to the cell it is certifying.
     cell = _cell()
-    assert cert._valid_receipt(cell)
+    assert cert._valid_receipt(cell, None, "requirements-test-v1")
 
     for field, wrong in (("maturity", "preview"), ("required_tier", "release")):
         bound = copy.deepcopy(cell)
         bound["evidence_receipt"]["identity"][field] = bound[field]
-        assert cert._valid_receipt(bound), field
+        assert cert._valid_receipt(bound, None, "requirements-test-v1"), field
 
         stale = copy.deepcopy(bound)
         stale["evidence_receipt"]["identity"][field] = wrong
-        assert not cert._valid_receipt(stale), field
+        assert not cert._valid_receipt(stale, None, "requirements-test-v1"), field
 
 
 def test_receipt_that_binds_a_requirements_revision_must_match_the_owned_one():
@@ -1140,8 +1145,10 @@ def test_receipt_that_binds_a_requirements_revision_must_match_the_owned_one():
     # Reusing evidence under a different owned denominator must not validate.
     assert not cert._valid_receipt(bound, None, "2026-08-22-complete.11")
     assert not cert._valid_receipt(bound, None, None)
-    # An unbound receipt is unaffected (producers have not migrated yet).
-    assert cert._valid_receipt(cell, None, "2026-08-22-complete.11")
+    # The consumer never supplies or substitutes producer-owned context.
+    context_less = copy.deepcopy(cell)
+    del context_less["evidence_receipt"]["identity"]["requirements_revision"]
+    assert not cert._valid_receipt(context_less, None, "requirements-test-v1")
 
 
 def test_v2_receipt_with_full_requirement_context_passes():
@@ -1171,15 +1178,38 @@ def test_v2_receipt_requires_every_requirement_context_field():
         assert not cert._valid_receipt(missing, None, "requirements-test-v1"), field
 
 
-def test_v1_receipt_passes_when_catalog_minimum_is_v1():
-    report = _evaluate(_ledger(), "nightly", now=NOW)
-    assert report["overall_status"] == "pass"
+def test_v1_receipt_fails_even_when_catalog_minimum_is_v1():
+    cell = _cell()
+    cell["evidence_receipt"]["schema"] = "honua.certification-evidence-receipt/v1"
+    for field in ("maturity", "required_tier", "requirements_revision"):
+        del cell["evidence_receipt"]["identity"][field]
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+
+    assert report["overall_status"] == "fail"
+    assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
 
 def test_v1_receipt_fails_for_passing_required_cell_when_catalog_minimum_is_v2():
+    cell = _cell()
+    cell["evidence_receipt"]["schema"] = "honua.certification-evidence-receipt/v1"
+    for field in ("maturity", "required_tier", "requirements_revision"):
+        del cell["evidence_receipt"]["identity"][field]
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
     requirements = _requirements()
     requirements["receipt_schema_min"] = "v2"
-    report = _evaluate(_ledger(), "nightly", requirements=requirements, now=NOW)
+    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
     assert report["overall_status"] == "fail"
     assert any("requires a v2 evidence receipt" in finding["why"] for finding in report["findings"])
 

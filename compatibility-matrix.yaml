@@ -74,16 +74,34 @@ contracts:
 # manifest); ranges below bound the SERVER artifact they are allowed to deploy. honua-server is
 # itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
 deploy:
+  honua-server:
+    awsLambda:
+      target: aws-serverless
+      architectures:
+        x86_64:
+          status: ga-target
+          releaseScope: ga-target
+          qualification: pending
+          evidenceGate: "https://github.com/honua-io/honua-release/issues/282"
+          reason: "2026-09-06 ruling A: items 1/2/5 before candidate cut; items 3/4 against candidate before GA. Live deploy, serving smoke, alias upgrade/rollback and teardown required."
+          operatingEnvelope: docs/2026.1-operating-envelope.md
+    awsFargate:
+      architectures:
+        amd64:
+          status: certified
+        arm64:
+          status: excluded
+          reason: "Published child exists, but native Fargate readiness is not certified for 2026.1 (honua-release#98)."
   honua-iac:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
     # if it drifts. Advanced with the 2026-08-27 working-snapshot refresh (e3ab87ce -> ac30266f).
-    deploysServerImage: "sha:ac30266fbd153363bebdbed13130accc8ab0c94a"
+    deploysServerImage: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-08-27 refresh.
-    appVersion: "sha:ac30266fbd153363bebdbed13130accc8ab0c94a"
+    appVersion: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
 
 data:
   honua-server:
@@ -96,7 +114,7 @@ data:
     #   docker exec <pg> psql -U honua -d honua -c \
     #     "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   -> Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql
-    requiresDbSchema: ">=106"
+    requiresDbSchema: ">=107"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.
 supportWindow:
