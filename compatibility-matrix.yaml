@@ -79,7 +79,7 @@ deploy:
       target: aws-serverless
       architectures:
         x86_64:
-          status: supported
+          status: ga-target
           releaseScope: ga-target
           qualification: pending
           evidenceGate: "https://github.com/honua-io/honua-release/issues/282"
