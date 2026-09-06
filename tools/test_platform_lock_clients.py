@@ -134,3 +134,20 @@ def test_unresolved_package_inventory_never_silently_disappears(inputs, mutation
 def test_secondary_cannot_be_assigned_to_an_unrelated_component(inputs):
     inputs[1]["clientArtifacts"]["renamed-primary"]["repository"] = "honua-io/honua-sdk-dotnet"
     assert any("$.clientArtifacts.renamed-primary" in error for error in generate(inputs).unresolved)
+
+
+def test_duplicate_coordinate_across_components_cannot_reach_the_lock(inputs):
+    """One registry coordinate has one owner: a second claim from another repository is refused."""
+    forked = copy.deepcopy(inputs[1]["clientArtifacts"]["mcp"])
+    forked.update(repository="honua-io/honua-sdk-dotnet", version="9.9.9", sourceSha="f" * 40)
+    inputs[1]["clientArtifacts"]["forked"] = forked
+    draft = generate(inputs)
+    refusals = [error for error in draft.unresolved
+                if "$.clientArtifacts." in error and "duplicate published package coordinate" in error]
+    assert len(refusals) == 1 and "already owned by $.components." in refusals[0]
+    coordinates = [artifact["coordinate"] for entry in draft.lock["components"].values()
+                   for artifact in entry["artifacts"]]
+    assert coordinates.count("@honua/mcp-server") == 1
+    assert len([entry for entry in bundle.build_bom(draft.lock)["components"] if any(
+        prop == {"name": "honua:coordinate", "value": "@honua/mcp-server"}
+        for prop in entry["properties"])]) == 1

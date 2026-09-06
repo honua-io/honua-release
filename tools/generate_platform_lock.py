@@ -97,6 +97,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     # Join by package coordinate, not the manifest's arbitrary client row name.
     # A repository may publish several packages at different source revisions.
     published_by_component: dict[str, list[dict[str, Any]]] = {name: [] for name, _ in combined}
+    # A registry coordinate has exactly one owner across the whole platform. Scoping this to a
+    # single component would let two rows claim the same coordinate for two repositories at
+    # different versions/hashes, and every such row resolves to one owner on its own.
+    coordinate_owner: dict[tuple[str, str], str] = {}
     for client, published in (manifest.get("clientArtifacts") or {}).items():
         path = f"$.clientArtifacts.{client}"
         if not isinstance(published, dict):
@@ -122,10 +126,13 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             refuse(f"{path}: published package must resolve to exactly one component repository", "PUBLISH")
             continue
         name = owners[0]
-        if any(item["kind"] == kind and item["coordinate"] == identity["coordinate"]
-               for item in published_by_component[name]):
-            refuse(f"{path}: duplicate published package coordinate", "PUBLISH")
+        coordinate_key = (kind, identity["coordinate"])
+        claimed = coordinate_owner.get(coordinate_key)
+        if claimed is not None:
+            owner = f" already owned by $.components.{claimed}" if claimed != name else ""
+            refuse(f"{path}: duplicate published package coordinate{owner}", "PUBLISH")
             continue
+        coordinate_owner[coordinate_key] = name
         published_by_component[name].append(identity)
     for name, component in combined:
         cpath = f"$.components.{name}"
