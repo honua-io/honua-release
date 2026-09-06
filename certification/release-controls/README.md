@@ -37,6 +37,15 @@ the independently specified control fixtures. An observed failure is not a
 released pre-cut criterion; only the actual-candidate signature receipt must
 wait for its tag.
 
+Native validation: **44 focused tests pass**; the failure receipt's policy and
+snapshot hashes also match the committed Git blobs. The broader Windows trial
+reports **825 passed, 10 failed**: four Bash-dependent workflow assertions,
+four copied pytest-cache access failures, and two default Windows text-encoding
+failures. The broad run exposed subprocess Bash invocations in existing tests;
+it is not rerun locally under the Windows-only host rule. This is not a green
+full-suite claim. Required hosted `validate` must pass at the PR head; no test is
+weakened, skipped or deleted to change these results.
+
 ## Concrete proposal
 
 `policy.json` enumerates all 17 repositories from the adopted issue inventory,
