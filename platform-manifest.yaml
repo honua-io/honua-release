@@ -389,7 +389,6 @@ components:
     #   -> 30 success, 1 skipped, 0 failure
     sha: "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"   # branch: trunk HEAD (green)
     artifact: "nuget:Honua.Sdk"
-    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       sdk-certification: "v1"
     # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
@@ -405,7 +404,6 @@ components:
     # npm registry gitHead and the immutable js-sdk-v0.1.9-beta.0 tag both resolve to this commit.
     sha: "c99e71197dd940ed952aecb024c6de273456f2ae"   # release tag js-sdk-v0.1.9-beta.0
     artifact: "npm:@honua/sdk-js"
-    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       connect-parity: "1.0"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
@@ -419,7 +417,6 @@ components:
     version: "0.1.11"
     sha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"   # release tag python-sdk-v0.1.11
     artifact: "pypi:honua-sdk"
-    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       protocol-factories: "1"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
@@ -434,7 +431,6 @@ components:
     version: "1.0.0"
     sha: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"   # release tag v1.0.0; NuGet repository commit
     artifact: "nuget:Geospatial.Grpc"
-    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       grpc: v1                         # stable proto package geospatial.v1
     pendingPublishedClients:

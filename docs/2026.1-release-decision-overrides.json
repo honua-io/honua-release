@@ -313,7 +313,39 @@
     },
     "honua-release#282": {
       "bucket": "must-fix-before-cut",
-      "reason": "2026-09-06 Lambda GA ruling A: aggregate issue remains pre-cut for bill items 1, 2 and 5. Items 3 and 4 are prove-against-candidate because alias upgrade/rollback, ECR identity and booted contract reads require the exact candidate; see the ledger evidence_bill and required-evidence rows. No qualification is asserted."
+      "reason": "2026-09-06 Lambda GA ruling A: aggregate issue remains pre-cut for bill items 1, 2 and 5. Items 3 and 4 are prove-against-candidate because alias upgrade/rollback, ECR identity and booted contract reads require the exact candidate; see this override's evidence_bill and the generated required-evidence rows. No qualification is asserted.",
+      "evidence_bill": [
+        {
+          "item": 1,
+          "bucket": "must-fix-before-cut",
+          "requirement": "Exact trunk Lambda x86_64 digest deploy, invoke, verify, teardown and true ECR digest; isolated role/repository and required repo variables (iac/server packets).",
+          "qualified_against_candidate": false
+        },
+        {
+          "item": 2,
+          "bucket": "must-fix-before-cut",
+          "requirement": "Serving smoke: fixture query with asserted row count, staging-only write round-trip (never demo), authorization denial and cold-start duration (server/devops packets).",
+          "qualified_against_candidate": false
+        },
+        {
+          "item": 3,
+          "bucket": "prove-against-candidate",
+          "requirement": "Exact-candidate alias-shift upgrade and rollback on the standing certification function through AwsLambdaGitOpsDeployBackend, candidate-bound receipt and teardown of lane-created resources (server packet).",
+          "qualified_against_candidate": false
+        },
+        {
+          "item": 4,
+          "bucket": "prove-against-candidate",
+          "requirement": "Re-pin awsLambdaEcrDigest from the real ECR mirror and re-read contractVersions from the booted candidate; sentinel/unverified values are not evidence (release/operator).",
+          "qualified_against_candidate": false
+        },
+        {
+          "item": 5,
+          "bucket": "must-fix-before-cut",
+          "requirement": "Publish serverless operating limits and Supported support-matrix/docs/CLI/contract rows; release owns docs/data, other packets own runtime/CLI changes.",
+          "qualified_against_candidate": false
+        }
+      ]
     }
   },
   "admission_reviews": {
