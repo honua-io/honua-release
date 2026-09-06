@@ -233,7 +233,7 @@
     },
     "honua-iac#168": {
       "bucket": "must-fix-before-cut",
-      "reason": "2026-09-02 accepted Lambda Preview evidence bill requires this isolated certification prerequisite; not a new deployment target."
+      "reason": "2026-09-06 Lambda GA ruling A, release#282 item 1: isolated certification substrate is required before cut; operator applies after reviewing the IaC plan."
     },
     "honua-server#3424": {
       "bucket": "must-fix-before-cut",
@@ -310,6 +310,10 @@
     "honua-demo-infra#68": {
       "bucket": "must-fix-before-cut",
       "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
+    },
+    "honua-release#282": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-09-06 Lambda GA ruling A: aggregate issue remains pre-cut for bill items 1, 2 and 5. Items 3 and 4 are prove-against-candidate because alias upgrade/rollback, ECR identity and booted contract reads require the exact candidate; see the ledger evidence_bill and required-evidence rows. No qualification is asserted."
     }
   },
   "admission_reviews": {
@@ -1046,7 +1050,7 @@
     "honua-iac#168": {
       "body_sha256": "be5ce3df805f27d9c0d5d448046ebeeaff9c3fd0ae303c1eafbcd7d2fae002ac",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(aws-cert): bootstrap isolated Lambda Preview certification resources"
+      "reason": "Reviewed body names the isolated Lambda certification substrate required by release#282 item 1 (2026-09-06 GA ruling A)."
     },
     "honua-iac#154": {
       "body_sha256": "c08970bbe1fc7d5c467d86d53dd4d75372b4f35af905b287115f8a755d0c9870",

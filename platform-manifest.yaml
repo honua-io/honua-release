@@ -239,8 +239,13 @@ components:
     # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
     # question stays open in honua-release#98 rather than being silently resolved either way.
     awsEcsArchitecture: "x86_64"
+    # Supported / GA target: Lambda x86_64 (aws-serverless), qualification pending.
+    # 2026-09-06 ruling A: https://github.com/honua-io/honua-release/issues/282
+    # Gate: live exact-digest deploy, serving smoke and teardown before candidate cut;
+    # candidate-bound alias upgrade/rollback through the deploy backend before GA.
+    # See compatibility-matrix.yaml and docs/2026.1-operating-envelope.md for limits.
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
-    # exact source manifest into the release account and verifies ECR preserves its digest.
+    # exact source manifest and verifies config/rootfs equality, recording ECR's own digest.
     # REFRESHED 2026-08-27. The outgoing pin borrowed the amd64 child of the main rc-cert index
     # because the release-bundle path builds no Lambda variant. The nightly path DOES, so this
     # returns to the per-arch Lambda tag discipline used by every pin before the rc-cert cut
@@ -260,11 +265,12 @@ components:
     # same image into sha256:f1970f2a…). It is only knowable after a real mirror, which is why a
     # re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate perform
     # one bootstrap round trip (honua-release#99).
-    # PENDING FOR THIS PIN (re-asserted 2026-08-27 for ac30266f). The cloud gate must mirror the exact GHCR
+    # PENDING FOR THIS PIN: release#282 item 4 requires a real candidate mirror. The cloud gate must mirror the exact GHCR
     # Lambda manifest into the release account and verify its config/rootfs before
     # recording ECR's registry-specific digest. Never carry a prior pin's value forward.
     awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "x86_64"
+    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       # !! CARRIED FORWARD AT THE 2026-08-27 REFRESH — NOT RE-READ AGAINST THE ac30266f IMAGE. !!
       # Every value in this block was live-read off a RUNNING 6b6d3b8 server (the transcripts below
@@ -383,6 +389,7 @@ components:
     #   -> 30 success, 1 skipped, 0 failure
     sha: "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"   # branch: trunk HEAD (green)
     artifact: "nuget:Honua.Sdk"
+    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       sdk-certification: "v1"
     # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
@@ -398,6 +405,7 @@ components:
     # npm registry gitHead and the immutable js-sdk-v0.1.9-beta.0 tag both resolve to this commit.
     sha: "c99e71197dd940ed952aecb024c6de273456f2ae"   # release tag js-sdk-v0.1.9-beta.0
     artifact: "npm:@honua/sdk-js"
+    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       connect-parity: "1.0"
     # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
@@ -411,6 +419,7 @@ components:
     version: "0.1.11"
     sha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"   # release tag python-sdk-v0.1.11
     artifact: "pypi:honua-sdk"
+    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       protocol-factories: "1"
     # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
@@ -425,6 +434,7 @@ components:
     version: "1.0.0"
     sha: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"   # release tag v1.0.0; NuGet repository commit
     artifact: "nuget:Geospatial.Grpc"
+    # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
       grpc: v1                         # stable proto package geospatial.v1
     pendingPublishedClients:

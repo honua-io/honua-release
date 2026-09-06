@@ -75,6 +75,16 @@ contracts:
 # itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
 deploy:
   honua-server:
+    awsLambda:
+      target: aws-serverless
+      architectures:
+        x86_64:
+          status: supported
+          releaseScope: ga-target
+          qualification: pending
+          evidenceGate: "https://github.com/honua-io/honua-release/issues/282"
+          reason: "2026-09-06 ruling A: items 1/2/5 before candidate cut; items 3/4 against candidate before GA. Live deploy, serving smoke, alias upgrade/rollback and teardown required."
+          operatingEnvelope: docs/2026.1-operating-envelope.md
     awsFargate:
       architectures:
         amd64:
