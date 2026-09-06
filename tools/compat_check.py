@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import sys
@@ -62,7 +63,6 @@ def _local_package(path: Path) -> dict[str, str]:
     try:
         # Parse and hash the same bytes: reopening the path permits replacement
         # between identity inspection and digest calculation.
-        import io
         payload = path.read_bytes()
         stream = io.BytesIO(payload)
         if path.suffix.lower() in (".nupkg", ".zip"):
@@ -89,7 +89,7 @@ def _local_package(path: Path) -> dict[str, str]:
             raise CompatError(f"cannot read package identity from {path}: Name and Version must be non-empty strings")
         return {"coordinate": name.strip(), "identity": version.strip(),
                 "sha256": "sha256:" + hashlib.sha256(payload).hexdigest()}
-    except (OSError, KeyError, TypeError, ET.ParseError, zipfile.BadZipFile, tarfile.TarError, json.JSONDecodeError) as exc:
+    except (OSError, KeyError, TypeError, UnicodeError, EOFError, ET.ParseError, zipfile.BadZipFile, tarfile.TarError, json.JSONDecodeError) as exc:
         raise CompatError(f"cannot inspect local package {path}: {exc}") from exc
 
 
