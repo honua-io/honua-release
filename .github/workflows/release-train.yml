@@ -503,10 +503,12 @@ jobs:
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
           # Use only the attested freeze output, never a second checkout of lock bytes.
-          test -f candidate-input/frozen-lock/platform-lock.sigstore.json || {
-            echo "::error::a signed frozen platform lock is required for promotion evidence"; exit 1;
-          }
-          cp candidate-input/frozen-lock/* out/certified-candidate/
+          if [ "$CERTIFICATION_MODE" = "live" ]; then
+            test -f candidate-input/frozen-lock/platform-lock.sigstore.json || {
+              echo "::error::a signed frozen platform lock is required for promotion evidence"; exit 1;
+            }
+            cp candidate-input/frozen-lock/* out/certified-candidate/
+          fi
           python tools/generate_evidence_index.py \
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json

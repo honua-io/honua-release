@@ -139,7 +139,7 @@ jobs:
           REQUESTED_RC_RUN_ID: ${{ inputs.train_run_id }}
         run: |
           set -euo pipefail
-          [[ "$PROMOTION_RECORD" =~ ^certification/promotions/[0-9]+\.[0-9]+-rc\.[1-9][0-9]*\.json$ ]] || {
+          [[ "$PROMOTION_RECORD" =~ ^certification/promotions/[0-9]+\.[0-9]+(\.[0-9]+)?-rc\.[1-9][0-9]*\.json$ ]] || {
             echo "::error::promotion_record must be a canonical committed RC record path"; exit 1;
           }
           test -f "$PROMOTION_RECORD" || { echo "::error::promotion record does not exist on the default branch"; exit 1; }

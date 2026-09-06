@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 import pytest
@@ -201,3 +202,26 @@ def test_workflows_require_signed_freeze_output_before_promotion():
     for flag in ("--bundle", "--signer-workflow", "--source-digest", "--source-ref", "--check"):
         assert flag in command
     assert "generate_bom.py" not in steps[finalize]["run"]
+
+
+def test_report_signature_boundary_allows_dry_run_but_refuses_unsigned_live(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release-train.yml").read_text())
+    command = next(s["run"] for s in workflow["jobs"]["report"]["steps"]
+                   if "# Use only the attested freeze output" in s.get("run", ""))
+    block = command.split("# Use only the attested freeze output", 1)[1]
+    block = "# Use only the attested freeze output" + block.split("python tools/generate_evidence_index.py", 1)[0]
+    output = tmp_path / "out/certified-candidate"
+    output.mkdir(parents=True)
+    def run(mode):
+        return subprocess.run(["bash", "-euc", block], cwd=tmp_path, capture_output=True,
+                              env={**os.environ, "CERTIFICATION_MODE": mode})
+    assert run("dry-run").returncode == 0
+    assert list(output.iterdir()) == []
+    assert run("live").returncode == 1
+    frozen = tmp_path / "candidate-input/frozen-lock"
+    frozen.mkdir(parents=True)
+    (frozen / "platform-lock.sigstore.json").write_bytes(b"signature transport fixture")
+    (frozen / "platform-lock.json").write_bytes(b"canonical lock transport fixture")
+    assert run("live").returncode == 0
+    assert (output / "platform-lock.json").read_bytes() == b"canonical lock transport fixture"
+    assert (output / "platform-lock.sigstore.json").read_bytes() == b"signature transport fixture"
