@@ -33,6 +33,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -40,6 +42,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     import yaml  # PyYAML
@@ -380,6 +383,52 @@ def check_exact_candidate(
 # --------------------------------------------------------------------------------------------------
 # coherence — the pinned set satisfies the matrix
 # --------------------------------------------------------------------------------------------------
+def qualification_candidate_digest(manifest: dict) -> str:
+    """Bind a receipt reference to every parsed candidate manifest field, without a matrix cycle."""
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool) -> None:
+    """A GA scope ruling is not qualification (quality contract §4.2)."""
+    for component, deployments in (matrix.get("deploy") or {}).items():
+        for target, deployment in (deployments or {}).items():
+            if not isinstance(deployment, dict):
+                continue  # Existing image/version coupling fields are scalars.
+            architectures = deployment.get("architectures", {})
+            if not isinstance(architectures, dict):
+                f.error(f"matrix: deploy.{component}.{target}.architectures must be a mapping")
+                continue
+            for architecture, row in architectures.items():
+                path = f"deploy.{component}.{target}.architectures.{architecture}"
+                if not isinstance(row, dict):
+                    f.error(f"matrix: {path} must be a mapping")
+                    continue
+                status, qualification = row.get("status"), row.get("qualification")
+                if status == "ga-target" and qualification != "pending":
+                    f.error(f"matrix: {path}: ga-target requires qualification: pending; promote only with a passed receipt")
+                if exact_candidate and (status == "ga-target" or row.get("releaseScope") == "ga-target") and status != "supported":
+                    f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
+                if status != "supported":
+                    continue
+                if qualification != "passed":
+                    f.error(f"matrix: {path}: supported requires qualification: passed (got {qualification!r}); use ga-target + pending until qualified")
+                receipt = row.get("qualificationReceipt")
+                if not isinstance(receipt, dict):
+                    f.error(f"matrix: {path}: supported requires a candidate-bound qualificationReceipt reference")
+                    continue
+                url = receipt.get("url")
+                try:
+                    parsed = urlparse(url) if isinstance(url, str) else None
+                    valid_url = parsed and parsed.scheme == "https" and parsed.hostname and parsed.path not in {"", "/"}
+                except ValueError:
+                    valid_url = False
+                if not valid_url:
+                    f.error(f"matrix: {path}.qualificationReceipt.url must reference an HTTPS receipt")
+                if receipt.get("candidateManifestDigest") != qualification_candidate_digest(manifest):
+                    f.error(f"matrix: {path}.qualificationReceipt.candidateManifestDigest must match the exact candidate manifest; missing or wrong-candidate receipt")
+
+
 def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
     components = manifest.get("components") or {}
 
@@ -500,6 +549,7 @@ def validate(
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
+    check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:

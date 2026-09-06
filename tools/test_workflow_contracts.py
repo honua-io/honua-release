@@ -722,3 +722,12 @@ def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test
 
     assert "-r e2e/requirements.txt" in steps[install_index]["run"]
     assert install_index < self_test_index
+
+
+def test_manifest_validate_gates_committed_compatibility_ledger():
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"]
+                if "validate_compatibility_ledger.py compatibility-ledger.v1.yaml" in step.get("run", ""))
+    assert "if" not in step
+    assert not _neutralised(job)
+    assert not _neutralised(step)

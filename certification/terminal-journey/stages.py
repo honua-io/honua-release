@@ -37,6 +37,7 @@ APPROVAL_COMMAND = f"{SERVER}/3599"            # separate-principal approval com
 SETUP_VIEW = f"{SERVER}/3428"                 # bounded server-authored terminal setup view
 REDIS_POSTURE = f"{SERVER}/3583"              # typed refusal when Redis is absent
 INSTALLED_CLIENTS = f"{RELEASE}/7"            # installed-client execution engine
+JOURNEY_DRIVER = f"{RELEASE}/123"             # executable stages and per-run observations
 NO_REDIS_VARIANT = f"{RELEASE}/202"           # Redis-optional local install variant
 
 # In-flight PRs that would unblock the corresponding contract.
@@ -312,10 +313,12 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
 # ---------------------------------------------------------------------------
 def _admin_cli_check(check_id: str, invocation: str, workspace_blockers: Callable[[int], list[str]], number: int) -> Check:
     reasons = workspace_blockers(number)
-    reason = reasons[0] if reasons else (
-        "the pinned clientArtifacts ship no `honua admin` command surface"
+    if reasons:
+        return blocked(check_id, "cli", "honua --help (verified pinned client)", "; ".join(reasons), [INSTALLED_CLIENTS])
+    return Check(
+        check_id, "cli", "honua --help (verified pinned client)", "pass",
+        f"the pinned command surface includes `honua admin`; execution of `{invocation}` is not proven by discovery",
     )
-    return blocked(check_id, "cli", invocation, reason, [INSTALLED_CLIENTS])
 
 
 def stage_2(observation: Observation, workspace_blockers: Callable[[int], list[str]]) -> list[Check]:
@@ -327,8 +330,14 @@ def stage_2(observation: Observation, workspace_blockers: Callable[[int], list[s
             2,
         )
     ]
-    # The server-side contract is separately observable, and worth recording: it
-    # shows the blocker is the client surface, not the server.
+    checks.append(blocked(
+        "2.3-credential-permissions", "cli",
+        "honua admin apiKeys list; honua admin apiKeys effective-permissions",
+        "the driver has not executed credentialed key-list and effective-permissions checks; command discovery is insufficient",
+        [JOURNEY_DRIVER, SCOPE_NARROWING],
+    ))
+    # Anonymous refusal is independently observable; it does not prove the
+    # credentialed CLI calls or the installer's effective permissions.
     api_key_status = observation.anonymous_api_keys_status
     checks.append(
         Check(
@@ -358,10 +367,9 @@ def stage_3(observation: Observation, workspace_blockers: Callable[[int], list[s
             "3.2-operation-envelope",
             "mcp-tool",
             "unified typed operation envelope for every mutating step",
-            "the candidate has no single durable actuation spine emitting "
-            "operation/policy/actuator/verification identities, so a write cannot be "
-            "certified as entering the canonical runtime",
-            [OPERATION_RUNTIME],
+            "the driver has not executed service publication and captured the "
+            "operation/policy/actuator/verification identities from this target",
+            [JOURNEY_DRIVER, OPERATION_RUNTIME],
         ),
     ]
 
@@ -439,12 +447,11 @@ def stage_7(observation: Observation, workspace_blockers: Callable[[int], list[s
 
 def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[str]]) -> list[Check]:
     return [
-        blocked(
+        _admin_cli_check(
             "8.1-admin-cli",
-            "cli",
             "honua admin operate approveOperationProposal --path id=<proposal-id> --profile approver --yes",
-            "the installed separate-principal approval command is not available on the candidate",
-            [APPROVAL_COMMAND],
+            workspace_blockers,
+            8,
         ),
         blocked(
             "8.2-separate-principal",
@@ -452,7 +459,7 @@ def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[s
             "approve from a separate human principal; proposer self-approval must be denied; poll to published URL",
             "there is no durable proposal to approve, and approved replay must "
             "revalidate the proposer's current authority under narrowed bearer scopes",
-            [APPROVAL_COMMAND, PROPOSAL_AUTHZ, SCOPE_NARROWING],
+            [JOURNEY_DRIVER, APPROVAL_COMMAND, PROPOSAL_AUTHZ, SCOPE_NARROWING],
         ),
     ]
 

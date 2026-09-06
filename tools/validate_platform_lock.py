@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sdk_baselines import SDK_COMPONENTS, check_component
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
@@ -93,6 +95,10 @@ def validate(lock: dict[str, Any]) -> Findings:
         f.error("$.components", "must be a non-empty mapping")
         return f
 
+    for name in SDK_COMPONENTS:
+        if name not in components:
+            f.error(f"$.components.{name}", "required official SDK component is missing")
+
     for name, component in components.items():
         path = f"$.components.{name}"
         if not isinstance(component, dict):
@@ -103,6 +109,11 @@ def validate(lock: dict[str, Any]) -> Findings:
         if component.get("supportTier") != str(lifecycle_status).lower():
             f.error(f"{path}.supportTier", "must be derived from lifecycleStatus by lowercasing it")
         source = component.get("source") or {}
+        if name in SDK_COMPONENTS:
+            try:
+                check_component(component)
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                f.error(f"{path}.serverCompatibility", str(exc))
         revision = source.get("revision") if isinstance(source, dict) else None
         if not isinstance(revision, str) or not SHA_RE.fullmatch(revision):
             f.error(f"{path}.source.revision", "must be an immutable 40-character git revision")
