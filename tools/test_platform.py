@@ -64,35 +64,96 @@ def test_committed_manifest_and_matrix_are_valid():
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
 
 
-def test_bound_ledger_rejects_sdk_catalog_manifest_pin_mismatch():
+SDK_PINS = {
+    "sdk-dotnet": "1" * 40,
+    "sdk-python": "2" * 40,
+    "sdk-js": "3" * 40,
+}
+
+
+def _bound_sdk_fixture():
     manifest, matrix = _real_files()
-    requirements = vp._load_json(REPO_ROOT / "certification/protocol-certification-requirements.v1.json")
-    requirements = copy.deepcopy(requirements)
-    requirements["source_revisions"]["sdk-python"]["commit"] = "f" * 40
+    manifest["protocolCertification"]["ledger"].update(
+        status="bound", commit="a" * 40,
+        requirementsSourceRevision="b" * 40, sha256="sha256:" + "c" * 64,
+    )
+    requirements = {"source_revisions": {}}
+    for source, sha in SDK_PINS.items():
+        manifest["components"]["honua-" + source]["sha"] = sha
+        requirements["source_revisions"][source] = {"commit": sha}
+    return manifest, matrix, requirements
 
-    f = vp.validate(manifest, matrix, baseline_matrix=None, requirements=requirements)
 
+def test_bound_ledger_accepts_equal_sdk_catalog_manifest_pins():
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    f = vp.validate(manifest, matrix, None, requirements=requirements)
+    assert f.ok, f.errors
+
+
+@pytest.mark.parametrize("source", SDK_PINS)
+@pytest.mark.parametrize("bad_pin", ["f" * 40, None, "", "trunk", " " + "1" * 40])
+def test_bound_ledger_rejects_sdk_catalog_manifest_pin_mismatch(source, bad_pin):
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    requirements["source_revisions"][source]["commit"] = bad_pin
+    f = vp.validate(manifest, matrix, None, requirements=requirements)
     assert not f.ok
     assert any(
-        "source_revisions.sdk-python.commit" in error
-        and "components.honua-sdk-python.sha" in error
+        f"source_revisions.{source}.commit" in error
+        and f"components.honua-{source}.sha" in error
         for error in f.errors
     )
 
 
-def test_pending_ledger_allows_catalog_manifest_pin_transition():
-    manifest, matrix = _real_files()
-    manifest = copy.deepcopy(manifest)
+@pytest.mark.parametrize("source", SDK_PINS)
+@pytest.mark.parametrize("producer", [None, [], "invalid", {}])
+def test_bound_ledger_rejects_missing_or_malformed_sdk_producer(source, producer):
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    requirements["source_revisions"][source] = producer
+    f = vp.validate(manifest, matrix, None, requirements=requirements)
+    assert any(f"source_revisions.{source}.commit" in error for error in f.errors)
+
+
+def test_bound_ledger_requires_catalog_source_revisions():
+    manifest, matrix, _ = _bound_sdk_fixture()
+    f = vp.validate(manifest, matrix, None, requirements={})
+    assert not f.ok
+    assert any("requires catalog source_revisions" in error for error in f.errors)
+
+
+def test_bound_validation_loads_catalog_when_not_supplied(tmp_path, monkeypatch):
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    requirements["source_revisions"]["sdk-python"]["commit"] = "f" * 40
+    catalog = tmp_path / "requirements.json"
+    catalog.write_text(json.dumps(requirements))
+    monkeypatch.setattr(vp, "REQUIREMENTS_PATH", catalog)
+    f = vp.validate(manifest, matrix, None)
+    assert any("source_revisions.sdk-python.commit" in error for error in f.errors)
+
+
+def test_cli_rejects_bound_catalog_manifest_mismatch(tmp_path, capsys):
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    requirements["source_revisions"]["sdk-js"]["commit"] = "f" * 40
+    for name, value in (("manifest", manifest), ("matrix", matrix), ("requirements", requirements)):
+        (tmp_path / (name + ".json")).write_text(json.dumps(value))
+    assert vp.main([
+        "--manifest", str(tmp_path / "manifest.json"),
+        "--matrix", str(tmp_path / "matrix.json"),
+        "--requirements", str(tmp_path / "requirements.json"),
+    ]) == 1
+    assert "source_revisions.sdk-js.commit" in capsys.readouterr().out
+
+
+def test_pending_ledger_allows_catalog_transition_but_cannot_certify():
+    manifest, matrix, requirements = _bound_sdk_fixture()
     manifest["protocolCertification"]["ledger"].update(
         status="pending", commit="pending", requirementsSourceRevision="pending", sha256="pending"
     )
-    requirements = vp._load_json(REPO_ROOT / "certification/protocol-certification-requirements.v1.json")
-    requirements = copy.deepcopy(requirements)
     requirements["source_revisions"]["sdk-python"]["commit"] = "f" * 40
-
-    f = vp.validate(manifest, matrix, baseline_matrix=None, requirements=requirements)
-
-    assert not any("source_revisions.sdk-python.commit" in error for error in f.errors)
+    f = vp.validate(manifest, matrix, None, requirements=requirements)
+    assert f.ok, f.errors
+    f = vp.validate(manifest, matrix, None, requirements=requirements, exact_candidate=True)
+    assert not f.ok
+    assert "exact-candidate: protocol certification ledger must be bound before certification" in f.errors
 
 
 class StubCompareClient:
@@ -131,7 +192,7 @@ def test_exact_candidate_rejects_historical_off_trunk_server_pin_with_origin():
 
 
 def test_every_required_manifest_pin_family_is_enumerated():
-    manifest, _ = _real_files()
+    manifest, _, _ = _bound_sdk_fixture()
     names = {pin.name for pin in tr.manifest_pins(manifest)}
     assert any(name.startswith("components.") for name in names)
     assert any(name.startswith("clientArtifacts.") for name in names)
@@ -392,12 +453,13 @@ def test_exact_candidate_rejects_required_producer_without_pin():
     assert not f.ok and any("lacks a trusted immutable producer pin" in e for e in f.errors)
 
 
-def test_exact_candidate_accepts_committed_pins():
-    manifest, _ = _real_files()
+def test_exact_candidate_accepts_bound_coherent_pins():
+    manifest, _, requirements = _bound_sdk_fixture()
     # Pin validity is separate from pending deploy qualification, tested in
     # test_deploy_qualification.py through the full validate() entry point.
     f = vp.Findings()
     vp.check_exact_candidate(manifest, f)
+    vp.check_bound_catalog_pin_coherence(manifest, requirements, f)
     assert f.ok, f.errors
 
 

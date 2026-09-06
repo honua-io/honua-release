@@ -251,15 +251,19 @@ def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Fin
         return
 
     components = manifest.get("components") or {}
-    source_revisions = requirements.get("source_revisions") or {}
+    source_revisions = requirements.get("source_revisions")
+    if not isinstance(source_revisions, dict):
+        f.error("manifest: bound protocol certification ledger requires catalog source_revisions")
+        return
     for source, component in (
         ("sdk-dotnet", "honua-sdk-dotnet"),
         ("sdk-python", "honua-sdk-python"),
         ("sdk-js", "honua-sdk-js"),
     ):
-        manifest_sha = str((components.get(component) or {}).get("sha", "")).strip()
-        catalog_sha = str((source_revisions.get(source) or {}).get("commit", "")).strip()
-        if catalog_sha != manifest_sha:
+        manifest_sha = (components.get(component) or {}).get("sha")
+        producer = source_revisions.get(source)
+        catalog_sha = producer.get("commit") if isinstance(producer, dict) else None
+        if not _full_sha(catalog_sha) or catalog_sha != manifest_sha:
             f.error(
                 "manifest: bound protocol certification ledger requires catalog source_revisions."
                 f"{source}.commit to equal components.{component}.sha "
@@ -362,6 +366,9 @@ def check_exact_candidate(
     manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
 ) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
+    if ledger.get("status") != "bound":
+        f.error("exact-candidate: protocol certification ledger must be bound before certification")
     candidate = manifest.get("candidate") or {}
     ref_source = candidate.get("refSource")
     if ref_source != "trunk":
@@ -579,8 +586,9 @@ def validate(
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
-    if requirements is not None:
-        check_bound_catalog_pin_coherence(manifest, requirements, f)
+    if requirements is None:
+        requirements = _load_json(REQUIREMENTS_PATH)
+    check_bound_catalog_pin_coherence(manifest, requirements, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
