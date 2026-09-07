@@ -247,23 +247,34 @@ def test_cli_check_policy_passes_on_the_committed_policy(capsys):
 
 @pytest.fixture
 def qualified(repo, signer, tmp_path):
-    """A real signed tag plus the receipt and trust-policy file that authorize it."""
+    """A real signed tag plus the receipt, trust-policy file and audited release that back it."""
     path = tmp_path / "trust-policy.json"
     path.write_text(json.dumps(policy(signer), indent=2) + "\n", encoding="utf-8")
-    receipt = sign_tag(repo, TAG, head(repo), "cut", policy(signer), REPOSITORY,
+    target = head(repo)
+    receipt = sign_tag(repo, TAG, target, "cut", policy(signer), REPOSITORY,
                        signer["allowed"], path)
-    return {"receipt": receipt, "path": path,
-            "tag_refs": ["refs/tags/honua-2026.1.*"]}
+    return {"receipt": receipt, "path": path, "repo": repo, "target": target,
+            "tag_refs": ["refs/tags/honua-2026.1.*"],
+            "release": {"tag": TAG, "target": target, "gitDir": str(repo),
+                        "allowedSigners": str(signer["allowed"])}}
+
+
+def qualify(qualified, receipt=None, **release):
+    return tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], qualified["receipt"] if receipt is None else receipt,
+        qualified["path"], release={**qualified["release"], **release} if release is not False
+        else None)
 
 
 def test_receipt_qualifies_against_its_own_trust_policy(qualified):
-    assert tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"],
-                                       qualified["receipt"], qualified["path"]) is None
+    assert tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"], qualified["receipt"],
+                                       qualified["path"], qualified["release"]) is None
 
 
 def test_receipt_does_not_qualify_against_the_committed_policy(qualified):
     """The committed policy nominates nobody, so a receipt from any other policy is not evidence."""
-    reason = tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"], qualified["receipt"])
+    reason = tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"], qualified["receipt"],
+                                         release=qualified["release"])
     assert "different trust policy bytes" in reason
 
 
@@ -272,7 +283,8 @@ def test_editing_the_trust_policy_after_signing_invalidates_the_receipt(qualifie
     widened["repositories"][REPOSITORY]["tag_refs"].append("refs/tags/*")
     qualified["path"].write_text(json.dumps(widened, indent=2) + "\n", encoding="utf-8")
     assert "different trust policy bytes" in tag_signing.qualify_receipt(
-        REPOSITORY, qualified["tag_refs"], qualified["receipt"], qualified["path"])
+        REPOSITORY, qualified["tag_refs"], qualified["receipt"], qualified["path"],
+        qualified["release"])
 
 
 @pytest.mark.parametrize("field,value,expected", [
@@ -285,21 +297,88 @@ def test_receipt_fields_must_be_exact(qualified, field, value, expected):
     forged = copy.deepcopy(qualified["receipt"])
     forged[field] = value
     assert expected in tag_signing.qualify_receipt(
-        REPOSITORY, qualified["tag_refs"], forged, qualified["path"])
+        REPOSITORY, qualified["tag_refs"], forged, qualified["path"], qualified["release"])
 
 
 def test_receipt_claiming_a_lightweight_tag_is_rejected(qualified):
     forged = copy.deepcopy(qualified["receipt"])
     forged["tagObject"] = forged["target"]
     assert "lightweight tag" in tag_signing.qualify_receipt(
-        REPOSITORY, qualified["tag_refs"], forged, qualified["path"])
+        REPOSITORY, qualified["tag_refs"], forged, qualified["path"], qualified["release"])
 
 
 def test_receipt_with_an_unlisted_fingerprint_is_rejected(qualified):
     forged = copy.deepcopy(qualified["receipt"])
     forged["signature"] = {**forged["signature"], "fingerprint": "SHA256:" + "A" * 43}
     assert "not an authorized publication signer" in tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], forged, qualified["path"], qualified["release"])
+
+
+# --- a receipt is a claim; qualification re-verifies the tag and binds it to the release -------
+
+def test_a_forged_receipt_never_qualifies_without_a_repository_to_re_verify_in(qualified):
+    """Copying the committed policy digest, an authorized fingerprint and two random object ids
+    used to be enough. Nothing is signed here, and nothing is checked out."""
+    forged = copy.deepcopy(qualified["receipt"])
+    forged["tagObject"], forged["target"] = "a" * 40, "b" * 40
+    assert "never qualifies a release on its own" in tag_signing.qualify_receipt(
         REPOSITORY, qualified["tag_refs"], forged, qualified["path"])
+    assert "re-verify the signed tag object in" in tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], forged, qualified["path"],
+        {"tag": TAG, "target": "b" * 40})
+
+
+def test_a_receipt_for_a_tag_that_does_not_exist_does_not_re_verify(qualified):
+    """A whole-cloth receipt for a tag nobody ever created: no object, so no signature."""
+    invented = "honua-2026.1.9-rc.9"
+    forged = copy.deepcopy(qualified["receipt"])
+    forged["tag"], forged["tagObject"], forged["target"] = invented, "a" * 40, "b" * 40
+    reason = tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], forged, qualified["path"],
+        {**qualified["release"], "tag": invented, "target": "b" * 40})
+    assert "did not re-verify in the audited repository" in reason
+
+
+def test_a_receipt_claiming_a_different_object_than_the_signed_tag_is_refused(qualified):
+    """The tag really is signed, but the receipt names some other tag object."""
+    forged = copy.deepcopy(qualified["receipt"])
+    forged["tagObject"] = "a" * 40
+    reason = tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"], forged,
+                                         qualified["path"], qualified["release"])
+    assert "tagObject" in reason and "disagrees with the tag re-verified" in reason
+
+
+def test_a_genuine_receipt_for_another_tag_does_not_qualify_this_release(repo, signer, qualified):
+    """A throwaway signed tag inside the namespace must not clear the control for a release
+    whose own tag is unsigned."""
+    other = "honua-2026.1.0-rc.0"
+    receipt = sign_tag(repo, other, head(repo), "throwaway", policy(signer), REPOSITORY,
+                       signer["allowed"], qualified["path"])
+    reason = tag_signing.qualify_receipt(REPOSITORY, qualified["tag_refs"], receipt,
+                                         qualified["path"], qualified["release"])
+    assert f"not the audited publication tag {TAG!r}" in reason
+
+
+def test_a_receipt_for_a_different_candidate_revision_does_not_qualify(repo, signer, qualified):
+    run("git", "commit", "-q", "--allow-empty", "-m", "later", cwd=repo)
+    reason = tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], qualified["receipt"], qualified["path"],
+        {**qualified["release"], "target": head(repo)})
+    assert "is not the audited candidate revision" in reason
+
+
+def test_re_verification_still_needs_the_operator_trust_material(qualified):
+    reason = tag_signing.qualify_receipt(
+        REPOSITORY, qualified["tag_refs"], qualified["receipt"], qualified["path"],
+        {**qualified["release"], "allowedSigners": None})
+    assert "allowed-signers" in reason
+
+
+def test_the_audited_release_identity_must_be_exact(qualified):
+    for release in ({"target": qualified["target"]}, {"tag": TAG},
+                    {"tag": TAG, "target": "refs/heads/trunk"}):
+        assert "exact publication tag and candidate revision" in tag_signing.qualify_receipt(
+            REPOSITORY, qualified["tag_refs"], qualified["receipt"], qualified["path"], release)
 
 
 def test_controls_audit_stays_red_while_no_signer_is_nominated(qualified):
@@ -307,7 +386,41 @@ def test_controls_audit_stays_red_while_no_signer_is_nominated(qualified):
     row = {'release_refs': ['refs/heads/release/2026.1'], 'required_checks': ['validate'],
            'tag_refs': ['refs/tags/honua-2026.1.*'],
            'code_owners': ['mikemcdougall', 'independent-reviewer']}
-    errors = audit_repository(row, {'rulesets': []}, qualified["receipt"], REPOSITORY)
+    signing = {'receipt': qualified["receipt"], 'gitDir': str(qualified["repo"]),
+               'releaseTag': TAG, 'releaseTarget': qualified["target"]}
+    errors = audit_repository(row, {'rulesets': []}, signing, REPOSITORY)
     assert any('native signed-tag producer and trusted verification not qualified' in error
                for error in errors)
     assert any('different trust policy bytes' in error for error in errors)
+
+
+def test_controls_audit_refuses_a_bare_receipt_with_no_release_binding(qualified):
+    """The receipts file used to be repository -> receipt, which bound nothing."""
+    from release_controls import audit_repository
+    row = {'release_refs': ['refs/heads/release/2026.1'], 'required_checks': ['validate'],
+           'tag_refs': ['refs/tags/honua-2026.1.*'],
+           'code_owners': ['mikemcdougall', 'independent-reviewer']}
+    errors = audit_repository(row, {'rulesets': []}, qualified["receipt"], REPOSITORY)
+    assert any(error == 'native signed-tag producer and trusted verification not qualified'
+               for error in errors)
+
+
+def test_controls_audit_reports_signing_namespace_drift(tmp_path):
+    """check_namespaces is part of the audit, not an optional operator command."""
+    from release_controls import POLICY, audit
+    control = json.loads(POLICY.read_text(encoding="utf-8"))
+    drifted = json.loads(tag_signing.TRUST_POLICY.read_text(encoding="utf-8"))
+    drifted["repositories"]["honua-release"]["tag_refs"] = ["refs/tags/*"]
+    path = tmp_path / "tag-signing-policy.json"
+    path.write_text(json.dumps(drifted), encoding="utf-8")
+    result = audit(control, {'repositories': {}}, None, POLICY, path)
+    assert any("signing namespaces" in message
+               for message in result["signing_namespace_parity"])
+    assert result["status"] == "fail"
+
+
+def test_committed_policies_are_in_namespace_parity_so_the_audit_is_unchanged():
+    from release_controls import POLICY, audit
+    control = json.loads(POLICY.read_text(encoding="utf-8"))
+    result = audit(control, {'repositories': {}})
+    assert "signing_namespace_parity" not in result

@@ -113,29 +113,63 @@ def verify(receipt: Any, repository: str = REPOSITORY) -> str:
     sources = receipt.get("sources")
     if not isinstance(sources, list):
         raise ValueError("receipt must enumerate its sources")
-    observed = {}
+    # The verifier never fetches these URLs, so "looks like a URL" proves nothing: only the
+    # three exact GitHub endpoints below are a publication enumeration. Anything else is a
+    # receipt about some other host's idea of the namespace.
+    expected = {f"https://api.github.com/repos/{repository}/{endpoint}": endpoint
+                for endpoint in ENDPOINTS}
+    observed: dict[str, int] = {}
     for source in sources:
-        if not isinstance(source, dict) or not str(source.get("api", "")).startswith("https://"):
-            raise ValueError("each source must name the HTTPS endpoint it enumerated")
+        if not isinstance(source, dict) or source.get("api") not in expected:
+            raise ValueError("each source must name one of the exact GitHub enumeration endpoints: "
+                             + ", ".join(expected))
+        endpoint = expected[source["api"]]
+        if endpoint in observed:
+            raise ValueError(f"{endpoint} is enumerated twice; each namespace is read once")
         if source.get("complete") is not True:
-            raise ValueError(f"incomplete enumeration of {source.get('api')}; pagination must finish")
-        endpoint = str(source["api"]).rsplit(f"{repository}/", 1)[-1]
+            raise ValueError(f"incomplete enumeration of {source['api']}; pagination must finish")
         answer = source.get("answer")
         if answer is not None and (answer != EMPTY_NAMESPACE or endpoint != REF_NAMESPACE_ENDPOINT):
             raise ValueError(f"{endpoint} was not read as a complete listing: {answer}")
-        observed[endpoint] = source.get("count")
+        # A count that is not a plain nonnegative integer is unreadable, not zero. Silently
+        # skipping it would let "count": "100" be summed as no publication at all.
+        count = source.get("count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError(f"{endpoint} count must be a nonnegative integer, not {count!r}")
+        observed[endpoint] = count
     missing = [endpoint for endpoint in ENDPOINTS if endpoint not in observed]
     if missing:
         raise ValueError("publication namespaces not enumerated: " + ", ".join(missing))
     refs = receipt.get("publishedRefs")
     if not isinstance(refs, list):
         raise ValueError("receipt must list the refs it found")
-    found = sum(count for count in observed.values() if isinstance(count, int))
+    found = sum(observed.values())
     if found or refs:
         raise ValueError(f"{repository} has {found or len(refs)} prior publication ref(s); the "
                          "first-release model does not apply and each capability needs its own "
                          "introduction evidence")
     return repository
+
+
+def confirm_current(receipt: Any, repository: str = REPOSITORY,
+                    collector: Any = None) -> dict[str, Any]:
+    """Re-enumerate live, because `observedAt` says nothing about the moment after it.
+
+    A pinned receipt proves the namespaces were empty when it was written; it cannot prove
+    that nothing was published between then and the candidate cut, and it never expires on
+    its own. So whatever consumes the first-release model re-reads the publisher's namespaces
+    at gate time and qualifies on *that* enumeration. The pinned receipt still has to agree:
+    a fresh reading that finds a ref withdraws the model, and a fresh reading older than the
+    pin means the clock, not the publisher, is the thing that moved.
+    """
+    verify(receipt, repository)
+    fresh = (collector or collect)(repository)
+    verify(fresh, repository)
+    if fresh["observedAt"] < str(receipt.get("observedAt", "")):
+        raise ValueError(f"live enumeration of {repository} at {fresh['observedAt']} predates the "
+                         f"pinned receipt at {receipt.get('observedAt')}; the observation clock is "
+                         "unreliable and the first-release premise is not established")
+    return fresh
 
 
 def digest(path: Path) -> str:

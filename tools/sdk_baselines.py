@@ -22,11 +22,29 @@ def content_digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(data.encode()).hexdigest()
 
 
+def _released(version: Any) -> str | None:
+    return str(version) if version and version != "pre-release" else None
+
+
+def publisher_artifact_version(publisher: dict[str, Any]) -> str | None:
+    """The released server version actually pinned, read from a lock entry or a manifest row.
+
+    A floor is only worth anything if the server it names is the server that ships, so the
+    first-release version has to be checked against the artifact the release pins, not taken
+    on the manifest's word. `pre-release` is a source snapshot, not a released version.
+    """
+    for artifact in publisher.get("artifacts") or []:
+        if isinstance(artifact, dict) and artifact.get("version"):
+            return _released(artifact["version"])
+    return _released(publisher.get("artifactVersion") or publisher.get("version"))
+
+
 def release_context(lock: dict[str, Any]) -> dict[str, Any]:
     """First-release facts, read only from the lock; never inferred from an SDK or a label."""
     publisher = (lock.get("components") or {}).get(PUBLISHER) or {}
     return {
         "firstReleaseVersion": publisher.get("releaseVersion"),
+        "publisherArtifactVersion": publisher_artifact_version(publisher),
         "publicationHistory": publisher.get("publicationHistory"),
     }
 
@@ -54,6 +72,15 @@ def first_release_floor(capability: str, entry: dict[str, Any], context: dict[st
     if not version:
         raise ValueError(f"unqualified: {capability} resolves to the first {PUBLISHER} release, "
                          "which this lock does not name")
+    # The publisher's release version is a claim; the locked artifact is the thing that ships.
+    # A floor derived from the first is only real if it is the version of the second.
+    shipped = context.get("publisherArtifactVersion")
+    if not shipped:
+        raise ValueError(f"unqualified: {capability} resolves to the first {PUBLISHER} release, but "
+                         f"the lock pins no released {PUBLISHER} artifact version to bind it to")
+    if shipped != str(version):
+        raise ValueError(f"unqualified: the lock names first {PUBLISHER} release {version}, but the "
+                         f"locked {PUBLISHER} artifact is {shipped}")
     declared = entry.get("minimumServerVersion")
     if declared is not None and declared != version:
         raise ValueError(f"unqualified: {capability} declares {declared!r}; the first "

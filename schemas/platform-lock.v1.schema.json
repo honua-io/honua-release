@@ -113,6 +113,16 @@
         "contractVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
         "schemaVersions": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
         "migrationJournalSha256": {"$ref": "#/$defs/sha256"},
+        "releaseVersion": {"type": "string", "minLength": 1},
+        "publicationHistory": {
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "uri", "sha256"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\][^\\\\]*$"},
+            "uri": {"type": "string", "pattern": "^https://"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
         "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
       },
       "allOf": [

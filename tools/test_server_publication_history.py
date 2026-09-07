@@ -100,6 +100,37 @@ def test_receipt_identity_must_be_exact(field, bad):
         history.verify(receipt(**{field: bad}))
 
 
+@pytest.mark.parametrize("api", [
+    "https://example.invalid/repos/honua-io/honua-server/tags",
+    "https://api.github.com/repos/honua-io/honua-server/tags?per_page=100",
+    "https://api.github.com/repos/honua-io/honua-server-mirror/tags",
+    "https://api.github.com./repos/honua-io/honua-server/tags",
+])
+def test_only_the_exact_github_endpoints_are_an_enumeration(api):
+    """The verifier never fetches these URLs, so a lookalike host proves nothing."""
+    value = receipt()
+    value["sources"][0]["api"] = api
+    with pytest.raises(ValueError, match="exact GitHub enumeration endpoints"):
+        history.verify(value)
+
+
+def test_a_namespace_read_twice_is_not_three_namespaces():
+    value = receipt()
+    value["sources"][1] = copy.deepcopy(value["sources"][0])
+    with pytest.raises(ValueError, match="enumerated twice"):
+        history.verify(value)
+
+
+@pytest.mark.parametrize("count", ["100", "0", None, 1.0, True, False, [], -1])
+def test_a_count_that_is_not_a_nonnegative_integer_is_unreadable_not_zero(count):
+    """`"count": "100"` used to be summed as nothing at all, which reads a published
+    repository as unpublished."""
+    value = receipt()
+    value["sources"][0]["count"] = count
+    with pytest.raises(ValueError, match="must be a nonnegative integer"):
+        history.verify(value)
+
+
 def test_committed_receipt_is_valid_and_reports_no_publication():
     committed = json.loads((ROOT / RECEIPT_PATH).read_text(encoding="utf-8"))
     assert history.verify(committed) == "honua-io/honua-server"
@@ -128,14 +159,27 @@ def first_release_component(*, cite=RECEIPT_URI, sha=DIGEST, declared=None,
     return item
 
 
-def context(*, version=FIRST_RELEASE_VERSION, pin=True):
-    publisher = {}
+AGREES = object()
+
+
+def publisher_component(*, version=FIRST_RELEASE_VERSION, pin=True, artifact=AGREES):
+    """The locked publisher entry: the named first release plus the artifact that ships it."""
+    if artifact is AGREES:
+        artifact = version
+    entry = {"artifacts": [{"kind": "image", "coordinate": "ghcr.io/honua-io/honua-server",
+                            "digest": DIGEST}]}
+    if artifact is not None:
+        entry["artifacts"][0]["version"] = artifact
     if version is not None:
-        publisher["releaseVersion"] = version
+        entry["releaseVersion"] = version
     if pin:
-        publisher["publicationHistory"] = {
+        entry["publicationHistory"] = {
             "path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST}
-    return release_context({"components": {PUBLISHER: publisher}})
+    return entry
+
+
+def context(**kwargs):
+    return release_context({"components": {PUBLISHER: publisher_component(**kwargs)}})
 
 
 def test_first_release_capability_resolves_to_the_first_release():
@@ -171,6 +215,31 @@ def test_first_release_model_cannot_smuggle_a_different_number():
         check_component(first_release_component(declared="0.1.0"), context())
 
 
+def test_named_first_release_must_be_the_locked_server_artifact():
+    """A publisher claim of 2.0.0 beside a 1.0.0 server artifact publishes a table for a
+    server that does not ship, so the derived floor is refused, not reconciled."""
+    with pytest.raises(ValueError, match=r"names first honua-server release 2\.0\.0, but the "
+                                         r"locked honua-server artifact is 1\.0\.0"):
+        check_component(first_release_component(floor="2.0.0"),
+                        context(version="2.0.0", artifact="1.0.0"))
+
+
+@pytest.mark.parametrize("artifact", [None, "pre-release"])
+def test_first_release_needs_a_released_server_artifact_to_bind_to(artifact):
+    """Today's lock pins a pre-release server snapshot, so nothing resolves."""
+    with pytest.raises(ValueError, match="pins no released honua-server artifact version"):
+        check_component(first_release_component(), context(artifact=artifact))
+
+
+def test_publisher_artifact_version_reads_a_manifest_row_too():
+    """generate_platform_lock reads the manifest shape, where the version is on the component."""
+    from sdk_baselines import publisher_artifact_version
+    assert publisher_artifact_version({"version": "1.0.0"}) == "1.0.0"
+    assert publisher_artifact_version({"artifactVersion": "1.0.0", "version": "pre-release"}) == "1.0.0"
+    assert publisher_artifact_version({"version": "pre-release"}) is None
+    assert publisher_artifact_version({}) is None
+
+
 def test_absent_model_still_requires_a_numeric_floor():
     """Removing only the model, not the floor, must remain the pre-existing unqualified error."""
     with pytest.raises(ValueError, match="no server introduction floor"):
@@ -186,11 +255,47 @@ def test_lock_without_a_publisher_release_version_reports_every_sdk():
     lock = valid_lock()
     for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
         lock["components"][name] = {**lock["components"][name], **first_release_component()}
-    lock["components"][PUBLISHER] = {"publicationHistory": {
-        "path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST}}
+    lock["components"][PUBLISHER] = publisher_component(
+        version=None, artifact=FIRST_RELEASE_VERSION)
     assert len(findings(lock)) == 4
     lock["components"][PUBLISHER]["releaseVersion"] = FIRST_RELEASE_VERSION
     assert findings(lock) == []
+
+
+# --- freshness: a past observation cannot prove nothing was published since -------------------
+
+def no_publication(repository="honua-io/honua-server", *, at="2026-09-08T00:00:00Z"):
+    """A live enumeration stand-in; `collect` itself is the network call under test elsewhere."""
+    return receipt(repository=repository, observedAt=at, observedDefaultBranchSha="a" * 40)
+
+
+def test_a_stale_receipt_is_requalified_by_a_live_enumeration():
+    fresh = history.confirm_current(receipt(), collector=lambda repo: no_publication(repo))
+    assert fresh["observedAt"] == "2026-09-08T00:00:00Z"
+
+
+def test_a_publication_after_the_receipt_withdraws_the_model():
+    """The committed 2026-09-07 receipt stays syntactically valid forever; the live reading
+    is what refuses once the publisher ships a tag."""
+    published = no_publication()
+    published["sources"][0]["count"] = 1
+    published["publishedRefs"] = ["v1.0.0"]
+    assert history.verify(receipt()) == "honua-io/honua-server"
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.confirm_current(receipt(), collector=lambda repo: published)
+
+
+def test_a_live_reading_older_than_the_pin_is_refused():
+    with pytest.raises(ValueError, match="observation clock is unreliable"):
+        history.confirm_current(receipt(observedAt="2026-09-09T00:00:00Z"),
+                                collector=lambda repo: no_publication())
+
+
+def test_offline_verification_cannot_qualify_the_first_release_model(tmp_path):
+    from verify_sdk_baseline_sources import offline_collector
+    lock, _ = lock_with_history(tmp_path, receipt())
+    with pytest.raises(ValueError, match="offline run cannot prove"):
+        verify_publication_history(lock, tmp_path, offline_collector)
 
 
 # --- the lock pin must match the committed bytes ---------------------------------------------
@@ -207,24 +312,24 @@ def lock_with_history(tmp_path, body, *, sha256=None, path=RECEIPT_PATH):
 
 def test_publication_history_pin_binds_the_committed_bytes(tmp_path):
     lock, raw = lock_with_history(tmp_path, receipt())
-    verify_publication_history(lock, tmp_path)
+    verify_publication_history(lock, tmp_path, no_publication)
     # Independently recomputed: flipping one byte of the receipt must break the pin.
     (tmp_path / RECEIPT_PATH).write_bytes(raw.replace(b"trunk", b"main"))
     with pytest.raises(ValueError, match="bytes disagree"):
-        verify_publication_history(lock, tmp_path)
+        verify_publication_history(lock, tmp_path, no_publication)
 
 
 def test_publication_history_pin_rejects_a_receipt_that_reports_a_tag(tmp_path):
     lock, _ = lock_with_history(tmp_path, receipt(publishedRefs=["v0.9.0"]))
     with pytest.raises(ValueError, match="prior publication ref"):
-        verify_publication_history(lock, tmp_path)
+        verify_publication_history(lock, tmp_path, no_publication)
 
 
 def test_publication_history_pin_rejects_a_missing_receipt(tmp_path):
     lock, _ = lock_with_history(tmp_path, receipt())
     (tmp_path / RECEIPT_PATH).unlink()
     with pytest.raises(ValueError, match="missing"):
-        verify_publication_history(lock, tmp_path)
+        verify_publication_history(lock, tmp_path, no_publication)
 
 
 @pytest.mark.parametrize("path", ["/etc/passwd", "../outside.json", "a/../../outside.json"])
@@ -232,7 +337,7 @@ def test_publication_history_pin_cannot_escape_the_repository(tmp_path, path):
     lock = {"components": {PUBLISHER: {"publicationHistory": {
         "path": path, "uri": RECEIPT_URI, "sha256": DIGEST}}}}
     with pytest.raises(ValueError, match="relative repository path"):
-        verify_publication_history(lock, tmp_path)
+        verify_publication_history(lock, tmp_path, no_publication)
 
 
 def test_source_verification_runs_the_publication_history_check(tmp_path):
@@ -244,7 +349,6 @@ def test_source_verification_runs_the_publication_history_check(tmp_path):
     for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
         lock["components"][name] = {**lock["components"][name],
                                     **first_release_component(sha=pin["sha256"])}
-    lock["components"][PUBLISHER] = {"publicationHistory": pin,
-                                     "releaseVersion": FIRST_RELEASE_VERSION}
+    lock["components"][PUBLISHER] = {**publisher_component(), "publicationHistory": pin}
     with pytest.raises(ValueError, match="prior publication ref"):
-        verify_sources(lock, SourceReader(tmp_path), tmp_path)
+        verify_sources(lock, SourceReader(tmp_path), tmp_path, collector=no_publication)
