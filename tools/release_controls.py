@@ -18,6 +18,8 @@ import subprocess
 import time
 from urllib.parse import quote
 
+import tag_signing
+
 POLICY = Path(__file__).resolve().parents[1] / 'certification/release-controls/policy.json'
 
 
@@ -150,7 +152,8 @@ def rule_drift(expected: dict, actual: dict) -> list[str]:
     return errors
 
 
-def audit_repository(policy: dict, snapshot: dict) -> list[str]:
+def audit_repository(policy: dict, snapshot: dict, signing=None, repository: str = '',
+                     release_identity=None) -> list[str]:
     errors = []
     try:
         expected = branch_rules(policy)
@@ -179,19 +182,43 @@ def audit_repository(policy: dict, snapshot: dict) -> list[str]:
         tags = tag_rules(policy)
         if not any(isinstance(r, dict) and not rule_drift(tags, r) for r in rulesets):
             errors.append('immutable native publication tag ruleset missing or drifted')
-        # Deliberately unresolved until a reviewed signing producer and trust policy exist.
-        # A receipt boolean or GitHub required_signatures rule is not signing evidence.
-        errors.append('native signed-tag producer and trusted verification not qualified')
+        # A receipt boolean or a GitHub required_signatures rule is never signing evidence, and
+        # neither is an unauthenticated receipt file: qualification re-verifies the tag object,
+        # binds it to the audited release identity, and requires the committed trust policy.
+        reason = None
+        if isinstance(signing, dict):
+            reason = tag_signing.qualify_receipt(
+                repository, policy['tag_refs'], signing.get('receipt'),
+                expected=release_identity,
+                source={k: v for k, v in signing.items() if k in ('gitDir', 'allowedSigners')})
+        if not isinstance(signing, dict) or reason:
+            errors.append('native signed-tag producer and trusted verification not qualified'
+                          + (f': {reason}' if reason else ''))
+        # Namespace parity is part of the audit, not an optional operator command: a drifted
+        # signing policy could otherwise authorize tags outside the immutable namespaces here.
+        errors += [error for error in namespace_drift() if error.startswith(f'{repository}: ')]
     return errors
 
 
-def audit(policy: dict, snapshot: dict) -> dict:
+def namespace_drift() -> list[str]:
+    """Signing namespaces must equal the protected tag namespaces; unreadable is a failure."""
+    try:
+        return tag_signing.check_namespaces(tag_signing.load_policy(tag_signing.TRUST_POLICY))
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        return [f'{name}: signing trust policy unreadable: {exc}' for name in
+                json.loads(POLICY.read_text())['repositories']]
+
+
+def audit(policy: dict, snapshot: dict, receipts: dict | None = None,
+          release_identity: dict | None = None) -> dict:
     expected = policy['repositories']
     if not isinstance(snapshot.get('repositories'), dict):
         raise ValueError('snapshot repositories missing')
     observed = snapshot['repositories']
-    results = {repo: audit_repository(row, observed[repo]) if repo in observed
-               else ['repository missing from snapshot'] for repo, row in expected.items()}
+    results = {repo: audit_repository(row, observed[repo], (receipts or {}).get(repo), repo,
+                                      (release_identity or {}).get(repo))
+               if repo in observed else ['repository missing from snapshot']
+               for repo, row in expected.items()}
     extras = sorted(set(observed) - set(expected))
     return {'schema_version': 1, 'issue': 'honua-io/honua-release#236',
             'status': 'fail' if extras or any(results.values()) else 'pass',
@@ -208,6 +235,10 @@ def main() -> int:
     check = subs.add_parser('audit')
     check.add_argument('snapshot', type=Path)
     check.add_argument('--output', type=Path, required=True)
+    check.add_argument('--signing-receipts', type=Path,
+                       help='by repository: {receipt, gitDir, allowedSigners}; absent means unqualified')
+    check.add_argument('--release-identity', type=Path,
+                       help='by repository: {tag, target} of the audited publication tag')
     capture = subs.add_parser('capture')
     capture.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -223,7 +254,9 @@ def main() -> int:
         print(json.dumps(tag_rules(row) if args.tags else branch_rules(row), indent=2))
         return 0
     raw = args.snapshot.read_bytes()
-    result = audit(policy, json.loads(raw))
+    receipts = json.loads(args.signing_receipts.read_text()) if args.signing_receipts else None
+    identity = json.loads(args.release_identity.read_text()) if args.release_identity else None
+    result = audit(policy, json.loads(raw), receipts, identity)
     result['snapshot_sha256'] = hashlib.sha256(raw).hexdigest()
     result['policy_sha256'] = hashlib.sha256(args.policy.read_bytes()).hexdigest()
     args.output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')

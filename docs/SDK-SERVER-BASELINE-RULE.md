@@ -47,6 +47,63 @@ establish certification. A generic upgrade rollback receipt does not prove that
 the previous application can read the migrated schema or that database rollback
 is safe; those are distinct acceptance conditions.
 
+## First release: the introduction floor a publisher cannot declare
+
+The rule above assumes an earlier server exists to name. `honua-io/honua-server` has never
+published one. On 2026-09-07 its tag list, its release list, and its `refs/tags` namespace were
+all empty, recorded in `certification/sources/server-publication-history.v1.json` at
+`honua-server` `98414e8c`. Regenerate and re-check that receipt with
+
+```sh
+python3 tools/server_publication_history.py collect
+python3 tools/server_publication_history.py verify
+```
+
+So "the publisher must supply a capability introduction version" cannot be satisfied for 2026.1
+by any evidence that exists: there is no prior version for any capability to point at. For a
+capability shipped in a publisher's first release the earliest server implementing it *is* that
+release, and a manifest may say so by declaring
+
+```json
+"capability.id": {
+  "versionModel": "semver",
+  "introductionModel": "first-release",
+  "evidence": {"uri": "<blob URL of the locked publication-history receipt>", "sha256": "sha256:..."}
+}
+```
+
+That is a derivation, not a guess, and it fails closed on every side:
+
+- the lock must pin the publication-history receipt (`components.honua-server.publicationHistory`
+  with a repository path, HTTPS URI, SHA-256 and `maxAgeDays`) and the receipt's committed bytes
+  must match it. Both fields are defined in `schemas/platform-lock.v1.schema.json`, which sets
+  `additionalProperties: false`, so a lock carrying them validates and a malformed pin does not;
+- the receipt must enumerate `tags`, `releases` and `git/refs/tags` completely and find nothing.
+  Each source must be the exact `https://api.github.com/repos/honua-io/honua-server/...`
+  collection — the verifier does not fetch these URLs, so a plausible URL on another host is not
+  an enumeration — and each count must be a genuine nonnegative integer, because a string or
+  `null` count would otherwise sum to zero and read as emptiness. One ref of any shape — a
+  prerelease, a nightly, a chart tag — withdraws the model and sends every capability back to
+  per-capability introduction evidence;
+- the enumeration must be inside the pinned `maxAgeDays` at the time it is checked, **and** the
+  gate re-enumerates the publisher's namespaces live and qualifies on that reading. Emptiness
+  proven once is not emptiness at the cut, and a bound on staleness is not a proof either: a
+  server published one day after a day-old receipt is well inside any sane bound. Only the live
+  reading can withdraw the model, so an offline (`--source-root`) run cannot establish the
+  premise at all;
+- the capability's `evidence` must cite that exact receipt URI and digest, so a manifest cannot
+  claim the model against a receipt nobody locked;
+- the lock must name the first release (`components.honua-server.releaseVersion`), and that
+  version must equal the released version of a locked `honua-server` artifact — a `releaseVersion`
+  beside a differently versioned artifact would publish a floor for a server nobody can install.
+  The lock names no release today, so nothing resolves;
+- a capability may not carry both the model and a different number.
+
+The model raises the floor with the release: whatever SemVer the first server release is issued
+under becomes the floor for every capability introduced by it, and the component floor stays the
+maximum across all of its required capabilities. It never lowers a floor an earlier server
+genuinely established, because there is no earlier server.
+
 ## Current qualification blocker
 
 As of 2026-09-04, the pinned manifests do not contain capability introduction
@@ -56,10 +113,14 @@ The current declarations conflict: JavaScript `1.0.0`, .NET `0.1.0`, Python
 numeric baseline declaration. Replacing these with one chosen number would not
 implement the derivation rule.
 
-Before #233 can close, protocol publishers must bind introduction evidence, each
-SDK repository must correct and gate its own declarations in a linked PR, and
+Before #233 can close, protocol publishers must bind introduction evidence — for
+2026.1 that means the first-release model above, since no earlier server exists —
+each SDK repository must correct and gate its own declarations in a linked PR, and
 the release cut must pin those published artifacts and consumed manifests.
-The generated table remains explicitly unqualified until then.
+The generated table remains explicitly unqualified until then. The conflicting
+declarations cannot be reconciled by choosing among `1.0.0`, `0.1.0` and `2026.3.0`:
+none of them is the first server release, because the first server release does not
+exist yet. Naming it is part of cutting the candidate, not of declaring a floor.
 
 ## Commands
 

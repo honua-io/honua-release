@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sdk_baselines import SDK_COMPONENTS, check_component
+from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
 
 try:
     import yaml
@@ -99,6 +99,7 @@ def validate(lock: dict[str, Any]) -> Findings:
         if name not in components:
             f.error(f"$.components.{name}", "required official SDK component is missing")
 
+    context = release_context(lock)
     for name, component in components.items():
         path = f"$.components.{name}"
         if not isinstance(component, dict):
@@ -108,10 +109,21 @@ def validate(lock: dict[str, Any]) -> Findings:
         lifecycle_status = component.get("lifecycleStatus")
         if component.get("supportTier") != str(lifecycle_status).lower():
             f.error(f"{path}.supportTier", "must be derived from lifecycleStatus by lowercasing it")
+        # The first-release fields belong to the publisher alone, and the named release must be
+        # the artifact that actually ships; otherwise a floor is published for an absent server.
+        for field in ("releaseVersion", "publicationHistory"):
+            if component.get(field) is not None and name != PUBLISHER:
+                f.error(f"{path}.{field}", f"only {PUBLISHER} declares a first-release {field}")
+        if name == PUBLISHER and component.get("releaseVersion") is not None:
+            versions = {artifact.get("version") for artifact in (component.get("artifacts") or [])
+                        if isinstance(artifact, dict)}
+            if component["releaseVersion"] not in versions:
+                f.error(f"{path}.releaseVersion",
+                        "must equal the released version of a locked publisher artifact")
         source = component.get("source") or {}
         if name in SDK_COMPONENTS:
             try:
-                check_component(component)
+                check_component(component, context)
             except (ValueError, TypeError, KeyError, AttributeError) as exc:
                 f.error(f"{path}.serverCompatibility", str(exc))
         revision = source.get("revision") if isinstance(source, dict) else None

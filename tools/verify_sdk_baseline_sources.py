@@ -12,7 +12,10 @@ from urllib.parse import quote
 
 import yaml
 
-from sdk_baselines import REVISION, SDK_COMPONENTS, content_digest, findings
+import server_publication_history
+from sdk_baselines import PUBLISHER, REVISION, SDK_COMPONENTS, content_digest, findings
+
+ROOT = Path(__file__).resolve().parents[1]
 
 REPOSITORY = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 
@@ -78,10 +81,43 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
-def verify_sources(lock: dict, reader: SourceReader) -> list[str]:
+def offline_collector(repository: str) -> dict:
+    raise ValueError(f"{PUBLISHER}: an offline run cannot prove {repository} is still unpublished; "
+                     "the first-release model needs a live enumeration at gate time")
+
+
+def verify_publication_history(lock: dict, root: Path, collector=None) -> None:
+    """A locked first-release pin must match the committed receipt's bytes and content."""
+    history = ((lock.get("components") or {}).get(PUBLISHER) or {}).get("publicationHistory")
+    if not isinstance(history, dict):
+        return
+    relative = str(history.get("path", ""))
+    if (not relative or PurePosixPath(relative).is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.split("/"))):
+        raise ValueError(f"{PUBLISHER}: publication-history path must be a relative repository path")
+    path = root / relative
+    if not path.is_file():
+        raise ValueError(f"{PUBLISHER}: publication-history receipt is missing at {relative}")
+    if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != history.get("sha256"):
+        raise ValueError(f"{PUBLISHER}: publication-history receipt bytes disagree with the lock pin")
+    # Emptiness proven once is not emptiness at the cut: the lock must bound how stale the
+    # enumeration may be, and the train re-collects it inside that bound before certification.
+    max_age = history.get("maxAgeDays")
+    if not isinstance(max_age, int) or isinstance(max_age, bool) or max_age < 1:
+        raise ValueError(f"{PUBLISHER}: publication-history pin must bound the enumeration's age "
+                         "with a positive maxAgeDays")
+    # The bound limits how stale the pin may be; it cannot prove nothing was published inside
+    # the window. Only a live re-enumeration can, so the gate re-reads the namespaces here.
+    server_publication_history.confirm_current(
+        json.loads(path.read_text(encoding="utf-8")),
+        max_age_days=max_age, collector=collector)
+
+
+def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT, collector=None) -> list[str]:
     errors = findings(lock)
     if errors:
         raise ValueError("; ".join(errors))
+    verify_publication_history(lock, root, collector)
     verified = []
     for name in SDK_COMPONENTS:
         component = lock["components"][name]
@@ -109,10 +145,14 @@ def main(argv: list[str] | None = None) -> int:
         lock = yaml.safe_load(args.lock.read_text(encoding="utf-8"))
         if not isinstance(lock, dict) or lock.get("lockVersion") != "platform-lock.v1":
             raise ValueError("expected a platform-lock.v1 mapping")
-        verified = verify_sources(lock, SourceReader(args.source_root))
+        # `--source-root` is an offline byte check; it must not be able to qualify a
+        # first-release claim that only a live namespace reading can support.
+        verified = verify_sources(lock, SourceReader(args.source_root),
+                                  collector=offline_collector if args.source_root else None)
         print("PASS: pinned baseline source bytes verified for " + ", ".join(verified))
         return 0
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError,
+            subprocess.SubprocessError) as exc:
         print(f"BLOCKED: {exc}")
         return 1
 
