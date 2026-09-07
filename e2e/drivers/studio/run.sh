@@ -15,8 +15,10 @@
 #    behaviour; the seam has to drive it. Approval is separation-of-duties enforced, so the seam
 #    provisions a SECOND identity (an `admin:approve` key) and approves as the approver, then polls
 #    the operation handle to Completed and reads the typed result. On an edition that direct-executes
-#    (Community/Pro) the same steps answer 200/201 and the approval lane is simply not entered --
-#    both are honest passes, and the report records which lane ran.
+#    (Community/Pro) the same steps answer 200/201 and the approval lane is simply not entered.
+#    WHICH of those is honest is not the server's answer to decide: the seam asks the server for its
+#    EDITION first and requires the lane that edition's guardrail ladder mandates, so a 200 on the
+#    Enterprise harness is a guardrail regression and fails. The report records both lanes.
 #
 # 2. WHAT `blocked` IS FOR. Per e2e/canonical_checks.py (honua-release#128) `blocked` means the probe
 #    had no INPUT to work with -- something OURS to supply was missing. A reachable server answering
@@ -36,8 +38,35 @@ if ! server_ready; then
   exit 0
 fi
 
-SVC="$(jq -r '.slice1.e2e_src_fs.service // .service // "e2e"' "$E2E_OUT/seed-manifest.json" 2>/dev/null || echo e2e)"
+# TWO seeded services, because the two families need different ones and a single $SVC cannot be
+# both. The query fixture filters on `zone_code`, which exists ONLY on the top-level `maui-zoning`
+# service (seed.sh publishes honua_data.maui_zoning with the string codes; honua_data.e2e_src_fs
+# carries just gid/name/geom). The analysis fixture needs a (service, layerId) PAIR, and the
+# manifest pins one only for slice1's `e2e` service. Crossing them publishes a query the server can
+# never answer.
+QUERY_SVC="$(jq -r '.service // "maui-zoning"' "$E2E_OUT/seed-manifest.json" 2>/dev/null || echo maui-zoning)"
+ANALYSIS_SVC="$(jq -r '.slice1.e2e_src_fs.service // "e2e"' "$E2E_OUT/seed-manifest.json" 2>/dev/null || echo e2e)"
 LAYER="$(jq -r '.slice1.e2e_src_fs.layerId // 0' "$E2E_OUT/seed-manifest.json" 2>/dev/null || echo 0)"
+
+# --- which guardrail lane this edition MUST drive ---------------------------------------------------
+# DefaultGuardrailLadder is edition-driven: Enterprise routes mutating operation classes through
+# approval, Community/Pro direct-execute, and any other edition fails closed to approval
+# (honua-server src/Honua.Core/Features/Guardrails/DefaultGuardrailLadder.cs). compose.candidate.yml
+# grants Enterprise, so on THIS harness a direct-executed Studio mutation is the guardrail
+# REGRESSING -- and accepting 200/201 unconditionally would let every family pass with
+# `separationOfDuties: not-exercised` and zero proposals. Ask the server which edition it runs and
+# require the lane that edition mandates; only an explicitly direct-executing edition may skip it.
+api_get "/api/v1/admin/license"
+if [ "$HTTP_CODE" != "200" ]; then
+  emit_scenario "$SCENARIO" fail \
+    "GET /api/v1/admin/license -> HTTP $HTTP_CODE (cannot tell which guardrail lane this edition is required to drive)"
+  exit 0
+fi
+EDITION="$(jget '.data.edition')"
+case "$EDITION" in
+  Community|Pro) EXPECT_GATE=false ;;
+  *)             EXPECT_GATE=true ;;   # Enterprise, and the ladder's own defensive default
+esac
 
 # --- the approval lane ------------------------------------------------------------------------------
 # api_json (common.sh) always carries the AUTHOR key. The approver is a distinct principal, so it gets
@@ -67,7 +96,9 @@ provision_approver() {
 # actually approved a proposal per step, which is precisely the kind of quiet mis-evidence this
 # scenario exists to stop.
 GATE_STATE="$E2E_OUT/s3-gate-state.json"
-jq -nc '{mode:"direct-execute", proposalsApproved:0, separationOfDuties:"not-exercised"}' > "$GATE_STATE"
+jq -nc --arg ed "$EDITION" --argjson req "$EXPECT_GATE" \
+  '{edition:$ed, requiredLane:(if $req then "operator-gated" else "direct-execute" end),
+    mode:"direct-execute", proposalsApproved:0, separationOfDuties:"not-exercised"}' > "$GATE_STATE"
 gate_get() { jq -r --arg k "$1" '.[$k]' "$GATE_STATE"; }
 gate_set() { # key json-value
   local tmp; tmp="$(mktemp)"
@@ -83,6 +114,10 @@ studio_step() {
   api_post "$path" "$body"
 
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+    if [ "$EXPECT_GATE" = true ]; then
+      printf 'fail:%s direct-executed (HTTP %s) on the %s edition, whose guardrail ladder routes mutating Studio classes through approval -- the operator gate did not run\n' \
+        "$label" "$HTTP_CODE" "$EDITION"; return
+    fi
     printf 'ok:%s\n' "$(jget '.data')"; return
   fi
 
@@ -99,8 +134,6 @@ studio_step() {
     printf 'fail:%s 202 without an operation handle + proposal id (%s)\n' "$label" \
       "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"; return
   fi
-  gate_set proposalsApproved "$(( $(gate_get proposalsApproved) + 1 ))"
-
   # Separation of duties: the requester must NOT be able to approve its own proposal. Asserted once --
   # it is a property of the gate, not of each step -- and only on a proposal that is then approved by
   # the real approver, so the check costs no extra lifecycle work.
@@ -120,6 +153,9 @@ studio_step() {
     printf 'fail:%s approve proposal -> HTTP %s %s\n' "$label" "$AP_CODE" \
       "$(printf '%s' "$AP_BODY" | tr -d '\n' | cut -c1-180)"; return
   fi
+  # Counted only HERE: a proposal that was raised but never approved (self-approve refused the
+  # requester, the approver got 403/500) must not show up in the failure evidence as approved.
+  gate_set proposalsApproved "$(( $(gate_get proposalsApproved) + 1 ))"
 
   # The approval executes the operation. Poll the handle rather than trusting the approval response.
   local deadline=$(( $(date +%s) + 60 )) status=""
@@ -154,9 +190,9 @@ descriptor() { printf '%s' "$FAMILIES" | jq -c --arg f "$1" '.data.families[]? |
 # Deterministic, seeded-data-backed payloads. `rasterSources: {}` is explicit on the analysis plan step:
 # omitting it is rejected at persistence with invalid_field "Raster source bindings must be an object
 # when supplied." even though the field has a non-null default (honua-server side; noted in #305).
-query_body() { jq -nc --arg s "$SVC" '{query:{service:$s, where:"zone_code='030'"}}'; }
+query_body() { jq -nc --arg s "$QUERY_SVC" '{query:{service:$s, where:"zone_code='030'"}}'; }
 analysis_body() {
-  jq -nc --arg s "$SVC" --arg l "$LAYER" '
+  jq -nc --arg s "$ANALYSIS_SVC" --arg l "$LAYER" '
     {plan:{planId:"e2e-plan", intentId:"e2e-intent",
            steps:[{stepId:"s1", kind:"QueryFeatures",
                    inputs:{service:$s, layerId:$l, where:"1=1"},
@@ -164,6 +200,10 @@ analysis_body() {
            outputs:["Table"]},
      requestedArtifacts:["Table"]}'
 }
+
+# publish_required FAMILY -> 0 when this seam requires the family to still reach publish-request.
+# Only `analysis` is a known non-publishable family (publishSupported=false, by its own descriptor).
+publish_required() { case "$1" in analysis) return 1 ;; *) return 0 ;; esac; }
 
 # author_family FAMILY -> echoes "pass:<detail>" | "fail:<detail>"
 author_family() {
@@ -214,9 +254,21 @@ author_family() {
   ver="$(printf '%s' "${r#ok:}" | jq -r '.versionId // .contentVersionId // .resourceIds.versionId // empty')"
   { [ -n "$item" ] && [ -n "$ver" ]; } || { echo "fail:content-version returned no ids"; return; }
 
-  # Publish only what the family's own descriptor advertises. `analysis` declares publishSupported=false
-  # and omits publish-request.create -- driving it anyway asserted a contract the server never offered.
-  if ! printf '%s' "$desc" | jq -e '[.supportedOperations[]?] | index("publish-request.create")' >/dev/null; then
+  # Publish what the family's own descriptor advertises -- but a descriptor is not a licence to drop
+  # the assertion. `analysis` legitimately stops at the content-version boundary (it declares
+  # publishSupported=false and omits publish-request.create), and driving it anyway asserted a
+  # contract the server never offered. `query` publishing IS this scenario's documented lifecycle, so
+  # a query descriptor that stops advertising publish-request.create is a contract REGRESSION, not a
+  # shorter happy path -- absorbing it would silently delete the publish assertion from the S3 gate.
+  local advertises_publish=false
+  if printf '%s' "$desc" | jq -e '[.supportedOperations[]?] | index("publish-request.create")' >/dev/null 2>&1; then
+    advertises_publish=true
+  fi
+  if [ "$advertises_publish" != true ]; then
+    if publish_required "$family"; then
+      echo "fail:the '$family' family no longer advertises publish-request.create (publishSupported=$(printf '%s' "$desc" | jq -r '.publishSupported')) -- publish is part of this seam's required lifecycle"
+      return
+    fi
     echo "pass:item=$item version=$ver publish=not-advertised-by-family ($(printf '%s' "$desc" | jq -r '.limitations[0] // "no publish-request.create in supportedOperations"'))"
     return
   fi
