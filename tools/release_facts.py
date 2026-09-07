@@ -37,6 +37,10 @@ SOURCE_REFERENCE = re.compile(
     r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}:[^\s#]+#sha256:[0-9a-f]{64}$"
 )
 _MUTABLE_GIT_PATH = re.compile(r"/(?:blob|tree|raw|archive)/(?!(?:[0-9a-f]{40})(?:/|\.|$))")
+# An https coordinate is immutable only when it names a revision or a digest.
+_CONTENT_ADDRESSED = re.compile(r"(?:[^0-9a-f]|^)[0-9a-f]{40}(?:[^0-9a-f]|$)|sha256[:-][0-9a-f]{64}")
+_SPEC_BLOB = re.compile(
+    r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/blob/([0-9a-f]{40})/(.+)")
 
 
 def _mapping(value: Any, what: str) -> dict[str, Any]:
@@ -72,17 +76,84 @@ def source_reference(value: Any, *, path_required: bool = True) -> dict[str, str
 
 
 def immutable_uri(uri: Any) -> str:
-    """Refuse any evidence URI that can point at different bytes tomorrow."""
+    """Refuse any evidence URI that can point at different bytes tomorrow.
+
+    A declared `sha256` is only a claim about bytes nobody fetches here, so the coordinate itself
+    must be content-addressed: an `oci://` reference pinned to a digest, or an `https://` URL that
+    carries a 40-character revision or a sha256 digest. A release-asset URL such as
+    `https://host/releases/latest/download/sbom.json` names a moving target even though its last
+    path element is an ordinary file name, so a floating name is refused in ANY path segment.
+    """
     if not isinstance(uri, str) or not uri.startswith(("https://", "oci://")):
         raise ValueError("uri must be an https:// or oci:// reference")
     if uri.startswith("oci://") and not re.search(r"@sha256:[0-9a-f]{64}$", uri):
         raise ValueError("oci reference must be pinned to an immutable @sha256 digest")
-    tail = uri.rsplit("/", 1)[-1]
-    if tail.rsplit(":", 1)[-1].lower() in FLOATING_TAGS or tail.lower() in FLOATING_TAGS:
-        raise ValueError("floating tag references are forbidden")
+    authority, _, remainder = uri.partition("://")[2].partition("/")
+    segments = [segment for segment in re.split(r"[/?#]", remainder) if segment]
+    for segment in segments:
+        candidate = segment.rsplit(":", 1)[-1] if ":" in segment else segment
+        if candidate.lower() in FLOATING_TAGS or segment.lower() in FLOATING_TAGS:
+            raise ValueError("floating tag references are forbidden")
     if _MUTABLE_GIT_PATH.search(uri) or "/refs/heads/" in uri:
         raise ValueError("git references must name a 40-character revision, not a branch")
+    if uri.startswith("https://") and not _CONTENT_ADDRESSED.search(uri):
+        raise ValueError(
+            "https reference must be content-addressed: it must carry a 40-character revision "
+            "or a sha256 digest, so the bytes behind it cannot be replaced"
+        )
     return uri
+
+
+def spec_artifact_source(component: Any) -> dict[str, str] | None:
+    """The repository/revision/path/digest a `spec:` component artifact identifies, if any."""
+    if not isinstance(component, dict):
+        return None
+    coordinate = str(component.get("artifact", ""))
+    if not coordinate.startswith("spec:"):
+        return None
+    match = _SPEC_BLOB.fullmatch(coordinate.removeprefix("spec:"))
+    if not match:
+        return None
+    owner, repository, revision, path = match.groups()
+    identity = {"repository": f"https://github.com/{owner}/{repository}",
+                "revision": revision, "path": path}
+    digest = component.get("artifactSha256")
+    if isinstance(digest, str):
+        identity["sha256"] = digest
+    return identity
+
+
+def content_digest_conflicts(manifest: Any) -> list[tuple[str, str]]:
+    """One standard, one identity: a content digest may not contradict a component artifact.
+
+    The lock copies component artifacts and content digests from independent manifest fields.
+    When both name the same repository, they name the same bytes; disagreement means the signed
+    candidate would carry two identities for one standard.
+    """
+    if not isinstance(manifest, dict):
+        return []
+    declarations = ((manifest.get("platformLockEvidence") or {}).get("contentDigests") or {})
+    if not isinstance(declarations, dict):
+        return []
+    components = list((manifest.get("components") or {}).items())
+    components += list((manifest.get("experimental") or {}).items())
+    conflicts = []
+    for name, declaration in sorted(declarations.items()):
+        if not isinstance(declaration, dict):
+            continue
+        for component_name, component in components:
+            artifact = spec_artifact_source(component)
+            if not artifact or artifact["repository"] != declaration.get("repository"):
+                continue
+            differences = sorted(
+                key for key in ("revision", "path", "sha256")
+                if key in artifact and declaration.get(key) != artifact[key]
+            )
+            if differences:
+                conflicts.append((name,
+                    f"$.contentDigests.{name}: disagrees with $.components.{component_name}.artifact "
+                    f"on {', '.join(differences)}; one standard has one identity"))
+    return conflicts
 
 
 def content_digest(value: Any) -> tuple[str, dict[str, str]]:

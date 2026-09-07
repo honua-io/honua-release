@@ -109,6 +109,27 @@ def test_every_required_manifest_pin_family_is_enumerated():
     assert "protocolCertification.ledger.commit" in names
 
 
+def test_release_evidence_revisions_are_reachability_pins():
+    """release#231: a lock fact backed by an off-trunk commit is an off-trunk release fact."""
+    manifest, _ = _real_files()
+    names = {pin.name for pin in tr.manifest_pins(manifest)}
+    assert "platformLockEvidence.contentDigests.geospatialMcp.revision" in names
+    declaration = {"repository": "https://github.com/honua-io/geospatial-mcp",
+                   "revision": "e" * 40, "path": "spec/schemas/index.json",
+                   "sha256": "sha256:" + "f" * 64}
+    synthetic = {"platformLockEvidence": {
+        "contentDigests": {"catalog": declaration},
+        "fixtures": [{"repository": "https://github.com/honua-io/fixtures", "revision": "e" * 40}],
+        "notes": {**declaration, "repository": "https://github.com/honua-io/honua-release"}}}
+    pins = {pin.name: pin for pin in tr.manifest_pins(synthetic)}
+    assert pins["platformLockEvidence.contentDigests.catalog.revision"] == tr.Pin(
+        "platformLockEvidence.contentDigests.catalog.revision", "honua-io/geospatial-mcp", "e" * 40)
+    assert pins["platformLockEvidence.fixtures[0].revision"].repository == "honua-io/fixtures"
+    assert pins["platformLockEvidence.notes.revision"].repository == "honua-io/honua-release"
+    with pytest.raises(tr.ReachabilityError, match=r"platformLockEvidence\.contentDigests\.catalog"):
+        tr.verify_manifest_pins(synthetic, StubCompareClient(statuses={"e" * 40: "diverged"}))
+
+
 def test_bound_ledger_commit_is_pinned_to_the_evidence_repository():
     manifest = {
         "protocolCertification": {

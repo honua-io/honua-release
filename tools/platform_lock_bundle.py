@@ -53,7 +53,15 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
         raise ValueError("platform label differs from atomic candidate identity")
     draft = generate(manifest, matrix)
     for refusal in draft.unresolved:
-        if "published package coordinate is pending" in refusal or "$.clientArtifacts." in refusal:
+        fact = refusal.partition("] ")[2] or refusal
+        # SBOM/provenance refusals are fatal here: the freeze job attests the lock straight after
+        # this call, so evidence that is undeclared, mutable, or not bound to the candidate's own
+        # components must never reach a signature.
+        if (
+            "published package coordinate is pending" in refusal
+            or "$.clientArtifacts." in refusal
+            or fact.startswith(("$.sbom", "$.provenance"))
+        ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
     _declared(draft.lock["platform"], lock["platform"], "platform")

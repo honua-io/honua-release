@@ -18,6 +18,7 @@ from typing import Any
 from release_facts import (
     CONTENT_DIGEST_FACTS,
     content_digest,
+    content_digest_conflicts,
     evidence_reference,
     fixture_reference,
     notes_reference,
@@ -310,6 +311,11 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) 
         lock["contentDigests"][name] = digest
     for name in sorted(set(declared_digests) - {key for key, _ in CONTENT_DIGEST_FACTS}):
         refuse(f"$.contentDigests.{name}: the lock schema declares no such content digest", "AT-CUT")
+    # One standard, one identity: the lock copies component artifacts and content digests from
+    # independent manifest fields, so a disagreement would sign two identities for the same bytes.
+    for name, message in content_digest_conflicts(manifest):
+        refuse(message, "MECHANICAL")
+        lock["contentDigests"].pop(name, None)
 
     declared_fixtures = evidence.get("fixtures") or []
     if not isinstance(declared_fixtures, list):
@@ -331,6 +337,10 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) 
     if not lock["fixtures"]:
         refuse("$.fixtures: fixture repository revisions are not declared", "AT-CUT")
 
+    # Mechanical binding: every reference names a locked component, and every component whose
+    # artifacts the candidate publishes is covered. This is what can be checked from the frozen
+    # inputs alone; it does not assert that the referenced document describes those exact bytes.
+    published = {name for name, entry in lock["components"].items() if entry["artifacts"]}
     for field, description in (("sbom", "SBOM"), ("provenance", "provenance")):
         declarations = evidence.get(field) or []
         if not isinstance(declarations, list):
@@ -338,13 +348,22 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) 
             declarations = []
         for index, declaration in enumerate(declarations):
             try:
-                lock[field].append(evidence_reference(declaration))
+                reference = evidence_reference(declaration)
             except (ValueError, TypeError) as exc:
                 refuse(f"$.{field}[{index}]: {exc}", "AT-CUT")
-        if lock[field]:
-            refuse(f"$.{field}: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
-        else:
+                continue
+            if reference["component"] not in lock["components"]:
+                refuse(f"$.{field}[{index}]: names {reference['component']!r}, which is not a "
+                       "component of this candidate", "MECHANICAL")
+                continue
+            lock[field].append(reference)
+        if not lock[field]:
             refuse(f"$.{field}: immutable {description} references and hashes are not declared", "AT-CUT")
+            continue
+        uncovered = sorted(published - {reference["component"] for reference in lock[field]})
+        if uncovered:
+            refuse(f"$.{field}: no {description} reference covers the candidate artifacts of "
+                   + ", ".join(uncovered), "AT-CUT")
 
     declared_notes = evidence.get("notes")
     if declared_notes is None:

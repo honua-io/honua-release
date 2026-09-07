@@ -79,11 +79,16 @@ Every fact the lock carries outside `components` — the MCP/catalog/OKF content
 revisions, SBOM/provenance references and the release notes — is declared by `platformLockEvidence`
 in `platform-manifest.yaml`, at immutable coordinates. `tools/release_facts.py` holds those rules
 once, so the generator, the semantic validator and candidate binding cannot drift: a content
-digest is the byte SHA-256 of one file at a 40-character revision, evidence URIs may not float
-(`latest`, an unpinned `oci://` reference, a `/blob/<branch>/` source), one fixture repository path
-carries one revision, and release notes enter the lock as `repository@revision:path#sha256:<digest>`.
-Candidate binding compares all five fields for equality with those declarations, so a manufactured
-lock can neither introduce a release-level fact nor drop one.
+digest is the byte SHA-256 of one file at a 40-character revision; evidence URIs must be
+content-addressed and may not float in any path segment (`latest`, an unpinned `oci://` reference,
+a `/blob/<branch>/` source, `https://host/releases/latest/download/sbom.json`); SBOM and provenance
+must name components of this candidate and cover every component whose artifacts it publishes; a
+content digest may not contradict a component's `spec:` artifact for the same repository; one
+fixture repository path carries one revision; and release notes enter the lock as
+`repository@revision:path#sha256:<digest>`. Candidate binding compares all five fields for equality
+with those declarations and refuses to bind while any `$.sbom`/`$.provenance` fact is unresolved,
+so a manufactured lock can neither introduce a release-level fact, drop one, nor be signed with
+evidence that is not bound to it. Every release-level revision is also a `trunk_reachability` pin.
 
 Re-read every declared content digest at its pinned source revision (`manifest-validate` runs
 this on each pull request; `--source-root` reads local git objects instead of the GitHub API):

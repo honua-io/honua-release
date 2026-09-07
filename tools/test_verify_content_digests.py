@@ -112,3 +112,19 @@ def test_repository_manifest_declares_verified_content_digests():
         "revision": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
         "path": "spec/schemas/index.json",
     }
+
+
+def test_verifier_refuses_two_identities_for_one_standard(source_root, capsys):
+    """Matching its own bytes is not enough when the manifest also names the standard elsewhere."""
+    root, revision = source_root
+    path = root / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump({
+        "platformRelease": "2026.1",
+        "components": {"geospatial-mcp": {
+            "repository": "https://github.com/honua-io/geospatial-mcp", "sha": revision,
+            "artifact": f"spec:https://github.com/honua-io/geospatial-mcp/blob/{revision}/spec/schemas/index.json",
+            "artifactSourceRevision": revision, "artifactSha256": "sha256:" + "1" * 64}},
+        "platformLockEvidence": {"contentDigests": {"geospatialMcp": declaration(revision)}},
+    }), encoding="utf-8")
+    assert run(path, root) == 1
+    assert "one standard has one identity" in capsys.readouterr().out

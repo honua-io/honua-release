@@ -147,8 +147,22 @@ validator and candidate binding, so they cannot drift:
 
 - a content digest is the byte SHA-256 of one file at an immutable 40-character revision;
 - a fixture is a repository at an immutable revision, at most one revision per repository path;
-- an SBOM/provenance reference must be immutable: an `oci://` reference pinned to `@sha256:...`,
-  no floating tag such as `latest`/`nightly`, and no `/blob/<branch>/` or `refs/heads/` source;
+- an SBOM/provenance reference must be immutable and content-addressed: an `oci://` reference
+  pinned to `@sha256:...`, or an `https://` URL carrying a 40-character revision or a sha256
+  digest. A floating name (`latest`, `nightly`, ...) is refused in **any** path segment, so a
+  release-asset URL such as `https://host/releases/latest/download/sbom.json` cannot enter the
+  lock even though its last path element is an ordinary file name; a declared `sha256` that
+  nothing fetches does not make a moving coordinate immutable;
+- SBOM/provenance evidence is **mechanically bound**: every reference names a component of this
+  candidate, and every component whose artifacts the candidate publishes is covered by one. That
+  is what the frozen inputs alone can prove; it is not an assertion that the referenced document
+  describes those exact bytes, which only the candidate's own emitted evidence can show;
+- a content digest may not contradict a component's `spec:` artifact for the same repository:
+  one standard has one identity, so a divergent revision, path or digest is refused and the
+  contradicted digest never reaches the lock;
+- every revision behind a release-level fact is a `trunk_reachability` pin, so a content digest,
+  fixture or notes declaration cannot be backed by a commit that exists only on an unmerged
+  branch;
 - release notes enter the lock as `repository@revision:path#sha256:<digest>`, never as prose,
   a placeholder, or a page that can be edited after the candidate is signed;
 - candidate binding compares all five fields for **equality** with the declarations the frozen
@@ -156,8 +170,13 @@ validator and candidate binding, so they cannot drift:
 
 `tools/verify_content_digests.py` re-reads each declared file at its pinned revision - through
 the pinned GitHub contents API, or from git objects with `--source-root` - and recomputes the
-digest. `manifest-validate` runs it on every pull request, so a moved or edited source reddens
-the branch-protected job.
+digest, and refuses a declaration that contradicts a component artifact. `manifest-validate` runs
+it on every pull request, so a moved or edited source reddens the branch-protected job.
+
+Candidate binding treats an unresolved `$.sbom`/`$.provenance` fact as fatal. The release train's
+`freeze` job attests the lock immediately after `platform_lock_bundle.py` succeeds, so evidence
+that is undeclared, mutable, or not bound to this candidate's own components cannot reach a
+signature. Every other refusal class is reported by the generator's worklist as before.
 
 One fact is declared and verified today: the geospatial-MCP standard content digest
 `sha256:595f0ac8...` for `spec/schemas/index.json` at `d5a09d13`, the schema-index artifact the
@@ -165,9 +184,12 @@ operator ruled is the public spec identity (2026-09-01 decision 3). The runtime 
 digests, the fixture revisions, the SBOM/provenance references and the release notes are produced
 by the candidate itself and remain AT-CUT; they now refuse against a real input path.
 
-The generator's refusal list is **40: 28 AT-CUT, 12 PUBLISH** (was 41: 29 AT-CUT, 12 PUBLISH).
+The generator's refusal list is **41: 29 AT-CUT, 12 PUBLISH**. Declaring the
+geospatial-MCP standard content digest resolved one line; the deployment recovery inventory that
+arrived with #278 added one.
 
 ```text
+[AT-CUT] $.disasterRecovery: candidate deployment durable-substrate inventory is not declared
 [AT-CUT] $.components.honua-server.migrationJournalSha256: exact declared migration set is not bound
 [AT-CUT] $.components.honua-server.artifacts[0].version: source snapshot/pre-release is not a released artifact version
 [AT-CUT] $.components.honua-server.artifacts[0].architectures: registry architecture set is not declared
@@ -221,8 +243,7 @@ SDK publication/receipts, Console dependency and stable server/chart prerequisit
 [gRPC #88](https://github.com/honua-io/geospatial-grpc/issues/88) remains open.
 
 The generator and the authoritative manifest/matrix now produce
-**40 refusals: 28 AT-CUT, 12 PUBLISH** (enumerated above), down from 41 after declaring and
-verifying the geospatial-MCP standard content digest. These are the generator's classifications,
+**41 refusals: 29 AT-CUT, 12 PUBLISH** (enumerated above). These are the generator's classifications,
 not a blanket release of every AT-CUT line: non-candidate metadata must still be resolved before
 cut. No registry value, lifecycle ruling, or source pin was invented to clear them.
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from release_facts import CONTENT_DIGEST_FACTS, content_digest
+from release_facts import CONTENT_DIGEST_FACTS, content_digest, content_digest_conflicts
 from verify_sdk_baseline_sources import SourceReader
 
 
@@ -36,6 +36,11 @@ def declared_digests(manifest: dict) -> dict[str, tuple[str, dict[str, str]]]:
 
 
 def verify(manifest: dict, reader: SourceReader) -> list[str]:
+    conflicts = content_digest_conflicts(manifest)
+    if conflicts:
+        # Matching its own source bytes is not enough: the same standard must not also be
+        # identified, differently, by a component artifact in the same manifest.
+        raise ValueError("; ".join(message for _, message in conflicts))
     verified = []
     for name, (digest, source) in declared_digests(manifest).items():
         raw = reader(source["repository"], source["revision"], source["path"])
