@@ -1,0 +1,27 @@
+{
+  "schema": "honua.server-publication-history/v1",
+  "issue": "honua-io/honua-release#233",
+  "repository": "honua-io/honua-server",
+  "observedAt": "2026-09-07T04:46:49Z",
+  "observedDefaultBranch": "trunk",
+  "observedDefaultBranchSha": "98414e8ca237d31b4c007fa4f8ff6e0516f23de0",
+  "sources": [
+    {
+      "api": "https://api.github.com/repos/honua-io/honua-server/tags",
+      "count": 0,
+      "complete": true
+    },
+    {
+      "api": "https://api.github.com/repos/honua-io/honua-server/releases",
+      "count": 0,
+      "complete": true
+    },
+    {
+      "api": "https://api.github.com/repos/honua-io/honua-server/git/refs/tags",
+      "count": 0,
+      "complete": true,
+      "answer": "http-404-empty-ref-namespace"
+    }
+  ],
+  "publishedRefs": []
+}

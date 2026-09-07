@@ -12,7 +12,10 @@ from urllib.parse import quote
 
 import yaml
 
-from sdk_baselines import REVISION, SDK_COMPONENTS, content_digest, findings
+import server_publication_history
+from sdk_baselines import PUBLISHER, REVISION, SDK_COMPONENTS, content_digest, findings
+
+ROOT = Path(__file__).resolve().parents[1]
 
 REPOSITORY = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 
@@ -78,10 +81,28 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
-def verify_sources(lock: dict, reader: SourceReader) -> list[str]:
+def verify_publication_history(lock: dict, root: Path) -> None:
+    """A locked first-release pin must match the committed receipt's bytes and content."""
+    history = ((lock.get("components") or {}).get(PUBLISHER) or {}).get("publicationHistory")
+    if not isinstance(history, dict):
+        return
+    relative = str(history.get("path", ""))
+    if (not relative or PurePosixPath(relative).is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.split("/"))):
+        raise ValueError(f"{PUBLISHER}: publication-history path must be a relative repository path")
+    path = root / relative
+    if not path.is_file():
+        raise ValueError(f"{PUBLISHER}: publication-history receipt is missing at {relative}")
+    if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != history.get("sha256"):
+        raise ValueError(f"{PUBLISHER}: publication-history receipt bytes disagree with the lock pin")
+    server_publication_history.verify(json.loads(path.read_text(encoding="utf-8")))
+
+
+def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT) -> list[str]:
     errors = findings(lock)
     if errors:
         raise ValueError("; ".join(errors))
+    verify_publication_history(lock, root)
     verified = []
     for name in SDK_COMPONENTS:
         component = lock["components"][name]
