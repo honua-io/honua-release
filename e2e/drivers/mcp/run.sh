@@ -10,7 +10,9 @@
 #         (d) `view: "full"` under the harness admin key returns the WHOLE catalog, reached by
 #             following nextCursor across pages of the server's documented page size, and the
 #             assembled roster matches the committed snapshot AND the server's own totalToolCount;
-#         (e) honua_list_capabilities is bounded the same way (<= 12 tools/resources + cursors);
+#         (e) honua_list_capabilities is bounded the same way (<= 12 tools AND <= 12 resources, each
+#             with its own cursor asserted against the server's own totals), and its admin-only full
+#             inventory export both WORKS for an admin and is refused for anyone else;
 #         (f) discovery is not authority: every Studio-critical tool still answers tools/call even
 #             though it is outside the bounded default view.
 #       Contract sources: honua-server#3819 (`5bf9410843`) and that repo's
@@ -22,9 +24,34 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../../harness/lib/common.sh"
 EXPECTED="$HERE/expected-tools.json"
 
+# S2 MUST reach the report on every path. `run_all.sh` swallows a driver's nonzero exit
+# (`|| echo "::warning:: driver $d exited non-zero"`) and `report.sh` assembles the verdict from
+# whatever rows exist with no required-scenario list, so a driver that dies mid-way — one unguarded
+# `jq` on a malformed response under `set -e` is enough — drops S2 silently and the gate can read
+# green having never evaluated it. Two defences: `jq_or` below never fails the shell, and this trap
+# emits a hard S2 failure if the driver leaves without one.
+S2_EMITTED=false
+emit_s2() { # status why [evidence-json]
+  S2_EMITTED=true
+  emit_scenario "S2-mcp-tool-catalog" "$@"
+}
+trap 'if [ "${S2_EMITTED:-false}" != true ]; then
+        emit_scenario "S2-mcp-tool-catalog" fail \
+          "driver aborted before S2 was evaluated (last HTTP ${HTTP_CODE:-none}): $(printf "%s" "${HTTP_BODY:-}" | head -c 200)"
+      fi' EXIT
+
+# Read a value out of a captured response body. NEVER fails: an unparseable body yields the caller's
+# stated default, which then fails the comparison it feeds, so a malformed response reds S2 instead
+# of killing the driver.
+jq_or() { # default body jq-args...
+  local def="$1" body="$2"; shift 2
+  local out
+  if out="$(printf '%s' "$body" | jq "$@" 2>/dev/null)"; then printf '%s' "$out"; else printf '%s' "$def"; fi
+}
+
 if ! server_ready; then
   emit_scenario "S1-mcp-handshake" blocked "server not ready at $E2E_BASE"
-  emit_scenario "S2-mcp-tool-catalog" blocked "server not ready at $E2E_BASE"
+  emit_s2 blocked "server not ready at $E2E_BASE"
   exit 0
 fi
 
@@ -83,15 +110,15 @@ PAGE_SIZE="$(jq -r '.fullCatalog.pageSize' "$EXPECTED")"
 #     then names itself instead of looking like 40 missing tools.
 rpc tools/list '{}'
 DEF_BODY="$HTTP_BODY"
-DEF_NAMES="$(printf '%s' "$DEF_BODY" | jq -c '[.result.tools[].name] | sort' 2>/dev/null || echo '[]')"
-DEF_META_VIEW="$(printf '%s' "$DEF_BODY" | jq -r '.result._meta.view // ""')"
-DEF_META_TITLE="$(printf '%s' "$DEF_BODY" | jq -r '.result._meta.title // ""')"
-DEF_META_REVISION="$(printf '%s' "$DEF_BODY" | jq -r '.result._meta.revision // ""')"
-DEF_META_COUNT="$(printf '%s' "$DEF_BODY" | jq -r '.result._meta.toolCount // -1')"
-DEF_META_FULLNAME="$(printf '%s' "$DEF_BODY" | jq -r '.result._meta.fullCatalogView // ""')"
-DEF_META_DIGESTS="$(printf '%s' "$DEF_BODY" | jq -c '.result._meta | {revisionDigest,membershipDigest,descriptorDigest}' 2>/dev/null || echo 'null')"
-DEF_CURSOR="$(printf '%s' "$DEF_BODY" | jq -r '.result.nextCursor // empty')"
-DEF_STAGES="$(printf '%s' "$DEF_BODY" | jq -c '[.result._meta.stages[]? | {id, tools:(.tools|sort)}] | sort_by(.id)' 2>/dev/null || echo '[]')"
+DEF_NAMES="$(jq_or '[]' "$DEF_BODY" -c '[.result.tools[].name] | sort')"
+DEF_META_VIEW="$(jq_or '' "$DEF_BODY" -r '.result._meta.view // ""')"
+DEF_META_TITLE="$(jq_or '' "$DEF_BODY" -r '.result._meta.title // ""')"
+DEF_META_REVISION="$(jq_or '' "$DEF_BODY" -r '.result._meta.revision // ""')"
+DEF_META_COUNT="$(jq_or -1 "$DEF_BODY" -r '.result._meta.toolCount // -1')"
+DEF_META_FULLNAME="$(jq_or '' "$DEF_BODY" -r '.result._meta.fullCatalogView // ""')"
+DEF_META_DIGESTS="$(jq_or 'null' "$DEF_BODY" -c '.result._meta | {revisionDigest,membershipDigest,descriptorDigest}')"
+DEF_CURSOR="$(jq_or '' "$DEF_BODY" -r '.result.nextCursor // empty')"
+DEF_STAGES="$(jq_or '[]' "$DEF_BODY" -c '[.result._meta.stages[]? | {id, tools:(.tools|sort)}] | sort_by(.id)')"
 
 [ "$DEF_META_VIEW" = "$WANT_VIEW" ] || note_failure "default tools/list served view '$DEF_META_VIEW', expected '$WANT_VIEW'"
 [ "$DEF_META_TITLE" = "$WANT_TITLE" ] || note_failure "default view title '$DEF_META_TITLE', expected '$WANT_TITLE'"
@@ -107,25 +134,32 @@ DEF_MISSING="$(jq -nc --argjson live "$DEF_NAMES" --argjson want "$WANT_DEFAULT"
 DEF_EXTRA="$(jq -nc --argjson live "$DEF_NAMES" --argjson want "$WANT_DEFAULT" '$live - $want')"
 [ "$DEF_MISSING" = "[]" ] || note_failure "default view missing tools: $DEF_MISSING"
 [ "$DEF_EXTRA" = "[]" ] || note_failure "default view advertised tools outside its documented bound: $DEF_EXTRA"
-DEF_ACTUAL_COUNT="$(printf '%s' "$DEF_NAMES" | jq 'length')"
+DEF_ACTUAL_COUNT="$(jq_or -1 "$DEF_NAMES" 'length')"
 [ "$DEF_ACTUAL_COUNT" = "$WANT_COUNT" ] || note_failure "default view served $DEF_ACTUAL_COUNT tools, expected $WANT_COUNT"
 [ "$DEF_STAGES" = "$WANT_STAGES" ] || note_failure "default view stage membership drifted: got $DEF_STAGES"
 
 # (b) The bound is a DISCOVERY bound, not a credential artifact: an unauthenticated client sees the
 #     same bounded view, not more and not less.
 anon_rpc tools/list '{}'
-ANON_NAMES="$(printf '%s' "$HTTP_BODY" | jq -c '[.result.tools[].name] | sort' 2>/dev/null || echo '[]')"
-ANON_VIEW="$(printf '%s' "$HTTP_BODY" | jq -r '.result._meta.view // ""')"
+ANON_BODY="$HTTP_BODY"
+ANON_NAMES="$(jq_or '[]' "$ANON_BODY" -c '[.result.tools[].name] | sort')"
+ANON_VIEW="$(jq_or '' "$ANON_BODY" -r '.result._meta.view // ""')"
+ANON_CURSOR="$(jq_or '' "$ANON_BODY" -r '.result.nextCursor // empty')"
 [ "$ANON_VIEW" = "$WANT_VIEW" ] || note_failure "unauthenticated tools/list served view '$ANON_VIEW', expected '$WANT_VIEW'"
-[ "$ANON_NAMES" = "$WANT_DEFAULT" ] || note_failure "unauthenticated default roster differs from the bounded snapshot: $(jq -nc --argjson a "$ANON_NAMES" --argjson w "$WANT_DEFAULT" '{missing:($w-$a),extra:($a-$w)}')"
+[ "$ANON_NAMES" = "$WANT_DEFAULT" ] || note_failure "unauthenticated default roster differs from the bounded snapshot: $(jq_or '{}' "$(jq -nc --argjson a "$ANON_NAMES" --argjson w "$WANT_DEFAULT" '{missing:($w-$a),extra:($a-$w)}')" -c '.')"
+# Same one-page bound as the authenticated default view. Without this an auth-specific regression
+# could hand an anonymous client the expected 12 names PLUS a cursor into the rest, and both the
+# roster check above and the `view: "full"` denial below would still pass while an unauthenticated
+# caller enumerated past the bound.
+[ -z "$ANON_CURSOR" ] || note_failure "unauthenticated default view returned nextCursor '$ANON_CURSOR'; an unauthenticated client must not be able to page past the bounded view"
 
 # (c) The complete catalog is an ADMIN operation. Without a credential it must be denied — if an
 #     anonymous caller can enumerate the full catalog, the bound is decorative and S2 must red.
 anon_rpc tools/list "$(jq -nc --arg v "$FULL_VIEW_NAME" '{view:$v}')"
-ANON_FULL_ERRCODE="$(printf '%s' "$HTTP_BODY" | jq -r '.error.data.code // ""')"
-ANON_FULL_RPCCODE="$(printf '%s' "$HTTP_BODY" | jq -r '.error.code // ""')"
-ANON_FULL_TOOLS="$(printf '%s' "$HTTP_BODY" | jq -r '[.result.tools[]?] | length')"
-if [ "$ANON_FULL_TOOLS" != "0" ]; then
+ANON_FULL_ERRCODE="$(jq_or '' "$HTTP_BODY" -r '.error.data.code // ""')"
+ANON_FULL_RPCCODE="$(jq_or '' "$HTTP_BODY" -r '.error.code // ""')"
+ANON_FULL_TOOLS="$(jq_or -1 "$HTTP_BODY" -r '[.result.tools[]?] | length')"
+if [ "$ANON_FULL_TOOLS" -gt 0 ]; then
   note_failure "unauthenticated view '$FULL_VIEW_NAME' returned $ANON_FULL_TOOLS tools; the full catalog export must be admin-only"
 elif [ "$ANON_FULL_ERRCODE" != "permission_denied" ] && [ "$ANON_FULL_ERRCODE" != "unauthenticated" ]; then
   note_failure "unauthenticated view '$FULL_VIEW_NAME' returned error code '$ANON_FULL_ERRCODE' (JSON-RPC $ANON_FULL_RPCCODE), expected permission_denied/unauthenticated"
@@ -147,8 +181,8 @@ while :; do
   else
     rpc tools/list "$(jq -nc --arg v "$FULL_VIEW_NAME" --arg c "$CURSOR" '{view:$v,cursor:$c}')"
   fi
-  PAGE="$(printf '%s' "$HTTP_BODY" | jq -c '[.result.tools[].name]' 2>/dev/null || echo '[]')"
-  PAGE_LEN="$(printf '%s' "$PAGE" | jq 'length')"
+  PAGE="$(jq_or '[]' "$HTTP_BODY" -c '[.result.tools[].name]')"
+  PAGE_LEN="$(jq_or 0 "$PAGE" 'length')"
   PAGES=$((PAGES + 1))
   if [ "$PAGE_LEN" -gt "$PAGE_SIZE" ]; then
     OVERSIZED_PAGES="$(jq -nc --argjson acc "$OVERSIZED_PAGES" --argjson p "$PAGES" --argjson n "$PAGE_LEN" '$acc + [{page:$p,size:$n}]')"
@@ -165,7 +199,7 @@ done
 FULL_LIVE="$(jq -nc --argjson n "$FULL_NAMES" '$n | sort')"
 FULL_MISSING="$(jq -nc --argjson live "$FULL_LIVE" --argjson want "$WANT_FULL" '$want - $live')"
 FULL_EXTRA="$(jq -nc --argjson live "$FULL_LIVE" --argjson want "$WANT_FULL" '$live - $want')"
-FULL_LEN="$(printf '%s' "$FULL_LIVE" | jq 'length')"
+FULL_LEN="$(jq_or -1 "$FULL_LIVE" 'length')"
 [ "$FULL_MISSING" = "[]" ] || note_failure "full catalog missing tools: $FULL_MISSING"
 [ "$OVERSIZED_PAGES" = "[]" ] || note_failure "full-catalog pages exceeded the documented page size $PAGE_SIZE: $OVERSIZED_PAGES"
 # The full roster is bigger than one page, so cursor-following MUST have happened. A single-page
@@ -175,24 +209,36 @@ if [ "$FULL_WALK_ABORTED" = false ] && [ "$FULL_LEN" -gt "$PAGE_SIZE" ] && [ "$P
 fi
 
 # (e) The same bound governs honua_list_capabilities: at most 12 tools and 12 resources by default,
-#     with independent cursors, and the full inventory export is admin-only. Its totalToolCount is
-#     the SERVER's own count of the catalog, so cross-checking the walk against it means a stale
-#     hard-coded roster size cannot mask a truncated enumeration.
+#     with INDEPENDENT cursors (both asserted, against the server's own totals), and a full inventory
+#     export that is admin-only -- proven in both directions: the admin call must actually return the
+#     complete inventory, and the anonymous call must be refused with an authorization code. Its
+#     totalToolCount is the SERVER's own count of the catalog, so cross-checking the walk against it
+#     means a stale hard-coded roster size cannot mask a truncated enumeration.
 rpc tools/call '{"name":"honua_list_capabilities","arguments":{}}'
 CAPS_BOUNDED="$HTTP_BODY"
-CAPS_TOOLS="$(printf '%s' "$CAPS_BOUNDED" | jq -r '.result.structuredContent.toolCount // -1')"
-CAPS_RESOURCES="$(printf '%s' "$CAPS_BOUNDED" | jq -r '.result.structuredContent.resourceCount // -1')"
-CAPS_TOTAL_TOOLS="$(printf '%s' "$CAPS_BOUNDED" | jq -r '.result.structuredContent.totalToolCount // -1')"
-CAPS_NEXT_TOOL="$(printf '%s' "$CAPS_BOUNDED" | jq -r '.result.structuredContent.nextToolCursor // empty')"
-CAPS_NEXT_RESOURCE="$(printf '%s' "$CAPS_BOUNDED" | jq -r '.result.structuredContent.nextResourceCursor // empty')"
-CAPS_DEFAULT_VIEW="$(printf '%s' "$CAPS_BOUNDED" | jq -c "[.result.structuredContent.workflowViews[]? | select(.name==\"$WANT_VIEW\")] | first // null")"
-if [ "$CAPS_TOOLS" -lt 0 ] || [ "$CAPS_RESOURCES" -lt 0 ] || [ "$CAPS_TOTAL_TOOLS" -lt 0 ]; then
-  note_failure "honua_list_capabilities did not report toolCount/resourceCount/totalToolCount: $(printf '%s' "$CAPS_BOUNDED" | head -c 200)"
+CAPS_TOOLS="$(jq_or -1 "$CAPS_BOUNDED" -r '.result.structuredContent.toolCount // -1')"
+CAPS_RESOURCES="$(jq_or -1 "$CAPS_BOUNDED" -r '.result.structuredContent.resourceCount // -1')"
+CAPS_TOTAL_TOOLS="$(jq_or -1 "$CAPS_BOUNDED" -r '.result.structuredContent.totalToolCount // -1')"
+CAPS_TOTAL_RESOURCES="$(jq_or -1 "$CAPS_BOUNDED" -r '.result.structuredContent.totalResourceCount // -1')"
+CAPS_NEXT_TOOL="$(jq_or '' "$CAPS_BOUNDED" -r '.result.structuredContent.nextToolCursor // empty')"
+CAPS_NEXT_RESOURCE="$(jq_or '' "$CAPS_BOUNDED" -r '.result.structuredContent.nextResourceCursor // empty')"
+CAPS_DEFAULT_VIEW="$(jq_or 'null' "$CAPS_BOUNDED" -c --arg v "$WANT_VIEW" '[.result.structuredContent.workflowViews[]? | select(.name==$v)] | first // null')"
+if [ "$CAPS_TOOLS" -lt 0 ] || [ "$CAPS_RESOURCES" -lt 0 ] || [ "$CAPS_TOTAL_TOOLS" -lt 0 ] || [ "$CAPS_TOTAL_RESOURCES" -lt 0 ]; then
+  note_failure "honua_list_capabilities did not report toolCount/resourceCount/totalToolCount/totalResourceCount: $(printf '%s' "$CAPS_BOUNDED" | head -c 200)"
 else
   [ "$CAPS_TOOLS" -le "$PAGE_SIZE" ] || note_failure "honua_list_capabilities advertised $CAPS_TOOLS tools per page, above the documented bound $PAGE_SIZE"
   [ "$CAPS_RESOURCES" -le "$PAGE_SIZE" ] || note_failure "honua_list_capabilities advertised $CAPS_RESOURCES resources per page, above the documented bound $PAGE_SIZE"
+  # Independent cursors, asserted independently against the server's own totals. Checking only the
+  # TOOL cursor would let a server truncate a >12 resource inventory with no nextResourceCursor and
+  # still pass — the resource half of the bound would be uncertified.
   if [ "$CAPS_TOTAL_TOOLS" -gt "$CAPS_TOOLS" ] && [ -z "$CAPS_NEXT_TOOL" ]; then
     note_failure "honua_list_capabilities bounded $CAPS_TOOLS of $CAPS_TOTAL_TOOLS tools but returned no nextToolCursor"
+  fi
+  if [ "$CAPS_TOTAL_RESOURCES" -gt "$CAPS_RESOURCES" ] && [ -z "$CAPS_NEXT_RESOURCE" ]; then
+    note_failure "honua_list_capabilities bounded $CAPS_RESOURCES of $CAPS_TOTAL_RESOURCES resources but returned no nextResourceCursor"
+  fi
+  if [ "$CAPS_TOTAL_RESOURCES" -lt "$CAPS_RESOURCES" ]; then
+    note_failure "honua_list_capabilities reported totalResourceCount=$CAPS_TOTAL_RESOURCES below its own page of $CAPS_RESOURCES resources"
   fi
   if [ "$FULL_WALK_ABORTED" = false ] && [ "$FULL_LEN" != "$CAPS_TOTAL_TOOLS" ]; then
     note_failure "view '$FULL_VIEW_NAME' enumerated $FULL_LEN tools but the server reports totalToolCount=$CAPS_TOTAL_TOOLS"
@@ -204,14 +250,47 @@ CAPS_VIEW_COUNT="$(printf '%s' "$CAPS_DEFAULT_VIEW" | jq -r '.toolCount // -1')"
 CAPS_VIEW_REVISION="$(printf '%s' "$CAPS_DEFAULT_VIEW" | jq -r '.revision // ""')"
 [ "$CAPS_VIEW_COUNT" = "$WANT_COUNT" ] || note_failure "honua_list_capabilities advertises view '$WANT_VIEW' with toolCount $CAPS_VIEW_COUNT, expected $WANT_COUNT"
 [ "$CAPS_VIEW_REVISION" = "$WANT_REVISION" ] || note_failure "honua_list_capabilities advertises view '$WANT_VIEW' revision '$CAPS_VIEW_REVISION', expected '$WANT_REVISION'"
-# Admin-only full inventory export: an anonymous caller must be refused.
+# The admin-only full inventory export, proven in BOTH directions. The positive leg comes first and
+# is load-bearing: without it, a `fullExport` that was removed, renamed, or that rejects every caller
+# would still produce the anonymous error the negative leg wants, and S2 would certify an admin
+# operation that does not work. So require the admin call to SUCCEED and to return the COMPLETE
+# inventory — every tool and every resource the server counts, in one un-cursored response.
+rpc tools/call '{"name":"honua_list_capabilities","arguments":{"fullExport":true}}'
+CAPS_FULL="$HTTP_BODY"
+CAPS_FULL_ISERR="$(jq_or '' "$CAPS_FULL" -r '.result.isError // empty')"
+CAPS_FULL_TRANSPORT="$(jq_or '' "$CAPS_FULL" -r '.error.message // empty')"
+CAPS_FULL_TOOLS="$(jq_or -1 "$CAPS_FULL" -r '.result.structuredContent.toolCount // -1')"
+CAPS_FULL_RESOURCES="$(jq_or -1 "$CAPS_FULL" -r '.result.structuredContent.resourceCount // -1')"
+CAPS_FULL_NEXT_TOOL="$(jq_or '' "$CAPS_FULL" -r '.result.structuredContent.nextToolCursor // empty')"
+CAPS_FULL_NEXT_RESOURCE="$(jq_or '' "$CAPS_FULL" -r '.result.structuredContent.nextResourceCursor // empty')"
+CAPS_FULL_NAMES="$(jq_or '[]' "$CAPS_FULL" -c '[.result.structuredContent.tools[]?.name] | sort')"
+if [ -n "$CAPS_FULL_TRANSPORT" ] || [ "$CAPS_FULL_ISERR" = "true" ]; then
+  note_failure "admin honua_list_capabilities fullExport did not succeed: $(printf '%s' "$CAPS_FULL" | head -c 200)"
+else
+  [ "$CAPS_FULL_TOOLS" = "$CAPS_TOTAL_TOOLS" ] || note_failure "admin fullExport returned $CAPS_FULL_TOOLS of the server's $CAPS_TOTAL_TOOLS tools; the export must be complete"
+  [ "$CAPS_FULL_RESOURCES" = "$CAPS_TOTAL_RESOURCES" ] || note_failure "admin fullExport returned $CAPS_FULL_RESOURCES of the server's $CAPS_TOTAL_RESOURCES resources; the export must be complete"
+  # A complete export is complete: it does not hand back a cursor into a remainder.
+  [ -z "$CAPS_FULL_NEXT_TOOL" ] || note_failure "admin fullExport returned nextToolCursor '$CAPS_FULL_NEXT_TOOL'; a full export must not be paged"
+  [ -z "$CAPS_FULL_NEXT_RESOURCE" ] || note_failure "admin fullExport returned nextResourceCursor '$CAPS_FULL_NEXT_RESOURCE'; a full export must not be paged"
+  # Two independent admin paths to the same catalog must agree, so neither can drift alone.
+  if [ "$FULL_WALK_ABORTED" = false ] && [ "$CAPS_FULL_NAMES" != "$FULL_LIVE" ]; then
+    note_failure "admin fullExport roster differs from the '$FULL_VIEW_NAME' cursor walk: $(jq_or '{}' "$(jq -nc --argjson a "$CAPS_FULL_NAMES" --argjson w "$FULL_LIVE" '{onlyInExport:($a-$w),onlyInWalk:($w-$a)}')" -c '.')"
+  fi
+fi
+# The negative leg: an anonymous caller must be refused, and refused for the RIGHT reason — an
+# authorization code, not any error the tool happens to raise.
 anon_rpc tools/call '{"name":"honua_list_capabilities","arguments":{"fullExport":true}}'
-CAPS_ANON_ERR="$(printf '%s' "$HTTP_BODY" | jq -r '.result.isError // .error.code // ""')"
-CAPS_ANON_TOOLCOUNT="$(printf '%s' "$HTTP_BODY" | jq -r '.result.structuredContent.toolCount // -1')"
+CAPS_ANON_BODY="$HTTP_BODY"
+CAPS_ANON_ISERR="$(jq_or '' "$CAPS_ANON_BODY" -r '.result.isError // empty')"
+CAPS_ANON_RPCERR="$(jq_or '' "$CAPS_ANON_BODY" -r '.error.code // empty')"
+CAPS_ANON_CODE="$(jq_or '' "$CAPS_ANON_BODY" -r '.result.structuredContent.code // .error.data.code // ""')"
+CAPS_ANON_TOOLCOUNT="$(jq_or -1 "$CAPS_ANON_BODY" -r '.result.structuredContent.toolCount // -1')"
 if [ "$CAPS_ANON_TOOLCOUNT" -gt "$PAGE_SIZE" ]; then
   note_failure "unauthenticated honua_list_capabilities fullExport returned $CAPS_ANON_TOOLCOUNT tools; the full inventory export must be admin-only"
-elif [ -z "$CAPS_ANON_ERR" ] || [ "$CAPS_ANON_ERR" = "false" ]; then
-  note_failure "unauthenticated honua_list_capabilities fullExport was not refused: $(printf '%s' "$HTTP_BODY" | head -c 200)"
+elif [ "$CAPS_ANON_ISERR" != "true" ] && [ -z "$CAPS_ANON_RPCERR" ]; then
+  note_failure "unauthenticated honua_list_capabilities fullExport was not refused: $(printf '%s' "$CAPS_ANON_BODY" | head -c 200)"
+elif [ "$CAPS_ANON_CODE" != "unauthenticated" ] && [ "$CAPS_ANON_CODE" != "permission_denied" ]; then
+  note_failure "unauthenticated honua_list_capabilities fullExport was refused with code '$CAPS_ANON_CODE', expected unauthenticated/permission_denied"
 fi
 
 # (f) Discovery is not authority. The Studio-critical tools sit OUTSIDE the bounded default view, and
@@ -251,13 +330,16 @@ EVIDENCE="$(jq -nc \
       '{tools:$t,resources:$r,totalToolCount:$tt,
         nextToolCursor:(if $nt == "" then null else $nt end),
         nextResourceCursor:(if $nr == "" then null else $nr end)}')" \
+  --argjson fullExport "$(jq -nc --argjson t "$CAPS_FULL_TOOLS" --argjson r "$CAPS_FULL_RESOURCES" \
+      --argjson tt "$CAPS_TOTAL_TOOLS" --argjson tr "$CAPS_TOTAL_RESOURCES" --arg anon "$CAPS_ANON_CODE" \
+      '{admin:{tools:$t,resources:$r,ofTools:$tt,ofResources:$tr},anonymous:$anon}')" \
   --argjson calls "$call_results" \
-  '{defaultView:$defaultMeta,defaultViewTools:$defaultTools,fullCatalog:$fullCatalog,adminOnly:$adminOnly,listCapabilities:$listCapabilities,toolCalls:$calls}')"
+  '{defaultView:$defaultMeta,defaultViewTools:$defaultTools,fullCatalog:$fullCatalog,adminOnly:$adminOnly,listCapabilities:$listCapabilities,listCapabilitiesFullExport:$fullExport,toolCalls:$calls}')"
 
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   note="bounded default view '$DEF_META_VIEW' ($DEF_META_REVISION) = $DEF_ACTUAL_COUNT tools in 1 page; admin '$FULL_VIEW_NAME' export = $FULL_LEN tools over $PAGES pages (server totalToolCount=$CAPS_TOTAL_TOOLS); anonymous full export denied; all critical tools callable"
   if [ "$FULL_EXTRA" != "[]" ]; then note="$note (+extra advertised in full catalog: $FULL_EXTRA)"; fi
-  emit_scenario "S2-mcp-tool-catalog" pass "$note" "$EVIDENCE"
+  emit_s2 pass "$note" "$EVIDENCE"
 else
   # A pre-#3819 server trips nearly every check at once, so `why` carries the leading reasons and
   # evidence.failures carries all of them — the report never drops a finding, it only stops the
@@ -265,6 +347,6 @@ else
   ALL_FAILURES="$(printf '%s\n' "${FAILURES[@]}" | jq -Rc . | jq -sc .)"
   why="$(printf '%s; ' "${FAILURES[@]:0:4}")"; why="${why%; }"
   if [ "${#FAILURES[@]}" -gt 4 ]; then why="$why (+$(( ${#FAILURES[@]} - 4 )) more; see evidence.failures)"; fi
-  emit_scenario "S2-mcp-tool-catalog" fail "$why" \
+  emit_s2 fail "$why" \
     "$(jq -nc --argjson ev "$EVIDENCE" --argjson f "$ALL_FAILURES" '$ev + {failures:$f}')"
 fi
