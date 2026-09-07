@@ -306,7 +306,74 @@ components:
     #   (empty)                                    # ZERO non-success jobs in the entire matrix
     # `Server Tests (Core and Cloud Contracts)` — the exact lane whose exhaustion sank the previous
     # candidate — is `success` here, alongside every other Server Tests shard, CI Gate and Test Suite
-    # Summary. There is no exception to record against this pin and none is recorded.
+    # Summary. There is no honua-server CI exception to record against this pin, and none is recorded.
+    #
+    # THAT GREEN GATE IS NECESSARY AND IT IS NOT SUFFICIENT: THIS REPO'S OWN LIVE LANE IS RED ON THIS
+    # PIN, AND THE FILE MUST NOT READ AS IF THE RE-PIN WERE FINISHED. `exact-published-clients`
+    # (.github/workflows/installed-client-certification.yml -> certification/installed-clients/run.py
+    # --live) was `success` at the previous head (3c4a8cd pin, job 101671211972, run 34099751432)
+    # and is `failure` at this one (job 101694496493, run 34107094325). The failure is not a client
+    # assertion. It is the PINNED IMAGE REFUSING TO START:
+    #
+    #   == booting candidate server image: ghcr.io/honua-io/honua-server:nightly-aot-98137f5
+    #      @sha256:fbe8a921418e1560da6802a4c56750981088047c5ee5fb9e4093c75fa40f4504 ==
+    #   server-1 | Unhandled exception. System.AggregateException: Some services are not able to be
+    #     constructed (Error while validating the service descriptor 'ServiceType:
+    #     Honua.Core.Features.ControlPlane.Abstractions.IExecutionJobReconciler ...': Unable to
+    #     resolve service for type 'Honua.Core.Features.ControlPlane.Abstractions.IExecutionJobStore'
+    #   ... 14 inner exceptions, every one the same missing IExecutionJobStore.
+    #
+    # ROOT CAUSE — A GUARD SPLIT INTRODUCED INSIDE THIS PIN'S OWN COMMIT RANGE, not a harness defect:
+    #   * PROVIDER (honua-server a647548ff, #4141 "require Redis durability attestation before
+    #     advertising durable jobs", which IS in 3c4a8cd..98137f59d):
+    #       src/Honua.Geoprocessing/Features/Geoprocessing/
+    #         GeoprocessingServiceCollectionExtensions.cs:96-98 registers IExecutionJobStore only
+    #         when BOTH IConnectionMultiplexer AND RedisDurabilityAttestation are in the collection.
+    #     The attestation is registered only on the accepted path, src/Honua.Server/Program.cs:314-323,
+    #     and RedisDurabilityAttestor.InspectAsync requires appendonly=yes + aof_enabled=1,
+    #     appendfsync in {always, everysec} and maxmemory-policy=noeviction.
+    #   * CONSUMER: src/Honua.Server/Program.cs:531 still gates the whole control-plane reconcile
+    #     graph and its hosted services on `connectedRedis != null` alone.
+    #   So a host with Redis CONNECTED BUT UNATTESTED registers every consumer and none of the store,
+    #   and ValidateOnBuild kills the process. #4141's own summary says it means to "fail closed with
+    #   typed causes through capability classification, readiness, health"; the code for that state
+    #   exists and is now unreachable — ReadinessCheckService.cs:66-77 returns NotReady("Redis
+    #   durability attestation failed (<cause>)") and ProductionHealthChecks.cs:307-317 returns
+    #   Unhealthy("Redis durability is not attested") for exactly the configuration that instead
+    #   aborts startup. This is a honua-server product defect, tracked as honua-io/honua-server#4502.
+    #
+    # REPRODUCED LOCALLY AGAINST THE PINNED DIGEST, BOTH ARMS (2026-09-07, this host):
+    #   stock redis:7-alpine, as e2e/harness/compose.candidate.yml runs it (appendonly=no):
+    #     server exited (139); logs carry the 14-inner-exception IExecutionJobStore failure above.
+    #   same digest, same db, redis-server --appendonly yes --appendfsync everysec
+    #     --maxmemory-policy noeviction:
+    #     server stays up and GET /healthz/ready is 200 within ~30s.
+    #   The one variable is the Redis durability policy, so the image is sound only where the
+    #   attestation passes.
+    #
+    # THE SLICE-1 CANDIDATE STACK SHOWS THE SAME REGRESSION, and it is the sharper measurement of
+    # the two because it is a before/after on the same workflow:
+    #   3c4a8cd pin, job 101671335718:  "== server READY at http://localhost:8080 =="
+    #                                   S1/S2/S5/S8/S4 and all seven S9 demo scenarios [PASS]
+    #   98137f59d pin, job 101694525535: no READY line; every scenario [BLOCKED] "server not ready
+    #                                   at http://localhost:8080", overall e2e status: fail
+    # So the re-pin moves the candidate stack from mostly-passing to entirely unexecuted.
+    #
+    # WHY `seam` IS STILL GREEN AT THIS HEAD, so its green is not read as a contradiction: `seam`
+    # boots e2e/local-docker/docker-compose.yml, which has NO redis service at all, so connectedRedis
+    # is null, the control-plane graph at Program.cs:531 is never registered, nothing asks for
+    # IExecutionJobStore, and the image starts. The /metrics seam assertion recorded below is
+    # therefore real — and it is real only for Redis-less profiles. Only e2e/harness/
+    # compose.candidate.yml adds Redis, so only the lanes that use it can see the crash.
+    #
+    # CONSEQUENCE FOR THE RE-PIN — OPERATOR-OWNED, deliberately not papered over here. The harness
+    # Redis could be given the durable flags honua-server's own docker-compose.production.yml:70 uses,
+    # which would turn the lane green, but that would delete the only gate in this fleet that catches
+    # a candidate crashing on a Redis an operator can plausibly be running. The pin is therefore left
+    # as measured and honua-release#299 stays blocked until honua-server#4502 lands and a sha
+    # carrying it is imaged. Three shas have now been tried for this re-pin and all three are
+    # blocked: 3c4a8cd (unmeasured shard), 63be0386 (three red product shards), 98137f59d (green
+    # matrix, image will not start under an unattested Redis).
     #
     # THE TWO SHAS THAT WERE TRIED FIRST AND REJECTED, so this is not re-litigated:
     #   * 3c4a8cd (2026-09-05, imaged): `Server Tests (Core and Cloud Contracts)` exit 124,
