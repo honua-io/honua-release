@@ -75,10 +75,18 @@ candidate:
 # deliberately blocks certification until honua-evidence publishes the exact-candidate ledger and
 # this reviewed manifest pins its immutable commit and byte digest.
 protocolCertification:
-  # UTC completion time of the nightly-container-build run that produced THIS pin's image
-  # (honua-server run 34025704267, 2026-09-06T09:49:02Z -> 2026-09-06T10:59:04Z, conclusion success).
-  # Previous value 2026-08-30T22:01:33Z was the 4ca8326 build; before that, release-bundle 32496444220.
-  candidateCutAt: "2026-09-06T10:59:04Z"
+  # THE ACTUAL UTC TIME THIS CANDIDATE WAS FROZEN — NOT A DERIVED OR CARRIED-FORWARD TIMESTAMP.
+  # docs/RELEASE-CUT-CHECKLIST.md:35 requires the current UTC time at which the candidate identity is
+  # set, and forbids reusing a hand-snapshot's timestamp or a derived value. This field is a FREEZE
+  # BOUNDARY, not a provenance record: check_protocol_certification.py:836 rejects evidence whose
+  # `started` precedes it, so the boundary must not sit earlier than the moment the candidate was
+  # actually selected, or evidence produced before selection is accepted as post-freeze.
+  # It was previously set to the image-build completion time (run 34025704267 finished
+  # 2026-09-06T10:59:04Z), which opened exactly that hole: the ~19h between the image existing and
+  # this candidate being chosen. The build-run provenance it recorded is not lost — it is the
+  # `runInvocationURI` in the attestation transcript on the honua-server component below.
+  # Previous values: 2026-08-30T22:01:33Z was the 4ca8326 build; before that, release-bundle 32496444220.
+  candidateCutAt: "2026-09-07T05:53:33Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
