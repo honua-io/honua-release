@@ -297,14 +297,36 @@ components:
     #        1  Server Tests (Core and Cloud Contracts)
     #        1  Test Suite Summary      \ both are roll-ups OF that one shard
     #        1  CI Gate                 /
-    #   The shard did not fail a test — it ran out of wall clock. Its own annotation:
+    #   The shard did not fail a test — it ran out of wall clock (job 101477539131 in ci.yml run
+    #   34025905230, the full_ci dispatch for this sha). Its annotation, verbatim:
     #        Process completed with exit code 124.
     #        HONUA_SHARD_CAPACITY_EXHAUSTED shard='Core and Cloud Contracts' hit its 26m test budget
     #        while still producing output 4s ago. This is shard capacity exhaustion, not a hang, and
     #        it is not attributable to any single change: raise test_timeout_minutes/timeout_minutes
     #        or split the shard in .github/ci-shards.json.
+    #   DO NOT READ THAT LAST CLAUSE AS AN ASSESSMENT OF THIS SHA. It is the emitter's fixed boilerplate
+    #   — HONUA_SHARD_CAPACITY_EXHAUSTED prints it on every timeout — and upstream measured the
+    #   opposite from these exact runs. honua-server#4491's own shard-config rationale (trunk
+    #   .github/ci-shards.json, "Core and Cloud Contracts") attributes it to ONE change:
+    #        #4354 added PatchConcurrencyTests to the serialized [Collection("Database")], whose 40
+    #        cases run one at a time at ~16.3s each — about 10.9 minutes appended to whichever shard
+    #        owns them — and the shard went from a passing 17.4m (run 34022872366) to exit 124 at the
+    #        26m cap with the class still running. Measured: 15 of 40 cases in 246.6s on 34025905230
+    #        and 26 of 40 in 422.3s on 34028070097.
+    #   PatchConcurrencyTests.cs IS present at this pin (37627 bytes at 3c4a8cd), so this sha carries
+    #   the cause and none of the fix. THE HONEST CONSEQUENCE, STATED RATHER THAN SOFTENED: the shard
+    #   was still executing when the cap fired, so an UNKNOWN subset of this shard's Core/Cloud/Contract
+    #   tests never ran at this pin. "Eleven-twelfths of a shard suite" below counts shards, not tests;
+    #   coverage inside this one shard is unmeasured, not merely reduced. Server Tests (Core and Cloud
+    #   Contracts), Test Suite Summary and CI Gate are PRODUCT lanes, not governance lanes, so they are
+    #   NOT covered by the non-product governance exception in docs/RELEASE-CUT-CHECKLIST.md:34, and
+    #   this pin does not satisfy that row's "required green CI" condition. It is recorded here as an
+    #   open, operator-owned exception on honua-release#282 rather than claimed as a pass: clearing it
+    #   needs either a terminal green full_ci dispatch for a sha containing #4491 or a re-pin onto a
+    #   newer imaged sha, both of which are operator-only actions under RELEASE-CUT-CHECKLIST.md §2.
     #   honua-server#4491 (trunk HEAD, 2026-09-06, "rebalance server test shards for headroom") is the
-    #   upstream fix; it has no published image yet. Every OTHER product lane at this sha is green,
+    #   upstream fix; it has no published image yet (newest nightly-container-build is this sha's, run
+    #   34025704267). Every OTHER product lane at this sha is green,
     #   including twelve sibling Server Tests shards, all four .NET Foundation Tests, AOT Build
     #   Verification, Docker Build & Integration Test, all three Postgres Compatibility matrix cells,
     #   both MCP Certification transports, and the JS/Python integration suites.
