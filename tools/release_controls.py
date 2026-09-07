@@ -216,7 +216,7 @@ def main() -> int:
         repos = list(policy['repositories'])
         with ThreadPoolExecutor(max_workers=4) as pool:
             rows = list(pool.map(capture_repository, repos))
-        args.output.write_text(json.dumps({'schema_version': 1, 'repositories': dict(zip(repos, rows))}, indent=2) + '\n')
+        args.output.write_text(json.dumps({'schema_version': 1, 'repositories': dict(zip(repos, rows))}, indent=2) + '\n', encoding='utf-8', newline='\n')
         return 0
     if args.command == 'render':
         row = policy['repositories'][args.repository]
@@ -226,7 +226,7 @@ def main() -> int:
     result = audit(policy, json.loads(raw))
     result['snapshot_sha256'] = hashlib.sha256(raw).hexdigest()
     result['policy_sha256'] = hashlib.sha256(args.policy.read_bytes()).hexdigest()
-    args.output.write_text(json.dumps(result, indent=2) + '\n')
+    args.output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')
     print(f"release controls: {result['status']} ({len(result['repositories'])} repositories)")
     return 0 if result['status'] == 'pass' else 1
 
