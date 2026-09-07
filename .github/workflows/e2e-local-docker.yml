@@ -2,11 +2,16 @@
 # Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
 # uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
 #
-# Honesty (AGENTS.md): the static gates (compose validity + scenario compile) ALWAYS run and can FAIL
-# on a broken edit even before real images exist. Server-dependent scenarios report BLOCKED (not PASS)
-# until platform-manifest.yaml carries real pins. A manual `require_real=true` run (or the release
-# train) promotes BLOCKED/SKIPPED to FAIL so the gate can genuinely fail. AI proposes; the pipeline
-# disposes.
+# Honesty (AGENTS.md): the static gates (compose validity + scenario compile + the verdict-logic
+# fixtures) ALWAYS run and can FAIL on a broken edit even before real images exist. Server-dependent
+# scenarios report BLOCKED (not PASS) until platform-manifest.yaml carries real pins. A manual
+# `require_real=true` run (or the release train) promotes BLOCKED/SKIPPED to FAIL so the gate can
+# genuinely fail. AI proposes; the pipeline disposes.
+#
+# One thing require_real does NOT govern (honua-release#303): if the candidate stack never boots -
+# unpullable image, or a container that exits before binding a port - Slice-1 FAILS on every
+# trigger, PR included. A green check on a stack that never served a request is not an honest
+# BLOCKED, it is a lie: there is no evidence to be green about.
 
 name: e2e-local-docker
 
@@ -157,8 +162,9 @@ jobs:
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
 
-      # Pull the pinned server image from ghcr (packages:read). If this can't authenticate, boot.sh
-      # degrades to BLOCKED (honest) rather than failing the cheap PR tier.
+      # Pull the pinned server image from ghcr (packages:read). If this can't authenticate the image
+      # never boots, and per honua-release#303 that FAILS the job rather than reporting a green
+      # check over 13 identical BLOCKED rows.
       - name: Log in to ghcr
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -272,7 +278,9 @@ jobs:
             --nologo
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
-          # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
+          # nightly (schedule) hardens the gate by promoting SCENARIO-level BLOCKED to FAIL; PRs run
+          # honest (a scenario blocked on a missing dep is tolerated). A stack that never boots
+          # fails on every trigger regardless of this input - see lib/report.sh.
           E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
           # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
           # instead of pointing at a directory that is not a console checkout.
@@ -295,6 +303,10 @@ jobs:
           [ -f "$f" ] || { echo "no gate-report"; exit 0; }
           {
             echo "## e2e Slice-1 â€” $(jq -r .status "$f")";
+            if [ "$(jq -r '.boot.failed' "$f")" = "true" ]; then
+              echo "";
+              echo "**the candidate stack did not boot** â€” reason \`$(jq -r '.boot.reason' "$f")\`, container exit code \`$(jq -r '.boot.exitCode // "unknown"' "$f")\`. This fails the gate on every trigger; \`require_real\` only governs scenario-level BLOCKED.";
+            fi
             echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
             jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
             echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";

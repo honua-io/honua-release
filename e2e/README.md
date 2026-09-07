@@ -181,8 +181,16 @@ returned) · `2` = SKIP (SDK/toolchain unavailable).
   broken compose file or scenario makes the gate red even with no images.
 - Server-dependent scenarios report **BLOCKED** (not PASS) while `platform-manifest.yaml` carries
   placeholder (`:TBD`) pins — we never fabricate a green.
-- `E2E_REQUIRE_REAL=1` promotes BLOCKED/SKIPPED to FAIL, so once real images + the
+- `E2E_REQUIRE_REAL=1` promotes **scenario-level** BLOCKED/SKIPPED to FAIL, so once real images + the
   `honua_geoservices_error_total` metric exist, the gate genuinely fails on a regression.
+- **A candidate stack that never boots FAILS Slice-1 on every trigger** — PR included, `require_real`
+  or not (honua-release#303). This is the local-docker twin of the unreachable-endpoint rule above:
+  the candidate is the subject of the test, so "the image would not pull" or "the container exited
+  before binding a port" is a finding, not a missing input of ours. `boot.sh` records the reason,
+  the container exit code and the first (scrubbed, bounded) error lines in `out/boot.json`;
+  `lib/report.sh` turns that into an `S0-stack-boot` FAIL row plus a job-summary block, instead of
+  thirteen identical BLOCKED rows under a green check. The rule is fixture-tested by
+  `harness/test_report.sh`, which `run_all.sh check` runs in the static tier (no images needed).
 
 ### Wiring left as TODO (blocked on real artifacts — search the tree for `TODO(#7)`)
 
