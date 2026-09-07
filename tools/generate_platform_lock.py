@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sdk_baselines import SDK_COMPONENTS, check_component
+from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
 
 try:
     import yaml
@@ -139,6 +139,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             continue
         coordinate_owner[coordinate_key] = name
         published_by_component[name].append(identity)
+    # Read the publisher's first-release facts from the manifest, not from a partially
+    # built lock: component order must never decide whether a floor resolves.
+    publisher_source = dict(combined).get(PUBLISHER) or {}
+    release_ctx = release_context({"components": {PUBLISHER: publisher_source}})
     for name, component in combined:
         cpath = f"$.components.{name}"
         entry: dict[str, Any] = {
@@ -158,6 +162,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         if seed:
             entry["artifacts"].append(seed)
         lock["components"][name] = entry
+        if name == PUBLISHER:
+            for field in ("releaseVersion", "publicationHistory"):
+                if component.get(field):
+                    entry[field] = component[field]
         if name in SDK_COMPONENTS:
             if component.get("serverCompatibility"):
                 entry["serverCompatibility"] = component["serverCompatibility"]
@@ -249,7 +257,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                 entry["artifacts"].append(published)
         if name in SDK_COMPONENTS:
             try:
-                check_component(entry)
+                check_component(entry, release_ctx)
             except (ValueError, TypeError, KeyError, AttributeError) as exc:
                 refuse(f"{cpath}.serverCompatibility: {exc}", "PUBLISH")
 
