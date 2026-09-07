@@ -273,7 +273,7 @@ jobs:
 
   gate_protocol_certification: # normalized canonical-client cells for the exact candidate
     needs: [freeze, gate_conformance]
-    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@34649bbc0a0886427c2e35d40edebf2d7bdc01e3 # v1.0.2 - trusted gate workflow (REBIND: advance to this PR squash SHA post-merge)
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@8a1e54dd27eb3f48cbc470e01d673481056c1f38 # v1.0.3 - trusted gate workflow (trunk, #295 squash)
     with:
       matrix_repository: ${{ needs.freeze.outputs.certification_repository }}
       matrix_commit: ${{ needs.freeze.outputs.certification_commit }}
