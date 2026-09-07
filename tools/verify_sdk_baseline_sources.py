@@ -81,7 +81,12 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
-def verify_publication_history(lock: dict, root: Path) -> None:
+def offline_collector(repository: str) -> dict:
+    raise ValueError(f"{PUBLISHER}: an offline run cannot prove {repository} is still unpublished; "
+                     "the first-release model needs a live enumeration at gate time")
+
+
+def verify_publication_history(lock: dict, root: Path, collector=None) -> None:
     """A locked first-release pin must match the committed receipt's bytes and content."""
     history = ((lock.get("components") or {}).get(PUBLISHER) or {}).get("publicationHistory")
     if not isinstance(history, dict):
@@ -101,15 +106,18 @@ def verify_publication_history(lock: dict, root: Path) -> None:
     if not isinstance(max_age, int) or isinstance(max_age, bool) or max_age < 1:
         raise ValueError(f"{PUBLISHER}: publication-history pin must bound the enumeration's age "
                          "with a positive maxAgeDays")
-    server_publication_history.verify(json.loads(path.read_text(encoding="utf-8")),
-                                      max_age_days=max_age)
+    # The bound limits how stale the pin may be; it cannot prove nothing was published inside
+    # the window. Only a live re-enumeration can, so the gate re-reads the namespaces here.
+    server_publication_history.confirm_current(
+        json.loads(path.read_text(encoding="utf-8")),
+        max_age_days=max_age, collector=collector)
 
 
-def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT) -> list[str]:
+def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT, collector=None) -> list[str]:
     errors = findings(lock)
     if errors:
         raise ValueError("; ".join(errors))
-    verify_publication_history(lock, root)
+    verify_publication_history(lock, root, collector)
     verified = []
     for name in SDK_COMPONENTS:
         component = lock["components"][name]
@@ -137,10 +145,14 @@ def main(argv: list[str] | None = None) -> int:
         lock = yaml.safe_load(args.lock.read_text(encoding="utf-8"))
         if not isinstance(lock, dict) or lock.get("lockVersion") != "platform-lock.v1":
             raise ValueError("expected a platform-lock.v1 mapping")
-        verified = verify_sources(lock, SourceReader(args.source_root))
+        # `--source-root` is an offline byte check; it must not be able to qualify a
+        # first-release claim that only a live namespace reading can support.
+        verified = verify_sources(lock, SourceReader(args.source_root),
+                                  collector=offline_collector if args.source_root else None)
         print("PASS: pinned baseline source bytes verified for " + ", ".join(verified))
         return 0
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError,
+            subprocess.SubprocessError) as exc:
         print(f"BLOCKED: {exc}")
         return 1
 

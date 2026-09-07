@@ -155,7 +155,9 @@ following hold, and none of them is sufficient alone:
 
 `audit` also runs the namespace parity check itself, so a drifted signing policy that authorized
 tags outside `policy.json`'s immutable namespaces is reported as a per-repository failure rather
-than depending on an operator running `check-policy`.
+than depending on an operator running `check-policy`. `audit` is itself an operator command that
+no workflow runs, so the same parity check also runs unconditionally in the branch-protected
+`validate` job (`.github/workflows/manifest-validate.yml`): a drifted trust policy cannot land.
 
 The committed policy nominates **no signer**, so every command above fails closed today and the
 audit stays red for all five repositories with native publication tags (`geospatial-grpc`,

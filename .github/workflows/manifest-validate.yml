@@ -70,6 +70,13 @@ jobs:
       - name: Validate committed compatibility ledger
         run: python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 
+      # The signing trust policy must cover exactly the tag namespaces policy.json protects.
+      # `release_controls audit` also reports drift, but it is an operator command no workflow
+      # runs; a drifted policy authorizing tags outside the immutable namespaces has to fail a
+      # branch-protected check, not wait for someone to remember to audit.
+      - name: Check publication-tag signing namespaces against the control policy
+        run: python3 tools/tag_signing.py check-policy
+
       # Acceptance harness for #230. Dispatch the registered manifest workflow on a ref ending in
       # `-red-demo`; the branch's validator must recognize the skipped REQUIRED receipt, then this
       # step deliberately preserves that verdict as the run conclusion (failure/RED).

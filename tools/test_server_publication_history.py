@@ -7,7 +7,7 @@ literal. No assertion snapshots whatever the current implementation happens to p
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -229,13 +229,22 @@ def lock_with_history(tmp_path, body, *, sha256=None, path=RECEIPT_PATH):
         "maxAgeDays": 3650}}}}, raw
 
 
+def live(repository="honua-io/honua-server", *, at="2099-01-01T00:00:00Z", refs=()):
+    """A live enumeration stand-in; `collect` itself is the network call, tested by its callers."""
+    value = receipt(repository=repository, observedAt=at, observedDefaultBranchSha="a" * 40)
+    if refs:
+        value["sources"][0]["count"] = len(refs)
+        value["publishedRefs"] = sorted(refs)
+    return value
+
+
 def test_publication_history_pin_binds_the_committed_bytes(tmp_path):
     lock, raw = lock_with_history(tmp_path, receipt())
-    verify_publication_history(lock, tmp_path)
+    verify_publication_history(lock, tmp_path, live)
     # Independently recomputed: flipping one byte of the receipt must break the pin.
     (tmp_path / RECEIPT_PATH).write_bytes(raw.replace(b"trunk", b"main"))
     with pytest.raises(ValueError, match="bytes disagree"):
-        verify_publication_history(lock, tmp_path)
+        verify_publication_history(lock, tmp_path, live)
 
 
 def test_publication_history_pin_rejects_a_receipt_that_reports_a_tag(tmp_path):
@@ -399,3 +408,52 @@ def test_lock_validator_requires_the_named_release_to_ship():
     lock["components"][PUBLISHER]["artifacts"] = [server_image("2.0.0")]
     assert any("released version of a locked publisher artifact" in error
                for error in validate(lock).errors)
+
+
+# --- a bound on staleness is not a proof of emptiness -----------------------------------------
+
+def test_a_publication_inside_the_freshness_bound_still_breaks_the_premise(tmp_path):
+    """maxAgeDays only limits how old the pin may be. A tag published one day after a receipt
+    written yesterday is well inside any sane bound, and only a live reading catches it."""
+    lock, _ = lock_with_history(tmp_path, receipt())
+    fresh = json.loads((tmp_path / RECEIPT_PATH).read_text())
+    history.verify(fresh, now=datetime.strptime(fresh["observedAt"], "%Y-%m-%dT%H:%M:%SZ")
+                   .replace(tzinfo=timezone.utc) + timedelta(days=1), max_age_days=30)
+    with pytest.raises(ValueError, match="prior publication ref"):
+        verify_publication_history(lock, tmp_path,
+                                   lambda repo: live(repo, refs=["v1.0.0"]))
+
+
+def test_the_live_enumeration_is_what_qualifies_the_first_release_model(tmp_path):
+    lock, _ = lock_with_history(tmp_path, receipt())
+    assert verify_publication_history(lock, tmp_path, live) is None
+
+
+def test_a_live_reading_older_than_the_pin_is_refused():
+    with pytest.raises(ValueError, match="observation clock is unreliable"):
+        history.confirm_current(receipt(observedAt="2099-06-01T00:00:00Z"),
+                                collector=lambda repo: live())
+
+
+def test_offline_verification_cannot_qualify_the_first_release_model(tmp_path):
+    from verify_sdk_baseline_sources import offline_collector
+    lock, _ = lock_with_history(tmp_path, receipt())
+    with pytest.raises(ValueError, match="offline run cannot prove"):
+        verify_publication_history(lock, tmp_path, offline_collector)
+
+
+def test_the_offline_source_root_path_refuses_a_first_release_lock(tmp_path, capsys):
+    import verify_sdk_baseline_sources as verifier
+    lock = valid_lock()
+    for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
+        lock["components"][name] = {**lock["components"][name], **first_release_component()}
+    # main() resolves the pin against the repository root, so pin the committed receipt.
+    committed = "sha256:" + hashlib.sha256((ROOT / RECEIPT_PATH).read_bytes()).hexdigest()
+    for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
+        lock["components"][name] = {**lock["components"][name],
+                                    **first_release_component(sha=committed)}
+    lock["components"][PUBLISHER] = publisher(sha=committed, max_age_days=3650)
+    path = tmp_path / "lock.yaml"
+    path.write_text(json.dumps(lock), encoding="utf-8")
+    assert verifier.main([str(path), "--source-root", str(tmp_path)]) == 1
+    assert "offline run cannot prove" in capsys.readouterr().out

@@ -105,7 +105,10 @@ and (with `--max-age-days`) the enumeration is inside its freshness bound. One r
 of any shape withdraws the first-release introduction model, and every capability
 then needs its own introduction evidence again. The lock pins the receipt at
 `components.honua-server.publicationHistory`, and `verify_sdk_baseline_sources.py`
-binds that pin to the committed bytes.
+binds that pin to the committed bytes. Because a freshness bound is not a proof of
+emptiness, the gate also re-enumerates live (`confirm_current`, or
+`verify --confirm-current`) and qualifies on that reading; `--source-root` is a
+byte check only and refuses a first-release lock offline.
 
 SDK minimum-server derivation, the first-release model, and unresolved publisher
 requirements are documented
@@ -182,7 +185,8 @@ in it whose fingerprint the policy does not name is rejected.
 signed-tag failure only when the receipt is bound to the committed policy's exact
 bytes, matches the audited release tag and candidate revision, and re-verifies
 cryptographically against the tag object in a real repository. The audit also
-checks namespace parity itself. The policy nominates no signer today, so every
+checks namespace parity itself, and `check-policy` runs in the branch-protected
+`validate` job so drift cannot land. The policy nominates no signer today, so every
 command fails closed. See
 [release-controls/README.md](../certification/release-controls/README.md).
 

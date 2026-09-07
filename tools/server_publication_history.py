@@ -175,6 +175,27 @@ def verify(receipt: Any, repository: str = REPOSITORY, *, now: datetime | None =
     return repository
 
 
+def confirm_current(receipt: Any, repository: str = REPOSITORY, *,
+                    max_age_days: int | None = None, collector: Any = None) -> dict[str, Any]:
+    """Re-enumerate live, because a bound on staleness is not a proof of emptiness.
+
+    `maxAgeDays` limits how old the pinned observation may be, but a server published inside
+    that window still breaks the first-release premise, and the receipt cannot say so. So
+    whatever consumes the model at gate time re-reads the publisher's namespaces and qualifies
+    on *that* enumeration: the pinned receipt must verify and be within its bound, the live
+    reading must itself verify, and a live reading older than the pin means the observation
+    clock, not the publisher, is the thing that moved.
+    """
+    verify(receipt, repository, max_age_days=max_age_days)
+    fresh = (collector or collect)(repository)
+    verify(fresh, repository)
+    if fresh["observedAt"] < str(receipt.get("observedAt", "")):
+        raise ValueError(f"live enumeration of {repository} at {fresh['observedAt']} predates the "
+                         f"pinned receipt at {receipt.get('observedAt')}; the observation clock is "
+                         "unreliable and the first-release premise is not established")
+    return fresh
+
+
 def digest(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -188,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("receipt", type=Path, nargs="?", default=RECEIPT)
     check.add_argument("--max-age-days", type=int,
                        help="reject an enumeration older than this; the release cut must bound it")
+    check.add_argument("--confirm-current", action="store_true",
+                       help="re-enumerate the publisher live and require it to still be empty")
     args = parser.parse_args(argv)
     try:
         if args.command == "collect":
@@ -195,8 +218,13 @@ def main(argv: list[str] | None = None) -> int:
                                    encoding="utf-8", newline="\n")
             print(f"WROTE: {args.output} {digest(args.output)}")
             return 0
-        verify(json.loads(args.receipt.read_text(encoding="utf-8")),
-               max_age_days=args.max_age_days)
+        pinned = json.loads(args.receipt.read_text(encoding="utf-8"))
+        if args.confirm_current:
+            fresh = confirm_current(pinned, max_age_days=args.max_age_days)
+            print(f"PASS: {REPOSITORY} still has no prior publication as of "
+                  f"{fresh['observedAt']}; {digest(args.receipt)}")
+            return 0
+        verify(pinned, max_age_days=args.max_age_days)
         print(f"PASS: {REPOSITORY} has no prior publication; {digest(args.receipt)}")
         return 0
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError,

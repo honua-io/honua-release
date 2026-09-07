@@ -85,10 +85,12 @@ That is a derivation, not a guess, and it fails closed on every side:
   `null` count would otherwise sum to zero and read as emptiness. One ref of any shape — a
   prerelease, a nightly, a chart tag — withdraws the model and sends every capability back to
   per-capability introduction evidence;
-- the enumeration must be inside the pinned `maxAgeDays` at the time it is checked. Emptiness
-  proven once is not emptiness at the cut: a server published between the observation and the
-  candidate would silently break the premise, so the train re-collects the receipt inside that
-  bound before certification;
+- the enumeration must be inside the pinned `maxAgeDays` at the time it is checked, **and** the
+  gate re-enumerates the publisher's namespaces live and qualifies on that reading. Emptiness
+  proven once is not emptiness at the cut, and a bound on staleness is not a proof either: a
+  server published one day after a day-old receipt is well inside any sane bound. Only the live
+  reading can withdraw the model, so an offline (`--source-root`) run cannot establish the
+  premise at all;
 - the capability's `evidence` must cite that exact receipt URI and digest, so a manifest cannot
   claim the model against a receipt nobody locked;
 - the lock must name the first release (`components.honua-server.releaseVersion`), and that
