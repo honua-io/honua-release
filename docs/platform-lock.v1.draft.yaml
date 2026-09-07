@@ -6,10 +6,10 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:1b17d59656aba2d310e8122a2f599d741d522645cfa649d3583eb97f9cb9593f
+    sha256: sha256:7689899d410278fdb6b2adf876046d1c43e6340b2c95f7df3e4d423abbba7a4a
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:9cb0b0a87359cb8d7528c3301f99025d77c037b943bf0a85330b8d37dcfd21bb
+    sha256: sha256:bc5e6b3b7901f9daecb79ea1b559becdadb3a4b961d267d9fe980a1b91c1e860
 components:
   honua-server:
     source:
@@ -59,6 +59,8 @@ components:
     - kind: nuget
       coordinate: Honua.Sdk
       version: 1.6.0
+      sha256: sha256:e5c3bf0a243822cb3d76cca6ef090b226f8502480c6a6699d7e34e24c1aeeadc
+      sourceRevision: a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -75,6 +77,11 @@ components:
       version: 0.1.9-beta.0
       integrity: sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ==
       sourceRevision: c99e71197dd940ed952aecb024c6de273456f2ae
+    - kind: npm
+      coordinate: '@honua/mcp-server'
+      version: 0.1.4-beta.0
+      sourceRevision: ac29d1601f499ebd9b099fd4629b0997fdc81f1f
+      integrity: sha512-TqqVscgNZMg+y+qUs3f9ShpKT8n38W3njXkTciqXKdXsk5PILG1fjwQur5/Da0KVg895L0qH5EqXRAwnjzO30w==
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -172,7 +179,8 @@ components:
     artifactIdentityModel: source-pinned
     lifecycleStatus: Experimental
     supportTier: experimental
-contentDigests: {}
+contentDigests:
+  geospatialMcp: sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5
 fixtures: []
 sbom: []
 provenance: []

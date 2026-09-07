@@ -89,6 +89,26 @@ def manifest_pins(manifest: dict) -> list[Pin]:
                 requirements_sha,
             )
         )
+    # release#231: every revision behind a release-level lock fact is release-significant too.
+    evidence = manifest.get("platformLockEvidence") or {}
+    declarations: list[tuple[str, object]] = [
+        (f"platformLockEvidence.contentDigests.{name}", declaration)
+        for name, declaration in sorted((evidence.get("contentDigests") or {}).items())
+    ]
+    declarations += [
+        (f"platformLockEvidence.fixtures[{index}]", declaration)
+        for index, declaration in enumerate(evidence.get("fixtures") or [])
+    ]
+    if evidence.get("notes") is not None:
+        declarations.append(("platformLockEvidence.notes", evidence["notes"]))
+    for name, declaration in declarations:
+        if not isinstance(declaration, dict):
+            continue
+        sha = str(declaration.get("revision", ""))
+        repository = str(declaration.get("repository", "")).removeprefix("https://github.com/")
+        if sha and repository:
+            pins.append(Pin(f"{name}.revision", repository, sha))
+
     ledger_commit = str(ledger.get("commit", ""))
     if ledger_commit and ledger_commit != "pending":
         pins.append(

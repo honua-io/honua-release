@@ -731,3 +731,13 @@ def test_manifest_validate_gates_committed_compatibility_ledger():
     assert "if" not in step
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_manifest_validate_verifies_declared_lock_content_digests():
+    """release#231: a declared content digest is only a fact if its pinned bytes still hash to it."""
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"]
+                if "verify_content_digests.py platform-manifest.yaml" in step.get("run", ""))
+    assert "if" not in step
+    assert not _neutralised(job)
+    assert not _neutralised(step)
