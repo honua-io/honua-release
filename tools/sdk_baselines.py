@@ -9,8 +9,12 @@ from typing import Any
 from semver import parse
 
 SDK_COMPONENTS = ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp")
+PUBLISHER = "honua-server"
 REVISION = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+# A capability that exists in the publisher's first release has no earlier server to name.
+# It resolves to that release only against an immutable receipt proving no prior publication.
+FIRST_RELEASE = "first-release"
 
 
 def content_digest(value: Any) -> str:
@@ -18,7 +22,46 @@ def content_digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(data.encode()).hexdigest()
 
 
-def derive(baseline: dict[str, Any]) -> str:
+def release_context(lock: dict[str, Any]) -> dict[str, Any]:
+    """First-release facts, read only from the lock; never inferred from an SDK or a label."""
+    publisher = (lock.get("components") or {}).get(PUBLISHER) or {}
+    return {
+        "firstReleaseVersion": publisher.get("releaseVersion"),
+        "publicationHistory": publisher.get("publicationHistory"),
+    }
+
+
+def first_release_floor(capability: str, entry: dict[str, Any], context: dict[str, Any]) -> str:
+    """Resolve a first-release capability, or say exactly which immutable fact is missing.
+
+    The publisher has never released a server, so no capability can name an earlier one.
+    The floor is the first release itself, and only a receipt enumerating the publisher's
+    complete (empty) tag/release history can establish that. A missing receipt, a receipt
+    the manifest does not cite, or an unnamed first release all stay unqualified.
+    """
+    receipt = context.get("publicationHistory")
+    if not isinstance(receipt, dict):
+        raise ValueError(f"unqualified: {capability} claims the first-release model but the lock "
+                         f"pins no {PUBLISHER} publication-history receipt")
+    if (not receipt.get("path") or not DIGEST.fullmatch(str(receipt.get("sha256", "")))
+            or not str(receipt.get("uri", "")).startswith("https://")):
+        raise ValueError("publication-history pin requires a repository path, HTTPS URI and SHA-256")
+    evidence = entry["evidence"]
+    if (evidence.get("uri"), evidence.get("sha256")) != (receipt["uri"], receipt["sha256"]):
+        raise ValueError(f"unqualified: {capability} introduction evidence does not cite the locked "
+                         f"{PUBLISHER} publication-history receipt")
+    version = context.get("firstReleaseVersion")
+    if not version:
+        raise ValueError(f"unqualified: {capability} resolves to the first {PUBLISHER} release, "
+                         "which this lock does not name")
+    declared = entry.get("minimumServerVersion")
+    if declared is not None and declared != version:
+        raise ValueError(f"unqualified: {capability} declares {declared!r}; the first "
+                         f"{PUBLISHER} release is {version}")
+    return str(version)
+
+
+def derive(baseline: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     """Maximum introduction floor over every required capability; never infer a floor."""
     manifests = baseline.get("manifests")
     if not isinstance(manifests, list) or not manifests:
@@ -42,7 +85,8 @@ def derive(baseline: dict[str, Any]) -> str:
         for capability in required:
             entry = capabilities.get(capability, {})
             floor = entry.get("minimumServerVersion")
-            if not floor:
+            first_release = entry.get("introductionModel") == FIRST_RELEASE
+            if not floor and not first_release:
                 raise ValueError(f"unqualified: {capability} has no server introduction floor")
             # CalVer aliases need an explicit publisher mapping, never numeric inference.
             if entry.get("versionModel") != "semver":
@@ -52,13 +96,15 @@ def derive(baseline: dict[str, Any]) -> str:
             evidence = entry["evidence"]
             if not DIGEST.fullmatch(str(evidence.get("sha256", ""))) or not str(evidence.get("uri", "")).startswith("https://"):
                 raise ValueError("introduction evidence requires an HTTPS URI and SHA-256")
+            if first_release:
+                floor = first_release_floor(capability, entry, context or {})
             floors.append(parse(floor))
     return str(max(floors))
 
 
-def check_component(component: dict[str, Any]) -> str:
+def check_component(component: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     baseline = component.get("serverCompatibility", {})
-    floor = derive(baseline)
+    floor = derive(baseline, context)
     if baseline.get("minimumServerVersion") != floor:
         raise ValueError(f"lock minimumServerVersion must equal derived floor {floor}")
     declarations = baseline.get("declarations")
@@ -83,9 +129,10 @@ def check_component(component: dict[str, Any]) -> str:
 
 def findings(lock: dict[str, Any]) -> list[str]:
     errors = []
+    context = release_context(lock)
     for name in SDK_COMPONENTS:
         try:
-            check_component(lock.get("components", {}).get(name, {}))
+            check_component(lock.get("components", {}).get(name, {}), context)
         except (ValueError, TypeError, KeyError, AttributeError) as exc:
             errors.append(f"{name}: {exc}")
     return errors

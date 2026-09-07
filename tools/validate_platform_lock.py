@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sdk_baselines import SDK_COMPONENTS, check_component
+from sdk_baselines import SDK_COMPONENTS, check_component, release_context
 
 try:
     import yaml
@@ -99,6 +99,7 @@ def validate(lock: dict[str, Any]) -> Findings:
         if name not in components:
             f.error(f"$.components.{name}", "required official SDK component is missing")
 
+    context = release_context(lock)
     for name, component in components.items():
         path = f"$.components.{name}"
         if not isinstance(component, dict):
@@ -111,7 +112,7 @@ def validate(lock: dict[str, Any]) -> Findings:
         source = component.get("source") or {}
         if name in SDK_COMPONENTS:
             try:
-                check_component(component)
+                check_component(component, context)
             except (ValueError, TypeError, KeyError, AttributeError) as exc:
                 f.error(f"{path}.serverCompatibility", str(exc))
         revision = source.get("revision") if isinstance(source, dict) else None
