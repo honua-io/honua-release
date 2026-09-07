@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "issue": "honua-io/honua-release#236",
+  "owner": "mikemcdougall",
+  "statement": "A qualified publication tag is an annotated tag object whose signature verifies against a signer named here by fingerprint. GitHub required_signatures verifies commits, ruleset update/deletion rules give immutability, and gh release create writes a lightweight tag; none of the three is a signed tag.",
+  "signature_formats": [
+    "ssh",
+    "openpgp"
+  ],
+  "key_material": "Fingerprints only. Public keys live in an operator-supplied allowed-signers file that is never committed; tools/tag_signing.py refuses any principal in that file whose fingerprint is absent here.",
+  "blocked_on": "No publication signing key has been nominated. Until the release owner adds one authorized signer, no publication tag can be produced or trusted, and #236's signed-tag criterion stays unmet.",
+  "signers": [],
+  "repositories": {
+    "geospatial-grpc": {
+      "tag_refs": [
+        "refs/tags/v*"
+      ],
+      "signers": [],
+      "qualification": "native protocol releases; signer not nominated"
+    },
+    "honua-helm": {
+      "tag_refs": [
+        "refs/tags/chart-v*"
+      ],
+      "signers": [],
+      "qualification": "native chart releases; signer not nominated"
+    },
+    "honua-release": {
+      "tag_refs": [
+        "refs/tags/honua-2026.1.*"
+      ],
+      "signers": [],
+      "qualification": "platform publication tags; signer not nominated. The promotion workflow currently creates this tag through gh release create, which is lightweight and unsignable; it must move to this producer before the candidate is cut."
+    },
+    "honua-sdk-dotnet": {
+      "tag_refs": [
+        "refs/tags/dotnet-sdk-v*"
+      ],
+      "signers": [],
+      "qualification": "native NuGet releases; signer not nominated"
+    },
+    "honua-sdk-python": {
+      "tag_refs": [
+        "refs/tags/python-admin-v*",
+        "refs/tags/python-sdk-v*"
+      ],
+      "signers": [],
+      "qualification": "native wheel releases; signer not nominated"
+    }
+  }
+}
