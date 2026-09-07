@@ -29,7 +29,8 @@ BOOT_LOG_MAX_COLS="${E2E_BOOT_LOG_MAX_COLS:-300}"
 scrub() {
   sed -E \
     -e 's#(://[^:/@[:space:]]+):[^@[:space:]]+@#\1:***@#g' \
-    -e 's/(([Pp]ass(word)?|PASSWORD|[Ss]ecret|SECRET|[Tt]oken|TOKEN|[Aa]pi[-_]?[Kk]ey|API[-_]?KEY|[Aa]uthorization|AUTHORIZATION)[[:space:]]*[=:][[:space:]]*)[^[:space:];,"]+/\1***/g'
+    -e 's/([Aa]uthorization|AUTHORIZATION)([[:space:]]*[=:][[:space:]]*).*/\1\2***/' \
+    -e 's/(([Pp]ass(word|wd)?|PASSWORD|[Ss]ecret|SECRET|[Tt]oken|TOKEN|[Aa]pi[-_]?[Kk]ey|API[-_]?KEY)[[:space:]]*[=:][[:space:]]*)[^[:space:];,"]+/\1***/g'
 }
 
 server_container_field() { # go-template-field -> value ("" when there is no container)
@@ -43,7 +44,7 @@ server_container_field() { # go-template-field -> value ("" when there is no con
 server_error_lines() {
   "${COMPOSE[@]}" logs --no-color --tail 400 server 2>/dev/null \
     | grep -avE '\|[[:space:]]*(at [A-Za-z_]|--- End of)' \
-    | grep -aiE 'error|exception|fatal|unhandled|panic|refused|denied' \
+    | grep -aiE 'error|exception|fail|fatal|crit|unhandled|panic|refused|denied' \
     | head -n "$BOOT_LOG_MAX_LINES" \
     | scrub \
     | cut -c1-"$BOOT_LOG_MAX_COLS"
