@@ -16,6 +16,7 @@ import pytest
 import server_publication_history as history
 from sdk_baselines import PUBLISHER, check_component, content_digest, findings, release_context
 from test_platform_lock import DIGEST, REVISION, component, valid_lock
+from validate_platform_lock import validate
 from verify_sdk_baseline_sources import SourceReader, verify_publication_history, verify_sources
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -352,3 +353,41 @@ def test_source_verification_runs_the_publication_history_check(tmp_path):
     lock["components"][PUBLISHER] = {**publisher_component(), "publicationHistory": pin}
     with pytest.raises(ValueError, match="prior publication ref"):
         verify_sources(lock, SourceReader(tmp_path), tmp_path, collector=no_publication)
+
+
+# --- the lock schema must admit the fields the generator writes ------------------------------
+
+def schema_errors(publisher):
+    """Schema findings for the publisher component only; artifact rules are checked elsewhere."""
+    lock = valid_lock()
+    lock["components"][PUBLISHER] = {
+        "source": {"repository": f"https://github.com/honua-io/{PUBLISHER}", "revision": REVISION},
+        "lifecycleStatus": "GA", "supportTier": "ga", "artifactIdentityModel": "source-pinned",
+        "contractVersions": {"admin": "v1"}, "schemaVersions": {}, "artifacts": [], **publisher}
+    return [error for error in validate(lock).errors
+            if f"components.{PUBLISHER}" in error and "artifacts[" not in error]
+
+
+def test_lock_schema_admits_the_first_release_fields():
+    """`$defs.component` sets additionalProperties:false, so a schema that does not name these
+    rejects every lock the first-release model can be used in."""
+    assert schema_errors({}) == []
+    assert schema_errors({"releaseVersion": FIRST_RELEASE_VERSION, "publicationHistory": {
+        "path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST}}) == []
+
+
+@pytest.mark.parametrize("pin,expected", [
+    ({"path": RECEIPT_PATH, "uri": "http://insecure/x", "sha256": DIGEST}, "^https://"),
+    ({"path": "/etc/passwd", "uri": RECEIPT_URI, "sha256": DIGEST}, "path"),
+    ({"path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": "deadbeef"}, "sha256:"),
+    ({"path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST, "extra": 1},
+     "Additional properties"),
+    ({"path": RECEIPT_PATH}, "required property"),
+])
+def test_lock_schema_constrains_the_publication_history_pin(pin, expected):
+    errors = schema_errors({"releaseVersion": FIRST_RELEASE_VERSION, "publicationHistory": pin})
+    assert errors and any(expected in error for error in errors), errors
+
+
+def test_lock_schema_still_refuses_an_unknown_component_property():
+    assert any("Additional properties" in error for error in schema_errors({"bogus": 1}))

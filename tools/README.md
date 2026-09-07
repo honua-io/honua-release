@@ -103,7 +103,10 @@ receipt only when all three are completely enumerated and empty; one ref of any
 shape withdraws the first-release introduction model, and every capability then
 needs its own introduction evidence again. The lock pins the receipt at
 `components.honua-server.publicationHistory`, and `verify_sdk_baseline_sources.py`
-binds that pin to the committed bytes.
+binds that pin to the committed bytes. `observedAt` records when the namespaces were
+read and nothing about the moment after, so the gate re-enumerates live
+(`confirm_current`) and qualifies on that reading; `--source-root` is a byte check
+only and cannot establish the first-release premise offline.
 
 SDK minimum-server derivation, the first-release model, and unresolved publisher
 requirements are documented
@@ -176,8 +179,10 @@ python3 tools/tag_signing.py verify honua-release <tag> --git-dir . \
 The trust policy carries **fingerprints only**. Public keys live in an
 operator-supplied allowed-signers file that is never committed, and any principal
 in it whose fingerprint the policy does not name is rejected. `release_controls.py
-audit --signing-receipts` drops the signed-tag failure only for a receipt bound to
-the committed policy's exact bytes. The policy nominates no signer today, so every
+audit --signing-receipts` never qualifies on receipt JSON alone: it re-verifies the
+named tag in the audited checkout and requires the receipt to be the exact
+publication tag and candidate revision under audit. That audit also runs the
+trust/control namespace parity check. The policy nominates no signer today, so every
 command fails closed. See
 [release-controls/README.md](../certification/release-controls/README.md).
 

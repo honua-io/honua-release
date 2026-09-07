@@ -76,13 +76,24 @@ That is a derivation, not a guess, and it fails closed on every side:
 
 - the lock must pin the publication-history receipt (`components.honua-server.publicationHistory`
   with a repository path, HTTPS URI and SHA-256) and the receipt's committed bytes must match it;
-- the receipt must enumerate `tags`, `releases` and `git/refs/tags` completely and find nothing.
-  One ref of any shape — a prerelease, a nightly, a chart tag — withdraws the model and sends
-  every capability back to per-capability introduction evidence;
+- the receipt must enumerate the three exact
+  `https://api.github.com/repos/honua-io/honua-server/{tags,releases,git/refs/tags}` endpoints
+  completely and find nothing, with every count a plain nonnegative integer. One ref of any
+  shape — a prerelease, a nightly, a chart tag — withdraws the model and sends every capability
+  back to per-capability introduction evidence;
+- a past observation cannot prove nothing was published since, so `observedAt` never qualifies
+  anything on its own: the gate re-enumerates the publisher's namespaces live and qualifies on
+  that reading. A ref published after the pinned receipt withdraws the model at the next gate
+  run, and an offline (`--source-root`) run cannot establish the premise at all;
 - the capability's `evidence` must cite that exact receipt URI and digest, so a manifest cannot
   claim the model against a receipt nobody locked;
 - the lock must name the first release (`components.honua-server.releaseVersion`). It does not
   today, so nothing resolves;
+- the named release must be the version of the locked `honua-server` artifact. A publisher may
+  not declare `releaseVersion: 2.0.0` beside a `1.0.0` server artifact and have the derivation
+  publish a compatibility table for a server that does not ship. The manifest pins
+  `version: pre-release` today, which is a source snapshot rather than a released artifact, so
+  this is a second reason nothing resolves yet;
 - a capability may not carry both the model and a different number.
 
 The model raises the floor with the release: whatever SemVer the first server release is issued

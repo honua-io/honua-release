@@ -138,10 +138,29 @@ python3 tools/tag_signing.py verify honua-release honua-2026.1.0-rc.1 \
 
 `sign` refuses a tag outside the repository's protected namespace, a mutable target, an existing
 tag (publication tags are never moved), and a configured key the policy does not authorize; it
-then verifies what it actually wrote. `audit` accepts `--signing-receipts <file>`, a mapping of
-repository to receipt, and drops the signed-tag failure **only** for a receipt bound to the
-committed trust policy's exact bytes, inside the protected namespace, naming a real annotated
-tag object and an authorized fingerprint.
+then verifies what it actually wrote.
+
+`audit` accepts `--signing-receipts <file>`, a mapping of repository to
+
+```json
+{"honua-release": {"receipt": {...}, "gitDir": "/path/to/checkout",
+                   "allowedSigners": "/path/to/allowed_signers",
+                   "releaseTag": "honua-2026.1.0", "releaseTarget": "<40-hex commit>"}}
+```
+
+The receipt JSON is **not** the evidence. Anyone holding the committed policy digest and an
+authorized fingerprint can write a structurally perfect receipt, so the audit re-runs
+`verify_tag` in `gitDir` and qualifies on the tag object, peeled target and signing fingerprint
+the tag actually carries. Re-verifying any namespace-matching tag would still let an old or
+throwaway signed tag clear the control while the release under audit is unsigned, so the audit
+also requires `releaseTag`/`releaseTarget` and refuses a receipt that is not that tag at that
+revision. A bare `repository -> receipt` mapping, no `gitDir`, or no release identity all leave
+the control red.
+
+The audit also runs the trust/control namespace parity check itself, so a drifted signing policy
+is a release-control finding rather than something an operator has to remember to run
+`check-policy` for. Drift is reported on the affected repository and under a top-level
+`signing_namespace_parity` key.
 
 The committed policy nominates **no signer**, so every command above fails closed today and the
 audit stays red for all five repositories with native publication tags (`geospatial-grpc`,
@@ -154,7 +173,8 @@ directory, and makes git produce a real signed tag object. Fingerprints are comp
 independently with `ssh-keygen -lf`, and the tamper test rewrites signed tag bytes and rehashes
 the object so a genuinely broken signature is what fails. Adding `--signing-receipts` did not
 change any committed audit: `audit-2026-09-06.json` and `audit-2026-09-06-windows.json` both
-still reproduce byte-for-byte from their snapshots.
+still reproduce byte-for-byte from their snapshots. Neither does the parity check, because the
+committed policies agree; `signing_namespace_parity` is emitted only when they do not.
 
 ## Unmet acceptance criteria and sequencing
 
