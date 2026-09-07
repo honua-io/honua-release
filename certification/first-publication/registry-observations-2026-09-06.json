@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "issue": "honua-io/honua-release#57",
+  "method": "Anonymous HTTPS GET with no Authorization or registry credential; registry availability only, not an installed-consumer or candidate-certification receipt.",
+  "observations": [
+    {
+      "coordinate": "Honua.Sdk",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/index.json",
+      "observed_at": "2026-09-06T20:22:47.232383+00:00",
+      "http_status": 404,
+      "body_sha256": "81e649d967cb156df05b5d3523f14ecbd5d49b7c941a75961e47d9eb6a7fb5e4"
+    },
+    {
+      "coordinate": "Honua.Sdk.Abstractions",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.abstractions/index.json",
+      "observed_at": "2026-09-06T20:22:47.306063+00:00",
+      "http_status": 404,
+      "body_sha256": "25febe371e58a49298d7011cc450421622aabb6217b862983e84ab6673cd9118"
+    },
+    {
+      "coordinate": "Honua.Sdk.Admin",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.admin/index.json",
+      "observed_at": "2026-09-06T20:22:47.188769+00:00",
+      "http_status": 404,
+      "body_sha256": "b8284e7a5e3c6ce296c027f907f270c2d7874a0e64da8a2bba67b55bff18b3b3"
+    },
+    {
+      "coordinate": "Honua.Sdk.Cli",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.cli/index.json",
+      "observed_at": "2026-09-06T20:23:53.154042+00:00",
+      "http_status": 404,
+      "body_sha256": "94dcef0681f98bd23b0be510c9cf2c216e83bb7bc079c869ab2be9a847032415"
+    },
+    {
+      "coordinate": "Honua.Sdk.Catalogs",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.catalogs/index.json",
+      "observed_at": "2026-09-06T20:22:47.202283+00:00",
+      "http_status": 404,
+      "body_sha256": "0b3870f8a70125e6af030787a174a1afea413f9f3ae42f8fa7e2153df85959a5"
+    },
+    {
+      "coordinate": "Honua.Sdk.ConsoleShare",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.consoleshare/index.json",
+      "observed_at": "2026-09-06T20:22:47.530260+00:00",
+      "http_status": 404,
+      "body_sha256": "20dae0b53635a332c3e8bc63b47697a3e8b3675867e6bd5db7c3044d51acf2ac"
+    },
+    {
+      "coordinate": "Honua.Sdk.Field",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.field/index.json",
+      "observed_at": "2026-09-06T20:22:47.564718+00:00",
+      "http_status": 404,
+      "body_sha256": "15792d95aae7dfa6b88be04ddd8e08130e5b91c794c7c424dcdb25ed49f127e1"
+    },
+    {
+      "coordinate": "Honua.Sdk.GeoServices",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.geoservices/index.json",
+      "observed_at": "2026-09-06T20:22:47.575986+00:00",
+      "http_status": 404,
+      "body_sha256": "ae95997d6a4708f552de20b926dda187ecd60c3d42dbb91847aab85ef3d026ab"
+    },
+    {
+      "coordinate": "Honua.Sdk.Geometry",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.geometry/index.json",
+      "observed_at": "2026-09-06T20:22:47.647157+00:00",
+      "http_status": 404,
+      "body_sha256": "dc2445bc18dea2b1eab96d0aa62a0ab1c915f71497e009122961cfa56890d46c"
+    },
+    {
+      "coordinate": "Honua.Sdk.Grpc",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.grpc/index.json",
+      "observed_at": "2026-09-06T20:22:48.228988+00:00",
+      "http_status": 404,
+      "body_sha256": "eebaeea6b61b9f5a6b0a25d1b108589ffec2addf24cb8b2e60b1a022a84262bd"
+    },
+    {
+      "coordinate": "Honua.Sdk.Offline",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.offline/index.json",
+      "observed_at": "2026-09-06T20:22:47.925967+00:00",
+      "http_status": 404,
+      "body_sha256": "c8b38d755d21c414df84c6da2fdad983f0216b96d57b71bbe61a4a7fdaf18d98"
+    },
+    {
+      "coordinate": "Honua.Sdk.OgcFeatures",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.ogcfeatures/index.json",
+      "observed_at": "2026-09-06T20:22:47.966379+00:00",
+      "http_status": 404,
+      "body_sha256": "13146418be3fb976f44168ddfc638d9414c8029978b8ddeede809a3237fd314e"
+    },
+    {
+      "coordinate": "Honua.Sdk.Processes",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.processes/index.json",
+      "observed_at": "2026-09-06T20:22:47.995637+00:00",
+      "http_status": 404,
+      "body_sha256": "94969084b033792d00af64ecbe5e4e253817b5944854c1c95faf356c3d93730d"
+    },
+    {
+      "coordinate": "Honua.Sdk.Scenes",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.scenes/index.json",
+      "observed_at": "2026-09-06T20:22:48.276581+00:00",
+      "http_status": 404,
+      "body_sha256": "7f9e522c8e9ceb96a37438400daef6721b5f925d99dcc212527344498349c29b"
+    },
+    {
+      "coordinate": "Honua.Sdk.Spec",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.spec/index.json",
+      "observed_at": "2026-09-06T20:22:48.311064+00:00",
+      "http_status": 404,
+      "body_sha256": "84126c71ffadb32f5d6f38f60f24a398507193e0e79a3fec3c61cc871c79624c"
+    },
+    {
+      "coordinate": "Honua.Sdk.Studio",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/index.json",
+      "observed_at": "2026-09-06T20:22:48.340700+00:00",
+      "http_status": 404,
+      "body_sha256": "78eddd9c66719080054ce3f21d562873115b0ddd91592b12afa899b85437aef6"
+    },
+    {
+      "coordinate": "Geospatial.Grpc",
+      "url": "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/index.json",
+      "observed_at": "2026-09-06T20:22:48.704231+00:00",
+      "http_status": 200,
+      "body_sha256": "ec85d9cad50186befc24e881f3a007250a4d3caba7592891c2b54dcc5e4d1f51",
+      "versions": [
+        "1.0.0"
+      ]
+    },
+    {
+      "coordinate": "Honua.Mobile.Sdk",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.mobile.sdk/index.json",
+      "observed_at": "2026-09-06T20:22:48.651311+00:00",
+      "http_status": 404,
+      "body_sha256": "f39d0176159616dc01e051d47bf4364bd8c4dc88b25d9ebab3a3453ea99c4a34"
+    },
+    {
+      "coordinate": "Honua.Mobile.Offline",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.mobile.offline/index.json",
+      "observed_at": "2026-09-06T20:22:48.669926+00:00",
+      "http_status": 404,
+      "body_sha256": "176231deec144af45759afb17d3407eb52f95b5eed9f467e524af9fb347cb074"
+    },
+    {
+      "coordinate": "Honua.Mobile.Maui",
+      "url": "https://api.nuget.org/v3-flatcontainer/honua.mobile.maui/index.json",
+      "observed_at": "2026-09-06T20:22:48.761508+00:00",
+      "http_status": 404,
+      "body_sha256": "f996b8c7b7dacfe79e7a1ba3190dd03d07d09626f9676dbf1a5072a379e3161b"
+    },
+    {
+      "coordinate": "honua-sdk",
+      "url": "https://pypi.org/pypi/honua-sdk/json",
+      "observed_at": "2026-09-06T20:22:48.804056+00:00",
+      "http_status": 200,
+      "body_sha256": "dcbaf83010571d8348c7b8261124090e062dcce122ea88c9cb8dd268deb64ab4",
+      "version": "0.1.11",
+      "files": [
+        {
+          "filename": "honua_sdk-0.1.11-py3-none-any.whl",
+          "sha256": "80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9",
+          "url": "https://files.pythonhosted.org/packages/6e/32/95a9b26657362fd35b8506b85af7ae6531a2b463ca094c9a63a5af731353/honua_sdk-0.1.11-py3-none-any.whl"
+        },
+        {
+          "filename": "honua_sdk-0.1.11.tar.gz",
+          "sha256": "028faa747172ffa5d4611468059d6ec77a2b6bc2186f5e04aea28e8bb8eb5c4c",
+          "url": "https://files.pythonhosted.org/packages/da/4a/af8aef082169248460a3bbac1816cad96af569ccfb3c1a6aeb966f09964c/honua_sdk-0.1.11.tar.gz"
+        }
+      ]
+    },
+    {
+      "coordinate": "honua-admin",
+      "url": "https://pypi.org/pypi/honua-admin/json",
+      "observed_at": "2026-09-06T20:22:48.823212+00:00",
+      "http_status": 200,
+      "body_sha256": "113c6e5a2415b064c1477922296b342d74850df0fe082b2c3ea3caaff6125770",
+      "version": "0.1.8",
+      "files": [
+        {
+          "filename": "honua_admin-0.1.8-py3-none-any.whl",
+          "sha256": "fe69794cdcf9293e095401a9c361b6cfb00a28886dc504df511a0795d8d7096b",
+          "url": "https://files.pythonhosted.org/packages/fc/40/1ab98fcd7c070b2baf0940b2a7fca6b993c8cd1806058901db37e52c825e/honua_admin-0.1.8-py3-none-any.whl"
+        },
+        {
+          "filename": "honua_admin-0.1.8.tar.gz",
+          "sha256": "038008e2eac0a351e91639d424c5607900e8caa7f50d68a3b3253cf52e21a790",
+          "url": "https://files.pythonhosted.org/packages/d8/68/39f2b03e68b01a84992f0491eaf5cd494f05e75aa03bba0b1e24c9c59892/honua_admin-0.1.8.tar.gz"
+        }
+      ]
+    },
+    {
+      "coordinate": "honua-migrate",
+      "url": "https://pypi.org/pypi/honua-migrate/json",
+      "observed_at": "2026-09-06T20:22:48.927293+00:00",
+      "http_status": 404,
+      "body_sha256": "b82014934f66beeb9e05a37f65357c4b50db0349d25d68d818ed0319dd4feb40"
+    },
+    {
+      "coordinate": "honua-esri-assess",
+      "url": "https://pypi.org/pypi/honua-esri-assess/json",
+      "observed_at": "2026-09-06T20:22:48.978271+00:00",
+      "http_status": 404,
+      "body_sha256": "b82014934f66beeb9e05a37f65357c4b50db0349d25d68d818ed0319dd4feb40"
+    },
+    {
+      "coordinate": "@honua-io/embed",
+      "url": "https://registry.npmjs.org/@honua-io%2fembed",
+      "observed_at": "2026-09-06T20:22:48.976215+00:00",
+      "http_status": 404,
+      "body_sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f"
+    }
+  ],
+  "sdk_inventory_source": "https://github.com/honua-io/honua-sdk-dotnet/tree/a07d918ee121668029fea6b4e8106fe8cb3daae1/src"
+}

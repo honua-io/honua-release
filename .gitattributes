@@ -1,2 +1,12 @@
 contracts/baselines/**/*.json text eol=lf
 certification/release-controls/** text eol=lf
+
+# First-publication receipts. Default to NO content conversion so that retained
+# package bytes (.nupkg/.snupkg/.zip/.tar.gz, and anything not enumerated below)
+# keep the exact hashes recorded in SHA256SUMS; re-enable LF normalization only
+# for the textual receipt/checksum files.
+certification/first-publication/** -text
+certification/first-publication/**/*.json text eol=lf
+certification/first-publication/**/*.md text eol=lf
+certification/first-publication/**/*.sha256 text eol=lf
+certification/first-publication/**/SHA256SUMS text eol=lf
