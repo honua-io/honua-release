@@ -18,6 +18,8 @@ import subprocess
 import time
 from urllib.parse import quote
 
+import tag_signing
+
 POLICY = Path(__file__).resolve().parents[1] / 'certification/release-controls/policy.json'
 
 
@@ -150,7 +152,7 @@ def rule_drift(expected: dict, actual: dict) -> list[str]:
     return errors
 
 
-def audit_repository(policy: dict, snapshot: dict) -> list[str]:
+def audit_repository(policy: dict, snapshot: dict, receipt=None, repository: str = '') -> list[str]:
     errors = []
     try:
         expected = branch_rules(policy)
@@ -179,19 +181,25 @@ def audit_repository(policy: dict, snapshot: dict) -> list[str]:
         tags = tag_rules(policy)
         if not any(isinstance(r, dict) and not rule_drift(tags, r) for r in rulesets):
             errors.append('immutable native publication tag ruleset missing or drifted')
-        # Deliberately unresolved until a reviewed signing producer and trust policy exist.
-        # A receipt boolean or GitHub required_signatures rule is not signing evidence.
-        errors.append('native signed-tag producer and trusted verification not qualified')
+        # A receipt boolean or a GitHub required_signatures rule is never signing evidence.
+        # Only a tag_signing receipt bound to the committed trust policy resolves this, and the
+        # policy nominates no signer today, so this stays red until the owner nominates one.
+        reason = (tag_signing.qualify_receipt(repository, policy['tag_refs'], receipt)
+                  if receipt is not None else None)
+        if receipt is None or reason:
+            errors.append('native signed-tag producer and trusted verification not qualified'
+                          + (f': {reason}' if reason else ''))
     return errors
 
 
-def audit(policy: dict, snapshot: dict) -> dict:
+def audit(policy: dict, snapshot: dict, receipts: dict | None = None) -> dict:
     expected = policy['repositories']
     if not isinstance(snapshot.get('repositories'), dict):
         raise ValueError('snapshot repositories missing')
     observed = snapshot['repositories']
-    results = {repo: audit_repository(row, observed[repo]) if repo in observed
-               else ['repository missing from snapshot'] for repo, row in expected.items()}
+    results = {repo: audit_repository(row, observed[repo], (receipts or {}).get(repo), repo)
+               if repo in observed else ['repository missing from snapshot']
+               for repo, row in expected.items()}
     extras = sorted(set(observed) - set(expected))
     return {'schema_version': 1, 'issue': 'honua-io/honua-release#236',
             'status': 'fail' if extras or any(results.values()) else 'pass',
@@ -208,6 +216,8 @@ def main() -> int:
     check = subs.add_parser('audit')
     check.add_argument('snapshot', type=Path)
     check.add_argument('--output', type=Path, required=True)
+    check.add_argument('--signing-receipts', type=Path,
+                       help='signed publication-tag receipts by repository; absent means unqualified')
     capture = subs.add_parser('capture')
     capture.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -223,7 +233,8 @@ def main() -> int:
         print(json.dumps(tag_rules(row) if args.tags else branch_rules(row), indent=2))
         return 0
     raw = args.snapshot.read_bytes()
-    result = audit(policy, json.loads(raw))
+    receipts = json.loads(args.signing_receipts.read_text()) if args.signing_receipts else None
+    result = audit(policy, json.loads(raw), receipts)
     result['snapshot_sha256'] = hashlib.sha256(raw).hexdigest()
     result['policy_sha256'] = hashlib.sha256(args.policy.read_bytes()).hexdigest()
     args.output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')
