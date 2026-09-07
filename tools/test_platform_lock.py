@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from sdk_baselines import SDK_COMPONENTS, content_digest
 
 import generate_platform_lock as generator
@@ -271,3 +273,34 @@ def test_lock_schema_checks_dr_enablement():
     lock = valid_lock()
     lock["disasterRecovery"] = {"topology": "test", "substrates": {"postgresql": True}}
     assert_refused(lock, "redis")
+
+
+def _dr_inventory():
+    return {
+        "topology": "test",
+        "objectives": {"rpoMs": 60000, "rtoMs": 300000},
+        "substrates": {name: True for name in
+                       ("postgresql", "redis", "object-storage", "job-queue",
+                        "transactional-outbox", "workflow-cursors")},
+    }
+
+
+def test_lock_schema_requires_deployment_recovery_objectives():
+    lock = valid_lock()
+    lock["disasterRecovery"] = _dr_inventory()
+    assert validator.validate(lock).ok
+    del lock["disasterRecovery"]["objectives"]
+    assert_refused(lock, "objectives")
+
+
+@pytest.mark.parametrize("objectives", [
+    {"rpoMs": 60000},
+    {"rtoMs": 300000},
+    {"rpoMs": 60000, "rtoMs": 0},
+    {"rpoMs": -1, "rtoMs": 300000},
+    {"rpoMs": 60000, "rtoMs": 300000, "extra": 1},
+])
+def test_lock_schema_refuses_incomplete_objectives(objectives):
+    lock = valid_lock()
+    lock["disasterRecovery"] = {**_dr_inventory(), "objectives": objectives}
+    assert not validator.validate(lock).ok

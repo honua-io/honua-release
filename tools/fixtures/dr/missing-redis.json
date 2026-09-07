@@ -2,13 +2,13 @@
   "schema": "honua.dr-drill-receipt/v2",
   "scope": "full-platform",
   "status": "pass",
-  "candidateLockDigest": "sha256:5a794540f35c4d3fc79ff5f6a2b62598c7ce894db19a3e39d773a8b327463a69",
+  "candidateLockDigest": "sha256:0fc446fba833a5d2d1cbe54b1ab61a34741b07f15d7ea7a52f5811aeb1db0e9f",
   "topology": "fixture-all-stores",
   "startedAt": "2026-09-04T00:00:00Z",
   "completedAt": "2026-09-04T00:05:00Z",
   "measurements": {
     "rpoMs": 100,
-    "rtoMs": 2000
+    "rtoMs": 120000
   },
   "substrates": {
     "postgresql": {

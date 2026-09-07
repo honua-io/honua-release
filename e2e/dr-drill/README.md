@@ -31,6 +31,9 @@ PostgreSQL-only. Extra named durable stores are supported and required when enab
 ```yaml
 disasterRecovery:
   topology: local-docker-single-tenant
+  objectives:
+    rpoMs: 60000        # maximum tolerated data loss
+    rtoMs: 300000       # maximum tolerated recovery time
   substrates:
     postgresql: true
     redis: true
@@ -41,6 +44,8 @@ disasterRecovery:
 ```
 
 This is an illustrative configuration, **not a claim about the current candidate**.
+`objectives` are deployment-owned limits and are mandatory: without them a producer-reported
+measurement has nothing it can fail against, so an absent block fails the gate closed.
 Use `false` only when the candidate disables that substrate. Local referenced-output
 files still count as `object-storage`; sharing Redis or PostgreSQL does not remove
 logical job-queue, outbox, or workflow-cursor recovery obligations when enabled.
@@ -54,6 +59,14 @@ A `honua.dr-drill-receipt/v2` receipt must carry:
   The whole drill must fall within the 24 hours before verification, matching the
   live gate-report age limit. Future completion times fail. Scheduled and release
   runs use the current UTC clock; reissuing a report never refreshes old telemetry.
+- Measurements within the candidate's `objectives`. Neither may exceed its limit, so a
+  producer-declared `status: pass` cannot green an objectively failed drill. `rpoMs` may be
+  zero — zero data loss is a real result — but `rtoMs` must agree with the outage the receipt
+  itself records: the window from the earliest `stoppedAt` to the latest
+  `readAfterRestart.observedAt`, since recovery ends when the restored state is readable
+  again through the runtime surface, not when a process reports ready. The allowance is the
+  larger of one second and 5% of that window, which covers producer clock granularity and
+  nothing else; a reported zero can never agree with an observed outage.
 - A `substrates` object with exactly every enabled candidate substrate. A receipt's
   own purported required-set field has no authority.
 - Per substrate, `backup.id`, `backup.sha256`, `primaryStateDestroyed: true`, and
@@ -84,10 +97,11 @@ python -m pytest tools/test_validate_dr_receipt.py -q
 
 Supply `dr_receipt_url` to the release train, or `receipt_url` when dispatching
 `gate-dr`. Scheduled runs use `HONUA_DR_RECEIPT_URL`. Missing URL, attestation,
-configuration, enabled substrate, or restart observation is a failure, as is an attestation
-from an untrusted signer or ref. The current manifest has no resolved DR deployment inventory
-and the existing seam cannot produce a full-platform receipt; they remain unqualified until the deployment owner
-records the configuration and the producer executes recovery for all enabled stores.
+configuration, objective, enabled substrate, or restart observation is a failure, as is an
+attestation from an untrusted signer or ref. The current manifest has no resolved DR
+deployment inventory and the existing seam cannot produce a full-platform receipt; they
+remain unqualified until the deployment owner records the configuration and the producer
+executes recovery for all enabled stores.
 
 The PostgreSQL seam retains its existing Linux CI runner. Its detached receipt signature
 and GitHub artifact attestation certify only that explicitly scoped seam result.

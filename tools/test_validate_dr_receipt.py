@@ -284,6 +284,110 @@ def test_reversed_drill_interval_is_rejected():
     receipt["startedAt"] = "2026-09-04T00:05:01Z"
     with pytest.raises(ReceiptError, match="invalid drill interval"):
         validate(FIXTURES / "candidate.json", receipt)
+
+
+def objectives():
+    return json.loads((FIXTURES / "candidate.json").read_text(encoding="utf-8"))["disasterRecovery"]["objectives"]
+
+
+def test_complete_fixture_meets_candidate_objectives():
+    receipt = complete()
+    limits = objectives()
+    assert receipt["measurements"]["rpoMs"] <= limits["rpoMs"]
+    assert receipt["measurements"]["rtoMs"] <= limits["rtoMs"]
+    assert validate(FIXTURES / "candidate.json", receipt) == sorted(SUBSTRATES)
+
+
+@pytest.mark.parametrize("value", [0, 1, 2000, 113999, 126001, 10 ** 12, 10.0 ** 12])
+def test_reported_recovery_time_must_match_the_observed_window(value):
+    # The fixture records a 120000 ms window (earliest stoppedAt to latest read-back);
+    # the allowance is max(1000 ms, 5%) = 6000 ms, so 114000..126000 is the agreeing band.
+    receipt = complete()
+    receipt["measurements"]["rtoMs"] = value
+    expected = "exceeds the candidate objective" if value > objectives()["rtoMs"] else "disagrees with the"
+    with pytest.raises(ReceiptError, match=expected):
+        validate(FIXTURES / "candidate.json", receipt)
+
+
+@pytest.mark.parametrize("value", [114000, 120000, 126000, 120000.0])
+def test_recovery_time_within_the_documented_tolerance_is_accepted(value):
+    receipt = complete()
+    receipt["measurements"]["rtoMs"] = value
+    assert validate(FIXTURES / "candidate.json", receipt) == sorted(SUBSTRATES)
+
+
+def test_recovery_time_tracks_the_receipt_timestamps(tmp_path):
+    # Stretching the observed outage without restating the measurement must fail; restating
+    # it agrees again. A producer cannot keep a flattering number over a longer outage.
+    receipt = complete()
+    for entry in receipt["substrates"].values():
+        entry["restartRecovery"]["readAfterRestart"]["observedAt"] = "2026-09-04T00:04:30Z"
+    with pytest.raises(ReceiptError, match="disagrees with the 150000 ms recovery window"):
+        validate(FIXTURES / "candidate.json", receipt)
+    receipt["measurements"]["rtoMs"] = 150000
+    assert validate(FIXTURES / "candidate.json", receipt) == sorted(SUBSTRATES)
+
+
+def test_recovery_window_spans_the_slowest_substrate():
+    receipt = complete()
+    receipt["substrates"]["redis"]["restartRecovery"]["readAfterRestart"]["observedAt"] = "2026-09-04T00:04:40Z"
+    with pytest.raises(ReceiptError, match="disagrees with the 160000 ms recovery window"):
+        validate(FIXTURES / "candidate.json", receipt)
+
+
+@pytest.mark.parametrize("value,message", [
+    (60001, "exceeds the candidate objective of 60000 ms"),
+    (10 ** 12, "exceeds the candidate objective"),
+])
+def test_data_loss_beyond_the_candidate_objective_is_rejected(value, message):
+    receipt = complete()
+    receipt["measurements"]["rpoMs"] = value
+    with pytest.raises(ReceiptError, match=re.escape(message)):
+        validate(FIXTURES / "candidate.json", receipt)
+
+
+@pytest.mark.parametrize("value", [0, 60000])
+def test_zero_data_loss_remains_a_valid_recovery_point(value):
+    # Zero RPO is zero data loss, not a missing measurement; only the limit bounds it.
+    receipt = complete()
+    receipt["measurements"]["rpoMs"] = value
+    assert validate(FIXTURES / "candidate.json", receipt) == sorted(SUBSTRATES)
+
+
+@pytest.mark.parametrize("value,message", [
+    (None, "objectives: missing or invalid object"),
+    ({}, "objectives.rpoMs"),
+    ({"rpoMs": 60000}, "objectives.rtoMs"),
+    ({"rtoMs": 300000}, "objectives.rpoMs"),
+    ({"rpoMs": 60000, "rtoMs": 0}, "objectives.rtoMs"),
+    ({"rpoMs": -1, "rtoMs": 300000}, "objectives.rpoMs"),
+    ({"rpoMs": "60000", "rtoMs": 300000}, "objectives.rpoMs"),
+    ({"rpoMs": True, "rtoMs": 300000}, "objectives.rpoMs"),
+    ({"rpoMs": 60000, "rtoMs": float("inf")}, "objectives.rtoMs"),
+])
+def test_missing_or_invalid_objectives_fail_closed(tmp_path, value, message):
+    deployment = config()
+    if value is None:
+        del deployment["objectives"]
+    else:
+        deployment["objectives"] = value
+    receipt = complete()
+    path = candidate_file(tmp_path, deployment, receipt)
+    with pytest.raises(ReceiptError, match=re.escape(message)):
+        validate(path, receipt)
+
+
+def test_candidate_owns_the_objectives_not_the_receipt(tmp_path):
+    # A tighter deployment objective must redden a receipt the looser fixture accepts.
+    deployment = config()
+    deployment["objectives"] = {"rpoMs": 60000, "rtoMs": 90000}
+    receipt = complete()
+    path = candidate_file(tmp_path, deployment, receipt)
+    receipt["objectives"] = {"rpoMs": 10 ** 9, "rtoMs": 10 ** 9}
+    with pytest.raises(ReceiptError, match="exceeds the candidate objective of 90000 ms"):
+        validate(path, receipt)
+
+
 def test_intake_pins_the_producer_identity_and_trusted_source_ref():
     import yaml
 
