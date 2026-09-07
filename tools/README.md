@@ -96,7 +96,17 @@ live train before artifact certification and in the compatibility table's strict
 Missing introduction metadata still fails qualification. Source byte verification
 does not replace each SDK's runtime declaration generation/drift checks.
 
-SDK minimum-server derivation and unresolved publisher requirements are documented
+`server_publication_history.py collect|verify` enumerates the server publisher's
+`tags`, `releases` and `git/refs/tags` namespaces and writes
+`certification/sources/server-publication-history.v1.json`. `verify` accepts the
+receipt only when all three are completely enumerated and empty; one ref of any
+shape withdraws the first-release introduction model, and every capability then
+needs its own introduction evidence again. The lock pins the receipt at
+`components.honua-server.publicationHistory`, and `verify_sdk_baseline_sources.py`
+binds that pin to the committed bytes.
+
+SDK minimum-server derivation, the first-release model, and unresolved publisher
+requirements are documented
 in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
 [customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
 `python tools/generate_compatibility_table.py <lock>`. `--check` fails on absent
@@ -148,6 +158,28 @@ certify local bytes. A coordinate lookup answers the ledger's declaration for th
 and version; use the package path to verify downloaded bytes. Rebuilt packages with unchanged
 versions return `NOT-CERTIFIED`. Multiple matching receipts or ambiguous archive identities
 are refused. npm identity comes only from `package/package.json`, not bundled dependencies.
+
+## `tag_signing.py` — signed publication tags (issue #236)
+
+Produces and verifies annotated **signed tag objects** against
+`certification/release-controls/tag-signing-policy.json`. GitHub's
+`required_signatures` rule verifies commits, a ruleset `update`/`deletion` rule
+gives immutability, and `gh release create` writes a lightweight tag with no tag
+object; none of the three is a signed tag, and all three are refused.
+
+```bash
+python3 tools/tag_signing.py check-policy
+python3 tools/tag_signing.py verify honua-release <tag> --git-dir . \
+  --allowed-signers /path/to/allowed_signers
+```
+
+The trust policy carries **fingerprints only**. Public keys live in an
+operator-supplied allowed-signers file that is never committed, and any principal
+in it whose fingerprint the policy does not name is rejected. `release_controls.py
+audit --signing-receipts` drops the signed-tag failure only for a receipt bound to
+the committed policy's exact bytes. The policy nominates no signer today, so every
+command fails closed. See
+[release-controls/README.md](../certification/release-controls/README.md).
 
 ## `candidate_binding.py` — certified-candidate integrity boundary
 
