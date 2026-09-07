@@ -284,3 +284,35 @@ def test_reversed_drill_interval_is_rejected():
     receipt["startedAt"] = "2026-09-04T00:05:01Z"
     with pytest.raises(ReceiptError, match="invalid drill interval"):
         validate(FIXTURES / "candidate.json", receipt)
+def test_intake_pins_the_producer_identity_and_trusted_source_ref():
+    import yaml
+
+    root = HERE.parent
+    gate = yaml.safe_load((root / ".github/workflows/gate-dr.yml").read_text(encoding="utf-8"))
+    steps = gate["jobs"]["receipt"]["steps"]
+    verify = next(step for step in steps if "gh attestation verify" in step.get("run", ""))
+    command = " ".join(verify["run"].replace("`\n", " ").split())
+    assert "--repo honua-io/honua-release" in command
+    # A repository-only check accepts anything any workflow in this repository attested,
+    # including one a pull request controls.
+    assert "--signer-workflow honua-io/honua-release/.github/workflows/dr-drill-local-docker.yml" in command
+    assert "--source-ref refs/heads/trunk" in command
+    assert not verify.get("continue-on-error")
+    assert gate["permissions"]["attestations"] == "read"
+
+
+def test_pull_request_producer_cannot_mint_an_accepted_attestation():
+    import yaml
+
+    producer = yaml.safe_load((HERE.parent / ".github/workflows/dr-drill-local-docker.yml").read_text(encoding="utf-8"))
+    drill = producer["jobs"]["restore"]
+    drill_text = str(drill)
+    # The job that executes pull-request-controlled drill code holds no signing authority.
+    assert "attest" not in drill_text and "id-token" not in drill_text
+    assert drill["permissions"] == {"contents": "read", "packages": "read"}
+    assert producer["permissions"] == {"contents": "read", "packages": "read"}
+    attest = producer["jobs"]["attest"]
+    assert attest["permissions"]["attestations"] == "write"
+    assert attest["permissions"]["id-token"] == "write"
+    assert attest["if"] == "github.event_name != 'pull_request'"
+    assert attest["needs"] == "restore"

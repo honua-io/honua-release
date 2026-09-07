@@ -10,11 +10,13 @@ on:
   schedule:
     - cron: "17 9 * * 1"
 
+# The drill job executes pull-request-controlled code (`e2e/dr-drill/run.sh`), so it never
+# holds OIDC or attestation write. Minting a producer attestation is a separate job that only
+# runs off a pull request; gate-dr additionally pins this workflow identity and the trunk
+# source ref at intake, so an attestation produced from any other ref is refused there.
 permissions:
   contents: read
   packages: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: dr-drill-local-docker
@@ -24,6 +26,9 @@ jobs:
   restore:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -37,10 +42,6 @@ jobs:
           password: ${{ github.token }}
       - name: Execute scoped PostgreSQL backup and restore drill
         run: bash e2e/dr-drill/run.sh
-      - name: Attest signed receipt
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
-        with:
-          subject-path: artifacts/dr-drill-local-docker/receipt.json
       - name: Upload immutable drill envelope
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -52,3 +53,23 @@ jobs:
             artifacts/dr-drill-local-docker/SHA256SUMS
           if-no-files-found: error
           retention-days: 90
+
+  attest:
+    # Trusted-ref production only. A pull request run stops after the drill and its envelope,
+    # so unmerged code cannot obtain the producer identity gate-dr accepts.
+    needs: restore
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dr-drill-local-docker-${{ github.sha }}
+          path: artifacts/dr-drill-local-docker
+      - name: Attest signed receipt
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        with:
+          subject-path: artifacts/dr-drill-local-docker/receipt.json

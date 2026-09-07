@@ -68,8 +68,14 @@ A `honua.dr-drill-receipt/v2` receipt must carry:
 
 The producer must write and read through the real substrate/product surfaces and
 hash the actual observations. A matching claim is evidence validation, not independent
-execution of recovery; the gate also verifies GitHub producer attestation. The JSON
-files in `tools/fixtures/dr` are synthetic rejection-test inputs, never qualification receipts.
+execution of recovery. The gate verifies the GitHub producer attestation against the
+signing workflow identity and the trunk source ref, not the repository alone: a
+repository-only check would accept a receipt attested by any workflow here, including one an
+unmerged same-repository pull request controls. The producer keeps OIDC and attestation write
+out of the job that runs pull-request-controlled drill code, and mints an attestation only off
+a pull request. Repoint `--signer-workflow` when the full-platform producer is established.
+The JSON files in `tools/fixtures/dr` are synthetic rejection-test inputs, never qualification
+receipts.
 
 ```powershell
 python tools/validate_dr_receipt.py --candidate platform-manifest.yaml --receipt receipt.json
@@ -78,9 +84,9 @@ python -m pytest tools/test_validate_dr_receipt.py -q
 
 Supply `dr_receipt_url` to the release train, or `receipt_url` when dispatching
 `gate-dr`. Scheduled runs use `HONUA_DR_RECEIPT_URL`. Missing URL, attestation,
-configuration, enabled substrate, or restart observation is a failure. The current
-manifest has no resolved DR deployment inventory and the existing seam cannot
-produce a full-platform receipt; they remain unqualified until the deployment owner
+configuration, enabled substrate, or restart observation is a failure, as is an attestation
+from an untrusted signer or ref. The current manifest has no resolved DR deployment inventory
+and the existing seam cannot produce a full-platform receipt; they remain unqualified until the deployment owner
 records the configuration and the producer executes recovery for all enabled stores.
 
 The PostgreSQL seam retains its existing Linux CI runner. Its detached receipt signature

@@ -68,10 +68,22 @@ jobs:
             throw 'Missing or invalid full-platform DR receipt_url: HTTPS required'
           }
           Invoke-WebRequest -Uri $receiptUri -MaximumRedirection 0 -OutFile "$env:RUNNER_TEMP/dr-receipt.json"
+      # `--repo` alone is not a trust boundary. Any same-repository pull request can run a
+      # workflow that holds `attestations: write` and mint an attestation associated with this
+      # repository, so a repository-only check would accept a receipt fabricated by unmerged
+      # code. Pin the signing workflow identity and the trusted source ref: only the reviewed
+      # producer, running from trunk, can supply a receipt this gate accepts. When the
+      # full-platform producer is established, repoint --signer-workflow at it here.
       - name: Verify receipt producer attestation
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh attestation verify "$env:RUNNER_TEMP/dr-receipt.json" --repo honua-io/honua-release
+        shell: pwsh
+        run: |
+          gh attestation verify "$env:RUNNER_TEMP/dr-receipt.json" `
+            --repo honua-io/honua-release `
+            --signer-workflow honua-io/honua-release/.github/workflows/dr-drill-local-docker.yml `
+            --source-ref refs/heads/trunk
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Reject missing substrates or restart observations
         env:
           CANDIDATE_BUNDLE: ${{ inputs.candidate_bundle }}
