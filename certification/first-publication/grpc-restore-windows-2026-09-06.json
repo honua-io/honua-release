@@ -1,0 +1,12 @@
+{
+  "observed_at": "2026-09-06T20:28:18.115697+00:00",
+  "status": "pass",
+  "command": "dotnet restore Smoke.csproj --configfile NuGet.Config --packages <empty isolated directory> --no-cache -maxcpucount:4",
+  "host": "Windows; native SDK on PATH",
+  "project": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>\n  <ItemGroup><PackageReference Include=\"Geospatial.Grpc\" Version=\"[1.0.0]\" /></ItemGroup>\n</Project>\n",
+  "nuget_config": "<configuration>\n  <packageSources><clear /><add key=\"anonymous-public-only\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources>\n</configuration>\n",
+  "resolved_package": "Geospatial.Grpc/1.0.0",
+  "restored_nupkg_sha256": "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f",
+  "expected_hash_source": "v1.0.0 release-receipt.json nuget.publicPackage.rawSha256",
+  "scope": "Anonymous package restore and exact-byte verification only; no live server or platform-candidate certification."
+}
