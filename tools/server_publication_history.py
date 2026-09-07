@@ -17,7 +17,7 @@ number.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -98,8 +98,22 @@ def collect(repository: str = REPOSITORY) -> dict[str, Any]:
     }
 
 
-def verify(receipt: Any, repository: str = REPOSITORY) -> str:
-    """Return the publisher identity proven to have no prior publication, or fail closed."""
+def expected_endpoints(repository: str) -> dict[str, str]:
+    return {f"https://api.github.com/repos/{repository}/{endpoint}": endpoint
+            for endpoint in ENDPOINTS}
+
+
+def verify(receipt: Any, repository: str = REPOSITORY, *, now: datetime | None = None,
+           max_age_days: int | None = None) -> str:
+    """Return the publisher identity proven to have no prior publication, or fail closed.
+
+    Every field is load-bearing, so every field is checked exactly. The endpoint URLs must be
+    the three real GitHub collection endpoints (this verifier does not fetch them, so a
+    plausible-looking URL on another host would otherwise pass); each count must be a genuine
+    nonnegative integer (a string or null count would otherwise be summed as zero); and when a
+    freshness bound is supplied the observation must be inside it, because emptiness proven
+    months ago says nothing about the repository at the cut.
+    """
     if not isinstance(receipt, dict) or receipt.get("schema") != SCHEMA:
         raise ValueError(f"expected a {SCHEMA} receipt")
     if receipt.get("repository") != repository:
@@ -107,30 +121,53 @@ def verify(receipt: Any, repository: str = REPOSITORY) -> str:
     if not SHA.fullmatch(str(receipt.get("observedDefaultBranchSha", ""))):
         raise ValueError("receipt must pin the observed default-branch revision")
     try:
-        datetime.strptime(str(receipt.get("observedAt", "")), "%Y-%m-%dT%H:%M:%SZ")
+        observed = datetime.strptime(str(receipt.get("observedAt", "")), "%Y-%m-%dT%H:%M:%SZ")
     except ValueError as exc:
         raise ValueError("receipt must record a UTC observation timestamp") from exc
+    observed = observed.replace(tzinfo=timezone.utc)
+    if max_age_days is not None:
+        if not isinstance(max_age_days, int) or isinstance(max_age_days, bool) or max_age_days < 1:
+            raise ValueError("publication-history freshness bound must be a positive number of days")
+        current = now or datetime.now(timezone.utc)
+        if observed > current + timedelta(minutes=5):
+            raise ValueError("receipt was observed in the future")
+        age = current - observed
+        if age > timedelta(days=max_age_days):
+            raise ValueError(f"publication history was enumerated {age.days} days ago against a "
+                             f"{max_age_days}-day bound; re-enumerate it at the cut, because a "
+                             "server published after the observation would break the first-release "
+                             "premise")
     sources = receipt.get("sources")
     if not isinstance(sources, list):
         raise ValueError("receipt must enumerate its sources")
-    observed = {}
+    expected = expected_endpoints(repository)
+    observed_counts: dict[str, int] = {}
     for source in sources:
-        if not isinstance(source, dict) or not str(source.get("api", "")).startswith("https://"):
-            raise ValueError("each source must name the HTTPS endpoint it enumerated")
+        if not isinstance(source, dict):
+            raise ValueError("each source must be a mapping")
+        api = source.get("api")
+        if api not in expected:
+            raise ValueError(f"{api!r} is not one of this publisher's GitHub publication "
+                             "endpoints; only the exact api.github.com collections are evidence")
+        endpoint = expected[api]
+        if endpoint in observed_counts:
+            raise ValueError(f"{endpoint} is enumerated more than once")
         if source.get("complete") is not True:
-            raise ValueError(f"incomplete enumeration of {source.get('api')}; pagination must finish")
-        endpoint = str(source["api"]).rsplit(f"{repository}/", 1)[-1]
+            raise ValueError(f"incomplete enumeration of {api}; pagination must finish")
         answer = source.get("answer")
         if answer is not None and (answer != EMPTY_NAMESPACE or endpoint != REF_NAMESPACE_ENDPOINT):
             raise ValueError(f"{endpoint} was not read as a complete listing: {answer}")
-        observed[endpoint] = source.get("count")
-    missing = [endpoint for endpoint in ENDPOINTS if endpoint not in observed]
+        count = source.get("count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError(f"{endpoint} count must be a nonnegative integer, not {count!r}")
+        observed_counts[endpoint] = count
+    missing = [endpoint for endpoint in ENDPOINTS if endpoint not in observed_counts]
     if missing:
         raise ValueError("publication namespaces not enumerated: " + ", ".join(missing))
     refs = receipt.get("publishedRefs")
-    if not isinstance(refs, list):
+    if not isinstance(refs, list) or any(not isinstance(ref, str) for ref in refs):
         raise ValueError("receipt must list the refs it found")
-    found = sum(count for count in observed.values() if isinstance(count, int))
+    found = sum(observed_counts.values())
     if found or refs:
         raise ValueError(f"{repository} has {found or len(refs)} prior publication ref(s); the "
                          "first-release model does not apply and each capability needs its own "
@@ -149,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     capture.add_argument("--output", type=Path, default=RECEIPT)
     check = subs.add_parser("verify", help="accept a receipt only if it proves no prior publication")
     check.add_argument("receipt", type=Path, nargs="?", default=RECEIPT)
+    check.add_argument("--max-age-days", type=int,
+                       help="reject an enumeration older than this; the release cut must bound it")
     args = parser.parse_args(argv)
     try:
         if args.command == "collect":
@@ -156,7 +195,8 @@ def main(argv: list[str] | None = None) -> int:
                                    encoding="utf-8", newline="\n")
             print(f"WROTE: {args.output} {digest(args.output)}")
             return 0
-        verify(json.loads(args.receipt.read_text(encoding="utf-8")))
+        verify(json.loads(args.receipt.read_text(encoding="utf-8")),
+               max_age_days=args.max_age_days)
         print(f"PASS: {REPOSITORY} has no prior publication; {digest(args.receipt)}")
         return 0
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError,

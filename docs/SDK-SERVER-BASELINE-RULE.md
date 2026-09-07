@@ -75,14 +75,26 @@ release, and a manifest may say so by declaring
 That is a derivation, not a guess, and it fails closed on every side:
 
 - the lock must pin the publication-history receipt (`components.honua-server.publicationHistory`
-  with a repository path, HTTPS URI and SHA-256) and the receipt's committed bytes must match it;
+  with a repository path, HTTPS URI, SHA-256 and `maxAgeDays`) and the receipt's committed bytes
+  must match it. Both fields are defined in `schemas/platform-lock.v1.schema.json`, which sets
+  `additionalProperties: false`, so a lock carrying them validates and a malformed pin does not;
 - the receipt must enumerate `tags`, `releases` and `git/refs/tags` completely and find nothing.
-  One ref of any shape — a prerelease, a nightly, a chart tag — withdraws the model and sends
-  every capability back to per-capability introduction evidence;
+  Each source must be the exact `https://api.github.com/repos/honua-io/honua-server/...`
+  collection — the verifier does not fetch these URLs, so a plausible URL on another host is not
+  an enumeration — and each count must be a genuine nonnegative integer, because a string or
+  `null` count would otherwise sum to zero and read as emptiness. One ref of any shape — a
+  prerelease, a nightly, a chart tag — withdraws the model and sends every capability back to
+  per-capability introduction evidence;
+- the enumeration must be inside the pinned `maxAgeDays` at the time it is checked. Emptiness
+  proven once is not emptiness at the cut: a server published between the observation and the
+  candidate would silently break the premise, so the train re-collects the receipt inside that
+  bound before certification;
 - the capability's `evidence` must cite that exact receipt URI and digest, so a manifest cannot
   claim the model against a receipt nobody locked;
-- the lock must name the first release (`components.honua-server.releaseVersion`). It does not
-  today, so nothing resolves;
+- the lock must name the first release (`components.honua-server.releaseVersion`), and that
+  version must equal the released version of a locked `honua-server` artifact — a `releaseVersion`
+  beside a differently versioned artifact would publish a floor for a server nobody can install.
+  The lock names no release today, so nothing resolves;
 - a capability may not carry both the model and a different number.
 
 The model raises the floor with the release: whatever SemVer the first server release is issued

@@ -7,15 +7,18 @@ literal. No assertion snapshots whatever the current implementation happens to p
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 import server_publication_history as history
 from sdk_baselines import PUBLISHER, check_component, content_digest, findings, release_context
 from test_platform_lock import DIGEST, REVISION, component, valid_lock
+from validate_platform_lock import validate
 from verify_sdk_baseline_sources import SourceReader, verify_publication_history, verify_sources
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -128,14 +131,27 @@ def first_release_component(*, cite=RECEIPT_URI, sha=DIGEST, declared=None,
     return item
 
 
-def context(*, version=FIRST_RELEASE_VERSION, pin=True):
-    publisher = {}
+def server_image(version):
+    return {"kind": "image", "coordinate": "ghcr.io/honua-io/honua-server", "version": version,
+            "sourceRevision": REVISION, "digest": "sha256:" + "e" * 64,
+            "platformDigests": {"amd64": "sha256:" + "e" * 64}, "architectures": ["amd64"]}
+
+
+def publisher(*, version=FIRST_RELEASE_VERSION, pin=True, sha=DIGEST,
+              artifact_version=..., max_age_days=14):
+    entry = {}
     if version is not None:
-        publisher["releaseVersion"] = version
+        entry["releaseVersion"] = version
     if pin:
-        publisher["publicationHistory"] = {
-            "path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST}
-    return release_context({"components": {PUBLISHER: publisher}})
+        entry["publicationHistory"] = {"path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": sha,
+                                       "maxAgeDays": max_age_days}
+    shipped = version if artifact_version is ... else artifact_version
+    entry["artifacts"] = ([server_image(shipped)] if shipped is not None else [])
+    return entry
+
+
+def context(**kwargs):
+    return release_context({"components": {PUBLISHER: publisher(**kwargs)}})
 
 
 def test_first_release_capability_resolves_to_the_first_release():
@@ -186,11 +202,18 @@ def test_lock_without_a_publisher_release_version_reports_every_sdk():
     lock = valid_lock()
     for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
         lock["components"][name] = {**lock["components"][name], **first_release_component()}
-    lock["components"][PUBLISHER] = {"publicationHistory": {
-        "path": RECEIPT_PATH, "uri": RECEIPT_URI, "sha256": DIGEST}}
+    lock["components"][PUBLISHER] = publisher(version=None, artifact_version=None)
     assert len(findings(lock)) == 4
-    lock["components"][PUBLISHER]["releaseVersion"] = FIRST_RELEASE_VERSION
+    lock["components"][PUBLISHER] = publisher()
     assert findings(lock) == []
+
+
+def test_named_release_must_be_the_artifact_that_ships():
+    """A releaseVersion beside a differently versioned server artifact publishes a phantom floor."""
+    with pytest.raises(ValueError, match="no locked publisher artifact declares"):
+        check_component(first_release_component(), context(artifact_version="2.0.0"))
+    with pytest.raises(ValueError, match="no locked publisher artifact declares"):
+        check_component(first_release_component(), context(artifact_version=None))
 
 
 # --- the lock pin must match the committed bytes ---------------------------------------------
@@ -202,7 +225,8 @@ def lock_with_history(tmp_path, body, *, sha256=None, path=RECEIPT_PATH):
     target.write_bytes(raw)
     return {"components": {PUBLISHER: {"publicationHistory": {
         "path": path, "uri": RECEIPT_URI,
-        "sha256": sha256 or "sha256:" + hashlib.sha256(raw).hexdigest()}}}}, raw
+        "sha256": sha256 or "sha256:" + hashlib.sha256(raw).hexdigest(),
+        "maxAgeDays": 3650}}}}, raw
 
 
 def test_publication_history_pin_binds_the_committed_bytes(tmp_path):
@@ -244,7 +268,134 @@ def test_source_verification_runs_the_publication_history_check(tmp_path):
     for name in ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"):
         lock["components"][name] = {**lock["components"][name],
                                     **first_release_component(sha=pin["sha256"])}
-    lock["components"][PUBLISHER] = {"publicationHistory": pin,
-                                     "releaseVersion": FIRST_RELEASE_VERSION}
+    lock["components"][PUBLISHER] = publisher(sha=pin["sha256"], max_age_days=3650)
     with pytest.raises(ValueError, match="prior publication ref"):
         verify_sources(lock, SourceReader(tmp_path), tmp_path)
+
+
+# --- review hardening: exact endpoints, real counts, bounded freshness, schema ------------------
+
+def test_a_plausible_url_on_another_host_is_not_a_github_enumeration():
+    """The verifier never fetches these URLs, so only the exact GitHub collections are evidence."""
+    value = receipt()
+    value["sources"][0]["api"] = "https://example.invalid/repos/honua-io/honua-server/tags"
+    with pytest.raises(ValueError, match="not one of this publisher's GitHub publication"):
+        history.verify(value)
+
+
+def test_endpoint_of_another_repository_is_rejected():
+    value = receipt()
+    value["sources"][1]["api"] = "https://api.github.com/repos/honua-io/honua-sdk-js/releases"
+    with pytest.raises(ValueError, match="not one of this publisher's GitHub publication"):
+        history.verify(value)
+
+
+def test_the_same_namespace_cannot_stand_in_for_a_missing_one():
+    value = receipt()
+    value["sources"][1]["api"] = value["sources"][0]["api"]
+    with pytest.raises(ValueError, match="enumerated more than once"):
+        history.verify(value)
+
+
+@pytest.mark.parametrize("count", ["100", "0", None, 1.0, True, -1, [], {}])
+def test_a_count_that_is_not_a_nonnegative_integer_is_rejected(count):
+    """A string or null count would otherwise be summed as zero and read as emptiness."""
+    value = receipt()
+    value["sources"][0]["count"] = count
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        history.verify(value)
+
+
+def test_a_nonzero_integer_count_still_reports_prior_publication():
+    value = receipt()
+    value["sources"][0]["count"] = 100
+    with pytest.raises(ValueError, match="100 prior publication ref"):
+        history.verify(value)
+
+
+def test_refs_must_be_strings():
+    with pytest.raises(ValueError, match="list the refs"):
+        history.verify(receipt(publishedRefs=[{"name": "v1"}]))
+
+
+NOW = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)
+
+
+def test_a_stale_enumeration_cannot_carry_the_first_release_premise():
+    """Emptiness proven on 2026-09-07 says nothing about the repository fourteen days later."""
+    value = receipt()  # observed 2026-09-07T04:46:49Z
+    assert history.verify(value, now=NOW, max_age_days=30) == "honua-io/honua-server"
+    with pytest.raises(ValueError, match="enumerated 14 days ago against a 7-day bound"):
+        history.verify(value, now=NOW, max_age_days=7)
+
+
+def test_an_observation_from_the_future_is_rejected():
+    with pytest.raises(ValueError, match="observed in the future"):
+        history.verify(receipt(observedAt="2027-01-01T00:00:00Z"), now=NOW, max_age_days=3650)
+
+
+@pytest.mark.parametrize("bound", [0, -1, "14", 14.0, True])
+def test_freshness_bound_must_be_a_positive_number_of_days(bound):
+    with pytest.raises(ValueError, match="positive number of days"):
+        history.verify(receipt(), now=NOW, max_age_days=bound)
+
+
+def test_lock_pin_must_bound_the_enumeration_age(tmp_path):
+    lock, _ = lock_with_history(tmp_path, receipt())
+    del lock["components"][PUBLISHER]["publicationHistory"]["maxAgeDays"]
+    with pytest.raises(ValueError, match="positive maxAgeDays"):
+        verify_publication_history(lock, tmp_path)
+
+
+def test_lock_pin_enforces_the_bound_it_declares(tmp_path):
+    lock, _ = lock_with_history(tmp_path, receipt(observedAt="2024-01-01T00:00:00Z"))
+    lock["components"][PUBLISHER]["publicationHistory"]["maxAgeDays"] = 1
+    with pytest.raises(ValueError, match="re-enumerate it at the cut"):
+        verify_publication_history(lock, tmp_path)
+
+
+# --- the lock schema must actually admit the fields the generator writes -----------------------
+
+def schema_check(lock):
+    schema = json.loads((ROOT / "schemas/platform-lock.v1.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(lock, schema)
+
+
+def locked_first_release(**overrides):
+    lock = valid_lock()
+    entry = {**lock["components"]["sdk"], **publisher()}
+    entry.update(overrides)
+    lock["components"][PUBLISHER] = entry
+    return lock
+
+
+def test_schema_admits_the_generated_first_release_fields():
+    """Regression: additionalProperties=false once rejected every lock that could use the model."""
+    schema_check(locked_first_release())
+
+
+@pytest.mark.parametrize("mutate,label", [
+    (lambda c: c.__setitem__("releaseVersion", "2026.1"), "CalVer release version"),
+    (lambda c: c["publicationHistory"].pop("maxAgeDays"), "pin without a freshness bound"),
+    (lambda c: c["publicationHistory"].__setitem__("uri", "http://insecure"), "non-HTTPS receipt uri"),
+    (lambda c: c["publicationHistory"].__setitem__("smuggled", 1), "unknown pin field"),
+])
+def test_schema_constrains_the_first_release_fields(mutate, label):
+    lock = locked_first_release()
+    mutate(lock["components"][PUBLISHER])
+    with pytest.raises(jsonschema.ValidationError):
+        schema_check(lock)
+
+
+def test_only_the_publisher_declares_the_first_release_fields():
+    lock = locked_first_release()
+    lock["components"]["sdk"]["releaseVersion"] = "1.0.0"
+    assert any("only honua-server declares a first-release releaseVersion" in error
+               for error in validate(lock).errors)
+
+
+def test_lock_validator_requires_the_named_release_to_ship():
+    lock = locked_first_release()
+    lock["components"][PUBLISHER]["artifacts"] = [server_image("2.0.0")]
+    assert any("released version of a locked publisher artifact" in error
+               for error in validate(lock).errors)

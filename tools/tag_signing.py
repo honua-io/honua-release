@@ -232,12 +232,20 @@ def sign_tag(repo: Path, tag: str, target: str, message: str, policy: dict[str, 
 
 
 def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
-                    policy_path: Path = TRUST_POLICY) -> str | None:
+                    policy_path: Path = TRUST_POLICY, *, expected: Any = None,
+                    source: Any = None) -> str | None:
     """Accept a signed-tag receipt as #236 qualification, or return why it is not one.
 
-    A receipt is a claim about a verification that already happened, so it qualifies nothing on
-    its own: it must be bound to the exact trust policy bytes that authorized the signer, name a
-    tag inside the protected namespace, and carry a fingerprint the policy still authorizes.
+    A receipt is an unauthenticated JSON claim about a verification someone says happened, so it
+    qualifies nothing by itself: anyone able to write the file could copy the policy digest and an
+    authorized fingerprint and invent two object ids. Three independent bindings are therefore
+    required, and each one alone is insufficient:
+
+      * the committed trust policy bytes that authorized the signer;
+      * the exact release identity being audited — a receipt for an old or throwaway signed tag
+        must not clear the control for the tag the audited candidate actually publishes;
+      * a fresh cryptographic re-verification of the tag object in a real repository, which is
+        what proves a signature exists at all.
     """
     if not isinstance(receipt, dict) or receipt.get("schema") != RECEIPT_SCHEMA:
         return f"expected a {RECEIPT_SCHEMA} receipt"
@@ -263,6 +271,27 @@ def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
         return str(exc)
     if signature.get("fingerprint") not in {signer["fingerprint"] for signer in signers}:
         return "receipt fingerprint is not an authorized publication signer"
+    # A namespace pattern is not a release identity: `refs/tags/v*` matches any old signed tag.
+    if not isinstance(expected, dict) or not expected.get("tag") or not SHA1.fullmatch(
+            str(expected.get("target", ""))):
+        return ("no audited release identity (publication tag and candidate revision) is supplied "
+                "to bind the receipt to")
+    if receipt["tag"] != expected["tag"]:
+        return f"receipt is for {receipt['tag']!r}, not the audited release tag {expected['tag']!r}"
+    if receipt["target"] != expected["target"]:
+        return "receipt target is not the audited candidate revision"
+    if not isinstance(source, dict) or not source.get("gitDir"):
+        return ("receipt is unauthenticated; qualification requires re-verifying the tag object in "
+                "the repository, so a gitDir must be supplied")
+    allowed = source.get("allowedSigners")
+    try:
+        fresh = verify_tag(Path(source["gitDir"]), receipt["tag"], policy, repository,
+                           Path(allowed) if allowed else None, policy_path)
+    except (OSError, SigningError) as exc:
+        return f"re-verification of the signed tag failed: {exc}"
+    for field in ("tagObject", "target", "targetType", "signature"):
+        if fresh[field] != receipt[field]:
+            return f"receipt {field} disagrees with the tag object that actually verified"
     return None
 
 

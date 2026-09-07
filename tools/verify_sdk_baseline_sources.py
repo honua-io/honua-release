@@ -95,7 +95,14 @@ def verify_publication_history(lock: dict, root: Path) -> None:
         raise ValueError(f"{PUBLISHER}: publication-history receipt is missing at {relative}")
     if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != history.get("sha256"):
         raise ValueError(f"{PUBLISHER}: publication-history receipt bytes disagree with the lock pin")
-    server_publication_history.verify(json.loads(path.read_text(encoding="utf-8")))
+    # Emptiness proven once is not emptiness at the cut: the lock must bound how stale the
+    # enumeration may be, and the train re-collects it inside that bound before certification.
+    max_age = history.get("maxAgeDays")
+    if not isinstance(max_age, int) or isinstance(max_age, bool) or max_age < 1:
+        raise ValueError(f"{PUBLISHER}: publication-history pin must bound the enumeration's age "
+                         "with a positive maxAgeDays")
+    server_publication_history.verify(json.loads(path.read_text(encoding="utf-8")),
+                                      max_age_days=max_age)
 
 
 def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT) -> list[str]:

@@ -99,9 +99,11 @@ does not replace each SDK's runtime declaration generation/drift checks.
 `server_publication_history.py collect|verify` enumerates the server publisher's
 `tags`, `releases` and `git/refs/tags` namespaces and writes
 `certification/sources/server-publication-history.v1.json`. `verify` accepts the
-receipt only when all three are completely enumerated and empty; one ref of any
-shape withdraws the first-release introduction model, and every capability then
-needs its own introduction evidence again. The lock pins the receipt at
+receipt only when each source is the exact `api.github.com` collection, each count
+is a genuine nonnegative integer, all three are completely enumerated and empty,
+and (with `--max-age-days`) the enumeration is inside its freshness bound. One ref
+of any shape withdraws the first-release introduction model, and every capability
+then needs its own introduction evidence again. The lock pins the receipt at
 `components.honua-server.publicationHistory`, and `verify_sdk_baseline_sources.py`
 binds that pin to the committed bytes.
 
@@ -175,9 +177,12 @@ python3 tools/tag_signing.py verify honua-release <tag> --git-dir . \
 
 The trust policy carries **fingerprints only**. Public keys live in an
 operator-supplied allowed-signers file that is never committed, and any principal
-in it whose fingerprint the policy does not name is rejected. `release_controls.py
-audit --signing-receipts` drops the signed-tag failure only for a receipt bound to
-the committed policy's exact bytes. The policy nominates no signer today, so every
+in it whose fingerprint the policy does not name is rejected.
+`release_controls.py audit --signing-receipts --release-identity` drops the
+signed-tag failure only when the receipt is bound to the committed policy's exact
+bytes, matches the audited release tag and candidate revision, and re-verifies
+cryptographically against the tag object in a real repository. The audit also
+checks namespace parity itself. The policy nominates no signer today, so every
 command fails closed. See
 [release-controls/README.md](../certification/release-controls/README.md).
 

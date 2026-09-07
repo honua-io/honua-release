@@ -74,6 +74,21 @@
       "required": ["source", "lifecycleStatus", "supportTier", "artifactIdentityModel", "contractVersions", "schemaVersions", "artifacts"],
       "properties": {
         "source": {"$ref": "#/$defs/sourceRef"},
+        "releaseVersion": {
+          "$comment": "The publisher's released SemVer identity; only honua-server declares it, and it must equal the version of a locked artifact.",
+          "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "publicationHistory": {
+          "$comment": "Pin of the committed receipt enumerating the publisher's complete (empty) tag/release namespaces, which is what lets a capability resolve to the first release. maxAgeDays bounds how stale that enumeration may be at the cut.",
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "uri", "sha256", "maxAgeDays"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "uri": {"type": "string", "pattern": "^https://"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "maxAgeDays": {"type": "integer", "minimum": 1}
+          }
+        },
         "serverCompatibility": {
           "type": "object", "additionalProperties": false,
           "required": ["minimumServerVersion", "manifests", "declarations"],

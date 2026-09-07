@@ -28,6 +28,7 @@ def release_context(lock: dict[str, Any]) -> dict[str, Any]:
     return {
         "firstReleaseVersion": publisher.get("releaseVersion"),
         "publicationHistory": publisher.get("publicationHistory"),
+        "publisherArtifacts": publisher.get("artifacts"),
     }
 
 
@@ -54,6 +55,14 @@ def first_release_floor(capability: str, entry: dict[str, Any], context: dict[st
     if not version:
         raise ValueError(f"unqualified: {capability} resolves to the first {PUBLISHER} release, "
                          "which this lock does not name")
+    # The named release must be the artifact that actually ships. A releaseVersion beside a
+    # differently versioned server artifact would publish a floor for a server nobody can install.
+    artifacts = context.get("publisherArtifacts")
+    if not isinstance(artifacts, list) or not any(
+            isinstance(artifact, dict) and artifact.get("version") == version
+            for artifact in artifacts):
+        raise ValueError(f"unqualified: {capability} resolves to {PUBLISHER} {version}, which no "
+                         "locked publisher artifact declares as its released version")
     declared = entry.get("minimumServerVersion")
     if declared is not None and declared != version:
         raise ValueError(f"unqualified: {capability} declares {declared!r}; the first "

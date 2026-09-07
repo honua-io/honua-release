@@ -138,10 +138,24 @@ python3 tools/tag_signing.py verify honua-release honua-2026.1.0-rc.1 \
 
 `sign` refuses a tag outside the repository's protected namespace, a mutable target, an existing
 tag (publication tags are never moved), and a configured key the policy does not authorize; it
-then verifies what it actually wrote. `audit` accepts `--signing-receipts <file>`, a mapping of
-repository to receipt, and drops the signed-tag failure **only** for a receipt bound to the
-committed trust policy's exact bytes, inside the protected namespace, naming a real annotated
-tag object and an authorized fingerprint.
+then verifies what it actually wrote.
+
+A receipt file is an unauthenticated claim about a verification someone says happened, so it
+qualifies nothing on its own. `audit --signing-receipts <file>` takes
+`{repository: {receipt, gitDir, allowedSigners}}` and `--release-identity <file>` takes
+`{repository: {tag, target}}`; the signed-tag failure is dropped only when **all** of the
+following hold, and none of them is sufficient alone:
+
+- the receipt is bound to the committed trust policy's exact bytes and an authorized fingerprint;
+- its tag and peeled target equal the audited release identity — a namespace pattern such as
+  `refs/tags/v*` is not a release identity, so a receipt for an old or throwaway signed tag
+  cannot clear the control for the tag the candidate actually publishes;
+- the tag object re-verifies cryptographically in the named repository *now*, and the fresh
+  verification's tag object, target, target type and signature all equal the receipt's.
+
+`audit` also runs the namespace parity check itself, so a drifted signing policy that authorized
+tags outside `policy.json`'s immutable namespaces is reported as a per-repository failure rather
+than depending on an operator running `check-policy`.
 
 The committed policy nominates **no signer**, so every command above fails closed today and the
 audit stays red for all five repositories with native publication tags (`geospatial-grpc`,
