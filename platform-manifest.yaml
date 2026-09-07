@@ -668,3 +668,26 @@ artifacts:
   sbom: "TBD"                          # TODO(Phase 3): aggregated CycloneDX/SPDX digest
   provenance: "TBD"                    # TODO(Phase 3): SLSA attestation
   releaseNotes: "TBD"                  # TODO(Phase 2/3): generated release-notes ref
+
+# Release-level facts of the atomic candidate identity (release#231). Everything the signed
+# platform lock carries outside `components` is declared here, at immutable coordinates, so that
+# the reviewer of this file, tools/generate_platform_lock.py and candidate binding all read the
+# same bytes. A lock may not introduce a release-level fact this block does not declare.
+# `tools/verify_content_digests.py` re-reads each declared file at its pinned revision.
+platformLockEvidence:
+  contentDigests:
+    # The MCP standard's certified content: the schema index the operator ruled is the public
+    # spec artifact (release#231, 2026-09-01 decision 3), at the pinned spec commit. The same
+    # bytes back `components.geospatial-mcp.artifactSha256`.
+    geospatialMcp:
+      repository: "https://github.com/honua-io/geospatial-mcp"
+      revision: "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+      path: "spec/schemas/index.json"
+      sha256: "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+    # catalog: AT-CUT. The runtime capability/operation catalog digest is produced by the exact
+    #   candidate server image; no pre-cut file carries it.
+    # okf: AT-CUT. The OKF content digest is produced by the same candidate runtime.
+  # fixtures: AT-CUT. The certified fixture repositories/revisions are chosen at the cut.
+  # sbom / provenance: AT-CUT. Both are emitted for the candidate artifacts by the train.
+  # notes: AT-CUT. `artifacts.releaseNotes` is still a placeholder; the lock takes a
+  #   repository@revision:path#sha256 reference, never prose or a live page.

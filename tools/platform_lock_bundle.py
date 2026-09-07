@@ -57,6 +57,16 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
     _declared(draft.lock["platform"], lock["platform"], "platform")
+    # Release-level facts are part of the same atomic identity as the components, so they are
+    # compared for equality, not containment: a lock may not add a content digest, fixture
+    # revision, SBOM/provenance reference or release-notes reference that the reviewed frozen
+    # inputs never declared, and it may not drop one they did.
+    for field in ("contentDigests", "fixtures", "sbom", "provenance", "notes"):
+        expected = draft.lock.get(field)
+        if expected is None:
+            raise ValueError(f"{field}: frozen inputs declare no {field}; the lock cannot introduce one")
+        if lock.get(field) != expected:
+            raise ValueError(f"{field}: lock differs from frozen input")
     if set(lock["components"]) != set(draft.lock["components"]):
         raise ValueError("component denominator differs from frozen manifest")
     matched = set()

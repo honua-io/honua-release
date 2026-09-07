@@ -213,3 +213,11 @@ jobs:
           else
             python tools/validate_platform.py
           fi
+
+      # release#231: the platform lock carries each content digest as a bare hash, so nothing in
+      # the lock proves which bytes it names. Re-read every declared file at its pinned revision
+      # and recompute the digest; a moved or edited source fails this branch-protected job.
+      - name: Verify declared platform-lock content digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/verify_content_digests.py platform-manifest.yaml

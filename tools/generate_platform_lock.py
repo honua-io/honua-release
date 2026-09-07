@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from release_facts import (
+    CONTENT_DIGEST_FACTS,
+    content_digest,
+    evidence_reference,
+    fixture_reference,
+    notes_reference,
+)
 from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
 
 try:
@@ -24,6 +31,7 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)?$")
+PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -64,7 +72,6 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
-    release_notes = manifest.get("artifacts", {}).get("releaseNotes") if isinstance(manifest.get("artifacts"), dict) else None
     lock: dict[str, Any] = {
         "lockVersion": "platform-lock.v1",
         "platform": {"id": platform_id, "status": manifest.get("status"), "supportTier": "ga"},
@@ -75,11 +82,9 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         "components": {},
         "contentDigests": {},
         "fixtures": [],
-        "sbom": list((manifest.get("platformLockEvidence") or {}).get("sbom") or []),
-        "provenance": list((manifest.get("platformLockEvidence") or {}).get("provenance") or []),
+        "sbom": [],
+        "provenance": [],
     }
-    if isinstance(release_notes, str) and "tbd" not in release_notes.lower():
-        lock["notes"] = release_notes
     unresolved: list[str] = []
     deferred: list[str] = []
 
@@ -272,23 +277,88 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             for component in lock["components"].values()
         ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
-    for message in [
-        "$.contentDigests.geospatialMcp: certified content digest is not declared",
-        "$.contentDigests.catalog: catalog digest is not declared",
-        "$.contentDigests.okf: OKF digest is not declared",
-        "$.fixtures: fixture repository revisions are not declared",
-        "$.notes: immutable release-notes content/reference is not declared",
-    ]:
-        refuse(message, "AT-CUT")
-    if lock["sbom"]:
-        refuse("$.sbom: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
-    else:
-        refuse("$.sbom: immutable SBOM references and hashes are not declared", "AT-CUT")
-    if lock["provenance"]:
-        refuse("$.provenance: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
-    else:
-        refuse("$.provenance: immutable provenance references and hashes are not declared", "AT-CUT")
+    _release_facts(manifest, lock, refuse)
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
+
+
+def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) -> None:
+    """Consume the declared release-level facts; refuse every fact that is absent or mutable.
+
+    These are the parts of the candidate identity that no component owns. They are declared by
+    `platformLockEvidence` in the frozen platform manifest so that a reviewer, the generator and
+    candidate binding all read the same bytes; nothing here is inferred from the release label.
+    """
+    evidence = manifest.get("platformLockEvidence")
+    if evidence is not None and not isinstance(evidence, dict):
+        refuse("$.platformLockEvidence: release-level declarations must be a mapping", "AT-CUT")
+        evidence = {}
+    evidence = evidence or {}
+
+    declared_digests = evidence.get("contentDigests") or {}
+    if not isinstance(declared_digests, dict):
+        refuse("$.contentDigests: declarations must be a mapping of content digests", "AT-CUT")
+        declared_digests = {}
+    for name, description in CONTENT_DIGEST_FACTS:
+        if name not in declared_digests:
+            refuse(f"$.contentDigests.{name}: {description} is not declared", "AT-CUT")
+            continue
+        try:
+            digest, _ = content_digest(declared_digests[name])
+        except (ValueError, TypeError) as exc:
+            refuse(f"$.contentDigests.{name}: {exc}", "AT-CUT")
+            continue
+        lock["contentDigests"][name] = digest
+    for name in sorted(set(declared_digests) - {key for key, _ in CONTENT_DIGEST_FACTS}):
+        refuse(f"$.contentDigests.{name}: the lock schema declares no such content digest", "AT-CUT")
+
+    declared_fixtures = evidence.get("fixtures") or []
+    if not isinstance(declared_fixtures, list):
+        refuse("$.fixtures: fixture declarations must be a list", "AT-CUT")
+        declared_fixtures = []
+    seen: set[tuple[str, str]] = set()
+    for index, declaration in enumerate(declared_fixtures):
+        try:
+            reference = fixture_reference(declaration)
+        except (ValueError, TypeError) as exc:
+            refuse(f"$.fixtures[{index}]: {exc}", "AT-CUT")
+            continue
+        key = (reference["repository"], reference.get("path", ""))
+        if key in seen:
+            refuse(f"$.fixtures[{index}]: duplicate fixture source declaration", "AT-CUT")
+            continue
+        seen.add(key)
+        lock["fixtures"].append(reference)
+    if not lock["fixtures"]:
+        refuse("$.fixtures: fixture repository revisions are not declared", "AT-CUT")
+
+    for field, description in (("sbom", "SBOM"), ("provenance", "provenance")):
+        declarations = evidence.get(field) or []
+        if not isinstance(declarations, list):
+            refuse(f"$.{field}: {description} declarations must be a list", "AT-CUT")
+            declarations = []
+        for index, declaration in enumerate(declarations):
+            try:
+                lock[field].append(evidence_reference(declaration))
+            except (ValueError, TypeError) as exc:
+                refuse(f"$.{field}[{index}]: {exc}", "AT-CUT")
+        if lock[field]:
+            refuse(f"$.{field}: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
+        else:
+            refuse(f"$.{field}: immutable {description} references and hashes are not declared", "AT-CUT")
+
+    declared_notes = evidence.get("notes")
+    if declared_notes is None:
+        artifacts = manifest.get("artifacts")
+        declared_notes = artifacts.get("releaseNotes") if isinstance(artifacts, dict) else None
+    if isinstance(declared_notes, str) and PLACEHOLDER_RE.fullmatch(declared_notes.strip()):
+        declared_notes = None  # a placeholder is an absent declaration, never a reference
+    if declared_notes is None:
+        refuse("$.notes: immutable release-notes content/reference is not declared", "AT-CUT")
+        return
+    try:
+        lock["notes"] = notes_reference(declared_notes)
+    except (ValueError, TypeError) as exc:
+        refuse(f"$.notes: {exc}", "AT-CUT")
 
 
 def main(argv: list[str] | None = None) -> int:
