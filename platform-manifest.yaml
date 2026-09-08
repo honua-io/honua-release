@@ -445,7 +445,8 @@ components:
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
-    # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
+    # Companion honua-admin 0.1.8: tag python-admin-v0.1.8 at f7930b6e;
+    # PyPI wheel digest and full release source revision are in clientArtifacts below.
 
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"

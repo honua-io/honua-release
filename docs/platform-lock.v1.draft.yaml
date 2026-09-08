@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:8c71ca3c29d0a09676d579f918c1a2627556f257f7ac80454fe840ff7a6e3bec
+    sha256: sha256:99debbb523700e1c195be21256efdab7400da1e0002d978478993c25725c9d99
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:e8900ab641d78b6e5c767c8a0b2d79ecb2a02ae868bf16e9366d4c463b31b5a3
@@ -96,6 +96,11 @@ components:
       version: 0.1.11
       sha256: sha256:80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9
       sourceRevision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+    - kind: wheel
+      coordinate: honua-admin
+      version: 0.1.8
+      sourceRevision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+      sha256: sha256:fe69794cdcf9293e095401a9c361b6cfb00a28886dc504df511a0795d8d7096b
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga

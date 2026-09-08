@@ -32,8 +32,9 @@ jobs:
             --evidence-uri "$EVIDENCE_URI" \
             --output artifacts/installed-client-certification.json || code=$?
           test "${code:-0}" = 1
-          jq -e '.results | length == 4' artifacts/installed-client-certification.json
+          jq -e '.results | length == 5' artifacts/installed-client-certification.json
           jq -e '[.results[] | select(.target == "npm" or .target == "pypi") | .status] == ["pass", "pass"]' artifacts/installed-client-certification.json
+          jq -e '[.results[] | select(.target == "pypi-admin") | .status] == ["pass"]' artifacts/installed-client-certification.json
           jq -e '.results[] | select(.target == "npm-mcp") | .status == "fail"' artifacts/installed-client-certification.json
           jq -e '.results[] | select(.target == "nuget") | .status == "fail"' artifacts/installed-client-certification.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
