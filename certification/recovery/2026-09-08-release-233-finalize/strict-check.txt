@@ -1,0 +1,1 @@
+BLOCKED: honua-sdk-js: unqualified: no consumed protocol/capability manifest is pinned; honua-sdk-dotnet: unqualified: no consumed protocol/capability manifest is pinned; honua-sdk-python: unqualified: no consumed protocol/capability manifest is pinned; geospatial-mcp: unqualified: no consumed protocol/capability manifest is pinned
