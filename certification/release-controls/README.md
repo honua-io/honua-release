@@ -107,6 +107,11 @@ checks rule with a separate review rule into a fictitious complete protection.
 
 ## Signed publication tags — producer and trust policy
 
+Promotion maps the calendar candidate `2026.1-rc.N` to the initial GA publication tag
+`honua-2026.1.0`, within the protected `refs/tags/honua-2026.1.*` namespace. The release
+title and platform label remain `Honua 2026.1` and `2026.1`. The signing producer must
+publish that exact tag against the certified commit before promotion verifies it.
+
 `certification/release-controls/tag-signing-policy.json` is the trust policy, and
 `tools/tag_signing.py` is the producer and verifier. Together they close the "implement a
 signing producer with an explicit trust policy" item below; the item's remaining half, an

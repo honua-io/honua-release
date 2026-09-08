@@ -295,7 +295,8 @@ jobs:
           set -euo pipefail
           LABEL="${{ inputs.platform_label }}"
           BASE="${LABEL%%-rc*}"
-          TAG="honua-${BASE}"
+          # The initial GA publication is patch zero in the protected honua-YYYY.N.* namespace.
+          TAG="honua-${BASE}.0"
           echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
