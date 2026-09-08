@@ -14,6 +14,7 @@ import yaml
 import platform_lock_bundle as bundle
 import release_inspect
 from test_platform_lock import valid_lock, REVISION
+from validate_platform_lock import FLOATING_TAGS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -165,6 +166,35 @@ def test_incomplete_version_inputs_cannot_be_completed_only_in_lock(candidate, g
     paths[0].write_text(yaml.safe_dump(manifest))
     lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
     with pytest.raises(ValueError, match=group):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("group", ["contractVersions", "schemaVersions"])
+@pytest.mark.parametrize("version", sorted(FLOATING_TAGS | {"head"}) + ["EDGE", "Stable"])
+def test_floating_version_declarations_cannot_be_bound(candidate, group, version):
+    _assert_invalid_version_map_refused(candidate, group, {"metadata": version}, "floating")
+
+
+@pytest.mark.parametrize("group", ["contractVersions", "schemaVersions"])
+@pytest.mark.parametrize("name", ["database ", " database", "\tdatabase", "database\n", "\u00a0database"])
+def test_padded_version_names_cannot_bypass_database_binding(candidate, group, name):
+    _assert_invalid_version_map_refused(candidate, group, {name: "1"}, "version names")
+
+
+def _assert_invalid_version_map_refused(candidate, group, versions, reason):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    component = manifest["components"]["sdk"]
+    assert "dbSchema" not in component
+    assert "migrationJournalSha256" not in component
+    component[group] = versions
+    lock["components"]["sdk"][group] = versions
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    draft = bundle.generate(*paths)
+    assert any(f".{group}:" in refusal and reason in refusal for refusal in draft.unresolved)
+    assert draft.lock["components"]["sdk"][group] == {}
+    with pytest.raises(ValueError, match=reason):
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
