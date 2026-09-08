@@ -1,0 +1,2308 @@
+{
+  "schema_version": 1,
+  "repositories": {
+    "geospatial-grpc": {
+      "observed_at": "2026-09-08T07:55:29.608797+00:00",
+      "source_sha": "0f701ecc6b0c41a5ea43e2dff3c46ce654312576",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/geospatial-grpc/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/geospatial-grpc/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/geospatial-grpc/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": false
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 21142418,
+          "name": "Immutable stable release tags",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "honua-io/geospatial-grpc",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/v*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "update"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5G3vDszgFCm5I",
+          "created_at": "2026-08-21T01:18:42.257-10:00",
+          "updated_at": "2026-08-21T01:18:42.277-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/geospatial-grpc/rulesets/21142418"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/geospatial-grpc/rules/21142418"
+            }
+          }
+        },
+        {
+          "id": 17476238,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/geospatial-grpc",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5G3vDszgEKqo4",
+          "created_at": "2026-06-09T14:39:34.607-10:00",
+          "updated_at": "2026-06-09T14:39:34.623-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/geospatial-grpc/rulesets/17476238"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/geospatial-grpc/rules/17476238"
+            }
+          }
+        },
+        {
+          "id": 21142527,
+          "name": "Require gRPC CI",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/geospatial-grpc",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": true,
+                "do_not_enforce_on_create": true,
+                "required_status_checks": [
+                  {
+                    "context": "Notify Success"
+                  },
+                  {
+                    "context": "Check for committed build output / binaries"
+                  },
+                  {
+                    "context": "Analyze (actions)"
+                  },
+                  {
+                    "context": "CodeQL"
+                  },
+                  {
+                    "context": "trivy / Trivy fs"
+                  },
+                  {
+                    "context": "scorecard / Scorecard analysis"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5G3vDszgFCm_8",
+          "created_at": "2026-08-21T01:22:45.640-10:00",
+          "updated_at": "2026-08-21T01:22:45.653-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/geospatial-grpc/rulesets/21142527"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/geospatial-grpc/rules/21142527"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/geospatial-grpc"
+    },
+    "geospatial-mcp": {
+      "observed_at": "2026-09-08T07:55:28.323518+00:00",
+      "source_sha": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/geospatial-mcp/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/geospatial-mcp/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/geospatial-mcp/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": false
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 17476237,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/geospatial-mcp",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5H7IWQzgEKqo0",
+          "created_at": "2026-06-09T14:39:32.513-10:00",
+          "updated_at": "2026-06-09T14:39:32.527-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/geospatial-mcp/rulesets/17476237"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/geospatial-mcp/rules/17476237"
+            }
+          }
+        },
+        {
+          "id": 18086010,
+          "name": "Required CI checks",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/geospatial-mcp",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": true,
+                "required_status_checks": [
+                  {
+                    "context": "Markdown lint"
+                  },
+                  {
+                    "context": "Relative link check"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5H7IWQzgET-Ho",
+          "created_at": "2026-06-24T08:36:26.048-10:00",
+          "updated_at": "2026-06-24T09:32:34.513-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/geospatial-mcp/rulesets/18086010"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/geospatial-mcp/rules/18086010"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/geospatial-mcp"
+    },
+    "honua-console": {
+      "observed_at": "2026-09-08T07:55:28.569973+00:00",
+      "source_sha": "c582ea556a8643a8202a02c6fa4956f41afd0561",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-console/branches/trunk/protection",
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/honua-io/honua-console/branches/trunk/protection/required_status_checks",
+          "strict": true,
+          "contexts": [
+            "Validate Console"
+          ],
+          "contexts_url": "https://api.github.com/repos/honua-io/honua-console/branches/trunk/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "Validate Console",
+              "app_id": 15368
+            }
+          ]
+        },
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-console/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-console/branches/trunk/protection/enforce_admins",
+          "enabled": true
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": false
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 18086290,
+          "name": "Require Validate Console",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-console",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": true,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "Validate Console"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5KYLoMzgET-ZI",
+          "created_at": "2026-06-24T08:43:12.732-10:00",
+          "updated_at": "2026-06-24T09:32:36.256-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-console/rulesets/18086290"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-console/rules/18086290"
+            }
+          }
+        },
+        {
+          "id": 17476228,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-console",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5KYLoMzgEKqoQ",
+          "created_at": "2026-06-09T14:39:16.798-10:00",
+          "updated_at": "2026-06-09T14:39:16.816-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-console/rulesets/17476228"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-console/rules/17476228"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-console"
+    },
+    "honua-demo-infra": {
+      "observed_at": "2026-09-08T07:55:26.695385+00:00",
+      "source_sha": "2b1d4786f7842ef8366dab340e4537027c79ddfb",
+      "default_branch": "trunk",
+      "protection": {
+        "error": "gh: Branch not protected (HTTP 404)"
+      },
+      "rulesets": [],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-demo-infra"
+    },
+    "honua-devops": {
+      "observed_at": "2026-09-08T07:55:35.093575+00:00",
+      "source_sha": "669ab5e61aa642fd2f16cf21c31685d4e3be27fd",
+      "default_branch": "trunk",
+      "protection": {
+        "error": "gh: Branch not protected (HTTP 404)"
+      },
+      "rulesets": [
+        {
+          "id": 18086164,
+          "name": "trunk required CI gate",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-devops",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": true,
+                "required_status_checks": [
+                  {
+                    "context": "bootstrap-smoke"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F7n6kzgET-RQ",
+          "created_at": "2026-06-24T08:40:13.575-10:00",
+          "updated_at": "2026-06-24T09:32:21.401-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-devops/rulesets/18086164"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-devops/rules/18086164"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-devops"
+    },
+    "honua-esri-compat": {
+      "observed_at": "2026-09-08T07:55:34.674418+00:00",
+      "source_sha": "dab7272bff7b8e019f48806679b7d3a50e87c003",
+      "default_branch": "trunk",
+      "protection": {
+        "error": "gh: Branch not protected (HTTP 404)"
+      },
+      "rulesets": [],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-esri-compat"
+    },
+    "honua-evidence": {
+      "observed_at": "2026-09-08T07:55:35.064433+00:00",
+      "source_sha": "a61866e133628257a2e215c78fdde76613db46ed",
+      "default_branch": "trunk",
+      "protection": {
+        "error": "gh: Branch not protected (HTTP 404)"
+      },
+      "rulesets": [],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-evidence"
+    },
+    "honua-helm": {
+      "observed_at": "2026-09-08T07:55:38.124302+00:00",
+      "source_sha": "91c7026ce8aa249e88b79bb6353bdebb857c82cc",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-helm/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-helm/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-helm/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 21142351,
+          "name": "Immutable Helm publication tags",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "honua-io/honua-helm",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/chart-v*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "update"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19QUzgFCm08",
+          "created_at": "2026-08-21T01:16:59.553-10:00",
+          "updated_at": "2026-08-21T01:16:59.573-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-helm/rulesets/21142351"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-helm/rules/21142351"
+            }
+          }
+        },
+        {
+          "id": 18086392,
+          "name": "Require Helm CI",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-helm",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "lint-chart",
+                    "integration_id": 15368
+                  },
+                  {
+                    "context": "install-upgrade-rollback-smoke",
+                    "integration_id": 15368
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19QUzgET-fg",
+          "created_at": "2026-06-24T08:44:51.478-10:00",
+          "updated_at": "2026-06-24T09:32:28.979-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-helm/rulesets/18086392"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-helm/rules/18086392"
+            }
+          }
+        },
+        {
+          "id": 17476235,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-helm",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19QUzgEKqos",
+          "created_at": "2026-06-09T14:39:27.982-10:00",
+          "updated_at": "2026-06-09T14:39:27.995-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-helm/rulesets/17476235"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-helm/rules/17476235"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-helm"
+    },
+    "honua-iac": {
+      "observed_at": "2026-09-08T07:55:40.076397+00:00",
+      "source_sha": "ad2ecf89f62e02923fb2f28954791810f1566605",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-iac/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-iac/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-iac/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": false
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-iac"
+    },
+    "honua-release": {
+      "observed_at": "2026-09-08T07:55:40.369454+00:00",
+      "source_sha": "0150f767aa000aa1b029bddb8a058d60385954c9",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection",
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection/required_status_checks",
+          "strict": true,
+          "contexts": [
+            "validate"
+          ],
+          "contexts_url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "validate",
+              "app_id": 15368
+            }
+          ]
+        },
+        "required_pull_request_reviews": {
+          "url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection/required_pull_request_reviews",
+          "dismiss_stale_reviews": false,
+          "require_code_owner_reviews": false,
+          "require_last_push_approval": false,
+          "required_approving_review_count": 0
+        },
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-release/branches/trunk/protection/enforce_admins",
+          "enabled": true
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [],
+      "codeowners": {
+        "path": ".github/CODEOWNERS",
+        "content": "# Release engineering ownership, including this file and every workflow.\n* @mikemcdougall\n",
+        "source_sha": "0150f767aa000aa1b029bddb8a058d60385954c9"
+      },
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "sha": "7a00097eede34c0739e27f85b7c3a178827475cc"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-release"
+    },
+    "honua-sdk-dotnet": {
+      "observed_at": "2026-09-08T07:55:42.720787+00:00",
+      "source_sha": "a07d918ee121668029fea6b4e8106fe8cb3daae1",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 21142435,
+          "name": "Immutable .NET SDK publication tags",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-dotnet",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/dotnet-sdk-v*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "update"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19PNzgFCm6M",
+          "created_at": "2026-08-21T01:19:29.467-10:00",
+          "updated_at": "2026-08-21T01:19:29.493-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/rulesets/21142435"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-dotnet/rules/21142435"
+            }
+          }
+        },
+        {
+          "id": 17476242,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-dotnet",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19PNzgEKqpI",
+          "created_at": "2026-06-09T14:39:42.679-10:00",
+          "updated_at": "2026-06-09T14:39:42.702-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/rulesets/17476242"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-dotnet/rules/17476242"
+            }
+          }
+        },
+        {
+          "id": 18086637,
+          "name": "trunk required CI checks",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-dotnet",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": true,
+                "required_status_checks": [
+                  {
+                    "context": ".NET SDK (Abstractions)"
+                  },
+                  {
+                    "context": ".NET SDK (Admin)"
+                  },
+                  {
+                    "context": ".NET SDK (Catalogs)"
+                  },
+                  {
+                    "context": ".NET SDK (ConsoleShare)"
+                  },
+                  {
+                    "context": ".NET SDK (Field)"
+                  },
+                  {
+                    "context": ".NET SDK (GeoServices)"
+                  },
+                  {
+                    "context": ".NET SDK (Geometry)"
+                  },
+                  {
+                    "context": ".NET SDK (Grpc)"
+                  },
+                  {
+                    "context": ".NET SDK (Meta)"
+                  },
+                  {
+                    "context": ".NET SDK (Offline)"
+                  },
+                  {
+                    "context": ".NET SDK (OgcFeatures)"
+                  },
+                  {
+                    "context": ".NET SDK (Processes)"
+                  },
+                  {
+                    "context": ".NET SDK (Scenes)"
+                  },
+                  {
+                    "context": ".NET SDK (Spec)"
+                  },
+                  {
+                    "context": ".NET SDK (Studio)"
+                  },
+                  {
+                    "context": "API Compatibility"
+                  },
+                  {
+                    "context": "Code Coverage"
+                  },
+                  {
+                    "context": "Security Audit (NuGet)"
+                  },
+                  {
+                    "context": "Admin Bootstrap Sample"
+                  },
+                  {
+                    "context": "Browser WASM Smoke"
+                  },
+                  {
+                    "context": "Contract Conformance (pinned)"
+                  },
+                  {
+                    "context": "Analyze (csharp)"
+                  },
+                  {
+                    "context": "CodeQL"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19PNzgET-u0",
+          "created_at": "2026-06-24T08:49:14.227-10:00",
+          "updated_at": "2026-08-04T14:50:51.508-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-dotnet/rulesets/18086637"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-dotnet/rules/18086637"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-sdk-dotnet"
+    },
+    "honua-sdk-js": {
+      "observed_at": "2026-09-08T07:55:46.162614+00:00",
+      "source_sha": "66f91b6e22484f4dc797899d3d5d841423958fc4",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-sdk-js/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-js/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-js/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 19494022,
+          "name": "Code Quality Copilot review for default branch",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-js",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "copilot_code_review",
+              "parameters": {
+                "review_on_push": false,
+                "review_draft_pull_requests": false
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19CEzgEpdIY",
+          "created_at": "2026-07-21T13:11:05.987-10:00",
+          "updated_at": "2026-08-25T17:43:22.260-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 4720455,
+              "actor_type": "Integration",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-js/rulesets/19494022"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-js/rules/19494022"
+            }
+          }
+        },
+        {
+          "id": 18085797,
+          "name": "Require CI checks",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-js",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": true,
+                "required_status_checks": [
+                  {
+                    "context": "JS SDK"
+                  },
+                  {
+                    "context": "MCP SDK"
+                  },
+                  {
+                    "context": "PR Issue Disposition",
+                    "integration_id": 15368
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19CEzgET96U",
+          "created_at": "2026-06-24T08:30:46.094-10:00",
+          "updated_at": "2026-07-14T14:22:42.641-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-js/rulesets/18085797"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-js/rules/18085797"
+            }
+          }
+        },
+        {
+          "id": 17476244,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-js",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19CEzgEKqpQ",
+          "created_at": "2026-06-09T14:39:44.785-10:00",
+          "updated_at": "2026-06-09T14:39:44.797-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-js/rulesets/17476244"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-js/rules/17476244"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-sdk-js"
+    },
+    "honua-sdk-python": {
+      "observed_at": "2026-09-08T07:55:48.271023+00:00",
+      "source_sha": "f2714f092e1c1c0bbaabc9da64b30a14c4bcaa6d",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-sdk-python/branches/trunk/protection",
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-python/branches/trunk/protection/required_status_checks",
+          "strict": true,
+          "contexts": [
+            "compatibility",
+            "lint",
+            "package",
+            "test (ubuntu-latest, 3.11, grpc)",
+            "test (ubuntu-latest, 3.12, grpc)"
+          ],
+          "contexts_url": "https://api.github.com/repos/honua-io/honua-sdk-python/branches/trunk/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "compatibility",
+              "app_id": 15368
+            },
+            {
+              "context": "lint",
+              "app_id": 15368
+            },
+            {
+              "context": "package",
+              "app_id": 15368
+            },
+            {
+              "context": "test (ubuntu-latest, 3.11, grpc)",
+              "app_id": 15368
+            },
+            {
+              "context": "test (ubuntu-latest, 3.12, grpc)",
+              "app_id": 15368
+            }
+          ]
+        },
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-python/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-sdk-python/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 21140162,
+          "name": "Immutable Python publication tags",
+          "target": "tag",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-python",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "refs/tags/python-sdk-v*",
+                "refs/tags/python-admin-v*"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "update"
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19N_zgFCksI",
+          "created_at": "2026-08-21T00:10:26.524-10:00",
+          "updated_at": "2026-08-21T00:10:26.586-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-python/rulesets/21140162"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-python/rules/21140162"
+            }
+          }
+        },
+        {
+          "id": 17476239,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-python",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19N_zgEKqo8",
+          "created_at": "2026-06-09T14:39:36.768-10:00",
+          "updated_at": "2026-06-09T14:39:36.781-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-python/rulesets/17476239"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-python/rules/17476239"
+            }
+          }
+        },
+        {
+          "id": 18086191,
+          "name": "Required Python SDK CI checks",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-sdk-python",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": true,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "lint"
+                  },
+                  {
+                    "context": "typecheck (3.11)"
+                  },
+                  {
+                    "context": "typecheck (3.12)"
+                  },
+                  {
+                    "context": "typecheck (3.13)"
+                  },
+                  {
+                    "context": "package"
+                  },
+                  {
+                    "context": "compatibility"
+                  },
+                  {
+                    "context": "security-audit"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.11, grpc)"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.11, grpc,geopandas)"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.12, grpc)"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.12, grpc,geopandas)"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.13, grpc)"
+                  },
+                  {
+                    "context": "test (ubuntu-latest, 3.13, grpc,geopandas)"
+                  },
+                  {
+                    "context": "test (macos-latest, 3.11, grpc,geopandas)"
+                  },
+                  {
+                    "context": "test (windows-latest, 3.11, grpc,geopandas)"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19N_zgET-S8",
+          "created_at": "2026-06-24T08:40:51.124-10:00",
+          "updated_at": "2026-06-24T09:32:32.003-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-sdk-python/rulesets/18086191"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-sdk-python/rules/18086191"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-sdk-python"
+    },
+    "honua-server": {
+      "observed_at": "2026-09-08T07:55:48.514635+00:00",
+      "source_sha": "45f00a804e715713313c5fd631c33d6cc3921d58",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-server/branches/trunk/protection",
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/honua-io/honua-server/branches/trunk/protection/required_status_checks",
+          "strict": false,
+          "contexts": [
+            "PR Gate"
+          ],
+          "contexts_url": "https://api.github.com/repos/honua-io/honua-server/branches/trunk/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "PR Gate",
+              "app_id": 15368
+            }
+          ]
+        },
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-server/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-server/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 19481638,
+          "name": "Code Quality Copilot review for default branch",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-server",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "copilot_code_review",
+              "parameters": {
+                "review_on_push": false,
+                "review_draft_pull_requests": false
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5CqiuVzgEpRCY",
+          "created_at": "2026-07-21T11:32:14.992-10:00",
+          "updated_at": "2026-08-27T14:59:05.834-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-server/rulesets/19481638"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-server/rules/19481638"
+            }
+          }
+        },
+        {
+          "id": 17808547,
+          "name": "Merge queue (trunk)",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-server",
+          "enforcement": "disabled",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "merge_queue",
+              "parameters": {
+                "merge_method": "SQUASH",
+                "max_entries_to_build": 5,
+                "min_entries_to_merge": 1,
+                "max_entries_to_merge": 5,
+                "min_entries_to_merge_wait_minutes": 5,
+                "grouping_strategy": "ALLGREEN",
+                "check_response_timeout_minutes": 60
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5CqiuVzgEPvKM",
+          "created_at": "2026-06-17T09:21:08.597-10:00",
+          "updated_at": "2026-06-18T21:05:40.924-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-server/rulesets/17808547"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-server/rules/17808547"
+            }
+          }
+        },
+        {
+          "id": 17476227,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-server",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5CqiuVzgEKqoM",
+          "created_at": "2026-06-09T14:39:14.619-10:00",
+          "updated_at": "2026-06-23T02:16:08.025-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-server/rulesets/17476227"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-server/rules/17476227"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-server"
+    },
+    "honua-site": {
+      "observed_at": "2026-09-08T07:55:50.158829+00:00",
+      "source_sha": "06d3ab8d8555b0888841072eafba334dabbe8566",
+      "default_branch": "trunk",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-site/branches/trunk/protection",
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-site/branches/trunk/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-site/branches/trunk/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [
+        {
+          "id": 18086206,
+          "name": "Require CI validate",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-site",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "validate"
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19RkzgET-T4",
+          "created_at": "2026-06-24T08:41:13.212-10:00",
+          "updated_at": "2026-06-24T09:32:23.064-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-site/rulesets/18086206"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-site/rules/18086206"
+            }
+          }
+        },
+        {
+          "id": 17476240,
+          "name": "Require conversation resolution",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-site",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": true,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "merge",
+                  "squash",
+                  "rebase"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5F19RkzgEKqpA",
+          "created_at": "2026-06-09T14:39:40.737-10:00",
+          "updated_at": "2026-06-09T14:39:40.752-10:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-site/rulesets/17476240"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-site/rules/17476240"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-site"
+    },
+    "honua-studio": {
+      "observed_at": "2026-09-08T07:55:52.359503+00:00",
+      "source_sha": "2b323aea28d5394b8078c97d66bd670047cb7b80",
+      "default_branch": "main",
+      "protection": {
+        "url": "https://api.github.com/repos/honua-io/honua-studio/branches/main/protection",
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/honua-io/honua-studio/branches/main/protection/required_status_checks",
+          "strict": true,
+          "contexts": [
+            "Build",
+            "Typecheck",
+            "Code style",
+            "Unit tests",
+            "Browser smoke (mock + live dev modes)",
+            "Blazor Web App test host smoke (honua-io/honua-studio#5)",
+            "PR Issue Disposition"
+          ],
+          "contexts_url": "https://api.github.com/repos/honua-io/honua-studio/branches/main/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "Build",
+              "app_id": 15368
+            },
+            {
+              "context": "Typecheck",
+              "app_id": 15368
+            },
+            {
+              "context": "Code style",
+              "app_id": 15368
+            },
+            {
+              "context": "Unit tests",
+              "app_id": 15368
+            },
+            {
+              "context": "Browser smoke (mock + live dev modes)",
+              "app_id": 15368
+            },
+            {
+              "context": "Blazor Web App test host smoke (honua-io/honua-studio#5)",
+              "app_id": 15368
+            },
+            {
+              "context": "PR Issue Disposition",
+              "app_id": 15368
+            }
+          ]
+        },
+        "required_signatures": {
+          "url": "https://api.github.com/repos/honua-io/honua-studio/branches/main/protection/required_signatures",
+          "enabled": false
+        },
+        "enforce_admins": {
+          "url": "https://api.github.com/repos/honua-io/honua-studio/branches/main/protection/enforce_admins",
+          "enabled": false
+        },
+        "required_linear_history": {
+          "enabled": false
+        },
+        "allow_force_pushes": {
+          "enabled": false
+        },
+        "allow_deletions": {
+          "enabled": false
+        },
+        "block_creations": {
+          "enabled": false
+        },
+        "required_conversation_resolution": {
+          "enabled": true
+        },
+        "lock_branch": {
+          "enabled": false
+        },
+        "allow_fork_syncing": {
+          "enabled": false
+        }
+      },
+      "rulesets": [],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-studio"
+    },
+    "honua-support": {
+      "observed_at": "2026-09-08T07:55:53.944009+00:00",
+      "source_sha": "6884ee97588d9cda77336d18c953c9a6dab75ffd",
+      "default_branch": "trunk",
+      "protection": {
+        "error": "gh: Branch not protected (HTTP 404)"
+      },
+      "rulesets": [
+        {
+          "id": 18086468,
+          "name": "Required CI: Build & Test",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "honua-io/honua-support",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "do_not_enforce_on_create": false,
+                "required_status_checks": [
+                  {
+                    "context": "Build & Test",
+                    "integration_id": 15368
+                  }
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5G4vUtzgET-kQ",
+          "created_at": "2026-06-24T08:46:38.536-10:00",
+          "updated_at": "2026-06-24T09:32:41.198-10:00",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "always"
+            }
+          ],
+          "current_user_can_bypass": "always",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/honua-io/honua-support/rulesets/18086468"
+            },
+            "html": {
+              "href": "https://github.com/honua-io/honua-support/rules/18086468"
+            }
+          }
+        }
+      ],
+      "codeowners": null,
+      "codeowners_reads": {
+        ".github/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "docs/CODEOWNERS": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      },
+      "human_writers": [
+        "mikemcdougall"
+      ],
+      "collaborator_read_error": null,
+      "api_source": "https://api.github.com/repos/honua-io/honua-support"
+    }
+  }
+}
