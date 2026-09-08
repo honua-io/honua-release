@@ -52,6 +52,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
+from component_versions import version_map  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -125,6 +126,19 @@ def _component_version_kind(comp: dict) -> str:
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
+    for section in ("components", "experimental"):
+        for name, component in (manifest.get(section) or {}).items():
+            if not isinstance(component, dict):
+                continue
+            for group in ("contractVersions", "schemaVersions"):
+                if group in component:
+                    try:
+                        versions = version_map(component[group])
+                        if group == "schemaVersions" and "database" in versions and component.get("dbSchema") is not None:
+                            if versions["database"] != str(component["dbSchema"]):
+                                raise ValueError("database conflicts with dbSchema")
+                    except ValueError as exc:
+                        f.error(f"manifest: {section}.{name}.{group}: {exc}")
     for key in ("platformRelease", "status", "components", "protocolCertification"):
         if key not in manifest:
             f.error(f"manifest: missing required top-level key {key!r}")

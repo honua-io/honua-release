@@ -41,6 +41,8 @@ def candidate(tmp_path):
                               "sha256": lock["notes"].rsplit("#", 1)[1]},
                 }}
     for name, comp in lock["components"].items():
+        comp["contractVersions"] = {"admin": "v1"}
+        comp["schemaVersions"] = {"metadata": "2.0.0-alpha.1"}
         comp["artifactIdentityModel"] = "published"
         comp["artifacts"] = [{"kind": "npm", "coordinate": f"@honua/{name}",
                               "version": "1.2.3", "sourceRevision": "c" * 40,
@@ -54,6 +56,8 @@ def candidate(tmp_path):
             "repository": comp["source"]["repository"], "sha": REVISION,
             "lifecycleStatus": "GA", "artifact": f"npm:@honua/{name}", "version": "1.2.3",
             "artifactSourceRevision": "c" * 40,
+            "contractVersions": comp["contractVersions"],
+            "schemaVersions": comp["schemaVersions"],
             "serverCompatibility": comp.get("serverCompatibility"),
         }
     manifest["clientArtifacts"] = {
@@ -131,6 +135,78 @@ def test_manifest_bytes_cannot_move_after_freeze(candidate):
     paths[0].write_text(paths[0].read_text() + "# edited after freeze\n")
     with pytest.raises(ValueError, match="sourceInputs.platformManifest.sha256"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("group", ["contractVersions", "schemaVersions"])
+@pytest.mark.parametrize("mutation", ["add", "drop", "change"])
+def test_version_maps_must_equal_frozen_declarations(candidate, group, mutation):
+    lock, paths, _ = candidate
+    versions = lock["components"]["sdk"][group]
+    key = next(iter(versions))
+    if mutation == "add":
+        versions["undeclared"] = "9.9.9"
+    elif mutation == "drop":
+        versions.pop(key)
+    else:
+        versions[key] = "9.9.9"
+    with pytest.raises(ValueError, match=group + ": lock differs from frozen input"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("group", ["contractVersions", "schemaVersions"])
+@pytest.mark.parametrize("value", [None, {}, [], {"api": "latest"}, {"api": ">=1"}, {"api": 1}, {"api": "TBD"}])
+def test_incomplete_version_inputs_cannot_be_completed_only_in_lock(candidate, group, value):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    if value is None:
+        manifest["components"]["sdk"].pop(group)
+    else:
+        manifest["components"]["sdk"][group] = value
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match=group):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_real_package_schema_metadata_reaches_every_customer_record(candidate):
+    import io
+    import tarfile
+
+    lock, paths, _ = candidate
+    package = json.dumps({"name": "@honua/sdk", "version": "1.2.3",
+                          "honua": {"contractVersions": {"admin": "v1"},
+                                    "schemaVersions": {"metadata": "2.0.0-alpha.1"}}}).encode()
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        member = tarfile.TarInfo("package/package.json")
+        member.size = len(package)
+        archive.addfile(member, io.BytesIO(package))
+    published = paths[0].parent / "sdk-1.2.3.tgz"
+    published.write_bytes(stream.getvalue())
+    expected_hash = hashlib.sha512(published.read_bytes()).digest()
+    integrity = "sha512-" + base64.b64encode(expected_hash).decode()
+    with tarfile.open(published) as archive:
+        metadata = json.load(archive.extractfile("package/package.json"))["honua"]
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["components"]["sdk"].update(metadata)
+    manifest["clientArtifacts"]["sdk"]["integrity"] = integrity
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    lock["components"]["sdk"]["artifacts"][0]["integrity"] = integrity
+    bundle.bind(lock, *paths, "2026.1-rc.1")
+    files = bundle.bundle_files(lock)
+    bom = json.loads(files["bom.cdx.json"])
+    sdk = next(entry for entry in bom["components"] if entry["name"] == "sdk")
+    assert sdk["hashes"] == [{"alg": "SHA-512", "content": expected_hash.hex()}]
+    properties = {prop["name"]: prop["value"] for prop in sdk["properties"]}
+    assert properties["honua:contractVersions:admin"] == "v1"
+    assert properties["honua:schemaVersions:metadata"] == "2.0.0-alpha.1"
+    site = json.loads(files["platform-release.v1.json"])
+    ledger = json.loads(files["compatibility-ledger.v1.json"])
+    for document in (json.loads(files["platform-lock.json"]), site,
+                     ledger["platformLocks"][site["lockDigest"]]["platformLock"]):
+        assert document["components"]["sdk"]["contractVersions"] == {"admin": "v1"}
+        assert document["components"]["sdk"]["schemaVersions"] == {"metadata": "2.0.0-alpha.1"}
 
 
 @pytest.mark.parametrize("mutation,reason", [
