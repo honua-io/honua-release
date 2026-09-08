@@ -50,8 +50,8 @@
     }
   },
   "supportingImages": {
-    "postgres": "pgrouting/pgrouting:17-3.5-3.7.3",
-    "redis": "redis:7.4-alpine"
+    "postgres": "pgrouting/pgrouting:17-3.5-3.7.3@sha256:5e6767abbd1fd9ead84c9988aa31bac71ca292ef8a1fc2e4a5ee2b613ac6a7bb",
+    "redis": "redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf"
   },
   "qualificationIssue": "https://github.com/honua-io/honua-server/issues/4300",
   "remaining": "After the cut, replace rehearsal pins together from the signed release lock and replay on a clean Windows machine in the Windows licensed lane.",
