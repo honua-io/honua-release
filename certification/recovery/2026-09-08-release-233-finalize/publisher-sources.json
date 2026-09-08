@@ -1,0 +1,26 @@
+[
+  {
+    "repository": "honua-io/honua-sdk-js",
+    "revision": "66f91b6e22484f4dc797899d3d5d841423958fc4",
+    "path": "src/core/compatibility.ts",
+    "sha256": "2a997fd8f018e76cdbe319099c3d2d5914f825ec3da0281bcacce722a08ece22"
+  },
+  {
+    "repository": "honua-io/honua-sdk-dotnet",
+    "revision": "a07d918ee121668029fea6b4e8106fe8cb3daae1",
+    "path": "src/Honua.Sdk.Admin/HonuaAdminCompatibility.cs",
+    "sha256": "fe854bf7427957292994c3dfae3b185a6c8d58ceafb3165316725d74367dd303"
+  },
+  {
+    "repository": "honua-io/honua-sdk-python",
+    "revision": "f2714f092e1c1c0bbaabc9da64b30a14c4bcaa6d",
+    "path": "packages/honua-admin/honua_admin/_models.py",
+    "sha256": "40ef5935fc3efd0f868fd55de6beabf8edf53e46438e188cc82efd05f9c595d8"
+  },
+  {
+    "repository": "honua-io/geospatial-mcp",
+    "revision": "d5a09d13c4ad541c05702e598c3679c0f42db7af",
+    "path": "conformance/manifests/honua.manifest.json",
+    "sha256": "ca40514bdc6479295abce2256c80cd8d74f9bd94bc329808ab842c7e7c088a45"
+  }
+]
