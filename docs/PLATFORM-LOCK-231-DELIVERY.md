@@ -234,6 +234,41 @@ arrived with #278 added one.
 
 ## Current factual blockers
 
+### Component version declaration follow-up (2026-09-08 UTC)
+
+At trunk `0150f76`, the generator ignored every explicit `schemaVersions` map and
+started it as `{}`, filling only `database` from `dbSchema`. Ten schema refusals
+therefore had no usable declaration path. Candidate binding also accepted extra
+contract/schema keys in the lock and allowed absent manifest declarations to be
+filled solely in the lock. This broke the §9.2/§14 promise that the signed atomic
+identity and its customer records come from one reviewed, frozen input set.
+
+The generator now consumes both component version maps, preserves the existing
+database derivation, and rejects contradictory database declarations. The manifest
+gate and generator share exact-string validation. The signing boundary rejects
+missing or malformed version declarations and requires equality of both maps,
+including their complete key sets. Published package source revisions remain
+separate from component source heads.
+
+Evidence: a real npm tarball contains declared contract/schema metadata. Tests read
+the archive, independently compute SHA-512 from its bytes, and assert literal
+contract/schema values and the expected package hash in the derived BOM, lock,
+ledger and site record. Regression cases challenge added, removed and modified
+versions, missing declarations, malformed maps, placeholders, floating values,
+ranges, and conflicting database versions. No live artifact metadata was invented
+to resolve the current worklist.
+
+Remaining acceptance is unchanged: actual manufacture, signature verification and
+third-party retrieval of every artifact for `honua-2026.1.0-rc.1` require that exact
+candidate and its published components. Only the historical `honua-2026.1`
+prerelease exists in GitHub as checked on 2026-09-08 UTC. Release #57 and gRPC #88
+remain open. That candidate-only criterion is released for this reason; the
+remaining publication and declaration work is not released. The current generator
+still refuses 41 facts (29 AT-CUT / 12 PUBLISH). Issue #231 remains open and in its
+existing release bucket.
+
+### Earlier publication baseline
+
 At the remote trunk baseline `6774e00` (checked 2026-09-06 UTC),
 `gh release list` still listed only the historical `honua-2026.1` prerelease.
 The earlier NuGet.org HTTP 404 is not a blocker for the manifest's declared
@@ -246,4 +281,3 @@ The generator and the authoritative manifest/matrix now produce
 **41 refusals: 29 AT-CUT, 12 PUBLISH** (enumerated above). These are the generator's classifications,
 not a blanket release of every AT-CUT line: non-candidate metadata must still be resolved before
 cut. No registry value, lifecycle ruling, or source pin was invented to clear them.
-

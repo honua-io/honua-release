@@ -75,6 +75,17 @@ The generator writes the partial draft but exits 1 while any value cannot be res
 with placeholders—so a non-zero result is expected until release manufacture/signing (part 2)
 supplies registry and evidence identities.
 
+Declare component `contractVersions` and `schemaVersions` as non-empty mappings of
+names to exact strings in the manifest, including under `experimental`. For example,
+`schemaVersions: {metadata: "2.0.0-alpha.1"}` retains the metadata schema version in
+the lock and its customer records. Numeric YAML values, placeholders, floating names
+and ranges are refused. The existing `dbSchema` field supplies
+`schemaVersions.database`; if both are declared they must agree. Missing declarations
+still block signing. Candidate binding requires both maps to equal the frozen input,
+so a completed lock cannot silently add versions absent from the reviewed manifest.
+These checks bind declarations; the candidate owner must obtain their values from
+the exact published artifact or running candidate and retain that verification evidence.
+
 Every fact the lock carries outside `components` — the MCP/catalog/OKF content digests, fixture
 revisions, SBOM/provenance references and the release notes — is declared by `platformLockEvidence`
 in `platform-manifest.yaml`, at immutable coordinates. `tools/release_facts.py` holds those rules
