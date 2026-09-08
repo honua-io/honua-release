@@ -408,6 +408,30 @@ def test_promotion_requires_committed_burn_evidence_and_retags_the_freeze_rc():
     assert "npm pack" not in commands
 
 
+def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
+    steps = _workflow("promote.yml")["jobs"]["promote"]["steps"]
+    preserve = next(i for i, s in enumerate(steps)
+                    if s.get("name") == "Preserve current publication trust policy and verifier")
+    candidate_checkout = next(i for i, s in enumerate(steps)
+                              if (s.get("with") or {}).get("ref") == "${{ steps.train.outputs.source_sha }}")
+    guard = next(i for i, s in enumerate(steps) if "verify-remote" in s.get("run", ""))
+    publish = next(i for i, s in enumerate(steps) if "gh release create" in s.get("run", ""))
+    assert preserve < candidate_checkout < guard < publish
+    assert 'cp tools/tag_signing.py' in steps[preserve]['run']
+    assert '{policy,tag-signing-policy}.json' in steps[preserve]['run']
+    assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py' in steps[guard]['run']
+    assert steps[guard]['env']['CERTIFIED_SHA'] == '${{ steps.train.outputs.source_sha }}'
+    assert steps[guard]['env']['PUBLICATION_TAG'] == '${{ steps.finalize.outputs.tag }}'
+    assert not _neutralised(steps[guard])
+    assert 'if' not in steps[guard]
+    command = steps[publish]['run']
+    assert '--verify-tag' in command
+    assert '--target' not in command
+    assert 'signed-tag-receipt.json.bundle' in command
+    signing = next(s['run'] for s in steps if 'cosign sign-blob' in s.get('run', ''))
+    assert 'signed-tag-receipt.json' in signing
+
+
 def test_promotion_request_uses_the_scoped_claude_app_identity():
     workflow = _workflow("request-promotion.yml")
     triggers = _triggers(workflow)
