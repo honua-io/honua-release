@@ -1,0 +1,13 @@
+BLOCKED — wsl-release-mustfix-resume. #233 remains open in must-fix-before-cut; no additional pre-cut criterion is released.
+
+Resumed merged ledger/resolver, source verification and first-release derivation from release PRs #279, #289, #291 and #296. No duplicate PR was opened for merged implementations. The related customer-page PR https://github.com/honua-io/honua-site/pull/274 remains OPEN, non-draft, head b27ce1f6236c6bc4e1b98366ee32d4da687f84f0, with validate and CodeQL green; it has not been merged/published.
+
+Fresh publication observation at 2026-09-08T07:55:23Z, honua-server trunk 45f00a804e715713313c5fd631c33d6cc3921d58: tags, releases and git/refs/tags are completely enumerated and empty. Receipt SHA-256 af2d564b3bc5625ba20ac5acdac115f635a2841cd2ff72c160b2e7b1e59a0e27. The committed lock still lacks the first server component releaseVersion and all four consumed protocol/capability manifest pins. The strict compatibility-table check exits 1 and rejects every missing pin; documentation freshness passes.
+
+Immutable publisher declarations remain unchanged: JavaScript 66f91b6e22484f4dc797899d3d5d841423958fc4 declares 1.0.0; .NET a07d918ee121668029fea6b4e8106fe8cb3daae1 declares 0.1.0; Python f2714f092e1c1c0bbaabc9da64b30a14c4bcaa6d declares 1.0.0 plus legacy 2026.3.0. MCP d5a09d13c4ad541c05702e598c3679c0f42db7af remains the same reference manifest without introduction floors. Selecting among those numbers would not establish the missing server release identity.
+
+The first server component SemVer has been requested from the operator. Remaining pre-cut work: bind first-release capability introduction metadata and consumed requirements, correct/gate the SDK declarations and published artifact pins, and land the site import. Actual-candidate ledger population and upgrade/rollback receipts retain only their previously recorded candidate-dependent disposition.
+
+Validation on the recovered PR source tree: **284 focused tests pass**, including real Git/HTTP/package-archive fixtures and independently specified expectations. The complete local `python3 -m pytest tools/ -q` suite passes: **1,120 passed**, zero failures/skips, in 308.11 seconds (two deprecation warnings). Local socket access was enabled for the real HTTP fixtures. Actionlint and compatibility documentation freshness pass.
+
+Evidence and immutable source-byte hashes are backed up under wip/fix/236-promotion-signed-tags, certification/recovery/2026-09-08-release-233-236/. These are actual observations and failing audit receipts, not qualification receipts. Both author and committer on recovery checkpoints are Mike McDougall <mike@honua.io>.
