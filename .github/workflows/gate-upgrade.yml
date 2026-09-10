@@ -15,11 +15,32 @@
 # promote); until one exists the immutable first-cut baseline is used. The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
+#
+# Trigger scope: static-compat is the FAST, decidable-now half (manifest diff + unit-tested logic, no
+# cluster) so it runs on pull_request too, scoped to the files it actually evaluates — a candidate
+# manifest change that strands an old client or regresses the DB schema floor is this PR's fault and
+# should redden it before merge, not wait for the nightly/release lane. kind-upgrade is the expensive
+# real seed/upgrade/rollback smoke against a live cluster; it stays release-train/nightly/dispatch-only
+# (skipped on pull_request) per the "fast checks per PR, expensive cells in targeted lanes" contract.
 
 name: gate-upgrade
 run-name: "gate-upgrade ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
 
 on:
+  pull_request:
+    paths:
+      - "platform-manifest.yaml"
+      - "compatibility-matrix.yaml"
+      - "tools/check_upgrade.py"
+      - "tools/semver.py"
+      - "tools/test_slo_upgrade.py"
+      - "tools/upgrade_recovery.py"
+      - "tools/test_upgrade_recovery.py"
+      - "tools/upgrade_lock_binding.py"
+      - "tools/test_upgrade_lock_binding.py"
+      - "tools/inject_upgrade_failure.py"
+      - "tools/test_inject_upgrade_failure.py"
+      - ".github/workflows/gate-upgrade.yml"
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
@@ -128,7 +149,9 @@ jobs:
           prefix: upg-
 
   # ── kind smoke: seed prior schema -> helm upgrade to candidate -> health -> rollback ─────────────
+  # Expensive real layer: release-train/nightly/dispatch only (never pull_request — see trigger note).
   kind-upgrade:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
