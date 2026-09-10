@@ -150,8 +150,12 @@ def classify(issue, rules):
             if review['named_promise']:
                 return 'must-fix-before-cut', 'First-release gate body names an existing release promise: ' + review['reason']
             return 'post-cut-hardening', 'No named existing release promise; 2026-09-04 admission rule.'
-    if labels & {'release/2026.2', 'type/feature', 'enhancement', 'slice/3d', 'feature'}:
-        return '2026.2', 'Feature/3D/later-release label; outside the 2026.1 supported scope.'
+    # Operator ruling 2026-09-10: a release/2026.1 label is authoritative scope.
+    # Only an explicit release/2026.2 label sends an issue to 2026.2; feature-type
+    # labels no longer demote 2026.1 work (nine tickets were stripped of
+    # release/2026.1 by this rule on 2026-09-10 and had to be restored).
+    if 'release/2026.2' in labels:
+        return '2026.2', 'Explicit release/2026.2 label; outside the 2026.1 supported scope.'
     if labels & {'qualification', 'evidence', 'certification', 'type/qualification', 'type/evidence'}:
         return 'prove-against-candidate', 'Qualification/evidence label requires a receipt bound to the candidate.'
     if 'priority/P1' in labels:
