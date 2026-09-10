@@ -1,165 +1,26 @@
 {
   "schema_version": 1,
   "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
-  "rules_date": "2026-09-05",
+  "rules_date": "2026-09-10",
   "exceptions": {
-    "honua-server#3849": {
-      "bucket": "prove-against-candidate",
-      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
+    "honua-console#334": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
     },
-    "honua-server#3381": {
-      "bucket": "prove-against-candidate",
-      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
-    },
-    "honua-server#3861": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3863": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3864": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3868": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3869": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3870": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
-    },
-    "honua-server#3811": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
-      "remove_first_release_gate": true
+    "honua-console#337": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
     },
     "honua-console#362": {
       "bucket": "2026.2",
       "reason": "2026-09-04 alerting Preview ruling supersedes the conditional-GA installed alert workflow; retained security/audit floors are owned by server#3859/#3865.",
       "remove_first_release_gate": true
     },
-    "honua-server#4025": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    "honua-demo-infra#68": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
     },
-    "honua-server#4035": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#4065": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#3739": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#3875": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#3878": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#3269": {
-      "bucket": "2026.2",
-      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
-    },
-    "honua-server#3305": {
-      "bucket": "2026.2",
-      "reason": "Browser Studio documentation expansion; 2026-09-04 release-integrity review keeps feature expansion outside the critical path."
-    },
-    "honua-sdk-js#1569": {
-      "bucket": "2026.2",
-      "reason": "New dashboard.package authoring contract is feature expansion; priority/P1, not a security/integrity repair or queued hunt family."
-    },
-    "honua-support#61": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
-    },
-    "honua-support#64": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
-    },
-    "honua-support#65": {
-      "bucket": "2026.2",
-      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
-    },
-    "honua-support#62": {
-      "bucket": "post-cut-hardening",
-      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
-    },
-    "honua-support#68": {
-      "bucket": "post-cut-hardening",
-      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
-    },
-    "honua-support#56": {
-      "bucket": "post-cut-hardening",
-      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
-    },
-    "honua-server#3809": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3852": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3854": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3855": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3857": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3867": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3892": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3893": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-server#3377": {
-      "bucket": "prove-against-candidate",
-      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
-    },
-    "honua-sdk-python#21": {
-      "bucket": "prove-against-candidate",
-      "reason": "Registry-installed wheel exact-candidate certification; release#7/#157 consume the receipt."
-    },
-    "honua-iac#118": {
-      "bucket": "prove-against-candidate",
-      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
-    },
-    "honua-iac#20": {
-      "bucket": "prove-against-candidate",
-      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
-    },
-    "honua-devops#183": {
+    "honua-devops#181": {
       "bucket": "prove-against-candidate",
       "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
     },
@@ -167,7 +28,7 @@
       "bucket": "prove-against-candidate",
       "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
     },
-    "honua-devops#181": {
+    "honua-devops#183": {
       "bucket": "prove-against-candidate",
       "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
     },
@@ -183,9 +44,29 @@
       "bucket": "prove-against-candidate",
       "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
     },
-    "honua-release#7": {
+    "honua-evidence#22": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required normalized evidence ledger must reject ambiguous/missing evidence before manufacture; feat label describes gate machinery."
+    },
+    "honua-iac#118": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
+    },
+    "honua-iac#168": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-09-06 Lambda GA ruling A, release#282 item 1: isolated certification substrate is required before cut; operator applies after reviewing the IaC plan."
+    },
+    "honua-iac#20": {
+      "bucket": "prove-against-candidate",
+      "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
+    },
+    "honua-migrate#142": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-release#120": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
     },
     "honua-release#122": {
       "bucket": "prove-against-candidate",
@@ -207,75 +88,7 @@
       "bucket": "prove-against-candidate",
       "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
     },
-    "honua-release#98": {
-      "bucket": "post-cut-hardening",
-      "reason": "release#268 partial ratification records claim-removed: retain ARM64/Fargate exclusion truth; no cut-path ARM64 engineering."
-    },
-    "honua-support#5": {
-      "bucket": "prove-against-candidate",
-      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
-    },
-    "honua-support#59": {
-      "bucket": "prove-against-candidate",
-      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
-    },
-    "honua-console#334": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
-    },
-    "honua-console#337": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Secure packaging/dependency floor retained even for shipped 3D/Preview code; runtime CDN and High-advisory repairs are not 3D expansion."
-    },
-    "honua-site#234": {
-      "bucket": "must-fix-before-cut",
-      "reason": "3D truth-only evidence/claim correction is the Experimental safety obligation, not 3D feature expansion."
-    },
-    "honua-iac#168": {
-      "bucket": "must-fix-before-cut",
-      "reason": "2026-09-06 Lambda GA ruling A, release#282 item 1: isolated certification substrate is required before cut; operator applies after reviewing the IaC plan."
-    },
-    "honua-server#3424": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3365": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3361": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3364": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3302": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3906": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#4300": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#4187": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-server#3384": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
-    },
-    "honua-release#57": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
-    },
-    "honua-release#120": {
+    "honua-release#181": {
       "bucket": "must-fix-before-cut",
       "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
     },
@@ -291,10 +104,6 @@
       "bucket": "must-fix-before-cut",
       "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
     },
-    "honua-release#181": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
-    },
     "honua-release#257": {
       "bucket": "must-fix-before-cut",
       "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
@@ -302,14 +111,6 @@
     "honua-release#258": {
       "bucket": "must-fix-before-cut",
       "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
-    },
-    "honua-evidence#22": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required normalized evidence ledger must reject ambiguous/missing evidence before manufacture; feat label describes gate machinery."
-    },
-    "honua-demo-infra#68": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
     },
     "honua-release#282": {
       "bucket": "must-fix-before-cut",
@@ -346,6 +147,241 @@
           "qualified_against_candidate": false
         }
       ]
+    },
+    "honua-release#317": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-release#57": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+    },
+    "honua-release#7": {
+      "bucket": "prove-against-candidate",
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+    },
+    "honua-release#98": {
+      "bucket": "post-cut-hardening",
+      "reason": "release#268 partial ratification records claim-removed: retain ARM64/Fargate exclusion truth; no cut-path ARM64 engineering."
+    },
+    "honua-sales#14": {
+      "bucket": "post-cut-hardening",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Commercial discovery is release scope but not a candidate-cut gate."
+    },
+    "honua-sdk-dotnet#340": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-sdk-dotnet#341": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-sdk-js#1419": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-sdk-js#1569": {
+      "bucket": "2026.2",
+      "reason": "New dashboard.package authoring contract is feature expansion; priority/P1, not a security/integrity repair or queued hunt family."
+    },
+    "honua-sdk-js#1662": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-sdk-python#21": {
+      "bucket": "prove-against-candidate",
+      "reason": "Registry-installed wheel exact-candidate certification; release#7/#157 consume the receipt."
+    },
+    "honua-server#3269": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3302": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3305": {
+      "bucket": "2026.2",
+      "reason": "Browser Studio documentation expansion; 2026-09-04 release-integrity review keeps feature expansion outside the critical path."
+    },
+    "honua-server#3361": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3364": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3365": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3377": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3381": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
+    },
+    "honua-server#3384": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3424": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#3739": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3809": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3811": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3849": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 decision 5 explicitly parks crash consistency and the #3805/#3381 TLS/canonical-fixture overlay until the candidate cut; P0 retained."
+    },
+    "honua-server#3852": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3854": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3855": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3857": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3861": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3863": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3864": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3867": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3868": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3869": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3870": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 alerting Preview ruling removes conditional-GA operational qualification; #3859/#3865 security and audit floors remain mandatory.",
+      "remove_first_release_gate": true
+    },
+    "honua-server#3875": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3878": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#3892": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3893": {
+      "bucket": "prove-against-candidate",
+      "reason": "Qualification/evidence item: execute required GA or retained security/lifecycle proof on the cut digest; implementation readiness remains separately tracked."
+    },
+    "honua-server#3906": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#4025": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#4035": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#4065": {
+      "bucket": "2026.2",
+      "reason": "2026-09-03/04 Preview scope: functional expansion or operational graduation of NAServer/ImageServer/realtime/analysis-profile surfaces; no security floor removed."
+    },
+    "honua-server#4187": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#4300": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+    },
+    "honua-server#4599": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-server#4600": {
+      "bucket": "must-fix-before-cut",
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-site#234": {
+      "bucket": "must-fix-before-cut",
+      "reason": "3D truth-only evidence/claim correction is the Experimental safety obligation, not 3D feature expansion."
+    },
+    "honua-support#5": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
+    },
+    "honua-support#56": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-support#59": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
+    },
+    "honua-support#61": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#62": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-support#64": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#65": {
+      "bucket": "2026.2",
+      "reason": "2026-09-04 commercial-readiness amendment selects support#5 STAFFED-MANUAL; broader support-product production deployment/webhook/operational qualification stays out. Shipped security defects retain their own severity."
+    },
+    "honua-support#68": {
+      "bucket": "post-cut-hardening",
+      "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
     }
   },
   "admission_reviews": {
