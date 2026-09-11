@@ -97,11 +97,11 @@ deploy:
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
     # if it drifts. Advanced with the 2026-08-27 working-snapshot refresh (e3ab87ce -> ac30266f).
-    deploysServerImage: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
+    deploysServerImage: "sha:7ba422672e0c751843b17beb36e954a019cc19fb"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-08-27 refresh.
-    appVersion: "sha:4ca8326f37b3225315033ee58e1a652e231992df"
+    appVersion: "sha:7ba422672e0c751843b17beb36e954a019cc19fb"
 
 data:
   honua-server:
@@ -114,7 +114,10 @@ data:
     #   docker exec <pg> psql -U honua -d honua -c \
     #     "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   -> Honua.Server.Migrations.106_CreateManagedUsersAndScimGroups.sql
-    requiresDbSchema: ">=107"
+    # 2026-09-11 candidate re-pin to 7ba4226: the migration-filename floor is
+    # 115_AddDropImportStagingTable.sql (`git ls-tree 7ba4226 src/Honua.Server/Migrations/`). The
+    # DbUp journal read-back above was NOT repeated for this pin.
+    requiresDbSchema: ">=115"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.
 supportWindow:
