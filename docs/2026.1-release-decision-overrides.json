@@ -70,23 +70,23 @@
     },
     "honua-release#122": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#123": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#129": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#157": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#161": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#181": {
       "bucket": "must-fix-before-cut",
@@ -158,7 +158,7 @@
     },
     "honua-release#7": {
       "bucket": "prove-against-candidate",
-      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and §14."
+      "reason": "Execution/certification owner for exact-candidate client/terminal/cloud/model receipts, consumed by the strict train and \u00a714."
     },
     "honua-release#98": {
       "bucket": "post-cut-hardening",
@@ -398,7 +398,7 @@
     "honua-console#337": {
       "body_sha256": "5d56c3375d6c13150f53496c2a6abc724c0961a1a1a76e736b8fbaa0eff26de7",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: chore(deps): upgrade vega past three open advisories (one high) — coordinated with vega-lite"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: chore(deps): upgrade vega past three open advisories (one high) \u2014 coordinated with vega-lite"
     },
     "honua-console#362": {
       "body_sha256": "ce26eedaa2d0ae34437a803727c713c0a67535ea5b87933a79587bf2524dd3ec",
@@ -443,7 +443,7 @@
     "honua-devops#191": {
       "body_sha256": "b75e7d9aa1ac8f90cff67d7294965c4270e4c4e54657450aeaa6c586cbcfef84",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise'; quality-contract Sec7.2 explicitly requires the GitOps loop to 'detect drift and prove reconciliation and rollback' with 'no unrecorded manual production mutation' — preauthorized, bounded recovery that a later reconcile cannot silently undo is exactly that already-recorded requirement."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise'; quality-contract Sec7.2 explicitly requires the GitOps loop to 'detect drift and prove reconciliation and rollback' with 'no unrecorded manual production mutation' \u2014 preauthorized, bounded recovery that a later reconcile cannot silently undo is exactly that already-recorded requirement."
     },
     "honua-esri-compat#74": {
       "body_sha256": "28755c8dbbebcda0753c6e0fedbd8c6987d2f65ddacc84996464c0842f3f6476",
@@ -468,7 +468,7 @@
     "honua-helm#69": {
       "body_sha256": "d707244a7d8f8cdb1caed246006b1c7edcf6f410c8fdc3ce64f68f70bb62bde0",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026.1 safe rollout / protected upgrade and rollback promise (contract §7.2/§14) applied to chart-installed servers."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026.1 safe rollout / protected upgrade and rollback promise (contract \u00a77.2/\u00a714) applied to chart-installed servers."
     },
     "honua-iac#118": {
       "body_sha256": "1db802496a595c5e4d6fe4da8bcec87b880392f57897637c7d1b45cadbecd418",
@@ -518,7 +518,7 @@
     "honua-release#120": {
       "body_sha256": "d1de6957efc397db2987faf6d767487362a3b88a94478ab94c0104842eaeb4a3",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 terminal AI delivery arc — install → services + GP → maps/dashboards → governed publish"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 terminal AI delivery arc \u2014 install \u2192 services + GP \u2192 maps/dashboards \u2192 governed publish"
     },
     "honua-release#122": {
       "body_sha256": "7c0f0de7a972731ca515ee77a2aabb10c9e08d5929ff7d4a556e1f7c517c6a8a",
@@ -528,7 +528,7 @@
     "honua-release#123": {
       "body_sha256": "e495e6d7b912770d5ee754e6156a8e5b2b01e27fa81d881a52c7345d60259e7a",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: deterministic terminal candidate journey — install → services + GP → maps/dashboards → approval"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: release: deterministic terminal candidate journey \u2014 install \u2192 services + GP \u2192 maps/dashboards \u2192 approval"
     },
     "honua-release#129": {
       "body_sha256": "7d82a388d8e1796dababa63ca1f80787981517882ee97e17b5c138b145a036f9",
@@ -598,7 +598,7 @@
     "honua-release#317": {
       "body_sha256": "5007340999fe478097c0f5c63efa1c6af076228ee257fd2f4f37c171db0f1a1c",
       "named_promise": false,
-      "reason": "Body states existing generic compatibility checks and the hand-maintained baseline are 'insufficient' and demands a new, stricter bar — installed-SDK-only certification with zero bespoke HTTP — for the new low-switching-cost Esri migration program (release#316). This raises the denominator beyond what the record already promised rather than fixing a named existing gate."
+      "reason": "Body states existing generic compatibility checks and the hand-maintained baseline are 'insufficient' and demands a new, stricter bar \u2014 installed-SDK-only certification with zero bespoke HTTP \u2014 for the new low-switching-cost Esri migration program (release#316). This raises the denominator beyond what the record already promised rather than fixing a named existing gate."
     },
     "honua-release#319": {
       "body_sha256": "cbb154d019dc80c88614dbfdcf4462efda057b295d25c5ebb04b60a1927efa26",
@@ -608,12 +608,12 @@
     "honua-release#321": {
       "body_sha256": "ee319e4ae61c900beea272310390e98110b02de4ed0e0b92227404b626bfa47b",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly and is the certification gate for it — quality-contract Sec7.2/Sec14 (upgrade/rollback pass, signed promotion receipt) and Sec14's release-train/burn-in bullets already require exactly this real-candidate injected-failure recovery proof; this issue supplies the missing evidence for an already-committed GA gate, not a new claim."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly and is the certification gate for it \u2014 quality-contract Sec7.2/Sec14 (upgrade/rollback pass, signed promotion receipt) and Sec14's release-train/burn-in bullets already require exactly this real-candidate injected-failure recovery proof; this issue supplies the missing evidence for an already-committed GA gate, not a new claim."
     },
     "honua-release#323": {
-      "body_sha256": "59886efbef309ee91d1652033a32fff3b7a05a26e0da4fe0d822da5f73378b82",
+      "body_sha256": "840e8daf56cee418a4b783b816c4bbf3a2d526fb0e5dddcb6910afeb1764602a",
       "named_promise": false,
-      "reason": "Grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise."
+      "reason": "Grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica 2026-09-11; verdict unchanged."
     },
     "honua-release#325": {
       "body_sha256": "0b022514f5d1f5bf32d2691b8748295e1768ff342ce708d6c2416716576321bd",
@@ -668,12 +668,12 @@
     "honua-sdk-dotnet#340": {
       "body_sha256": "100e058cf55bd49df2a9e4bb66c6b21af68737569b0609358adfea4ade9c11e0",
       "named_promise": false,
-      "reason": "Same new-scope program (release#316/#317/#325): 'A C# implementation inside honua-server is not sufficient for the required SDK-only customer journey' — a new typed public-API surface being built for the migration program, not an existing promise being repaired."
+      "reason": "Same new-scope program (release#316/#317/#325): 'A C# implementation inside honua-server is not sufficient for the required SDK-only customer journey' \u2014 a new typed public-API surface being built for the migration program, not an existing promise being repaired."
     },
     "honua-sdk-dotnet#341": {
       "body_sha256": "91a399a3035f65a9705cdd7485bee84fe9e7ff37bb172844bd35ed5e9d649e38",
       "named_promise": false,
-      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) — new typed SDK capability ('add only missing typed coverage for service/layer/table discovery...') built to satisfy the new adoption-outcomes certification bar, not a fix to a behavior the record already promises."
+      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) \u2014 new typed SDK capability ('add only missing typed coverage for service/layer/table discovery...') built to satisfy the new adoption-outcomes certification bar, not a fix to a behavior the record already promises."
     },
     "honua-sdk-js#1397": {
       "body_sha256": "d58d631ae9dd9405e6e099b79edcf3f437d8e5f0e35de7412076c2a007f5ed1b",
@@ -723,7 +723,7 @@
     "honua-sdk-js#1596": {
       "body_sha256": "22df234e9dfc8850eac6850c3644a1caaa7b39f99a4b0427138d122ff1642125",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec14 ('Documentation installs the certified artifact set and executable commands pass') — the README's documented npx quickstart command is copy-pasted and fails outright, breaking that already-recorded docs-truth gate."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec14 ('Documentation installs the certified artifact set and executable commands pass') \u2014 the README's documented npx quickstart command is copy-pasted and fails outright, breaking that already-recorded docs-truth gate."
     },
     "honua-sdk-js#1620": {
       "body_sha256": "9585d9ec34eb97873f487229248f0fa163691ecd36c09ce3d57ecbf25a1c98f6",
@@ -743,7 +743,7 @@
     "honua-sdk-js#1662": {
       "body_sha256": "f08d310350d7ec91082e4d9fe6799b62506dead24b25b48c584271786bceb5b2",
       "named_promise": false,
-      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) — a new certification requirement (freeze an app-behavior checklist, run a cohort of migrated 2D apps) for the new adoption-outcomes program, not a fix to an already-promised SDK behavior."
+      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) \u2014 a new certification requirement (freeze an app-behavior checklist, run a cohort of migrated 2D apps) for the new adoption-outcomes program, not a fix to an already-promised SDK behavior."
     },
     "honua-sdk-js#39": {
       "body_sha256": "3c06f6eb828f127c5bab802aaa28b4c92cf22aeb382cff9f2e8c166b7d66905a",
@@ -753,17 +753,17 @@
     "honua-sdk-python#201": {
       "body_sha256": "6042aa8b09316e8352d6dc15cfee01d5cacc1cb23d54befae2d94914f522fafa",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2/release#230/#231 fail-closed-certification and exact-candidate-identity promises — a blocking gate reading a moving `nightly-aot` tag and an unpinned seed checkout is exactly the 'reject stale/wrong-candidate evidence' failure mode already documented."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2/release#230/#231 fail-closed-certification and exact-candidate-identity promises \u2014 a blocking gate reading a moving `nightly-aot` tag and an unpinned seed checkout is exactly the 'reject stale/wrong-candidate evidence' failure mode already documented."
     },
     "honua-sdk-python#202": {
       "body_sha256": "80c40fbd9a54a1c42bde571bcc1ddc46ee6f9f3e9cb2005d91da992511b21b11",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2/release#230 fail-closed-certification promise — a live GP smoke lane counts 9 of 25 scripts as passing with no response oracle at all ('unblessed passes silently'), a false-green certification defect of the same class already on record."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2/release#230 fail-closed-certification promise \u2014 a live GP smoke lane counts 9 of 25 scripts as passing with no response oracle at all ('unblessed passes silently'), a false-green certification defect of the same class already on record."
     },
     "honua-sdk-python#205": {
       "body_sha256": "d39ec2da79be9b13093a23fc79e5cd4c8255d1c9220c8629db1c1178e27bd1c2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: correctness defect in the already-shipped honua_gp ArcPy-compatibility shim — GetCount silently queries a misresolved endpoint and returns 404 instead of the correct count (verified against honua-esri-compat's existing licensed parity harness, PR #70). Silent wrong data in shipped Esri-compatibility functionality."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: correctness defect in the already-shipped honua_gp ArcPy-compatibility shim \u2014 GetCount silently queries a misresolved endpoint and returns 404 instead of the correct count (verified against honua-esri-compat's existing licensed parity harness, PR #70). Silent wrong data in shipped Esri-compatibility functionality."
     },
     "honua-sdk-python#21": {
       "body_sha256": "9efc241ece6e49893690fd2d9eeec9e4053aa51170ffe237e4685b2532e7bc0c",
@@ -783,12 +783,12 @@
     "honua-sdk-python#225": {
       "body_sha256": "39b94505f0252bc9c595b55c78bff1ef31330292ec36b769d8470935f5069442",
       "named_promise": false,
-      "reason": "Body asks to build documented installed-wheel GP examples and add 'missing typed catalog-layer, selection/filter, CRS, artifact/result-reference and destination handles' — new SDK capability. The pre-existing sdk-python#21 gate (quality-contract Sec0/Sec5.1 traceability) only required generic installed-wheel integration tests against FeatureServer/MapServer/ImageServer/GPServer surfaces; native GP lifecycle/result-composition was added to #21's scope only by the same 2026-09-09 SDK-adoption-outcomes edit that created this issue, so it is new scope rather than an existing recorded promise."
+      "reason": "Body asks to build documented installed-wheel GP examples and add 'missing typed catalog-layer, selection/filter, CRS, artifact/result-reference and destination handles' \u2014 new SDK capability. The pre-existing sdk-python#21 gate (quality-contract Sec0/Sec5.1 traceability) only required generic installed-wheel integration tests against FeatureServer/MapServer/ImageServer/GPServer surfaces; native GP lifecycle/result-composition was added to #21's scope only by the same 2026-09-09 SDK-adoption-outcomes edit that created this issue, so it is new scope rather than an existing recorded promise."
     },
     "honua-sdk-python#226": {
       "body_sha256": "1fe2a5e43eb709fd2844574a4b864287e7cea99060a0e50390c7c3ec24857517",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data in the already-shipped honua-gp Result-binding path — a later GetCount/cursor/GP call can silently target an unrelated dataset (falls back to layer 0) instead of the requested output, matching the admission rule's data-corruption/silent-wrong-data case for existing functionality."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data in the already-shipped honua-gp Result-binding path \u2014 a later GetCount/cursor/GP call can silently target an unrelated dataset (falls back to layer 0) instead of the requested output, matching the admission rule's data-corruption/silent-wrong-data case for existing functionality."
     },
     "honua-server#3269": {
       "body_sha256": "0dd3713ab22740e2e5811cf799a1badf6d694566e5d56219376941edcd52f455",
@@ -803,17 +803,17 @@
     "honua-server#3305": {
       "body_sha256": "ecda61138ac0d172f56d02e1d23561731eafde5e62373c325484ac736dcee07c",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(studio): \"Honua Studio\" GitBook section — concept, standalone, embed, BYOM (Ollama/gis-llm), MCP tools, Claude Desktop, sdk-js agent, .NET lifecycle"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs(studio): \"Honua Studio\" GitBook section \u2014 concept, standalone, embed, BYOM (Ollama/gis-llm), MCP tools, Claude Desktop, sdk-js agent, .NET lifecycle"
     },
     "honua-server#3361": {
       "body_sha256": "adef7da20062ae3f3d618d254ea49d03050b09a5d120828020af379e97e2c6fc",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(operations): WS2 lane C — access — admin operation descriptors + executors"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: feat(operations): WS2 lane C \u2014 access \u2014 admin operation descriptors + executors"
     },
     "honua-server#3364": {
       "body_sha256": "3829894a2d8761f30dd252a52f9707bc126127e0476430f5575edfd48a6ef6db",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs: one-terminal setup → services/style + GP → saved map/dashboard → governed publish"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: docs: one-terminal setup \u2192 services/style + GP \u2192 saved map/dashboard \u2192 governed publish"
     },
     "honua-server#3365": {
       "body_sha256": "edb82344220e85f6db87624cfa5d0c7997a717cd1053f590427379805df1342c",
@@ -1183,7 +1183,7 @@
     "honua-server#4006": {
       "body_sha256": "7c11f3ab9dc018273c74d17c03b1c8c3a81698768e7ff23615f96a5265870b85",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data — a Replace import that drops the prior complete dataset for a partial one while reporting Success=true is exactly the data-corruption/silent-wrong-data case the admission rule names; independent of the later-appended low-switching-cost migration cross-links."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data \u2014 a Replace import that drops the prior complete dataset for a partial one while reporting Success=true is exactly the data-corruption/silent-wrong-data case the admission rule names; independent of the later-appended low-switching-cost migration cross-links."
     },
     "honua-server#4008": {
       "body_sha256": "cfb48bdfc9292c938f1f2c655e03c265b6e41eb80220b3c240379fcbb4c2db0a",
@@ -1198,12 +1198,12 @@
     "honua-server#4021": {
       "body_sha256": "1f9ca91ef96031ef6423a5c11546832eff55ec334d0067bb4c6afa8343f877dc",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] GP result value is a bare data-URI/URL string, not the Esri FeatureSet / {url} object — ArcGIS clients get empty or broken results"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] GP result value is a bare data-URI/URL string, not the Esri FeatureSet / {url} object \u2014 ArcGIS clients get empty or broken results"
     },
     "honua-server#4023": {
       "body_sha256": "fc920cfec4308f1b5a1c4c1524f832203aca1ede3f0ba54210e30f2bbddcdd16",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] Layer-scoped GA tasks (overlay/proximity/statistics/dissolve, published as Clip/Intersect/Union/…) cannot accept an Esri FeatureSet at all"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [esri-hunt] Layer-scoped GA tasks (overlay/proximity/statistics/dissolve, published as Clip/Intersect/Union/\u2026) cannot accept an Esri FeatureSet at all"
     },
     "honua-server#4025": {
       "body_sha256": "0d6860ea0d6676974d1fde08dbfbf25c19b5d7bfa8dda2af4e2871db26478be1",
@@ -1273,7 +1273,7 @@
     "honua-server#4204": {
       "body_sha256": "daefed8a9fb686329bfe94b03e17f13b0ff35e99352540003933d2d9879ea710",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] ImageServer tile fallback looks COGs up by storage layer id while registrations are keyed by publication LayerIndex — cloud COGs are never found, or another service's COG is served"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] ImageServer tile fallback looks COGs up by storage layer id while registrations are keyed by publication LayerIndex \u2014 cloud COGs are never found, or another service's COG is served"
     },
     "honua-server#4205": {
       "body_sha256": "c11ec44f268c01cde03ac6bc8aa4eead0a6a96a26b5babd410be58bd1372275f",
@@ -1303,7 +1303,7 @@
     "honua-server#4217": {
       "body_sha256": "33dce8e5e605258709cd7d50668cf2fc09a0621d8946d3d3d5ea4ae1d0e57431",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] $search, $apply, entity-by-key GET and OData CRUD bypass provider routing and hit the managed `features` partition — empty results / 404 / shadow writes on connection-bound (admin-published) layers"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] $search, $apply, entity-by-key GET and OData CRUD bypass provider routing and hit the managed `features` partition \u2014 empty results / 404 / shadow writes on connection-bound (admin-published) layers"
     },
     "honua-server#4218": {
       "body_sha256": "760201165ed7af4f5b1cec53bb4deab3e9031148d747b88f39d1855922cb6353",
@@ -1313,12 +1313,12 @@
     "honua-server#4222": {
       "body_sha256": "8248c4e54097b347ef63415598b63c346a18abdfa4c1d3f315237fc521474ee5",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] PMTiles writer bounds the root directory by entry count (16,384), not bytes (16,257 B) — archives above ~6-7k tiles are unreadable by pmtiles.js/MapLibre and go-pmtiles"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] PMTiles writer bounds the root directory by entry count (16,384), not bytes (16,257 B) \u2014 archives above ~6-7k tiles are unreadable by pmtiles.js/MapLibre and go-pmtiles"
     },
     "honua-server#4223": {
       "body_sha256": "26058087ea430aa0a7d64c39a8d9616471847d180c4e702fd21b53cd594faa65",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] publish/archive silently truncate the pyramid at maxTiles (default 500) but stamp the header with the full requested zoom range and bbox — MapLibre shows a blank map beyond the truncated zoom while the job reports success"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: [cn-hunt] publish/archive silently truncate the pyramid at maxTiles (default 500) but stamp the header with the full requested zoom range and bbox \u2014 MapLibre shows a blank map beyond the truncated zoom while the job reports success"
     },
     "honua-server#4224": {
       "body_sha256": "97b1291836342a0066dbffbe2525c98a6a0b69b796da75c9b9fba81afad3da3f",
@@ -1578,7 +1578,7 @@
     "honua-server#4420": {
       "body_sha256": "7f4ad726baa0d411f6819431b4c9013a10268372f5e017fd008aef20f89a9f16",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2 / release#230 fail-closed-certification promise ('Certification must reject skip, missing, stale, source-built, or wrong-candidate evidence') — the per-PR Import Fidelity Scorecard gate diffs the baseline against itself and no independent library ever reads a Honua-written file, i.e. a false-green certification exactly like the Sec4.2 findings already on record."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec4.2 / release#230 fail-closed-certification promise ('Certification must reject skip, missing, stale, source-built, or wrong-candidate evidence') \u2014 the per-PR Import Fidelity Scorecard gate diffs the baseline against itself and no independent library ever reads a Honua-written file, i.e. a false-green certification exactly like the Sec4.2 findings already on record."
     },
     "honua-server#4421": {
       "body_sha256": "46ced41f0b6db18c135291acf093277aa3758bf78ca6eb2db5ca238532946fdd",
@@ -1588,7 +1588,7 @@
     "honua-server#4422": {
       "body_sha256": "00690bf56432cc1eff74e0d0daf2ee4dc21c405926cdc6f58679911010348dd9",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data / a documented supported workflow that fails — a failed Replace-mode import can leave an orphaned staging table behind uncleaned, and the shipped import job orchestrator is exercised by zero tests; this is exactly the class of defect the admission rule names (data corruption/silent wrong data)."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data / a documented supported workflow that fails \u2014 a failed Replace-mode import can leave an orphaned staging table behind uncleaned, and the shipped import job orchestrator is exercised by zero tests; this is exactly the class of defect the admission rule names (data corruption/silent wrong data)."
     },
     "honua-server#4424": {
       "body_sha256": "7f09c88009593272bee59367e218e6aedc3568384ffcba9e4768d8d0cd9d8d9d",
@@ -1608,7 +1608,7 @@
     "honua-server#4454": {
       "body_sha256": "f125002257395d63f62af85543e6a40881b455f4213fb73af40d57105c381853",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026-09-06 operator amendment ('GP catalog entry points — ruling A') already establishes that GA is defined per entry point and that advertisement surfaces must only offer operations on their declared entry points; grounding recommending protocol-only/workflow-only processes that the job runtime is guaranteed to reject breaks that already-adopted consistency rule."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the 2026-09-06 operator amendment ('GP catalog entry points \u2014 ruling A') already establishes that GA is defined per entry point and that advertisement surfaces must only offer operations on their declared entry points; grounding recommending protocol-only/workflow-only processes that the job runtime is guaranteed to reject breaks that already-adopted consistency rule."
     },
     "honua-server#4599": {
       "body_sha256": "4341a2e55f60cbfdce083097b61f4b88d3f4d4a29d717f35d9b3d26fc1496f45",
@@ -1618,52 +1618,52 @@
     "honua-server#4600": {
       "body_sha256": "0cda5af828ad073dfaaf6472e235a45e5dffa17bd4a2fa2300eacdf3b1526f0a",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: an existing, already-tested feature — the GeoServices/ArcGIS service-layer import path with its Import Fidelity Scorecard Governance gate (confirmed pre-existing by sibling audit finding server#4420) — can report a Completed job while relationships and catalog discrepancies are unreconciled; a weaker-than-claimed migration succeeding silently is the silent-wrong-data/documented-workflow-fails case, not new capability."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: an existing, already-tested feature \u2014 the GeoServices/ArcGIS service-layer import path with its Import Fidelity Scorecard Governance gate (confirmed pre-existing by sibling audit finding server#4420) \u2014 can report a Completed job while relationships and catalog discrepancies are unreconciled; a weaker-than-claimed migration succeeding silently is the silent-wrong-data/documented-workflow-fails case, not new capability."
     },
     "honua-server#4614": {
       "body_sha256": "58b04b8d5be3a9a5ee4ce7214f5219c66a8877e122d0658e310664c390cc1cb2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' — ArcPy remote-toolbox import via the documented SOAP syntax 404s; this is the same already-advertised GP compatibility boundary as honua-esri-compat #74/#75/#88, not new scope."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' \u2014 ArcPy remote-toolbox import via the documented SOAP syntax 404s; this is the same already-advertised GP compatibility boundary as honua-esri-compat #74/#75/#88, not new scope."
     },
     "honua-server#4616": {
       "body_sha256": "186b874b00d870212c381914e815f05c9370479f39c13235aadfdd07f4fc0d76",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' — the canonical true-case example in the admission rule; the published dotted process names (geometry.buffer) break Esri's Python-toolbox import syntax, an already-advertised REST toolbox compatibility claim tied to honua-esri-compat #74/#75/#88."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' \u2014 the canonical true-case example in the admission rule; the published dotted process names (geometry.buffer) break Esri's Python-toolbox import syntax, an already-advertised REST toolbox compatibility claim tied to honua-esri-compat #74/#75/#88."
     },
     "honua-server#4617": {
       "body_sha256": "e9164b986ddb366356d5e834a2262c33894561ec67875f8c4d7d592fae5bf055",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' (quality-contract Sec7.2/Sec14) — a health evaluator that can classify absent/invalid telemetry as healthy breaks the required rollout-safety decision gate."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' (quality-contract Sec7.2/Sec14) \u2014 a health evaluator that can classify absent/invalid telemetry as healthy breaks the required rollout-safety decision gate."
     },
     "honua-server#4618": {
       "body_sha256": "b3c6a4a63f98ad61087070638decc0214973b13fe8c1fb24d72212c902d64090",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' (quality-contract Sec7.2/Sec14 rollback/recovery gate) — losing the rollback protection window when the old process retires immediately after cutover breaks the already-required recovery guarantee."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' (quality-contract Sec7.2/Sec14 rollback/recovery gate) \u2014 losing the rollback protection window when the old process retires immediately after cutover breaks the already-required recovery guarantee."
     },
     "honua-server#4619": {
       "body_sha256": "3a9f513fcac30d3e26612914bc3ac3c2cc3524da12d7a294cefe891d35c21d7c",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the body names 'the 2026.1 safe rollout promise' directly, matching quality-contract Sec7.2/Sec14 (upgrade, rollback, verified recovery are hard GA gates) — staged activation without capturing pre-mutation state before atomic activation breaks that promise."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: the body names 'the 2026.1 safe rollout promise' directly, matching quality-contract Sec7.2/Sec14 (upgrade, rollback, verified recovery are hard GA gates) \u2014 staged activation without capturing pre-mutation state before atomic activation breaks that promise."
     },
     "honua-server#4623": {
       "body_sha256": "93384c9b52986c2288737d9869c842c7f682171fe860366399417a322e044453",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for geometry.buffer, the named retained bounded GP operation (quality-contract Sec2) — wrong-but-successful metric buffering on EPSG:4326/projected-feet inputs is exactly the correctness defect the promise forbids."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for geometry.buffer, the named retained bounded GP operation (quality-contract Sec2) \u2014 wrong-but-successful metric buffering on EPSG:4326/projected-feet inputs is exactly the correctness defect the promise forbids."
     },
     "honua-server#4624": {
       "body_sha256": "0f28cfc6f36bc42ac277a9c56244e286470b6568ec0f1ba4b32e3ab810f54bcf",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for analytics.buffer-aggregate, one of the retained bounded GP operations (quality-contract Sec2/Sec7.1) — advertised selection filters and output statistics silently not being honored is a correctness defect, not a new feature."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for analytics.buffer-aggregate, one of the retained bounded GP operations (quality-contract Sec2/Sec7.1) \u2014 advertised selection filters and output statistics silently not being honored is a correctness defect, not a new feature."
     },
     "honua-server#4625": {
       "body_sha256": "a0a2c0927bab2ca0f51dce485c0522baba56d9f78a252160775c4dc73da29fe9",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: a non-waivable tenant/authorization security floor (quality-contract Sec13, Sec7.1 'nondisclosure across tenants') — GP writes can reach an unauthorized destination because generic LayerId authorization does not cover a text-addressed sink target."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: a non-waivable tenant/authorization security floor (quality-contract Sec13, Sec7.1 'nondisclosure across tenants') \u2014 GP writes can reach an unauthorized destination because generic LayerId authorization does not cover a text-addressed sink target."
     },
     "honua-server#4626": {
       "body_sha256": "8c979cdbf2cf43d71b55b1c86cb2918e90b5e80fe1b309e75c17cbc545705fcb",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec7.1 requires 'no lost job, duplicate terminal state, or orphaned output' under crash/restart — a sink that can commit twice on crash/retry breaks that repeat-safe-effects promise."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec7.1 requires 'no lost job, duplicate terminal state, or orphaned output' under crash/restart \u2014 a sink that can commit twice on crash/retry breaks that repeat-safe-effects promise."
     },
     "honua-server#4627": {
       "body_sha256": "6a4d6729bed4aae8b0248a1104fc6ea0fe2c3b114f58f8bc9453ef2397a8dbf9",
@@ -1673,7 +1673,7 @@
     "honua-server#4628": {
       "body_sha256": "6b6844eb27a299640c54b56fb4f510b8130bb00609f5aacfaad72c5c820a504c",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for the retained bounded GP journey (quality-contract Sec2/Sec7.1) — workflow success silently changing at the spill threshold is a correctness defect in an already-promised operation chain."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'GP results are correct' for the retained bounded GP journey (quality-contract Sec2/Sec7.1) \u2014 workflow success silently changing at the spill threshold is a correctness defect in an already-promised operation chain."
     },
     "honua-server#4629": {
       "body_sha256": "40513be5b87c166a0b716aaeb6001232547c94ff084dfe3c997d5f4160ad826a",
@@ -1708,7 +1708,7 @@
     "honua-support#59": {
       "body_sha256": "53ed74930057d96c549dab0ba487b0766475608c143db9d0107987ad1c846ced",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 support readiness — policy, operations, application, and rehearsal"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: Epic: 2026.1 support readiness \u2014 policy, operations, application, and rehearsal"
     },
     "honua-support#60": {
       "body_sha256": "2d92d95a3c2678aae7c86a7ebb49371e879fa773abdec4e830002683d472d843",
