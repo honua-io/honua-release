@@ -2,7 +2,24 @@ name: rollback-certification
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate_lock_artifact:
+        description: >-
+          Name of an uploaded artifact holding frozen-lock/platform-lock.json to certify. Empty
+          (the default for a manual run) means use the checked-out platform-manifest.yaml /
+          compatibility-matrix.yaml / platform-lock.json on this ref instead.
+        required: false
+        type: string
+        default: ""
   workflow_call:
+    inputs:
+      candidate_lock_artifact:
+        description: >-
+          Name of the uploaded artifact holding frozen-lock/platform-lock.json to certify. Empty
+          means use the checked-out candidate inputs instead of downloading an artifact.
+        required: false
+        type: string
+        default: "candidate-manifest"
     outputs:
       overall_status:
         description: "pass | fail"
@@ -25,14 +42,21 @@ jobs:
           python-version: "3.12"
 
       - name: Download the frozen candidate inputs
-        if: github.event_name != 'workflow_dispatch'
+        if: inputs.candidate_lock_artifact != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: candidate-manifest
+          name: ${{ inputs.candidate_lock_artifact }}
           path: _candidate
 
+      # The train's freeze job lands the certifiable lock (real or labelled dry-run) under
+      # frozen-lock/ inside the artifact; flatten it here so every later step reads one path
+      # regardless of which branch above populated _candidate.
+      - name: Flatten the train-frozen lock
+        if: inputs.candidate_lock_artifact != ''
+        run: cp _candidate/frozen-lock/platform-lock.json _candidate/platform-lock.json
+
       - name: Use checked-out candidate inputs for a manual certification
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.candidate_lock_artifact == ''
         run: |
           set -euo pipefail
           mkdir -p _candidate

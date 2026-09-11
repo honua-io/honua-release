@@ -88,6 +88,33 @@ jobs:
           # canonical bytes attested here, not a second JSON/YAML serialization.
           cmp platform-lock.json frozen-lock/platform-lock.json
 
+      # A dry run has no committed candidate lock to bind (that draft's worklist is not fully
+      # resolvable until release#231/#313 land), but downstream gates that certify against the
+      # frozen lock (rollback certification) still need a real file to exercise their real checks
+      # against, not a missing one. This is deliberately never the bytes a real cut freezes: the id
+      # is prefixed DRY-RUN- and status is "dry-run", so it can never be confused with, or promoted
+      # as, an actual candidate identity, and nothing here ever creates or pushes a release tag.
+      - name: Produce a labelled dry-run candidate lock (never signed as a release, never tagged)
+        if: inputs.dry_run == true
+        run: |
+          set -euo pipefail
+          mkdir -p frozen-lock
+          python tools/generate_platform_lock.py \
+            --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
+            --output /tmp/platform-lock.draft.yaml || true
+          python - <<'PY'
+          import json
+          import yaml
+          draft = yaml.safe_load(open("/tmp/platform-lock.draft.yaml", encoding="utf-8")) or {}
+          platform = draft.setdefault("platform", {})
+          platform["id"] = f"DRY-RUN-{platform.get('id') or 'unresolved'}"
+          platform["status"] = "dry-run"
+          draft["dryRun"] = True
+          with open("frozen-lock/platform-lock.json", "w", encoding="utf-8") as stream:
+              json.dump(draft, stream, indent=2, sort_keys=True)
+          PY
+          test -s frozen-lock/platform-lock.json
+
       # A train cut freezes a candidate manifest. Phase 2 will regenerate it by snapshotting each
       # component's current green main SHA; today (Phase 0/1) the committed platform-manifest.yaml IS
       # the candidate snapshot, so freeze VALIDATES it (structure + coherence via validate_platform.py)
@@ -138,8 +165,12 @@ jobs:
           print(f"certification_sha256={ledger['sha256']}")
           print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
+      # attest-build-provenance signs whatever bytes are at this path; it does not care whether the
+      # lock is a real bound candidate or the labelled dry-run draft above, so this runs for both -
+      # it's how rollback-certification's `gh attestation verify` gets a real, checkable subject
+      # instead of skipping the check. Provenance for the dry-run draft ties it to this ephemeral
+      # workflow run, never to a release; nothing here tags or publishes it.
       - name: Attest the frozen atomic candidate identity
-        if: inputs.dry_run == false
         id: lock_attestation
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -265,6 +296,11 @@ jobs:
   gate_one_operation_rollback: # retained lock B -> A across serving, worker, config, capability, and schema
     needs: freeze
     uses: ./.github/workflows/rollback-certification.yml
+    with:
+      # Explicit, not github.event_name: under workflow_call that reads as the train's own
+      # workflow_dispatch, which used to send this gate down the "manual, checked-out file" branch
+      # and try to cp a platform-lock.json that was never committed to this ref.
+      candidate_lock_artifact: candidate-manifest
 
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
                                  # matrix backing #59's capability-key claims must be about this
