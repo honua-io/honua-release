@@ -140,6 +140,22 @@ def classify(issue, rules):
         return exception['bucket'], exception['reason']
     if 'priority/P0' in labels:
         return 'must-fix-before-cut', 'Every priority/P0 is required before cut (operator 2026-09-05).'
+    # Operator ruling 2026-09-11 ("bugs and ci should be pre cut"): a bug or a CI
+    # item is must-fix-before-cut whatever its priority; only an explicit
+    # release/2026.2 label overrides. Test-expansion items (test(...)),
+    # bug-hunt PROGRAM/tracking issues and epics are not bugs and keep their
+    # bucket rules.
+    title = issue.get('title') or ''
+    if 'release/2026.2' not in labels and not re.search(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b', title):
+        is_test = re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b', title) is not None
+        is_ci = 'area/ci' in labels or re.match(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]', title) is not None
+        is_bug = ('bug' in labels
+                  or re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b', title) is not None
+                  or (any(s.startswith('bug-hunt/') for s in labels) and not is_test))
+        if is_ci:
+            return 'must-fix-before-cut', 'CI work is pre-cut (operator ruling 2026-09-11).'
+        if is_bug:
+            return 'must-fix-before-cut', 'Bugs are pre-cut whatever their priority (operator ruling 2026-09-11).'
     review = rules['admission_reviews'].get(key)
     if 'first-release-gate' in labels or 'priority/P1' in labels:
         if not review or review.get('body_sha256') != issue['body_sha256']:

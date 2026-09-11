@@ -49,11 +49,32 @@ def test_family_priority_one_and_lower_priority_defaults():
     row = issue('priority/P1', 'bug-hunt/ga-vectors-2026-09-04')
     row['family'] = {'status':'queued'}
     assert decision.classify(row, rules(False))[0] == 'must-fix-before-cut'
+    # Ruling 2026-09-11: a bug-hunt finding is a bug and is pre-cut even when its
+    # fix family is parked; only a test(...) expansion item keeps the old rule.
     row['family']['status'] = 'parked'
+    assert decision.classify(row, rules(False))[0] == 'must-fix-before-cut'
+    row['title'] = 'test(grpc): the only real-database tests assert a tautology'
     assert decision.classify(row, rules(False))[0] == 'post-cut-hardening'
     for priority in ('priority/P2','priority/P3'):
         assert decision.classify(issue(priority), rules())[0] == 'post-cut-hardening'
     assert decision.classify(issue(), rules())[0] == 'post-cut-hardening'
+
+
+def test_bugs_and_ci_are_pre_cut_whatever_the_priority():
+    # Operator ruling 2026-09-11 ("bugs and ci should be pre cut").
+    for labels in [('priority/P2', 'bug'), ('priority/P3', 'bug-hunt/esri-2026-09-03'), ('area/ci',)]:
+        assert decision.classify(issue(*labels), rules())[0] == 'must-fix-before-cut'
+    titled = issue('priority/P2'); titled['title'] = 'bug: long WFS feature type names break rerun idempotency'
+    assert decision.classify(titled, rules())[0] == 'must-fix-before-cut'
+    ci = issue('priority/P3'); ci['title'] = 'perf(ci): build-time deep cut'
+    assert decision.classify(ci, rules())[0] == 'must-fix-before-cut'
+    # Explicit 2026.2 still wins; epics and hunt program issues are not bugs.
+    later = issue('priority/P2', 'bug', 'release/2026.2')
+    assert decision.classify(later, rules())[0] == '2026.2'
+    program = issue('bug-hunt/2026-09-03'); program['title'] = '2026.1 GA Bug-Hunt & Quality Program'
+    assert decision.classify(program, rules())[0] == 'post-cut-hardening'
+    epic = issue('priority/P2', 'bug'); epic['title'] = 'Epic: hunt follow-ups'
+    assert decision.classify(epic, rules())[0] == 'post-cut-hardening'
 
 
 def test_unknown_or_conflicting_priority_fails():
