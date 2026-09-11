@@ -33,11 +33,11 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     root = fixture(tmp_path)
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     pins = {row["source"]: (row["target"][:7], row["rule"]) for row in plan["sources"]}
-    # Golden values track platform-manifest.yaml; refreshed against published identities on 2026-09-01.
+    # Golden values track platform-manifest.yaml; refreshed at the 2026-09-11 candidate re-pin.
     assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
     assert pins["sdk-python"] == ("f7930b6", "manifest/frozen")
-    assert pins["sdk-js"] == ("c99e711", "manifest/frozen")
-    assert pins["server-certification"] == ("4ca8326", "manifest/frozen")
+    assert pins["sdk-js"] == ("d7cec2d", "manifest/frozen")
+    assert pins["server-certification"] == ("7ba4226", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
 
 

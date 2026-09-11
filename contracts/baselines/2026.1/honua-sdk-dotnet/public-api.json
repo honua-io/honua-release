@@ -1,5 +1,5 @@
 {
-  "count": 4976,
+  "count": 4979,
   "kind": "csharp-syntactic-public-surface",
   "note": "public/protected declarations under src/ (tests/generated excluded); deterministic diffable digest, not a full apicompat run",
   "symbols": [
@@ -1729,6 +1729,7 @@
     "Honua.Sdk.Admin.Catalog: public sealed record CatalogSearchResult",
     "Honua.Sdk.Admin.Catalog: public sealed record CatalogService",
     "Honua.Sdk.Admin.Catalog: public sealed record CatalogSourceDescriptor",
+    "Honua.Sdk.Admin.Catalog: public static CatalogMetadataIndex Empty",
     "Honua.Sdk.Admin.Catalog: public static class CatalogMetadataKinds",
     "Honua.Sdk.Admin.Catalog: public string Name",
     "Honua.Sdk.Admin.Catalog: public string? Capabilities",
@@ -3200,6 +3201,8 @@
     "Honua.Sdk.GeoServices.FeatureServer.Models: public long? ObjectId",
     "Honua.Sdk.GeoServices.FeatureServer.Models: public long? ParentObjectId",
     "Honua.Sdk.GeoServices.FeatureServer.Models: public long? Size",
+    "Honua.Sdk.GeoServices.FeatureServer.Models: public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)",
+    "Honua.Sdk.GeoServices.FeatureServer.Models: public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)",
     "Honua.Sdk.GeoServices.FeatureServer.Models: public required string OnStatisticField",
     "Honua.Sdk.GeoServices.FeatureServer.Models: public required string OutStatisticFieldName",
     "Honua.Sdk.GeoServices.FeatureServer.Models: public required string StatisticType",

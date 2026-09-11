@@ -119,6 +119,81 @@
       "bucket": "must-fix-before-cut"
     }
   ],
+  "working_candidate": {
+    "label": "2026.1.1-rc.1",
+    "status": "working pins, not a cut",
+    "observed_at": "2026-09-11T20:11:10Z",
+    "train": "https://github.com/honua-io/honua-release/actions/runs/34642273872",
+    "pins": [
+      [
+        "honua-server",
+        "7ba422672e0c751843b17beb36e954a019cc19fb",
+        "moved from 4ca8326; full ci.yml [34582125299](https://github.com/honua-io/honua-server/actions/runs/34582125299); image `nightly-aot-7ba4226@sha256:dd50cd81c057e37e73a6144572abdfc90d48de314d7625c54c4ef3b6eb65b0fd`"
+      ],
+      [
+        "honua-sdk-js",
+        "d7cec2d510e053fc86252b125bde21313a7e6e7c",
+        "moved from c99e711; 33/33 core check-runs green"
+      ],
+      [
+        "honua-sdk-dotnet",
+        "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6",
+        "held; post-[#344](https://github.com/honua-io/honua-sdk-dotnet/pull/344) head 4aedb85 is red on API Compatibility"
+      ],
+      [
+        "honua-sdk-python",
+        "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4",
+        "held; no green trunk sha (f2714f0 red on ephemeral-server-smoke)"
+      ],
+      [
+        "geospatial-grpc",
+        "0f701ecc6b0c41a5ea43e2dff3c46ce654312576",
+        "held; trunk HEAD and release v1.0.0"
+      ],
+      [
+        "geospatial-mcp",
+        "d5a09d13c4ad541c05702e598c3679c0f42db7af",
+        "held; trunk HEAD, 10/10 green"
+      ]
+    ],
+    "gates": [
+      [
+        "freeze, manifest, evidence, sbom, security, artifact-consume, contract, dr contract",
+        "pass",
+        ""
+      ],
+      [
+        "e2e / slice1",
+        "pass",
+        "the re-pinned image boots against the current Redis"
+      ],
+      [
+        "build-test",
+        "fail",
+        "honua-server: Cloud Integration Harness `Local Substrate` red on every scheduled run since 2026-08-29 ([honua-server#4415](https://github.com/honua-io/honua-server/issues/4415), [#4687](https://github.com/honua-io/honua-server/issues/4687)); geospatial-grpc: `Publish to PyPI` / `Publish to npm` re-run failed on v1.0.0 ([geospatial-grpc#88](https://github.com/honua-io/geospatial-grpc/issues/88)); honua-sdk-python blocked (10 lanes cancelled on 2026-08-13)"
+      ],
+      [
+        "e2e / seam",
+        "fail",
+        "pinned honua-sdk-dotnet 8e4dd3d9 fails restore with NU1902; its only fixed sha is red on API Compatibility, whose 1.6.2 baseline restore hits the same NU1902"
+      ],
+      [
+        "one-operation rollback / certify",
+        "fail",
+        "no `platform-lock.json`: the lock is frozen only when dry_run=false, and under workflow_call the job sees the caller's workflow_dispatch event and copies an uncommitted file"
+      ],
+      [
+        "capacity-soak / frozen-slo, dr / receipt",
+        "fail",
+        "expected: candidate receipts do not exist yet (placeholder URLs)"
+      ],
+      [
+        "conformance, protocol certification, docs, observability, cloud parity, upgrade",
+        "skipped",
+        "downstream of the failures above"
+      ]
+    ]
+  },
   "issues": [
     {"repo": "geospatial-grpc", "number": 88, "title": "test(certification): emit normalized multi-client gRPC release evidence", "state": "open", "labels": ["area/ci", "area/grpc", "bucket/must-fix-before-cut", "first-release-gate", "priority/P1", "release/2026.1", "size/M", "state/blocked", "test"], "body_sha256": "d4766f48bf30b04374a60340d846a7d75c1094b7d4309bd7e30f8679adad82e5", "updated_at": "2026-09-06T08:29:49Z", "family": {"packet": "dispatch/queue/28-grpc-88-publish-github-packages.md", "status": "queued", "flow_commit": "f238710e0713a0ffc37e647afbad83f6363d89fc"}},
     {"repo": "honua-console", "number": 334, "title": "fix(security): SceneViewer and ChartPreview load Cesium and Vega from jsdelivr at runtime", "state": "open", "labels": ["area/console", "bucket/must-fix-before-cut", "bug", "priority/P1", "release/2026.1", "security", "size/M", "slice/3d", "state/ready"], "body_sha256": "74543ac8941469a8731fbcdaf80b90c9708e64932fca7fb878a184848a18f67c", "updated_at": "2026-09-06T06:26:20Z", "family": {"packet": "dispatch/dispatched/20260830T224445Z-31-console-334-viewer-csp.md", "status": "dispatched; completion unverified", "flow_commit": "f238710e0713a0ffc37e647afbad83f6363d89fc"}},

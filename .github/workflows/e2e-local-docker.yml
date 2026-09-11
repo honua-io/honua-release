@@ -101,7 +101,7 @@ jobs:
           # These literals mirror the immutable manifest pins so the seam probes consume the same
           # published client candidate. The .NET/Python package coordinates remain unchanged.
           expected = {
-              "honua-sdk-js": ("c99e71197dd940ed952aecb024c6de273456f2ae", "0.1.9-beta.0"),
+              "honua-sdk-js": ("d7cec2d510e053fc86252b125bde21313a7e6e7c", "0.1.9-beta.0"),
               "honua-sdk-python": ("f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4", "0.1.11"),
               "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
           }

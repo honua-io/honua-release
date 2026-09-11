@@ -318,6 +318,20 @@ def decision_tables(rows):
     return counts + f'\n\n<details>\n<summary>{count} pre-cut blockers — every issue, owning packet, implementation and qualification</summary>\n\n' + blockers + '\n\n</details>'
 
 
+def working_candidate(data):
+    # Working candidate pins and their latest dry-run train. Informational only: the digest header
+    # stays `not yet cut` and nothing here can mark a row qualified against the candidate.
+    wc = data.get('working_candidate')
+    if not wc:
+        return []
+    lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · dry-run train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
+             '| Component | Pinned sha | Selection |', '|---|---|---|']
+    lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
+    lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
+    lines += [f'| {gate} | {status} | {cause} |' for gate, status, cause in wc['gates']]
+    return lines + ['']
+
+
 def render(data, rows):
     active = [r for r in rows if r['state'] == 'open']
     p0_unowned = [link(issue_key(r)) for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut' and (not r.get('family') or r['family']['status']=='parked')]
@@ -326,6 +340,7 @@ def render(data, rows):
         '# 2026.1 release decision record', '',
         f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
+        *working_candidate(data),
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',

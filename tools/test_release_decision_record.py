@@ -99,6 +99,20 @@ def test_unadmitted_gate_is_removed_with_comment_signal():
     assert decision.label_plan(row, rules(False))[1:] == (['first-release-gate'], True)
 
 
+def test_working_candidate_is_rendered_without_cutting_the_candidate():
+    data = json.loads(decision.INPUTS.read_text())
+    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    wc = data['working_candidate']
+    record = decision.render(data, rows)
+    assert '**Candidate digest: not yet cut ·' in record
+    assert f'**Working candidate {wc["label"]} ({wc["status"]})' in record
+    for name, sha, _ in wc['pins']:
+        assert f'| {name} | `{sha}` |' in record
+    assert all(not r['qualified_against_candidate'] for r in rows)
+    without = {k: v for k, v in data.items() if k != 'working_candidate'}
+    assert 'Working candidate' not in decision.render(without, rows)
+
+
 def test_closed_implementation_never_proves_candidate():
     row = issue('priority/P0')
     row['state'] = 'closed'
