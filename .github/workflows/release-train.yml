@@ -38,6 +38,9 @@ permissions:
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
   checks: read                  # gate-build-test reads each pinned component's check-runs (subset guard)
   actions: write                # e2e-cloud-aws dispatches the honua-iac cloud harness (iac-live wrapper)
+  attestations: write            # called gates (rollback-certification, gate-dr, capacity-soak) need
+                                  # attestations read/write; a called workflow cannot be granted a scope
+                                  # the caller's top-level permissions don't declare (write covers read).
 
 jobs:
   freeze:                       # snapshot -> candidate manifest (the pinned set the gates certify)
