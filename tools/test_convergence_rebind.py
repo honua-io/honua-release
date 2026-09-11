@@ -34,10 +34,14 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     pins = {row["source"]: (row["target"][:7], row["rule"]) for row in plan["sources"]}
     # Golden values track platform-manifest.yaml; refreshed against published identities on 2026-09-01.
+    # server-certification advanced 4ca8326 -> 98137f5 by the 2026-09-07 seam re-pin, which moves
+    # protocolCertification.serverCertificationProducerSha in lockstep with components.honua-server.sha
+    # (validate_platform.check_structure enforces that equality). The assertion still pins an exact
+    # expected sha — it is re-anchored to the current manifest, not relaxed.
     assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
     assert pins["sdk-python"] == ("f7930b6", "manifest/frozen")
     assert pins["sdk-js"] == ("c99e711", "manifest/frozen")
-    assert pins["server-certification"] == ("4ca8326", "manifest/frozen")
+    assert pins["server-certification"] == ("98137f5", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
 
 

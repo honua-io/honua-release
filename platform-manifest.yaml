@@ -9,6 +9,15 @@
 # train resolves as `image@digest` — which has a published, immutable multi-architecture AOT image,
 # so the SHA the train certifies is exactly the artifact customers can deploy.
 #
+# SEAM RE-PIN 2026-09-07 (honua-release#282). THIS IS NOT THE RELEASE CUT EITHER. It moves ONLY the
+# honua-server pin and its derived values, to un-red the `geoservices-error-surfacing` GA gate: the
+# outgoing image could not serve /metrics at all, so the scenario's counter scrape read None. Full
+# measured evidence — including why the obvious "the metric was renamed" explanation is wrong — is in
+# the dated block on the honua-server component. Unlike the two refreshes below, this one DOES pay the
+# "re-read, never carry forward" cost: contractVersions, the admin major and the dbSchema journal were
+# all read back off the booted incoming image, so the un-re-verified warning those refreshes left
+# behind is retired rather than inherited. No other component pin moves.
+#
 # WORKING-SNAPSHOT REFRESH 2026-08-27 (operator decision "refresh now"). THIS IS NOT THE RELEASE CUT.
 # The 2026-08-21 freeze predated the truthful-identity / evidence-producer migrations (sdk-js#1521,
 # sdk-python#213, sdk-dotnet#317, geospatial-grpc#91, geospatial-mcp#79+#80) and the honua-server
@@ -52,27 +61,36 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-08-31"             # forward-migration candidate refresh for honua-server 4ca8326
+snapshotDate: "2026-09-07"             # geoservices-error-surfacing seam re-pin: honua-server 4ca8326 -> 98137f59d
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "4ca8326f37b3225315033ee58e1a652e231992df"
+  ref: "98137f59d87b30a8663b66bf8f657272dff27b9f"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
 # deliberately blocks certification until honua-evidence publishes the exact-candidate ledger and
 # this reviewed manifest pins its immutable commit and byte digest.
 protocolCertification:
-  # UTC timestamp of THIS working-snapshot refresh (2026-08-27 operator decision). The previous value
-  # 2026-08-21T15:13:36Z was the completion time of honua-server release-bundle run 32496444220.
-  candidateCutAt: "2026-08-30T22:01:33Z"
+  # THE ACTUAL UTC TIME THIS CANDIDATE WAS FROZEN — NOT A DERIVED OR CARRIED-FORWARD TIMESTAMP.
+  # docs/RELEASE-CUT-CHECKLIST.md:35 requires the current UTC time at which the candidate identity is
+  # set, and forbids reusing a hand-snapshot's timestamp or a derived value. This field is a FREEZE
+  # BOUNDARY, not a provenance record: check_protocol_certification.py:836 rejects evidence whose
+  # `started` precedes it, so the boundary must not sit earlier than the moment the candidate was
+  # actually selected, or evidence produced before selection is accepted as post-freeze.
+  # It was previously set to the image-build completion time (run 34025704267 finished
+  # 2026-09-06T10:59:04Z), which opened exactly that hole: the ~19h between the image existing and
+  # this candidate being chosen. The build-run provenance it recorded is not lost — it is the
+  # `runInvocationURI` in the attestation transcript on the honua-server component below.
+  # Previous values: 2026-08-30T22:01:33Z was the 4ca8326 build; before that, release-bundle 32496444220.
+  candidateCutAt: "2026-09-07T05:53:33Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "4ca8326f37b3225315033ee58e1a652e231992df"
+  serverCertificationProducerSha: "98137f59d87b30a8663b66bf8f657272dff27b9f"
   # NOT TOUCHED BY THIS REFRESH — DELIBERATELY STALE, AND SAID SO.
   # The ledger below is byte-frozen against the OLD candidate (e3ab87ce). Re-binding it requires
   # honua-evidence to re-aggregate at this PR's squash SHA first; the ordered procedure is
@@ -223,17 +241,222 @@ components:
     #   (Cancelled: 115x the same attestation lane, 7x Prebuild repeated project / server, 3x
     #    Prebuild repeated project / geoservices.)
     # ==============================================================================================
-    # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
-    # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
-    # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
-    sha: "4ca8326f37b3225315033ee58e1a652e231992df"
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-4ca8326"   # immutable per-sha tag (NOT a floating tag)
-    digest: "sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508"
+    # ================= 2026-09-07 SEAM RE-PIN: 4ca8326 -> 98137f59d (release#282) =================
+    # Everything in this block was resolved live on 2026-09-07 against the incoming image. It is the
+    # "(this pin)" ledger; every block ABOVE it is the provenance of superseded pins and describes
+    # ac30266f / 6b6d3b8 / 4ca8326, not this one. An intermediate revision of THIS re-pin proposed
+    # 3c4a8cd and then 63be0386; both were rejected on their product gates and the reasons are kept
+    # below, because "why not the newer sha" is the question this block exists to answer.
+    #
+    # WHY THIS RE-PIN EXISTS — A GA GATE WAS RED, NOT A REFRESH FOR RECENCY.
+    # e2e-local-docker's canonical `geoservices-error-surfacing` scenario has FAILED on trunk every
+    # day since 2026-09-04 (runs 34030125798, 33962056964, 33869687580), identically for all three
+    # SDK probes:
+    #     honua_geoservices_error_total did not increment for its 200+{error} request
+    #     (before=None, after=None)
+    # ROOT CAUSE — MEASURED, NOT INFERRED, AND NOT THE ONE THE SYMPTOM SUGGESTS. The metric name is
+    # byte-identical at both shas (HonuaTelemetry.cs:69 `honua_geoservices_error_total` at 4ca8326 and
+    # at 3c4a8cd), so this was never a renamed series. The OLD PINNED IMAGE CANNOT SERVE /metrics AT
+    # ALL. Both images were booted here against postgres via e2e/local-docker and scraped the way
+    # runner/harness.scrape_metrics_body does (GET /metrics with X-API-Key):
+    #   4ca8326 (outgoing):  GET /metrics -> HTTP 400 application/problem+json
+    #       {"title":"Bad Request","status":400,
+    #        "detail":"Invalid query parameter value. Debug: Approved operation credentials must
+    #                  target an admin API path. (Parameter 'requestPath')","instance":"/metrics"}
+    #     ...with and without the key. The harness swallows the transport error into None, which is
+    #     exactly the reported before=None/after=None. NO honua_* series is reachable on this pin.
+    #   3c4a8cd (incoming):  GET /metrics -> HTTP 200 with the key, HTTP 401 without it — the
+    #     credential-shaped behaviour runner/harness.py:185 documents that it expects.
+    # The fix commit is honua-server#3708 (5e3321af2d, "stop computing approved-operation grants for
+    # non-admin paths"), which is NOT an ancestor of 4ca8326 and IS an ancestor of 3c4a8cd.
+    #
+    # THE SEAM'S ASSERTION, FIRST REPRODUCED AGAINST THE 3c4a8cd CANDIDATE (kept as the original
+    # diagnosis; the same measurement against the sha actually pinned is recorded further down).
+    # Same request the Python probe
+    # drives through the frozen SDK (a GeoServices query against a missing service, which Esri
+    # semantics answer with HTTP 200 + an {error} envelope):
+    #   $ curl -s -o /dev/null -w '%{http_code}' \
+    #       ".../rest/services/__honua_parity_missing_python__/FeatureServer/0/query?where=1%3D1))&f=json"
+    #   200            body: {"error":{"code":404,"message":"Not Found", ...}}
+    #   $ curl -s -H "X-API-Key: ..." .../metrics | grep '^honua_.*error_total'
+    #   honua_geoservices_error_total{...,error_code="404",operation="query",service_type="FeatureServer"} 1
+    #   honua_request_error_total{...,error_code="404",in_band="true",operation="query",service_type="FeatureServer"} 1
+    # before=absent -> after=1, i.e. the scenario's ">= 1 per erroring call" assertion is satisfied.
+    # The SAME request on 4ca8326 leaves both series absent (the scrape 400s), reproducing the red.
+    # honua-server#4320 (91db1196c9) is separately required and separately present: it is what makes
+    # `in_band="true"` correct on that sample (pre-#4320 `inBand = errorCode < 400` mislabelled an
+    # HTTP-200 envelope carrying logical code 404 as out-of-band). Ancestry proven, not assumed:
+    #   $ git -C honua-server merge-base --is-ancestor 91db1196c9 3c4a8cd && echo ok   -> ok
+    #
+    # PIN SELECTED FOR A TERMINAL GREEN PRODUCT GATE — THE RULE THAT REPLACED "NEWEST IMAGED".
+    # An earlier revision of this re-pin selected 3c4a8cd (the newest imaged trunk sha) and recorded
+    # its red `Server Tests (Core and Cloud Contracts)` shard as an operator-owned exception. That was
+    # rejected on review as a P1 (honua-release#299): Server Tests / Test Suite Summary / CI Gate are
+    # PRODUCT lanes, and docs/RELEASE-CUT-CHECKLIST.md:34 admits exceptions only for documented
+    # non-product governance checks. The adopted policy is therefore stricter than honua-release#102's
+    # "newest trunk commit whose own CI is green": a pinned sha must have a TERMINAL GREEN PRODUCT
+    # GATE — an actually-completed full-CI run — not merely an absence of red.
+    #
+    # THIS PIN HAS ONE, AND IT IS THE WHOLE REASON THE SHA WAS CHOSEN:
+    #   $ gh api repos/honua-io/honua-server/actions/runs/34085571989 \
+    #       -q '"\(.event) \(.status)/\(.conclusion)"'
+    #   workflow_dispatch completed/success        # ci.yml at 98137f59d, 2026-09-07T05:07:12Z -> 05:55:15Z
+    #   $ gh api --paginate .../runs/34085571989/jobs -q \
+    #       '.jobs[]|select(.conclusion!="success" and .conclusion!="skipped")|.name'
+    #   (empty)                                    # ZERO non-success jobs in the entire matrix
+    # `Server Tests (Core and Cloud Contracts)` — the exact lane whose exhaustion sank the previous
+    # candidate — is `success` here, alongside every other Server Tests shard, CI Gate and Test Suite
+    # Summary. There is no honua-server CI exception to record against this pin, and none is recorded.
+    #
+    # THAT GREEN GATE IS NECESSARY AND IT IS NOT SUFFICIENT: THIS REPO'S OWN LIVE LANE IS RED ON THIS
+    # PIN, AND THE FILE MUST NOT READ AS IF THE RE-PIN WERE FINISHED. `exact-published-clients`
+    # (.github/workflows/installed-client-certification.yml -> certification/installed-clients/run.py
+    # --live) was `success` at the previous head (3c4a8cd pin, job 101671211972, run 34099751432)
+    # and is `failure` at this one (job 101694496493, run 34107094325). The failure is not a client
+    # assertion. It is the PINNED IMAGE REFUSING TO START:
+    #
+    #   == booting candidate server image: ghcr.io/honua-io/honua-server:nightly-aot-98137f5
+    #      @sha256:fbe8a921418e1560da6802a4c56750981088047c5ee5fb9e4093c75fa40f4504 ==
+    #   server-1 | Unhandled exception. System.AggregateException: Some services are not able to be
+    #     constructed (Error while validating the service descriptor 'ServiceType:
+    #     Honua.Core.Features.ControlPlane.Abstractions.IExecutionJobReconciler ...': Unable to
+    #     resolve service for type 'Honua.Core.Features.ControlPlane.Abstractions.IExecutionJobStore'
+    #   ... 14 inner exceptions, every one the same missing IExecutionJobStore.
+    #
+    # ROOT CAUSE — A GUARD SPLIT INTRODUCED INSIDE THIS PIN'S OWN COMMIT RANGE, not a harness defect:
+    #   * PROVIDER (honua-server a647548ff, #4141 "require Redis durability attestation before
+    #     advertising durable jobs", which IS in 3c4a8cd..98137f59d):
+    #       src/Honua.Geoprocessing/Features/Geoprocessing/
+    #         GeoprocessingServiceCollectionExtensions.cs:96-98 registers IExecutionJobStore only
+    #         when BOTH IConnectionMultiplexer AND RedisDurabilityAttestation are in the collection.
+    #     The attestation is registered only on the accepted path, src/Honua.Server/Program.cs:314-323,
+    #     and RedisDurabilityAttestor.InspectAsync requires appendonly=yes + aof_enabled=1,
+    #     appendfsync in {always, everysec} and maxmemory-policy=noeviction.
+    #   * CONSUMER: src/Honua.Server/Program.cs:531 still gates the whole control-plane reconcile
+    #     graph and its hosted services on `connectedRedis != null` alone.
+    #   So a host with Redis CONNECTED BUT UNATTESTED registers every consumer and none of the store,
+    #   and ValidateOnBuild kills the process. #4141's own summary says it means to "fail closed with
+    #   typed causes through capability classification, readiness, health"; the code for that state
+    #   exists and is now unreachable — ReadinessCheckService.cs:66-77 returns NotReady("Redis
+    #   durability attestation failed (<cause>)") and ProductionHealthChecks.cs:307-317 returns
+    #   Unhealthy("Redis durability is not attested") for exactly the configuration that instead
+    #   aborts startup. This is a honua-server product defect, tracked as honua-io/honua-server#4502.
+    #
+    # REPRODUCED LOCALLY AGAINST THE PINNED DIGEST, BOTH ARMS (2026-09-07, this host):
+    #   stock redis:7-alpine, as e2e/harness/compose.candidate.yml runs it (appendonly=no):
+    #     server exited (139); logs carry the 14-inner-exception IExecutionJobStore failure above.
+    #   same digest, same db, redis-server --appendonly yes --appendfsync everysec
+    #     --maxmemory-policy noeviction:
+    #     server stays up and GET /healthz/ready is 200 within ~30s.
+    #   The one variable is the Redis durability policy, so the image is sound only where the
+    #   attestation passes.
+    #
+    # THE SLICE-1 CANDIDATE STACK SHOWS THE SAME REGRESSION, and it is the sharper measurement of
+    # the two because it is a before/after on the same workflow:
+    #   3c4a8cd pin, job 101671335718:  "== server READY at http://localhost:8080 =="
+    #                                   S1/S2/S5/S8/S4 and all seven S9 demo scenarios [PASS]
+    #   98137f59d pin, job 101694525535: no READY line; every scenario [BLOCKED] "server not ready
+    #                                   at http://localhost:8080", overall e2e status: fail
+    # So the re-pin moves the candidate stack from mostly-passing to entirely unexecuted.
+    #
+    # WHY `seam` IS STILL GREEN AT THIS HEAD, so its green is not read as a contradiction: `seam`
+    # boots e2e/local-docker/docker-compose.yml, which has NO redis service at all, so connectedRedis
+    # is null, the control-plane graph at Program.cs:531 is never registered, nothing asks for
+    # IExecutionJobStore, and the image starts. The /metrics seam assertion recorded below is
+    # therefore real — and it is real only for Redis-less profiles. Only e2e/harness/
+    # compose.candidate.yml adds Redis, so only the lanes that use it can see the crash.
+    #
+    # CONSEQUENCE FOR THE RE-PIN — OPERATOR-OWNED, deliberately not papered over here. The harness
+    # Redis could be given the durable flags honua-server's own docker-compose.production.yml:70 uses,
+    # which would turn the lane green, but that would delete the only gate in this fleet that catches
+    # a candidate crashing on a Redis an operator can plausibly be running. The pin is therefore left
+    # as measured and honua-release#299 stays blocked until honua-server#4502 lands and a sha
+    # carrying it is imaged. Three shas have now been tried for this re-pin and all three are
+    # blocked: 3c4a8cd (unmeasured shard), 63be0386 (three red product shards), 98137f59d (green
+    # matrix, image will not start under an unattested Redis).
+    #
+    # THE TWO SHAS THAT WERE TRIED FIRST AND REJECTED, so this is not re-litigated:
+    #   * 3c4a8cd (2026-09-05, imaged): `Server Tests (Core and Cloud Contracts)` exit 124,
+    #     HONUA_SHARD_CAPACITY_EXHAUSTED at the 26m cap with the class still running, so an unknown
+    #     subset of that shard never executed. Carries the cause of the exhaustion (#4354's
+    #     PatchConcurrencyTests) and none of the fix. Unmeasured, not green.
+    #   * 63be0386 (2026-09-06, trunk tip, imaged by run 34090718315): STRICTLY WORSE — its matrix
+    #     (ci.yml run 34090760568) is completed/failure with THREE product shards red at exit code 1,
+    #     i.e. tests that ran and FAILED rather than tests that never ran:
+    #       Server Tests (Server Features Console and Alerts)
+    #       Server Tests (FeatureServer Tiles and Replica)
+    #       Server Tests (Caching File Storage Styling and Infrastructure)
+    #       CI Router Validation        (+ CI Gate / Test Suite Summary roll-ups)
+    #     Named failures include MvtTileDecodeTests.GetTile_AtLowZoom_SimplifiesTheGeometryWithout
+    #     DroppingTheFeature ("Expected value to be less than 2 ... but found 2") and the four
+    #     ApplyEdits_*_InvalidatesTheLayersCachedQueryResponses* replica-cache tests.
+    #   98137f59d is an ancestor of 63be0386, so this pin is BEHIND the tip deliberately: it is the
+    #   newest sha with a terminal green product gate, which is the property that now governs.
+    #
+    # ANCESTRY OF THE THREE COMMITS THIS PIN EXISTS TO CARRY — proven, not assumed:
+    #   $ for c in 91db1196c9 5e3321af2d 98414e8c; do \
+    #       git -C honua-server merge-base --is-ancestor $c 98137f59d && echo "$c ok"; done
+    #   91db1196c9 ok    #4320  correct error labels / in_band semantics
+    #   5e3321af2d ok    #3708  stop computing approved-operation grants for non-admin paths (/metrics)
+    #   98414e8c   ok    #4491  rebalance server test shards for headroom (the exhaustion fix)
+    #
+    # THE SEAM'S ASSERTION RE-REPRODUCED ON *THIS* IMAGE, not inherited from the 3c4a8cd measurement:
+    #   $ curl -s -o /dev/null -w '%{http_code}' .../metrics                      -> 401  (no key)
+    #   $ curl -s -o /dev/null -w '%{http_code}' -H 'X-API-Key: …' .../metrics    -> 200
+    #   $ curl -s -o /dev/null -w '%{http_code}' \
+    #       ".../rest/services/__honua_parity_missing_python__/FeatureServer/0/query?where=1%3D1))&f=json"
+    #   200        body: {"error":{"code":404,"message":"Not Found", ...}}
+    #   $ curl -s -H 'X-API-Key: …' .../metrics | grep '^honua_.*error_total'
+    #   honua_geoservices_error_total{...,error_code="404",operation="query",service_type="FeatureServer"} 1
+    #   honua_request_error_total{...,error_code="404",in_band="true",operation="query",service_type="FeatureServer"} 1
+    # absent -> 1, satisfying the scenario's ">= 1 per erroring call" assertion, with in_band="true"
+    # correct (the #4320 behaviour). The outgoing 4ca8326 image answers that same /metrics GET with
+    # HTTP 400 and exposes no honua_* series at all, which is the before=None/after=None in the red.
+    #
+    # NOT TRUNK HEAD — declared, not left to inference. Trunk HEAD is 63be0386 (2026-09-06T20:23:30
+    # -1000, honua-server#4497), which is imaged but product-red as recorded above. 98137f59d is a
+    # clean ancestor of it (behind_by=0), and is trunk HEAD as of its own matrix run.
+    #
+    # IMAGE PROVENANCE — AND ONE STANDING CAVEAT IN THIS FILE IS NOW OBSOLETE.
+    #   (a) The digest resolves to a real multi-arch index:
+    #       $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-aot-98137f5
+    #       MediaType: application/vnd.oci.image.index.v1+json
+    #       Digest:    sha256:fbe8a921418e1560da6802a4c56750981088047c5ee5fb9e4093c75fa40f4504
+    #         linux/amd64 -> sha256:ddf241e84441732e6162879ebd87d186a3932c34b2a94690602dd5d00c43d567
+    #         linux/arm64 -> sha256:4937d3039588594033ee8162498a9e558bf6e4902f2ccce7e067d93b378ccf54
+    #         unknown/unknown x2 -> buildkit attestation manifests for the two children
+    #   (b) Bound to THIS sha by its own config, not by tag convention:
+    #       amd64 config label org.opencontainers.image.revision = 98137f59d87b30a8663b66bf8f657272dff27b9f
+    #   (c) THE FLOATING TAGS DO **NOT** AGREE WITH THIS PIN, and that is expected and correct here.
+    #       This image was built by an on-demand workflow_dispatch of nightly-container-build.yml at
+    #       this sha (run 34100489191, branch image/pin-98137f5, created so the run tags
+    #       nightly-aot-98137f5), NOT by the nightly schedule, so :nightly-aot still points at the
+    #       newest scheduled build (63be0386). The pin therefore uses the IMMUTABLE per-sha tag and
+    #       the digest, never a floating tag — as it always must.
+    #   (d) SUPERSEDES THE "HONEST GAP" RECORDED ABOVE FOR ac30266f. That block states that
+    #       `gh attestation verify` cannot pass for a nightly because nightly-container-build.yml
+    #       registers no Sigstore bundle with the GitHub attestations API. THAT IS NO LONGER TRUE:
+    #       $ gh attestation verify oci://ghcr.io/honua-io/honua-server@sha256:fbe8a921... \
+    #           --repo honua-io/honua-server            -> exit 0
+    #         predicateType          https://slsa.dev/provenance/v1
+    #         buildSignerURI         .../nightly-container-build.yml@refs/heads/image/pin-98137f5
+    #         sourceRepositoryDigest 98137f59d87b30a8663b66bf8f657272dff27b9f
+    #         runInvocationURI       .../honua-server/actions/runs/34100489191/attempts/1
+    #         githubWorkflowTrigger  workflow_dispatch   runnerEnvironment  github-hosted
+    #       So this pin IS a GitHub-attested image, verified against the exact index digest recorded
+    #       below. The older block is retained as the provenance of the pin it describes.
+    # ==============================================================================================
+    sha: "98137f59d87b30a8663b66bf8f657272dff27b9f"
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-98137f5"   # immutable per-sha tag (NOT a floating tag)
+    digest: "sha256:fbe8a921418e1560da6802a4c56750981088047c5ee5fb9e4093c75fa40f4504"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
     # exited 139 before readiness on native Fargate. That finding has NOT been re-established against
-    # this index's ARM64 child (sha256:f0104ea34172ac887208c910fdcf66ac7c266194a29f0628ebc45b0852fcd88e):
+    # this index's ARM64 child. RE-POINTED at the 2026-09-07 re-pin: the untested child is now
+    # sha256:4937d3039588594033ee8162498a9e558bf6e4902f2ccce7e067d93b378ccf54 (it was
+    # sha256:f0104ea34172ac887208c910fdcf66ac7c266194a29f0628ebc45b0852fcd88e under the ac30266f
+    # pin). Nothing about the exclusion's status changed — only which bytes it is silent about:
     # re-testing needs a live Fargate task, i.e. the cloud-parity tier, which cannot run today
     # (honua-release#79 / missing IAM OIDC-provider actions on the CI role). x86_64 is therefore
     # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
@@ -246,19 +469,17 @@ components:
     # See compatibility-matrix.yaml and docs/2026.1-operating-envelope.md for limits.
     # Lambda requires a single-architecture image in same-region ECR. The cloud gate mirrors this
     # exact source manifest and verifies config/rootfs equality, recording ECR's own digest.
-    # REFRESHED 2026-08-27. The outgoing pin borrowed the amd64 child of the main rc-cert index
-    # because the release-bundle path builds no Lambda variant. The nightly path DOES, so this
-    # returns to the per-arch Lambda tag discipline used by every pin before the rc-cert cut
-    # (nightly-lambda-aot-<short7>-<arch>), now at x86_64 to match awsLambdaArchitecture:
-    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-lambda-aot-ac30266-amd64
+    # Per-arch Lambda tag discipline (nightly-lambda-aot-<short7>-<arch>) at x86_64 to match
+    # awsLambdaArchitecture. RE-RESOLVED 2026-09-07 against the incoming sha, not carried forward:
+    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-server:nightly-lambda-aot-98137f5-amd64
     #   MediaType: application/vnd.oci.image.manifest.v1+json     <- single-arch, as Lambda requires
-    #   Digest:    sha256:25c23ce39e5e8749d17e7636bdc0d9d655ac6f0a1bc529f418f7d704d65d827f
+    #   Digest:    sha256:f11bfdc9aae46d6c5b10f804173a17932d2f6304426ee1164801666dfd8c4069
     # Bound to this sha and to the Lambda runtime shape by its own config, not by tag convention:
     #   architecture = amd64
-    #   org.opencontainers.image.revision = ac30266fbd153363bebdbed13130accc8ab0c94a
+    #   org.opencontainers.image.revision = 98137f59d87b30a8663b66bf8f657272dff27b9f
     #   Entrypoint = ["/var/task/Honua.Server"]
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-4ca8326-amd64"
-    awsLambdaDigest: "sha256:fad75a7643475f4fe41a0fd627e046104c49d8b6ca19fff026bc0171ab49b389"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-98137f5-amd64"
+    awsLambdaDigest: "sha256:f11bfdc9aae46d6c5b10f804173a17932d2f6304426ee1164801666dfd8c4069"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -272,14 +493,32 @@ components:
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
-      # !! CARRIED FORWARD AT THE 2026-08-27 REFRESH — NOT RE-READ AGAINST THE ac30266f IMAGE. !!
-      # Every value in this block was live-read off a RUNNING 6b6d3b8 server (the transcripts below
-      # are that read, and are retained as the provenance of the values, not as evidence about the
-      # current pin). Reproducing it needs a booted image + postgres, which this working snapshot
-      # does not do. 50 trunk commits separate 6b6d3b8 from ac30266f and any of them could have moved
-      # an advertised contractVersion. Treat these as UNVERIFIED until the release cut re-reads them
-      # against the certified image — the previous re-pin's own rule was "re-read, never carry
-      # forward", and this refresh is knowingly not paying that cost.
+      # RE-READ LIVE AT THE 2026-09-07 RE-PIN — the "re-read, never carry forward" rule is paid
+      # here, and the two preceding refreshes' UNVERIFIED warning is retired. The incoming image was
+      # booted against postgres via e2e/local-docker and its own envelopes were read back. Every
+      # value below is UNCHANGED from the carried-forward set, which is now a measurement rather than
+      # an assumption:
+      #   $ HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server@sha256:fbe8a921… docker compose up -d
+      #   $ curl -s .../api/v1/capabilities/manifest | jq -c '.transports.items[]
+      #       | select(.contractVersion) | {id, contractVersion}'
+      #   {"id":"geoservices-rest","contractVersion":"1.0.0"}
+      #   {"id":"ogc-http","contractVersion":"1.0.0"}
+      #   {"id":"stac","contractVersion":"1.0.0"}
+      #   $ curl -s .../api/v1/capabilities/manifest | jq -c '.server'
+      #   {"serverVersion":"1.0.0","apiVersion":"v1",
+      #    "metadataApiVersion":"metadata.honua.io/v2alpha1","metadataSchemaVersion":"2.0.0-alpha.1",
+      #    "deploymentEnvironment":"Development",
+      #    "deploymentRevision":"98137f59d87b30a8663b66bf8f657272dff27b9f",
+      #    "deploymentRevisionSource":"commit-sha",
+      #    "serverRevision":"98137f59d87b30a8663b66bf8f657272dff27b9f"}
+      #   $ curl -s -H "X-API-Key: …" .../api/v1/admin/capabilities | jq -c '.data.compatibility'
+      #   {"serverVersion":"1.0.0","releaseChannel":"stable",
+      #    "controlPlaneApi":{"major":1,"basePath":"/api/v1/admin","deprecated":false},
+      #    "adminApiMajor":"v1","metadataApiVersion":"metadata.honua.io/v2alpha1",
+      #    "metadataSchemaVersion":"2.0.0-alpha.1"}
+      # `deploymentRevision` proves the read came from exactly this pin and not from a cached stack.
+      # The transcripts further down are the ORIGINAL 6b6d3b8 provenance of these values and are kept
+      # as history; the block immediately above is the evidence about the CURRENT pin.
       # admin/control-plane API is REAL and advertised at /api/v1/admin/capabilities
       # (src/Honua.Server/Features/Admin/AdminInfoEndpoints.cs: AdminApiMajor="v1", AdminApiMajorNumber=1).
       admin: v1
@@ -334,8 +573,22 @@ components:
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
     # DB schema floor = highest applied migration in the PINNED source (src/Honua.Server/Migrations/,
-    # NNN_ prefix). RE-VERIFIED at 6b6d3b8, not carried forward: none of #3347/#3349/#3352/#3353 adds
-    # a migration, so the max is still 106.
+    # NNN_ prefix). MOVED 107 -> 113 AT THE 2026-09-07 RE-PIN. This is a derived value of the pin, not
+    # an independent choice: 98137f59d carries six migrations that 4ca8326 did not, so leaving 107 here
+    # would have made the manifest state something false about the image it pins. The filename floor
+    # is not the verdict — DbUp journals to public.schema_versions, so the PINNED image was booted
+    # against postgres and the journal read back (note two distinct scripts share the 111 prefix; the
+    # floor is the max prefix, 113):
+    #   $ docker exec <pg> psql -U honua -d honua -c \
+    #       "select scriptname from public.schema_versions order by scriptname desc limit 3;"
+    #   Honua.Server.Migrations.113_AddDurableQuerySnapshots.sql
+    #   Honua.Server.Migrations.112_TrackReplicaUploadOrigin.sql
+    #   Honua.Server.Migrations.111_PreserveImportOrdinateDimensions.sql
+    # compatibility-matrix.yaml data.honua-server.requiresDbSchema moves with it (">=107" -> ">=113");
+    # tools/validate_platform.check_coherence exempts ">"-prefixed ranges from the equality check, so
+    # that move is for truthfulness, not to satisfy a validator. gate-upgrade must now observe the
+    # 107 -> 113 edge from the previously pinned image rather than the old 106 -> 107 one.
+    # HISTORY (the 6b6d3b8/ac30266f evidence for the superseded 106/107 floor):
     #   $ git ls-tree --name-only 6b6d3b89... src/Honua.Server/Migrations/ | tail -3
     #   .../104_AddReplicaConflictStorageObjectId.sql
     #   .../105_AddChangeLogPublicObjectId.sql
@@ -351,7 +604,7 @@ components:
     #   106_CreateManagedUsersAndScimGroups.sql
     # So no migration was added between 6b6d3b8 and ac30266f and the floor is unchanged at 106. The
     # journal-read half of the evidence above was NOT repeated at this working snapshot.
-    dbSchema: "107"
+    dbSchema: "113"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
