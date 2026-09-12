@@ -134,7 +134,7 @@ class TerraformTarget(DeployTarget):
             "-var=environment=it",
             f"-var={self.spec.image_var}={os.environ[self.spec.image_env]}",
             f"-var=honua_admin_password={admin_pw}",
-            '-var=additional_env={"Licensing__Mode":"Disabled"}', 
+            '-var=additional_env={"Licensing__Mode":"Disabled"}',
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]
