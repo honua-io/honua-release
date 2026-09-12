@@ -11,3 +11,10 @@ certification/first-publication/**/*.json text eol=lf
 certification/first-publication/**/*.md text eol=lf
 certification/first-publication/**/*.sha256 text eol=lf
 certification/first-publication/**/SHA256SUMS text eol=lf
+
+# Candidate-bound receipts hash these files byte-for-byte (validate_dr_receipt.py,
+# check_capacity_soak.py). A CRLF checkout on a Windows runner changed the digest
+# and gate-dr rejected a trunk-signed receipt (run 34671766127, 2026-09-12).
+platform-manifest.yaml text eol=lf
+platform-lock.json text eol=lf
+certification/capacity-envelope.v1.json text eol=lf
