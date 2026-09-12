@@ -340,6 +340,7 @@ def render(data, rows):
         '# 2026.1 release decision record', '',
         f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
+        '2026.1 ships with licensing disabled (`Licensing__Mode=Disabled`): no license file, minting, edition gating or capacity metering. All catalog entitlements are active; serving-unit bands are neither measured nor enforced. Authentication, authorization, safety limits and release maturity remain in force. Whole-catalog GP and COG/Zarr/GeoParquet/PMTiles retain their GA scope; multi-tenancy, alerting and offline sync remain Preview. Licensing hardening, bands, metering, marketplace and the Console licensing page move to 2026.2 (server#4720, iac#190, helm#78, console#384). Operator ruling 2026-09-12 ([release#338](https://github.com/honua-io/honua-release/issues/338)); supersedes the September 5 strict license failure-mode contract for this release.', '',
         *working_candidate(data),
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',

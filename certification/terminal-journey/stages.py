@@ -72,6 +72,8 @@ class Observation:
     base_url: str | None = None
     ready: bool = False
     readiness_detail: str = ""
+    licensing_disabled: bool = False
+    licensing_detail: str = "admin license mode not observed"
     capability_manifest: dict[str, Any] | None = None
     anonymous_admin_status: int | None = None
     anonymous_api_keys_status: int | None = None
@@ -202,6 +204,10 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
         )
     )
 
+    checks.append(Check(
+        "1.2-licensing-disabled", "http", "GET /api/v1/admin/license",
+        "pass" if observation.licensing_disabled else "fail", observation.licensing_detail,
+    ))
     manifest = observation.capability_manifest
     if manifest is None:
         checks.append(

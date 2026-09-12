@@ -82,7 +82,7 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       HONUA_ADMIN_PASSWORD: "${HONUA_ADMIN_PASSWORD:-honua-dr-drill-admin-key}"
       Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      Licensing__DevGrantEdition: "Enterprise"
+      Licensing__Mode: "Disabled"
       HostValidation__AllowedHosts: "*"
       AllowedHosts: "*"
       FileStorage__Provider: "Local"

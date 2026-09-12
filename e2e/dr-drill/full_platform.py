@@ -49,6 +49,8 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from licensing import assert_disabled
 from resp import Resp  # noqa: E402  (local helper, imported after sys.path setup)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -230,6 +232,8 @@ class Stack:
             state = run("docker", "inspect", "-f", "{{.State.Health.Status}}", container,
                         check=False).stdout.decode().strip()
             if state == "healthy":
+                if service == "server":
+                    assert_disabled(f"http://127.0.0.1:{self.server_port}", ADMIN_KEY)
                 return now()
             if state == "unhealthy":
                 raise RuntimeError(f"{service} reported unhealthy during recovery")

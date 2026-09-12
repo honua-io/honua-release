@@ -3,9 +3,8 @@
 #
 # The server image is injected as HONUA_SERVER_IMAGE (boot.sh reads it from ../../platform-manifest.yaml,
 # the source of truth). Config below is the proven local-docker profile:
-#   - Development env so the dev entitlement grant is honoured (Licensing__DevGrantEdition is refused
-#     in Production â€” fails closed there by design).
-#   - Enterprise edition granted so the Redis-backed OGC-Processes job runtime is entitled (GP driver).
+#   - Development environment retains the existing test authentication configuration.
+#   - Licensing disabled: all catalog entitlements active, with maturity and authorization unchanged.
 #   - Deterministic Studio providers (no API key, no CPU model) so the Studio/MCP drivers never flake.
 name: honua-e2e-slice1
 
@@ -49,7 +48,7 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       HONUA_ADMIN_PASSWORD: "${E2E_API_KEY:-honua-console-dev-key}"
       Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      Licensing__DevGrantEdition: "Enterprise"     # entitles the Redis GP job runtime (proven)
+      Licensing__Mode: "Disabled"     # 2026.1 supported deployment mode
       WorkflowGeneration__Enabled: "true"
       WorkflowGeneration__DefaultProvider: "deterministic"   # fixture-replay LLM â€” no API key, no flake
       NlQuery__Enabled: "true"
