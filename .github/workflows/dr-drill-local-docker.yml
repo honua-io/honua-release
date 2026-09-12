@@ -114,7 +114,7 @@ jobs:
           name: dr-drill-local-docker-${{ github.sha }}
           path: artifacts/dr-drill-local-docker
       - name: Attest signed receipts
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v3.0.0
         with:
           subject-path: |
             artifacts/dr-drill-full-platform/receipt.json
