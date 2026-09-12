@@ -165,6 +165,10 @@ class AwsEksTarget(DeployTarget):
             return None
         return str(network)
 
+    @property
+    def admin_api_key(self) -> str:
+        return self._admin_password
+
     def availability(self) -> Availability:
         missing: list[str] = []
         for tool in ("aws", "terraform", "kubectl", "helm"):

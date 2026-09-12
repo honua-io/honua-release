@@ -844,6 +844,7 @@ def test_terraform_target_teardown_fails_closed(monkeypatch):
 # ---- teardown always runs, and a strand is a red cell ----------------------------------------------
 class _StubTarget:
     name = "stub"
+    admin_api_key = "stub-admin-key"
 
     def __init__(self, *, provision_error=None, teardown_error=None):
         self._provision_error = provision_error
@@ -962,6 +963,7 @@ def test_ecs_requires_the_runner_cidr(monkeypatch):
 class _ServingStub:
     """A target that provisions an endpoint; what that endpoint *serves* is the patched fetch's job."""
     name = "stub"
+    admin_api_key = "stub-admin-key"
 
     def __init__(self, endpoint: str = "http://stub.example.invalid"):
         self.endpoint = endpoint
