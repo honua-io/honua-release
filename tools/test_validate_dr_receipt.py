@@ -211,7 +211,9 @@ def test_release_and_scheduled_workflows_enforce_validator():
     steps = gate["jobs"]["receipt"]["steps"]
     validate_step = next(step for step in steps if "tools/validate_dr_receipt.py" in step.get("run", ""))
     assert "--candidate $candidatePath" in validate_step["run"]
-    assert "candidate-input/platform-lock.json" in validate_step["run"]
+    # The producer always hashes platform-manifest.yaml bytes into candidateLockDigest, so the
+    # train-intake path must read the frozen artifact's copy of that same document, not the lock.
+    assert "candidate-input/platform-manifest.yaml" in validate_step["run"]
     assert not validate_step.get("continue-on-error")
     train = yaml.safe_load((root / ".github/workflows/release-train.yml").read_text(encoding="utf-8"))
     assert train["jobs"]["gate_dr"]["with"]["candidate_bundle"] is True
