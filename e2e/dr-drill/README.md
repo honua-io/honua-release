@@ -22,11 +22,19 @@ journeys: those remain Preview under the 2026-09-04 amendments.
 ## Full-platform receipt contract
 
 `tools/validate_dr_receipt.py` is the executable receipt contract. Both a scheduled
-`gate-dr` run and release-train intake validate a producer-attested receipt. The
-train reads `platform-lock.json` from its frozen `candidate-manifest` artifact,
-binding every lock field, including artifact identities and the compatibility-matrix
-digest. A missing lock fails closed. Standalone runs use `platform-manifest.yaml`.
-Promotion also requires a passing `dr` row, so an old report omitting DR is rejected.
+`gate-dr` run and release-train intake validate a producer-attested receipt against
+`platform-manifest.yaml` bytes — the same document `full_platform.py` hashes into
+`candidateLockDigest`. Standalone runs (and dispatch) read the checkout's copy;
+train intake (`candidate_bundle: true`) reads the copy inside the frozen
+`candidate-manifest` artifact instead, so it certifies what `freeze` actually
+published, not whatever happens to be checked out in the `gate-dr` job. Today
+(Phase 0/1) those bytes are identical, since `freeze` validates the committed
+manifest without rewriting it. Binding to the fuller `platform-lock.json` (every
+lock field, including artifact identities and the compatibility-matrix digest) is
+future work for once a real cut regenerates the manifest per candidate and the
+producer hashes the lock instead — the producer and the gate must change together,
+or the digest binding breaks. A missing candidate document fails closed. Promotion
+also requires a passing `dr` row, so an old report omitting DR is rejected.
 
 Before qualification, the deployment owner must resolve the candidate's effective
 configuration (including image defaults, enabled capabilities, deployment overrides,
