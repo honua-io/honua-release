@@ -71,6 +71,10 @@ class TerraformTarget(DeployTarget):
         self._workdir: Path | None = None
         self._last_vars: list[str] = []
 
+    @property
+    def admin_api_key(self) -> str:
+        return os.environ.get("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}")
+
     # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
         base = os.environ.get("HONUA_IAC_DIR")
@@ -121,10 +125,7 @@ class TerraformTarget(DeployTarget):
         # honua-iac requires at least 32 characters plus mixed-case, digit and special
         # characters. Keep the ephemeral fallback deterministic so the same value is
         # available to destroy after a partial apply.
-        admin_pw = os.environ.get(
-            "HONUA_ADMIN_PASSWORD",
-            f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}",
-        )
+        admin_pw = self.admin_api_key
         values = [
             "-input=false", "-no-color",
             *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),

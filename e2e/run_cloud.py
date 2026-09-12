@@ -161,7 +161,9 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         ready, readiness = _wait_for_endpoint(endpoint, fetch, attempts=_READY_ATTEMPTS,
                                               delay_seconds=_READY_DELAY_SECONDS)
         report["readiness"] = {"ready": ready, **readiness}
-        checks = run_canonical(endpoint, fetch, enforcement="strict" if require_real else "bootstrap")
+        admin_fetch = make_fetch(headers={"X-API-Key": target.admin_api_key}, timeout=10.0)
+        checks = run_canonical(endpoint, fetch, authenticated_fetch=admin_fetch,
+                               enforcement="strict" if require_real else "bootstrap")
         report["checks"] = _check_dicts(checks)
         # Cloud-tier unblock (honua-release#61): the canary probe set, GENERIC mode (no service/tile id
         # configured — nothing is seeded on a bare terraform cell yet), so data-dependent probes report
@@ -234,7 +236,9 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
     # Parity vs the reference target, when one was provided.
     if reference_endpoint:
-        ref_checks = run_canonical(reference_endpoint,
+        reference_admin = make_fetch(headers={"X-API-Key": os.environ.get(
+            "HONUA_REFERENCE_ADMIN_PASSWORD", "honua-console-dev-key")})
+        ref_checks = run_canonical(reference_endpoint, authenticated_fetch=reference_admin,
                                    enforcement="strict" if require_real else "bootstrap")
         report["reference_checks"] = _check_dicts(ref_checks)
         verdict = compare(

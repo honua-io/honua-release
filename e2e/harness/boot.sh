@@ -129,7 +129,7 @@ cmd_wait() {
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if [ "$(curl -sS -o /dev/null -w '%{http_code}' "${E2E_BASE}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; then
       echo "== server READY at ${E2E_BASE} =="
-      if ! python3 "$REPO_ROOT/e2e/licensing.py" --base-url "$E2E_BASE" \
+      if ! HONUA_ADMIN_PASSWORD="${E2E_API_KEY:-honua-console-dev-key}" python3 "$REPO_ROOT/e2e/licensing.py" --base-url "$E2E_BASE" \
           --output "$E2E_OUT/licensing.json"; then
         record_boot_failure "licensing-mode-mismatch" "candidate must report mode: disabled"
         return 1
