@@ -30,6 +30,11 @@ class DeployTarget:
     name: str = "base"
     supports_redis: bool = True       # whether the target can toggle Redis on/off
 
+    @property
+    def admin_api_key(self) -> str:
+        """The credential installed on this target; never include it in reports."""
+        raise NotImplementedError
+
     def availability(self) -> Availability:  # pragma: no cover - interface
         raise NotImplementedError
 

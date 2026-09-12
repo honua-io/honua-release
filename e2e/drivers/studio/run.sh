@@ -8,8 +8,8 @@
 # TWO THINGS THIS SEAM LEARNED THE HARD WAY (honua-release#305)
 #
 # 1. THE OPERATOR GATE. Every Studio draft mutation runs through the durable operation runtime. Under
-#    the Enterprise edition -- which compose.candidate.yml grants, because the GP driver needs the
-#    Redis job runtime entitlement -- DefaultGuardrailLadder maps mutating classes to
+#    disabled licensing mode, the entitlement snapshot uses the Enterprise guardrail ladder.
+#    DefaultGuardrailLadder maps mutating classes to
 #    GuardrailTier.RequiresApproval, so `POST /studio/package-drafts` answers 202 with an operation
 #    handle and a control-plane proposal instead of 201 with a draft. That is CORRECT product
 #    behaviour; the seam has to drive it. Approval is separation-of-duties enforced, so the seam
@@ -52,7 +52,7 @@ LAYER="$(jq -r '.slice1.e2e_src_fs.layerId // 0' "$E2E_OUT/seed-manifest.json" 2
 # DefaultGuardrailLadder is edition-driven: Enterprise routes mutating operation classes through
 # approval, Community/Pro direct-execute, and any other edition fails closed to approval
 # (honua-server src/Honua.Core/Features/Guardrails/DefaultGuardrailLadder.cs). compose.candidate.yml
-# grants Enterprise, so on THIS harness a direct-executed Studio mutation is the guardrail
+# disables licensing while retaining the Enterprise guardrail ladder, so a direct-executed mutation is the guardrail
 # REGRESSING -- and accepting 200/201 unconditionally would let every family pass with
 # `separationOfDuties: not-exercised` and zero proposals. Ask the server which edition it runs and
 # require the lane that edition mandates; only an explicitly direct-executing edition may skip it.

@@ -84,6 +84,12 @@ def main() -> int:
         try:
             harness.compose_up(manifest, server_url)
             server_up = True
+            from licensing import assert_disabled
+            try:
+                assert_disabled(server_url)
+                results.append(Result("licensing-disabled", Status.PASS, why="admin license mode: disabled"))
+            except Exception as exc:
+                results.append(Result("licensing-disabled", Status.FAIL, why=str(exc)))
         except harness.ImageUnavailable as e:
             block_reason = str(e)
             print(f"   server not available (scenarios BLOCKED): {e}")

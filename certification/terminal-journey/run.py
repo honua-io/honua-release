@@ -30,6 +30,8 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT / "e2e"))
+from licensing import assert_disabled
 sys.path.insert(0, str(HERE))
 
 import pins  # noqa: E402
@@ -134,6 +136,14 @@ def observe(
     observation.readiness_detail = detail
     if not ready:
         return observation
+
+    try:
+        assert_disabled(base_url, probes.resolve_env_default(
+            target["adminPassword"]["env"], target["adminPassword"]["default"]))
+        observation.licensing_disabled = True
+        observation.licensing_detail = "admin license mode: disabled"
+    except Exception as exc:
+        observation.licensing_detail = str(exc)
 
     manifest_response = probes.http_get(base_url + endpoints["capabilityManifest"])
     if manifest_response.status == 200:
