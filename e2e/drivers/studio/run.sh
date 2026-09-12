@@ -52,7 +52,7 @@ LAYER="$(jq -r '.slice1.e2e_src_fs.layerId // 0' "$E2E_OUT/seed-manifest.json" 2
 # DefaultGuardrailLadder is edition-driven: Enterprise routes mutating operation classes through
 # approval, Community/Pro direct-execute, and any other edition fails closed to approval
 # (honua-server src/Honua.Core/Features/Guardrails/DefaultGuardrailLadder.cs). compose.candidate.yml
-# grants Enterprise, so on THIS harness a direct-executed Studio mutation is the guardrail
+# disables licensing while retaining the Enterprise guardrail ladder, so a direct-executed mutation is the guardrail
 # REGRESSING -- and accepting 200/201 unconditionally would let every family pass with
 # `separationOfDuties: not-exercised` and zero proposals. Ask the server which edition it runs and
 # require the lane that edition mandates; only an explicitly direct-executing edition may skip it.
