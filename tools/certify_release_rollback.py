@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -40,6 +41,12 @@ def verify_frozen_sources(candidate: dict, manifest: Path, matrix: Path) -> dict
 
 def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_inputs: dict[str, str], fail_provider: str = "") -> Path:
     image_path = artifact_path(b, "honua-server", "image", "platformDigests/amd64")
+    try:
+        image_digest = rollback.pointer(b, image_path)
+    except (KeyError, TypeError) as exc:
+        raise rollback.RollbackError("ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING: candidate lock must retain the exact amd64 image identity") from exc
+    if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
+        raise rollback.RollbackError("ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_INVALID")
     schema_path = "/components/honua-server/schemaVersions/database"
     planes = [
         {"id": "serving-east", "kind": "serving", "providerId": "deploy/east", "lockPath": image_path},

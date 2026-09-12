@@ -292,7 +292,7 @@ def test_release_lookup_failure_is_a_named_finding(tmp_path, monkeypatch):
     assert "first_lock_bearing_release" not in result
 
 
-@pytest.mark.parametrize("tamper", [False, True])
+@pytest.mark.parametrize("tamper", [False, True, "missing_image_digest"])
 def test_first_lock_report_and_real_operation(tmp_path, tamper):
     manifest = tmp_path / "platform-manifest.yaml"
     matrix = tmp_path / "compatibility-matrix.yaml"
@@ -305,11 +305,15 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
         "components": {"honua-server": {"schemaVersions": {"database": "107"},
             "artifacts": [{"kind": "image", "platformDigests": {"amd64": "sha256:" + "b" * 64}}]}},
     })
+    if tamper == "missing_image_digest":
+        value = json.loads(candidate.read_text())
+        del value["components"]["honua-server"]["artifacts"][0]["platformDigests"]
+        _write(candidate, value)
     target = tmp_path / "retained" / "platform-lock.json"
     report = targets.resolve(candidate, target, "honua-io/honua-release", lambda *args: "[[]]")
     report.update(schema="honua.rollback-gate/v1", overall_status="pending")
     report_path = _write(tmp_path / "resolution.json", report)
-    if tamper:
+    if tamper is True:
         target.write_bytes(target.read_bytes() + b"\n")
     output = tmp_path / "certification"
     status = certification.main(["--from-lock", str(target), "--to-lock", str(candidate),
@@ -322,7 +326,8 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
     if tamper:
         assert status == 1
         assert result["overall_status"] == "fail"
-        assert "ROLLBACK_SELF_TARGET_MISMATCH" in result["finding"]
+        finding = "ROLLBACK_SELF_TARGET_MISMATCH" if tamper is True else "ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING"
+        assert finding in result["finding"]
         return
     assert status == 0
     assert result["overall_status"] == "pass"
