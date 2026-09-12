@@ -62,7 +62,7 @@ jobs:
         run: python3 tools/release_decision_record.py --check
 
       - name: Self-test the tools gates
-        run: python -m pytest tools/ -q
+        run: python -m pytest tools/ e2e/test_licensing.py -q
 
       - name: Check compatibility documentation against its committed lock draft
         run: python tools/generate_compatibility_table.py docs/platform-lock.v1.draft.yaml --check-output

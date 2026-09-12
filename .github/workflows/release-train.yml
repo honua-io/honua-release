@@ -17,6 +17,8 @@
 # no-cloud cut is not reddened; promote's allowed-skip list governs which skips may still be released.
 # AI proposes; this pipeline disposes.
 
+# 2026.1 deployment policy: Licensing__Mode=Disabled, with runtime assertions in deployed gates.
+# No Honua Pro license envelope, minting key or edition input belongs in this train.
 name: release-train
 run-name: "release-train ${{ inputs.platform_label }} (dry_run=${{ inputs.dry_run }})"
 

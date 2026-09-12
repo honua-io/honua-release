@@ -3,6 +3,10 @@ name: Terminal journey contract
 on:
   pull_request:
     paths:
+      - e2e/licensing.py
+      - e2e/local-docker/docker-compose.yml
+      - e2e/harness/boot.sh
+      - e2e/harness/compose.candidate.yml
       - certification/terminal-journey/**
       - certification/terminal-model-canary/**
       - artifacts/terminal-journey-*.json
