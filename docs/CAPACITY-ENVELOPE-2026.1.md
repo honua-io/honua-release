@@ -16,6 +16,18 @@ rate, p95 and p99 latency, throughput, oldest queue age, saturation, and recover
 acceptance denominator is one complete candidate-bound soak at the entire declared envelope. All
 eight signals are required; a skipped, null, non-finite, stale, or revision-mismatched signal fails.
 
+## Substrate (operator ruling A, 2026-09-12)
+
+The 2026.1 soak and disaster-recovery envelope is the **local-docker substrate**: the single-tenant
+local Docker install (PostGIS, Redis and a local file-storage volume) that the candidate manifest's
+`disasterRecovery` block resolves. Every recovery and capacity claim on this page is bounded to that
+substrate and to nothing else. **AWS qualification remains unqualified in 2026.1** — ECS, Lambda and
+every other cloud shape stay outside the qualified envelope for this release, and no local-docker
+receipt extends to them. Recovery evidence for the local-docker substrate is produced by
+[`e2e/dr-drill/full_platform.py`](../e2e/dr-drill/README.md) and validated by
+`tools/validate_dr_receipt.py`; a soak receipt does not stand in for it, and it does not stand in
+for a soak.
+
 ## Freeze and allowance
 
 The thresholds were frozen at `2026-09-01T10:05:00Z`, before the candidate soak. They are based on

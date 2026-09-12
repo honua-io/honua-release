@@ -409,14 +409,21 @@ def test_pull_request_producer_cannot_mint_an_accepted_attestation():
     import yaml
 
     producer = yaml.safe_load((HERE.parent / ".github/workflows/dr-drill-local-docker.yml").read_text(encoding="utf-8"))
-    drill = producer["jobs"]["restore"]
-    drill_text = str(drill)
-    # The job that executes pull-request-controlled drill code holds no signing authority.
-    assert "attest" not in drill_text and "id-token" not in drill_text
-    assert drill["permissions"] == {"contents": "read", "packages": "read"}
+    # EVERY job that executes pull-request-controlled drill code holds no signing authority; adding
+    # a second drill job must not open a second path to the producer identity.
+    drill_jobs = ["full-platform", "restore"]
+    for name in drill_jobs:
+        drill = producer["jobs"][name]
+        drill_text = str(drill)
+        assert "attest" not in drill_text and "id-token" not in drill_text
+        assert drill["permissions"] == {"contents": "read", "packages": "read"}
     assert producer["permissions"] == {"contents": "read", "packages": "read"}
     attest = producer["jobs"]["attest"]
     assert attest["permissions"]["attestations"] == "write"
     assert attest["permissions"]["id-token"] == "write"
     assert attest["if"] == "github.event_name != 'pull_request'"
-    assert attest["needs"] == "restore"
+    assert sorted(attest["needs"]) == sorted(drill_jobs)
+    # Publication of a receipt is likewise off-limits to a pull request run.
+    publish = producer["jobs"]["publish"]
+    assert publish["if"] == "github.event_name != 'pull_request'"
+    assert publish["needs"] == "attest"

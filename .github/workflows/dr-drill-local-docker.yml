@@ -1,4 +1,4 @@
-name: postgresql-restore-local-docker
+name: dr-drill-local-docker
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ on:
   schedule:
     - cron: "17 9 * * 1"
 
-# The drill job executes pull-request-controlled code (`e2e/dr-drill/run.sh`), so it never
-# holds OIDC or attestation write. Minting a producer attestation is a separate job that only
-# runs off a pull request; gate-dr additionally pins this workflow identity and the trunk
+# The drill jobs execute pull-request-controlled code (`e2e/dr-drill/**`), so they never hold OIDC
+# or attestation write. Minting a producer attestation and publishing the receipt are separate jobs
+# that only run off a pull request; gate-dr additionally pins this workflow identity and the trunk
 # source ref at intake, so an attestation produced from any other ref is refused there.
 permissions:
   contents: read
@@ -23,7 +23,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  full-platform:
+    # The deliverable: one run over the candidate's whole declared durable-substrate inventory,
+    # producing the honua.dr-drill-receipt/v2 receipt gate-dr validates.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install PyYAML
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Execute the full-platform recovery drill
+        run: python e2e/dr-drill/full_platform.py
+      - name: Re-validate the receipt against the candidate configuration
+        run: |
+          python tools/validate_dr_receipt.py \
+            --candidate platform-manifest.yaml \
+            --receipt artifacts/dr-drill-full-platform/receipt.json
+      - name: Upload immutable drill envelope
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dr-drill-full-platform-${{ github.sha }}
+          path: |
+            artifacts/dr-drill-full-platform/receipt.json
+            artifacts/dr-drill-full-platform/receipt.json.sig
+            artifacts/dr-drill-full-platform/receipt.pub.pem
+            artifacts/dr-drill-full-platform/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
+
   restore:
+    # The PostgreSQL restore seam is retained as a second, explicitly scoped artifact. It is not the
+    # full-platform deliverable and its receipt is still rejected by the gate, by design.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -55,9 +95,9 @@ jobs:
           retention-days: 90
 
   attest:
-    # Trusted-ref production only. A pull request run stops after the drill and its envelope,
+    # Trusted-ref production only. A pull request run stops after the drills and their envelopes,
     # so unmerged code cannot obtain the producer identity gate-dr accepts.
-    needs: restore
+    needs: [full-platform, restore]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -67,9 +107,94 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          name: dr-drill-full-platform-${{ github.sha }}
+          path: artifacts/dr-drill-full-platform
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
           name: dr-drill-local-docker-${{ github.sha }}
           path: artifacts/dr-drill-local-docker
-      - name: Attest signed receipt
+      - name: Attest signed receipts
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
         with:
-          subject-path: artifacts/dr-drill-local-docker/receipt.json
+          subject-path: |
+            artifacts/dr-drill-full-platform/receipt.json
+            artifacts/dr-drill-local-docker/receipt.json
+
+  publish:
+    # Anonymous, immutable HTTPS home for the attested receipt, so gate-dr can fetch it with no
+    # credential. Commit-pinned raw content, never a branch ref: a branch URL would let the bytes
+    # behind an already-verified receipt change later.
+    needs: attest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dr-drill-full-platform-${{ github.sha }}
+          path: artifacts/dr-drill-full-platform
+      - name: Check out the evidence landing zone
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-evidence
+          ref: trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN }}
+          path: evidence-repo
+          fetch-depth: 0
+      - name: Publish the receipt to the evidence repository
+        id: publish
+        run: |
+          set -euo pipefail
+          # data/producers/dr-drills/*.json is the aggregator's envelope glob and it is not
+          # recursive, so receipts land one level down and cannot be mistaken for an envelope.
+          path="data/producers/dr-drills/receipts/$(date -u +%Y-%m-%dT%H-%M-%SZ)-${GITHUB_RUN_ID}.json"
+          mkdir -p "evidence-repo/$(dirname "$path")"
+          cp artifacts/dr-drill-full-platform/receipt.json "evidence-repo/$path"
+          cd evidence-repo
+          git config user.name "Mike McDougall"
+          git config user.email "mike@honua.io"
+          git add "$path"
+          git commit -m "chore: ingest full-platform DR receipt from honua-release run ${GITHUB_RUN_ID}"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin trunk && git push origin HEAD:trunk; then
+              commit="$(git rev-parse HEAD)"
+              break
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep "$((attempt * 2))"
+          done
+          [ -n "${commit:-}" ] || { echo "::error::could not publish the receipt after 3 attempts"; exit 1; }
+          cd ..
+          url="https://raw.githubusercontent.com/honua-io/honua-evidence/$commit/$path"
+          candidate="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["candidateLockDigest"])' artifacts/dr-drill-full-platform/receipt.json)"
+          echo "receipt_url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Full-platform DR receipt"
+            echo
+            echo "\`dr=$url candidate=$candidate\`"
+            echo
+            echo "Supply that URL to \`gate-dr\` (\`receipt_url\`) or to the release train (\`dr_receipt_url\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Confirm the published receipt is anonymously fetchable and byte-identical
+        env:
+          RECEIPT_URL: ${{ steps.publish.outputs.receipt_url }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if python - "$RECEIPT_URL" <<'PY'
+          import hashlib, sys, urllib.request
+          published = urllib.request.urlopen(sys.argv[1], timeout=60).read()
+          local = open("artifacts/dr-drill-full-platform/receipt.json", "rb").read()
+          if hashlib.sha256(published).hexdigest() != hashlib.sha256(local).hexdigest():
+              raise SystemExit("published receipt bytes differ from the attested receipt")
+          print("published receipt matches the attested bytes")
+          PY
+            then
+              exit 0
+            fi
+            # raw.githubusercontent.com serves a new commit's bytes a moment after the push.
+            sleep "$((attempt * 5))"
+          done
+          echo "::error::the published receipt never became anonymously fetchable"
+          exit 1
