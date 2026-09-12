@@ -430,6 +430,7 @@ class AwsEksTarget(DeployTarget):
             # balancer's hostname is none of those). Without this, every canonical check on this cell
             # would 400 for a reason that has nothing to do with the candidate.
             "--set-string", "config.env.HostValidation__Enabled=false",
+            "--set-string", "config.env.Licensing__Mode=Disabled",
             "--set-string", "config.env.HONUA_SERVE_ADMIN_UI=true",
             "--set-string", "config.env.HONUA_ADMIN_UI=true",
             "--set", f"redis.enabled={'true' if redis_enabled else 'false'}",
