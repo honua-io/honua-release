@@ -111,6 +111,27 @@ def assert_refused(lock, text):
     assert any(text in error for error in findings.errors), findings.errors
 
 
+def test_generator_preserves_declared_schema_versions_and_legacy_database(tmp_path):
+    manifest = evidence_manifest()
+    manifest["components"]["sdk"]["schemaVersions"] = {"metadata": "2.0.0-alpha.1", "database": "1"}
+    manifest_path, matrix_path = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest))
+    matrix_path.write_text("contracts: {}\n")
+    draft = generator.generate(manifest_path, matrix_path)
+    assert draft.lock["components"]["sdk"]["schemaVersions"] == {"metadata": "2.0.0-alpha.1", "database": "1"}
+    assert not any("schemaVersions" in refusal for refusal in draft.unresolved)
+
+
+def test_generator_refuses_conflicting_database_declarations(tmp_path):
+    manifest = evidence_manifest()
+    manifest["components"]["sdk"]["schemaVersions"] = {"database": "2"}
+    manifest_path, matrix_path = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest))
+    matrix_path.write_text("contracts: {}\n")
+    draft = generator.generate(manifest_path, matrix_path)
+    assert any("schemaVersions.database: conflicts with dbSchema" in refusal for refusal in draft.unresolved)
+
+
 def test_refuses_tbd_anywhere():
     lock = valid_lock(); lock["notes"] = "TBD-at-publish"
     assert_refused(lock, "placeholder/TBD")
