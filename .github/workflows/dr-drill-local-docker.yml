@@ -134,23 +134,40 @@ jobs:
         with:
           name: dr-drill-full-platform-${{ github.sha }}
           path: artifacts/dr-drill-full-platform
+      - name: Check out the evidence landing zone
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-evidence
+          ref: trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN }}
+          path: evidence-repo
+          fetch-depth: 0
       - name: Publish the receipt to the evidence repository
         id: publish
-        env:
-          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
         run: |
           set -euo pipefail
-          receipt=artifacts/dr-drill-full-platform/receipt.json
           # data/producers/dr-drills/*.json is the aggregator's envelope glob and it is not
           # recursive, so receipts land one level down and cannot be mistaken for an envelope.
           path="data/producers/dr-drills/receipts/$(date -u +%Y-%m-%dT%H-%M-%SZ)-${GITHUB_RUN_ID}.json"
-          commit="$(gh api --method PUT "repos/honua-io/honua-evidence/contents/$path" \
-            -f message="evidence(dr-drills): full-platform DR receipt from honua-release run ${GITHUB_RUN_ID}" \
-            -f branch=trunk \
-            -f content="$(base64 -w0 < "$receipt")" \
-            --jq .commit.sha)"
+          mkdir -p "evidence-repo/$(dirname "$path")"
+          cp artifacts/dr-drill-full-platform/receipt.json "evidence-repo/$path"
+          cd evidence-repo
+          git config user.name "Mike McDougall"
+          git config user.email "mike@honua.io"
+          git add "$path"
+          git commit -m "chore: ingest full-platform DR receipt from honua-release run ${GITHUB_RUN_ID}"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin trunk && git push origin HEAD:trunk; then
+              commit="$(git rev-parse HEAD)"
+              break
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep "$((attempt * 2))"
+          done
+          [ -n "${commit:-}" ] || { echo "::error::could not publish the receipt after 3 attempts"; exit 1; }
+          cd ..
           url="https://raw.githubusercontent.com/honua-io/honua-evidence/$commit/$path"
-          candidate="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["candidateLockDigest"])' "$receipt")"
+          candidate="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["candidateLockDigest"])' artifacts/dr-drill-full-platform/receipt.json)"
           echo "receipt_url=$url" >> "$GITHUB_OUTPUT"
           {
             echo "## Full-platform DR receipt"
@@ -164,7 +181,8 @@ jobs:
           RECEIPT_URL: ${{ steps.publish.outputs.receipt_url }}
         run: |
           set -euo pipefail
-          python - "$RECEIPT_URL" <<'PY'
+          for attempt in 1 2 3 4 5; do
+            if python - "$RECEIPT_URL" <<'PY'
           import hashlib, sys, urllib.request
           published = urllib.request.urlopen(sys.argv[1], timeout=60).read()
           local = open("artifacts/dr-drill-full-platform/receipt.json", "rb").read()
@@ -172,3 +190,11 @@ jobs:
               raise SystemExit("published receipt bytes differ from the attested receipt")
           print("published receipt matches the attested bytes")
           PY
+            then
+              exit 0
+            fi
+            # raw.githubusercontent.com serves a new commit's bytes a moment after the push.
+            sleep "$((attempt * 5))"
+          done
+          echo "::error::the published receipt never became anonymously fetchable"
+          exit 1
