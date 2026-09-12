@@ -64,6 +64,9 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
             raise CertificationError(f"{cell_id}: artifact lacks immutable byte integrity")
     if not seen:
         raise CertificationError("matrix has no cells")
+    missing = set(artifacts) - {cell["artifact"] for cell in matrix["cells"]}
+    if missing:
+        raise CertificationError(f"matrix omits required client artifacts: {sorted(missing)}")
 
 
 def server_image_ref(manifest: dict[str, Any]) -> str:
@@ -198,9 +201,19 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
                 archive.extractall(target)
         except zipfile.BadZipFile:
             return False, "pinned PyPI bytes are not a valid wheel"
-    if not (target / "honua_sdk" / "__init__.py").is_file():
-        return False, "installed wheel does not expose honua_sdk"
-    if os.environ.get("HONUA_SERVER_URL"):
+    module = {"honua-sdk": "honua_sdk", "honua-admin": "honua_admin"}[pin["package"]]
+    if not (target / module / "__init__.py").is_file():
+        return False, f"installed wheel does not expose {module}"
+    if module == "honua_admin":
+        if pip.returncode:
+            return False, "admin certification requires pip for declared dependencies"
+        probe = _run([sys.executable, "-I", "-c",
+                      "import sys; sys.path.insert(0, sys.argv[1]); "
+                      "from honua_admin import HonuaAdminClient, AsyncHonuaAdminClient",
+                      str(target)], cwd=work)
+        if probe.returncode:
+            return False, f"installed admin import failed: {probe.stderr[-2000:]}"
+    elif os.environ.get("HONUA_SERVER_URL"):
         if pip.returncode:
             return False, "live PyPI certification requires pip for declared dependencies"
         env = os.environ.copy()
@@ -249,7 +262,7 @@ def execute(manifest: dict[str, Any], matrix: dict[str, Any], evidence_uri: str)
                     companion_pin=pins["honua-sdk-js"],
                 )
                 status = "pass" if ok else "fail"
-            elif cell["driver"] == "pypi":
+            elif cell["driver"] in {"pypi", "pypi-admin"}:
                 work = base / cell["id"]
                 ok, detail = install_pypi(pin, work)
                 status = "pass" if ok else "fail"

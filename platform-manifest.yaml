@@ -445,7 +445,8 @@ components:
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
-    # companion package python-admin at v0.1.6 (tag python-admin-v0.1.6).
+    # Companion honua-admin 0.1.8: tag python-admin-v0.1.8 at f7930b6e;
+    # PyPI wheel digest and full release source revision are in clientArtifacts below.
 
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"
@@ -535,7 +536,20 @@ components:
 #   honua-sdk-python-wheel f7930b6e = tag python-sdk-v0.1.11 -> commit f7930b6e        MATCHES
 #   honua-sdk-dotnet     a88a7fbb = annotated tag dotnet-sdk-v1.6.0 -> commit a88a7fbb MATCHES
 # @honua/mcp-server 0.1.8-beta.0 is also published; its separate coordinate remains release-cut work.
+# Python admin pin: PyPI /pypi/honua-admin/0.1.8/json and release
+# python-admin-v0.1.8, verified 2026-09-08. Customer pre-cut install profile:
+# customer-install-manifest.json (does not replace the certified candidate).
 clientArtifacts:
+  honua-admin-python-wheel:
+    ecosystem: pypi
+    package: honua-admin
+    version: "0.1.8"
+    filename: honua_admin-0.1.8-py3-none-any.whl
+    digest: "sha256:fe69794cdcf9293e095401a9c361b6cfb00a28886dc504df511a0795d8d7096b"
+    repository: honua-io/honua-sdk-python
+    sourceSha: "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"
+    publicationState: published
+    targets: [python3]
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"

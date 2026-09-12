@@ -1,8 +1,12 @@
 import copy
 import importlib.util
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -19,6 +23,38 @@ def inputs():
 
 
 class InstalledCertificationTests(unittest.TestCase):
+    def test_release_mode_rejects_each_omitted_artifact(self):
+        manifest, matrix = inputs()
+        for artifact in manifest["clientArtifacts"]:
+            with self.subTest(artifact=artifact):
+                reduced = copy.deepcopy(matrix)
+                reduced["cells"] = [c for c in reduced["cells"] if c["artifact"] != artifact]
+                with self.assertRaisesRegex(mod.CertificationError, "omits required"):
+                    mod.validate_release_inputs(manifest, reduced)
+
+    def test_admin_import_failure_fails_certification(self):
+        pin = inputs()[0]["clientArtifacts"]["honua-admin-python-wheel"].copy()
+        wheel = b"test archive bytes"
+        pin["digest"] = "sha256:" + hashlib.sha256(wheel).hexdigest()
+        metadata = {"urls": [{"filename": pin["filename"], "url": "https://example.invalid/wheel"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "install"
+
+            def run(cmd, **kwargs):
+                if "install" in cmd:
+                    package = work / "site-packages" / "honua_admin"
+                    package.mkdir()
+                    (package / "__init__.py").touch()
+                failed = "-c" in cmd
+                return subprocess.CompletedProcess(cmd, int(failed), "", "missing dependency" if failed else "")
+
+            with mock.patch.object(mod.urllib.request, "urlopen", side_effect=[
+                io.BytesIO(json.dumps(metadata).encode()), io.BytesIO(wheel)
+            ]), mock.patch.object(mod, "_run", side_effect=run):
+                ok, detail = mod.install_pypi(pin, work)
+            self.assertFalse(ok)
+            self.assertIn("installed admin import failed", detail)
+
     def test_committed_release_inputs_are_exact(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             mod.validate_release_inputs(*inputs())
