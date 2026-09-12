@@ -96,12 +96,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-08-27 working-snapshot refresh (e3ab87ce -> ac30266f).
-    deploysServerImage: "sha:7ba422672e0c751843b17beb36e954a019cc19fb"
+    # if it drifts. Advanced with the 2026-09-12 server re-pin (7ba4226 -> 9f2f16a).
+    deploysServerImage: "sha:9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-08-27 refresh.
-    appVersion: "sha:7ba422672e0c751843b17beb36e954a019cc19fb"
+    # Same coupling as honua-iac above; advanced with the 2026-09-12 server re-pin.
+    appVersion: "sha:9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
 
 data:
   honua-server:

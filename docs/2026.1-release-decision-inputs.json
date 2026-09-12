@@ -122,13 +122,13 @@
   "working_candidate": {
     "label": "2026.1.1-rc.1",
     "status": "working pins, not a cut",
-    "observed_at": "2026-09-12T08:23:26Z",
-    "train": "https://github.com/honua-io/honua-release/actions/runs/34682410355",
+    "observed_at": "2026-09-12T20:07:00Z",
+    "train": "https://github.com/honua-io/honua-release/actions/runs/34713801683",
     "pins": [
       [
         "honua-server",
-        "7ba422672e0c751843b17beb36e954a019cc19fb",
-        "held; newest imaged nightly (2026-09-12 nightly not yet built); the one core red (`Cloud Integration Harness` / `Local Substrate`) is a known open bug ([honua-server#4415](https://github.com/honua-io/honua-server/issues/4415), [#4687](https://github.com/honua-io/honua-server/issues/4687)), rerun on this sha and confirmed to fail the same way"
+        "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd",
+        "proposed imaged trunk re-pin; AOT index `sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc`; full CI matrices pass; three additional core checks are being rerun at this SHA ([release#342](https://github.com/honua-io/honua-release/pull/342))"
       ],
       [
         "honua-sdk-js",
@@ -158,46 +158,22 @@
     ],
     "gates": [
       [
-        "freeze, manifest, evidence, sbom, security, artifact-consume, contract, dr contract",
-        "pass",
-        ""
+        "freeze",
+        "fail (prior attempt)",
+        "Prior manifest-only run had two matrix SHA coherence errors; couplings now aligned locally; branch train proof pending."
       ],
       [
         "build-test",
-        "fail",
-        "honua-server only: 1/144 core check-run red (`Cloud Integration Harness` / `Local Substrate`, [honua-server#4415](https://github.com/honua-io/honua-server/issues/4415)/[#4687](https://github.com/honua-io/honua-server/issues/4687)); honua-sdk-dotnet, honua-sdk-python and geospatial-grpc are now green at their new pins"
+        "pending",
+        "Three server core reruns pending; all eight other components passed the prior strict evaluation."
       ],
       [
-        "e2e / slice1, e2e / seam",
-        "pass",
-        "the sdk-dotnet NU1902 fix ([#350](https://github.com/honua-io/honua-sdk-dotnet/pull/350)) clears the seam restore; e2e literals updated to the new sdk-dotnet/sdk-python pins"
-      ],
-      [
-        "one-operation rollback / certify",
-        "fail",
-        "Operator ruling A (2026-09-12): 2026.1.1-rc.1 is the first lock-bearing release: retained `honua-2026.1` has no lock A (train [34679775499](https://github.com/honua-io/honua-release/actions/runs/34679775499)); retain exact attested candidate lock B and certify one-operation self-rollback, recording `first_lock_bearing_release: true`, its digest and that no earlier lock exists; no reconstructed historical lock is accepted; the next release uses this candidate as A for ordinary A→B→A certification; branch dry-run [34684082534](https://github.com/honua-io/honua-release/actions/runs/34684082534/job/103527920712) passed detection, retention and attestation, then reported `ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING` (frozen lock lacks `platformDigests.amd64`), with `first_lock_bearing_release: true`, `no_earlier_lock_exists: true`, candidate/target digest `sha256:482f379e314b43a3137e15f6a373922588e777ffa0971493d6cadfcf78575a7e`."
-      ],
-      [
-        "capacity-soak / frozen-slo",
-        "fail",
-        "expected: `capacity_receipt_url` is the placeholder `https://example.invalid/...`; no candidate soak receipt exists yet"
-      ],
-      [
-        "dr / receipt",
-        "fail",
-        "`candidate-input\\platform-lock.json` path bug under `workflow_call`; fix open in [honua-release#336](https://github.com/honua-io/honua-release/pull/336), unmerged"
-      ],
-      [
-        "cloud_parity, upgrade, observability",
-        "pass",
-        "unblocked now that gate_e2e passes; ran for real against AWS (cloud/OIDC creds are wired) and tore down cleanly"
-      ],
-      [
-        "conformance, protocol certification, docs",
-        "skipped",
-        "downstream of gate_build_test / gate_contract per the train's needs graph"
+        "remaining gates",
+        "skipped (prior attempt)",
+        "Freeze prevented all gates from running; new branch dry-run pending."
       ]
-    ]
+    ],
+    "server_image_digest": "sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc"
   },
   "issues": [
     {"repo": "geospatial-grpc", "number": 88, "title": "test(certification): emit normalized multi-client gRPC release evidence", "state": "open", "labels": ["area/ci", "area/grpc", "bucket/must-fix-before-cut", "first-release-gate", "priority/P1", "release/2026.1", "size/M", "state/blocked", "test"], "body_sha256": "d4766f48bf30b04374a60340d846a7d75c1094b7d4309bd7e30f8679adad82e5", "updated_at": "2026-09-06T08:29:49Z", "family": {"packet": "dispatch/queue/28-grpc-88-publish-github-packages.md", "status": "queued", "flow_commit": "f238710e0713a0ffc37e647afbad83f6363d89fc"}},
