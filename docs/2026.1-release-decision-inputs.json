@@ -175,7 +175,7 @@
       [
         "one-operation rollback / certify",
         "fail",
-        "`gh release download` finds no `platform-lock.json` asset on the retained `honua-` release: pre-existing, unrelated to this re-pin"
+        "Operator ruling A (2026-09-12): 2026.1.1-rc.1 is the first lock-bearing release: retained `honua-2026.1` has no lock A (train [34679775499](https://github.com/honua-io/honua-release/actions/runs/34679775499)); retain exact attested candidate lock B and certify one-operation self-rollback, recording `first_lock_bearing_release: true`, its digest and that no earlier lock exists; no reconstructed historical lock is accepted; the next release uses this candidate as A for ordinary A→B→A certification; branch dry-run [34684082534](https://github.com/honua-io/honua-release/actions/runs/34684082534/job/103527920712) passed detection, retention and attestation, then reported `ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING` (frozen lock lacks `platformDigests.amd64`), with `first_lock_bearing_release: true`, `no_earlier_lock_exists: true`, candidate/target digest `sha256:482f379e314b43a3137e15f6a373922588e777ffa0971493d6cadfcf78575a7e`."
       ],
       [
         "capacity-soak / frozen-slo",
