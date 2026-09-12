@@ -364,7 +364,12 @@ components:
     # RE-CHECKED AT 7ba42267 (2026-09-11) — filename floor only, NOT the journal read:
     #   $ git ls-tree --name-only 7ba42267... src/Honua.Server/Migrations/ | sort | tail -1
     #   src/Honua.Server/Migrations/115_AddDropImportStagingTable.sql
-    dbSchema: "115"
+    # RE-CHECKED AT 9f2f16a (2026-09-12 re-pin) — filename floor; the rollback certification's
+    # restore step reads the journal on the pinned image and failed "schema floor mismatch:
+    # Honua.Server.Migrations.116_AddSensorThingsIdSequences.sql" while this said 115:
+    #   $ git ls-tree --name-only 9f2f16a5b9... src/Honua.Server/Migrations/ | sort | tail -1
+    #   src/Honua.Server/Migrations/116_AddSensorThingsIdSequences.sql
+    dbSchema: "116"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
