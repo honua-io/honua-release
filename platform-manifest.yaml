@@ -663,6 +663,49 @@ evidenceSources:
     artifactIdentity: demos-source
     evidencePolicyRevision: demos-s9-v1
 
+# Resolved durable-substrate inventory for the candidate's GA local-docker topology
+# (operator ruling A, 2026-09-12). This is a DEPLOYMENT INPUT, not a receipt-supplied denominator:
+# tools/validate_dr_receipt.py requires a full-platform receipt to cover exactly the substrates
+# enabled here, and tools/generate_platform_lock.py refuses to cut a lock without this block.
+#
+# The topology is the install honua-server's own quickstart compose describes: PostGIS, Redis and a
+# local file-storage volume. Every entry below was resolved against the pinned image's effective
+# configuration, not assumed:
+#   postgresql            MANDATORY. The server connects to DefaultConnection on boot and runs
+#                         migrations; there is no alternative metadata store.
+#   redis                 COMPOSED. ConnectionStrings__Redis is set in the install topology, which
+#                         is what wires the cache, the durable feature-change event store and the
+#                         job/workflow substrate. Removing it is a documented, different topology
+#                         (honua-server's docker-compose.no-redis.yml).
+#   object-storage        FileStorage:Provider=Local over a named volume. Referenced output and
+#                         attachment bytes live there; the metadata rows that point at them are
+#                         useless without the bytes, so the volume is in the recovery set.
+#   job-queue             The Redis-backed job runtime accepts geoprocessing submissions on this
+#                         topology; without Redis the server refuses them with a typed
+#                         capability-unavailable error instead of queueing them.
+#   transactional-outbox  PostgreSQL's outbox capability provider reports support unconditionally,
+#                         so every feature mutation through a protocol handler writes its outbox
+#                         row in the same transaction as the row itself.
+#   workflow-cursors      With Redis composed the orchestration engine, scheduler and event-trigger
+#                         reconciler are hosted, and the durable workflow definition/run and source
+#                         high-water-mark stores are Redis-backed.
+#
+# The objectives are deployment-owned LIMITS the drill is measured against, matching the 900 s / 300 s
+# recovery targets the DR evidence template already carries. They are not measurements and they are
+# not a support commitment for any other topology: AWS remains unqualified in 2026.1.
+disasterRecovery:
+  topology: local-docker-single-tenant
+  objectives:
+    rpoMs: 300000                      # maximum tolerated recovery-point age
+    rtoMs: 900000                      # maximum tolerated recovery time
+  substrates:
+    postgresql: true
+    redis: true
+    object-storage: true
+    job-queue: true
+    transactional-outbox: true
+    workflow-cursors: true
+
 # Experimental + disabled for this release (ADR-0059): present in the binary but deliberately gated
 # OFF and unadvertised in the capability manifest. Explicitly EXCLUDED from the rc.1 certified set —
 # snapshotted here for provenance only, not part of the certified deploy set.

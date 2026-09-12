@@ -1,4 +1,11 @@
-# PostgreSQL restore seam and full-platform DR gate
+# Full-platform DR drill, PostgreSQL restore seam, and the DR gate
+
+`full_platform.py` is the **full-platform producer**: one run over the whole durable-substrate
+inventory `platform-manifest.yaml` declares for the candidate, emitting the
+`honua.dr-drill-receipt/v2` receipt gate-dr validates. `run.sh` is the older, narrower
+**PostgreSQL restore seam**; it is retained as a separately scoped artifact and its receipt is
+still rejected by the full-platform gate, by design. Both run from
+`.github/workflows/dr-drill-local-docker.yml`, the signer identity gate-dr pins.
 
 `run.sh` exercises a **PostgreSQL restore seam** using the image digest in
 `platform-manifest.yaml`. It backs up PostgreSQL, destroys the original database,
@@ -98,10 +105,69 @@ python -m pytest tools/test_validate_dr_receipt.py -q
 Supply `dr_receipt_url` to the release train, or `receipt_url` when dispatching
 `gate-dr`. Scheduled runs use `HONUA_DR_RECEIPT_URL`. Missing URL, attestation,
 configuration, objective, enabled substrate, or restart observation is a failure, as is an
-attestation from an untrusted signer or ref. The current manifest has no resolved DR
-deployment inventory and the existing seam cannot produce a full-platform receipt; they
-remain unqualified until the deployment owner records the configuration and the producer
-executes recovery for all enabled stores.
+attestation from an untrusted signer or ref.
 
 The PostgreSQL seam retains its existing Linux CI runner. Its detached receipt signature
 and GitHub artifact attestation certify only that explicitly scoped seam result.
+
+## The full-platform producer (`full_platform.py`)
+
+The drill composes `compose.full-platform.yml`: the candidate's local-docker **install**
+topology (PostGIS, Redis, and a local file-storage volume), not the `e2e/local-docker` seam
+tier, which composes no durable job/workflow substrate at all. The image comes from the
+manifest pin; the substrate set comes from `disasterRecovery.substrates` in the same file.
+An enabled substrate with no implemented drill surface fails the run rather than being
+quietly dropped from the receipt.
+
+For every enabled substrate the drill writes durable state through a real product surface,
+observes and hashes it through a real runtime surface, backs it up through its own supported
+path, destroys the primary state (the named volume, not a graceful stop), restores into a
+freshly created store it asserts was empty, restarts, and re-reads the identical state:
+
+| Substrate | Product write surface | Runtime read surface | Backup artifact |
+| --- | --- | --- | --- |
+| `postgresql` | file import (`POST /api/v1/admin/import/upload`) then publication | `GET /ogc/features/collections/{c}/items` | `pg_dump --format=custom` |
+| `transactional-outbox` | an OGC API Features insert's outbox row, written in the same transaction | `SELECT` over `honua.feature_change_outbox` | table-scoped `pg_dump` |
+| `redis` | the same insert's durable feature-change event | `GET /api/v1/admin/feature-events/replay` | `DUMP`/`RESTORE` slice of `featurechange:*` |
+| `object-storage` | GeoServices `addAttachment` | `GET .../attachments/{id}` (the bytes) | `tar` of the storage volume |
+| `job-queue` | GeoServices `submitJob` on the Redis-backed job runtime | `GET .../GPServer/{task}/jobs/{jobId}` | `DUMP`/`RESTORE` slice of the job keys |
+| `workflow-cursors` | workflow package version published to a `Schedule` target | the durable orchestration definition | `DUMP`/`RESTORE` slice of `orchestration:*` |
+
+Three substrates share one Redis instance and two share one PostgreSQL cluster. Sharing a
+store does not merge the recovery obligations: each takes its own backup artifact with its
+own id and SHA-256, each is restored from that artifact alone, and the outbox artifact is
+additionally replayed into a scratch database to prove it stands up without the cluster dump
+carrying it. The workflow package *catalog* does not survive a restart — only the compiled
+durable definition does — so the drill reads that definition from the orchestration store
+rather than from the in-memory publication list.
+
+**Why the PostgreSQL write is an import, not the transactional insert.** On this candidate an
+OGC API Features insert against a published (source-backed) layer answers `201 Created`, writes its
+outbox row and publishes its change event — but the row lands in the managed feature store while
+the serving protocols read the published source table, so the acknowledged feature is never
+readable back (`GET .../items/{id}` answers 404). That is a honua-server defect reported alongside
+this drill, not a property of recovery, and the drill must not launder it into a recovery claim.
+So the `postgresql` evidence is built on the import path, whose rows the serving protocols really
+do return, and the insert is kept only to drive the outbox and change-event substrates, whose
+writes are genuinely durable. Revisit this split when the server defect is fixed.
+
+Instance identity is the restarted runtime's boot identity: the PostgreSQL cluster's
+`system_identifier`, the Redis `run_id`, and the server's container id. Destroying the
+volumes forces all three to change, so a graceful restart over intact state cannot pass.
+
+RPO and RTO are measured, never declared. RPO is the age of the recovery point when the
+backup set closed; RTO is the window from the earliest destruction to the latest post-restart
+read through a runtime surface — the same window `tools/validate_dr_receipt.py` recomputes
+from the receipt's own observations, so a convenient number cannot be substituted.
+
+```powershell
+python e2e/dr-drill/full_platform.py                       # writes artifacts/dr-drill-full-platform/
+python tools/validate_dr_receipt.py --candidate platform-manifest.yaml --receipt artifacts/dr-drill-full-platform/receipt.json
+```
+
+Off a pull request the workflow attests both receipts and publishes the full-platform one to a
+commit-pinned `raw.githubusercontent.com` URL under `data/producers/dr-drills/receipts/` in
+honua-evidence. That directory is one level below the aggregator's non-recursive
+`data/producers/dr-drills/*.json` envelope glob, so a receipt can never be misread as a
+`honua-evidence.dr-drill-envelope/v1` envelope. The URL is commit-pinned because a branch URL
+would let the bytes behind an already-verified receipt change afterwards.
