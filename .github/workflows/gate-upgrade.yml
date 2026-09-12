@@ -652,13 +652,13 @@ jobs:
 
       - name: Attest candidate-bound recovery receipt
         if: always() && steps.smoke.outputs.recovery_receipt == 'true'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v3.0.0
         with:
           subject-path: /tmp/upg/recovery-receipt.json
 
       - name: Attest exact-lock upgrade receipt
         if: env.status == 'pass'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v3.0.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v3.0.0
         with:
           subject-path: /tmp/upg/exact-lock-receipt.json
 
