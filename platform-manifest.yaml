@@ -73,11 +73,12 @@ protocolCertification:
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
   serverCertificationProducerSha: "7ba422672e0c751843b17beb36e954a019cc19fb"
-  # NOT TOUCHED BY THIS REFRESH — DELIBERATELY STALE, AND SAID SO.
-  # The ledger below is byte-frozen against the OLD candidate (e3ab87ce). Re-binding it requires
-  # honua-evidence to re-aggregate at this PR's squash SHA first; the ordered procedure is
-  # tools/convergence_rebind.py post_merge_commands(). Until that runs, the certification tier is
-  # knowingly behind this manifest — that is the intended sequencing, not an oversight.
+  # #181: the historical ledger certifies e3ab87ce, not this working snapshot.
+  # The published Python 0.1.11 artifact also predates its certification contract;
+  # advancing the working component pin does not change that package's provenance.
+  # Keep certification pending until the cut selects certifiable published SDKs,
+  # regenerates the catalog, and atomically rebinds the ledger and trusted gates.
+  # Evidence and the remaining candidate criterion: docs/2026.1-sdk-pin-convergence.md.
   ledger:
     status: pending
     repository: "honua-io/honua-evidence"
