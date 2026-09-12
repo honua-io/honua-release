@@ -538,6 +538,32 @@ def test_rollback_certification_signs_success_and_mixed_state_receipts():
     assert rendered.count("actions/attest-build-provenance@") == 2
 
 
+def test_upgrade_gate_runs_the_fast_policy_layer_on_every_relevant_pr_but_not_the_kind_smoke():
+    """release#321: fast, decidable-now upgrade-compat checks must run per PR; the expensive real
+    kind cluster seed/upgrade/rollback smoke stays release-train/nightly/dispatch-only."""
+    workflow = _workflow("gate-upgrade.yml")
+    triggers = _triggers(workflow)
+    pull_request = triggers.get("pull_request")
+    assert pull_request is not None, "gate-upgrade must run on pull_request (fast policy layer)"
+    paths = set(pull_request.get("paths") or [])
+    for must_watch in (
+        "platform-manifest.yaml",
+        "compatibility-matrix.yaml",
+        "tools/check_upgrade.py",
+        "tools/semver.py",
+        ".github/workflows/gate-upgrade.yml",
+    ):
+        assert must_watch in paths, f"{must_watch} changes must trigger the fast upgrade-compat check"
+
+    static_compat = workflow["jobs"]["static-compat"]
+    assert "if" not in static_compat, "the fast static-compat layer must run on every trigger, including PRs"
+
+    kind_upgrade = workflow["jobs"]["kind-upgrade"]
+    assert kind_upgrade.get("if") == "github.event_name != 'pull_request'", (
+        "the expensive kind cluster smoke must be excluded from pull_request runs"
+    )
+
+
 def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
     workflow = _workflow("gate-upgrade.yml")
     kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
