@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # S5 — Geoprocessing via OGC API Processes. Submit two catalog processes (geometry.area,
 # geometry.buffer), poll each job to `successful`, and assert the results document is returned.
-# Requires the Redis-backed job runtime (entitled via Licensing__DevGrantEdition=Enterprise).
+# Requires the Redis-backed job runtime (all entitlements active via Licensing__Mode=Disabled).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../harness/lib/common.sh

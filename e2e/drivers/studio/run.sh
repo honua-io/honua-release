@@ -8,8 +8,8 @@
 # TWO THINGS THIS SEAM LEARNED THE HARD WAY (honua-release#305)
 #
 # 1. THE OPERATOR GATE. Every Studio draft mutation runs through the durable operation runtime. Under
-#    the Enterprise edition -- which compose.candidate.yml grants, because the GP driver needs the
-#    Redis job runtime entitlement -- DefaultGuardrailLadder maps mutating classes to
+#    disabled licensing mode, the entitlement snapshot uses the Enterprise guardrail ladder.
+#    DefaultGuardrailLadder maps mutating classes to
 #    GuardrailTier.RequiresApproval, so `POST /studio/package-drafts` answers 202 with an operation
 #    handle and a control-plane proposal instead of 201 with a draft. That is CORRECT product
 #    behaviour; the seam has to drive it. Approval is separation-of-duties enforced, so the seam

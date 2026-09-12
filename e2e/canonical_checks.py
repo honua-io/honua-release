@@ -404,6 +404,15 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
                                              authenticated_fetch=authenticated_fetch,
                                              frozen_server_sha=frozen_server_sha,
                                              enforcement=enforcement))
+    from licensing import validate_disabled
+    response = (authenticated_fetch or f)(endpoint.rstrip("/") + "/api/v1/admin/license")
+    try:
+        if response.status != 200:
+            raise ValueError(f"admin license status returned HTTP {response.status}")
+        validate_disabled(json.loads(response.body))
+        results.append(CheckResult("licensing-disabled", "pass", "admin license mode: disabled"))
+    except (ValueError, TypeError) as exc:
+        results.append(CheckResult("licensing-disabled", "fail", str(exc)))
     return results
 
 
