@@ -89,8 +89,14 @@ jobs:
           CANDIDATE_BUNDLE: ${{ inputs.candidate_bundle }}
         shell: pwsh
         run: |
+          # The full-platform producer (e2e/dr-drill/full_platform.py) always binds
+          # candidateLockDigest to platform-manifest.yaml bytes, never platform-lock.json, so the
+          # gate must hash that same document under both intake paths. Under the train
+          # (candidate_bundle=true) that is the frozen candidate-manifest artifact's own copy of
+          # platform-manifest.yaml, not the checkout's — the artifact is what freeze actually
+          # certified. See e2e/dr-drill/README.md.
           $candidatePath = 'platform-manifest.yaml'
-          if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-lock.json' }
+          if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-manifest.yaml' }
           python tools/validate_dr_receipt.py --candidate $candidatePath --receipt "$env:RUNNER_TEMP/dr-receipt.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve validated receipt
