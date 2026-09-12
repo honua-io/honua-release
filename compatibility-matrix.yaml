@@ -13,6 +13,9 @@
 # bounds to make the gates real, not the final negotiated support window — widen (never silently
 # narrow) as the compat suite proves pairings.
 #
+# 2026.1: Licensing__Mode=Disabled on every deployment. All catalog entitlements are active;
+# no edition gating, license enforcement or serving-unit metering/bands. Maturity and safety limits apply.
+# See docs/INSTALL-2026.1.md and the operating envelope (operator ruling 2026-09-12).
 # Floors retain the 2026-07-01 compatibility baseline. Where a component has no
 # release it is pinned by sha in the manifest and excluded from semver ranges here (noted inline).
 # Release-gate PRs were still merging at snapshot; sha-pinned couplings that reference a still-open
