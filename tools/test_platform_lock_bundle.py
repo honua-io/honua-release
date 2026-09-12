@@ -90,6 +90,13 @@ def test_bundle_keeps_published_identity_independent_of_source_head(candidate, t
     assert bom["metadata"]["component"]["version"] == "honua-2026.1-rc.1"
     assert bom["metadata"]["component"]["bom-ref"] == expected_digest
     files = bundle.bundle_files(lock)
+    assert yaml.safe_load(files["compose.licensing-disabled.yml"])["services"]["honua"]["environment"] == {
+        "Licensing__Mode": "Disabled"}
+    assert json.loads(files["platform-release.v1.json"])["licensing"] == {
+        "mode": "disabled", "allCatalogEntitlementsActive": True,
+        "editionGating": False, "capacityMetering": False}
+    assert b"serving-unit bands are neither measured nor enforced" in files["INSTALL-2026.1.md"]
+
     assert files["platform-lock.json"] == json.dumps(lock, sort_keys=True, separators=(",", ":")).encode()
     assert json.loads(files["platform-release.v1.json"])["lockDigest"] == expected_digest
     ledger_path = tmp_path / "ledger.json"
