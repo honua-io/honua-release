@@ -52,14 +52,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-09-12"             # candidate re-pin: honua-sdk-dotnet 6ba49ec3, honua-sdk-python 40ecf731, geospatial-grpc 863b9b9e (honua-server, honua-sdk-js, geospatial-mcp unchanged)
+snapshotDate: "2026-09-12"             # honua-server re-pin to imaged trunk 9f2f16a (includes disabled licensing); other components unchanged
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "7ba422672e0c751843b17beb36e954a019cc19fb"
+  ref: "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -68,12 +68,12 @@ candidate:
 protocolCertification:
   # UTC timestamp of THIS working-snapshot refresh (2026-08-27 operator decision). The previous value
   # 2026-08-21T15:13:36Z was the completion time of honua-server release-bundle run 32496444220.
-  # 2026-09-11 candidate re-pin (release#274): UTC time the re-pinned candidate set was frozen.
-  candidateCutAt: "2026-09-11T19:47:41Z"
+  # 2026-09-12 server re-pin (release#339): UTC time this working candidate was refreshed.
+  candidateCutAt: "2026-09-12T19:16:25Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "7ba422672e0c751843b17beb36e954a019cc19fb"
+  serverCertificationProducerSha: "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
   # NOT TOUCHED BY THIS REFRESH — DELIBERATELY STALE, AND SAID SO.
   # The ledger below is byte-frozen against the OLD candidate (e3ab87ce). Re-binding it requires
   # honua-evidence to re-aggregate at this PR's squash SHA first; the ordered procedure is
@@ -227,21 +227,18 @@ components:
     # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
     # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
     # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
-    # ============================ 2026-09-11 CANDIDATE RE-PIN (release#274) ============================
-    # 4ca8326 -> 7ba42267. The old pin could not certify: ci.yml never ran a full matrix on it, and
-    # images older than server 679f637 crash at boot against the current Redis (gate_e2e/slice1,
-    # exit 134, dry-run train 34636531439). 7ba42267 is the newest trunk sha carrying BOTH a
-    # published multi-arch AOT image (scheduled Nightly Container Build run 34587617087, attested:
-    # buildSignerURI nightly-container-build.yml@refs/heads/trunk, sourceRepositoryDigest 7ba42267)
-    # AND a completed full ci.yml matrix (run 34582125299). Newer fully green shas (099bd98,
-    # 4b37b2d) have no image; building one from a side branch would republish the floating and
-    # dated nightly tags backwards, so they were not taken. 679f637 is an ancestor; 19 commits
-    # separate this pin from trunk HEAD at re-pin time.
+    # ============================ 2026-09-12 SERVER RE-PIN (release#339) =============================
+    # 7ba42267 -> 9f2f16a. Trunk Nightly Container Build run 34692125246 (2026-09-12T11:51:23Z)
+    # published this exact AOT index and the single-arch Lambda image below. Both full ci.yml
+    # matrices passed at this sha: workflow_dispatch 34692948561 and schedule 34694583217.
+    # Includes #4725 (Licensing__Mode=Disabled), #4712 (OGC source-backed writes), and #4704/#4699
+    # (SensorThings). #4728 (chunked-stream termination) and #4730 (soak harness) await the next
+    # nightly; no un-imaged sha or side-branch build is selected.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
-    sha: "7ba422672e0c751843b17beb36e954a019cc19fb"
-    image: "ghcr.io/honua-io/honua-server:nightly-aot-7ba4226"   # immutable per-sha tag (NOT a floating tag)
-    # index; children linux/amd64 sha256:08bc8e82…, linux/arm64 sha256:e4dda6fb…
-    digest: "sha256:dd50cd81c057e37e73a6144572abdfc90d48de314d7625c54c4ef3b6eb65b0fd"
+    sha: "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
+    image: "ghcr.io/honua-io/honua-server:nightly-9f2f16a"   # immutable per-sha tag (NOT a floating tag)
+    # index; children linux/amd64 sha256:b5280b21…, linux/arm64 sha256:2d86fc60…
+    digest: "sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -270,8 +267,8 @@ components:
     #   architecture = amd64
     #   org.opencontainers.image.revision = ac30266fbd153363bebdbed13130accc8ab0c94a
     #   Entrypoint = ["/var/task/Honua.Server"]
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-7ba4226-amd64"
-    awsLambdaDigest: "sha256:6aa9b83d7fc96f48ebc821db2e8e0bfbd4b9bcca245150b38fc212a124d4056e"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-9f2f16a-amd64"
+    awsLambdaDigest: "sha256:ebaf0f6d739814dc67a8ac2462ab912bdbe06255bbb3bc2cd0802cde5880b971"
     # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
     # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
