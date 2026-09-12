@@ -217,8 +217,8 @@ import release_rollback_target as targets
 import certify_release_rollback as certification
 
 
-def _release(tag, lock=False):
-    return {"tag_name": tag, "draft": False, "published_at": tag,
+def _release(tag, lock=False, published_at=None):
+    return {"tag_name": tag, "draft": False, "published_at": published_at or tag,
             "assets": [{"name": "platform-lock.json"}] if lock else []}
 
 
@@ -270,6 +270,24 @@ def test_candidate_release_is_not_misidentified_as_an_earlier_lock(tmp_path):
     candidate, target, calls, command = _target_fixture(tmp_path, [[
         _release("honua-2026.1.1-rc.1", lock=True), _release("honua-2026.1")]])
     assert targets.resolve(candidate, target, "honua-io/honua-release", command)["first_lock_bearing_release"]
+
+
+def test_candidate_ga_and_newer_release_are_not_rollback_targets(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.2", lock=True, published_at="2026-09-13T00:00:00Z"),
+        _release("honua-2026.1.1", lock=True, published_at="2026-09-12T00:00:00Z"),
+        _release("honua-2026.1", lock=True, published_at="2026-09-11T00:00:00Z")]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["retained_release"] == "honua-2026.1"
+    download = next(call for call in calls if call[:2] == ("release", "download"))
+    assert download[2] == "honua-2026.1"
+
+
+def test_unpublished_candidate_uses_release_version_boundary(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.2", lock=True), _release("honua-2026.1", lock=True)]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["retained_release"] == "honua-2026.1"
 
 
 def test_unverified_retained_lock_cannot_enable_self_rollback(tmp_path):

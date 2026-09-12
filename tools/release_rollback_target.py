@@ -5,12 +5,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
 
 class Finding(ValueError):
     pass
+
+
+def promoted_tag(candidate_tag: str) -> str:
+    """Return the GA tag that promote.yml derives from a candidate tag."""
+    return candidate_tag.split("-rc", 1)[0]
+
+
+def release_version(tag: str) -> tuple[int, int, int] | None:
+    """Parse a Honua release tag for the unpublished-candidate fallback boundary."""
+    match = re.fullmatch(r"honua-(\d+)\.(\d+)(?:\.(\d+))?(?:-rc\.\d+)?", tag)
+    if not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
 
 
 def digest(path: Path) -> str:
@@ -27,12 +41,28 @@ def gh(*args: str) -> str:
 def resolve(candidate: Path, target: Path, repository: str, command=gh) -> dict:
     candidate_digest = digest(candidate)
     candidate_tag = json.loads(candidate.read_text())["platform"]["id"]
+    ga_tag = promoted_tag(candidate_tag)
     # --paginate avoids declaring a first release because the only lock is on page 2.
     pages = json.loads(command("api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"))
+    releases = [
+        release for page in pages for release in page
+        if not release["draft"] and release["tag_name"].startswith("honua-")
+    ]
+    candidate_release = next((release for release in releases if release["tag_name"] == ga_tag), None)
+    candidate_published_at = (candidate_release or {}).get("published_at")
+    candidate_version = release_version(ga_tag)
     releases = sorted(
-        (release for page in pages for release in page
-         if not release["draft"] and release["tag_name"].startswith("honua-")
-         and release["tag_name"] != candidate_tag),
+        (release for release in releases
+         if release["tag_name"] not in {candidate_tag, ga_tag}
+         and (
+             (candidate_published_at and release.get("published_at", "") < candidate_published_at)
+             or (
+                 not candidate_published_at
+                 and candidate_version is not None
+                 and (version := release_version(release["tag_name"])) is not None
+                 and version < candidate_version
+             )
+         )),
         key=lambda release: release["published_at"], reverse=True,
     )
     scanned = []
