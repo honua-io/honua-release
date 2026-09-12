@@ -338,7 +338,10 @@ def render(data, rows):
     p0_activity = Counter(('queued' if r.get('family') and r['family']['status']=='queued' else 'dispatched; not confirmed running' if r.get('family') and r['family']['status'].startswith('dispatched') else 'UNOWNED/parked') for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut')
     content = [
         '# 2026.1 release decision record', '',
-        f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
+        (f'**Candidate digest: {data["candidate_digest"]}'
+         + (f' · Working server AOT image digest: {data["working_candidate"]["server_image_digest"]}'
+            if data.get("working_candidate", {}).get("server_image_digest") else "")
+         + f' · Decision: HOLD · Observed: {data["observed_at"]}**'), '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
         *working_candidate(data),
         decision_tables(rows), '',
