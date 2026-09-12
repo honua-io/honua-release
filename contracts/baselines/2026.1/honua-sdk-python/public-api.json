@@ -181,7 +181,7 @@
           "fields": [
             {
               "annotation": "str",
-              "default": "'2026.3.0'",
+              "default": "'1.0.0'",
               "name": "minimum_server_version"
             },
             {
@@ -203,7 +203,7 @@
           "kind": "class",
           "module": "honua_admin._models",
           "qualname": "AdminCompatibilityBaseline",
-          "signature": "(minimum_server_version: 'str' = '2026.3.0', control_plane_api_major: 'int' = 1, base_path: 'str' = '/api/v1/admin', minimum_release_channel: 'str' = 'preview') -> None"
+          "signature": "(minimum_server_version: 'str' = '1.0.0', control_plane_api_major: 'int' = 1, base_path: 'str' = '/api/v1/admin', minimum_release_channel: 'str' = 'preview') -> None"
         },
         "AdminCompatibilityCheckResult": {
           "fields": [
@@ -1417,7 +1417,7 @@
         "MINIMUM_SUPPORTED_SERVER_VERSION": {
           "kind": "constant",
           "type": "str",
-          "value": "'2026.3.0'"
+          "value": "'1.0.0'"
         },
         "ManifestApplyEntry": {
           "fields": [

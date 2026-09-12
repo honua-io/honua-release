@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-python
-          ref: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4   # python-sdk-v0.1.11; mirrors components.honua-sdk-python.sha
+          ref: 40ecf7318573214fb6c702b12ebd56b3ad47ba60   # 2026-09-12 re-pin; mirrors components.honua-sdk-python.sha
           path: _e2e-sdk-python
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-dotnet
-          ref: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6   # 2026-08-27 refresh; mirrors components.honua-sdk-dotnet.sha
+          ref: 6ba49ec32ea846c64bc2094807761d4884dbc4bf   # 2026-09-12 re-pin; mirrors components.honua-sdk-dotnet.sha
           path: _e2e-sdk-dotnet
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -102,8 +102,8 @@ jobs:
           # published client candidate. The .NET/Python package coordinates remain unchanged.
           expected = {
               "honua-sdk-js": ("d7cec2d510e053fc86252b125bde21313a7e6e7c", "0.1.9-beta.0"),
-              "honua-sdk-python": ("f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4", "0.1.11"),
-              "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
+              "honua-sdk-python": ("40ecf7318573214fb6c702b12ebd56b3ad47ba60", "0.1.11"),
+              "honua-sdk-dotnet": ("6ba49ec32ea846c64bc2094807761d4884dbc4bf", "1.6.2"),
           }
           for name, (sha, version) in expected.items():
               actual = components[name]
@@ -118,7 +118,7 @@ jobs:
             --store-password-in-clear-text --configfile _e2e-sdk-dotnet/NuGet.config
           dotnet pack _e2e-sdk-dotnet -c Release -o "$WORK/feed"
           dotnet add e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.csproj \
-            package Honua.Sdk.GeoServices --version 1.6.0 --source "$WORK/feed"
+            package Honua.Sdk.GeoServices --version 1.6.2 --source "$WORK/feed"
 
       # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)

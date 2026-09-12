@@ -6,15 +6,15 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:7689899d410278fdb6b2adf876046d1c43e6340b2c95f7df3e4d423abbba7a4a
+    sha256: sha256:8c71ca3c29d0a09676d579f918c1a2627556f257f7ac80454fe840ff7a6e3bec
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:bc5e6b3b7901f9daecb79ea1b559becdadb3a4b961d267d9fe980a1b91c1e860
+    sha256: sha256:e8900ab641d78b6e5c767c8a0b2d79ecb2a02ae868bf16e9366d4c463b31b5a3
 components:
   honua-server:
     source:
       repository: https://github.com/honua-io/honua-server
-      revision: 4ca8326f37b3225315033ee58e1a652e231992df
+      revision: 7ba422672e0c751843b17beb36e954a019cc19fb
     contractVersions:
       admin: v1
       metadata: metadata.honua.io/v2alpha1
@@ -23,11 +23,11 @@ components:
       ogc: 1.0.0
       stac: 1.0.0
     schemaVersions:
-      database: '107'
+      database: '115'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
-      digest: sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508
+      digest: sha256:dd50cd81c057e37e73a6144572abdfc90d48de314d7625c54c4ef3b6eb65b0fd
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -51,23 +51,21 @@ components:
   honua-sdk-dotnet:
     source:
       repository: https://github.com/honua-io/honua-sdk-dotnet
-      revision: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6
+      revision: 6ba49ec32ea846c64bc2094807761d4884dbc4bf
     contractVersions:
       sdk-certification: v1
     schemaVersions: {}
     artifacts:
     - kind: nuget
       coordinate: Honua.Sdk
-      version: 1.6.0
-      sha256: sha256:e5c3bf0a243822cb3d76cca6ef090b226f8502480c6a6699d7e34e24c1aeeadc
-      sourceRevision: a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4
+      version: 1.6.2
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
   honua-sdk-js:
     source:
       repository: https://github.com/honua-io/honua-sdk-js
-      revision: c99e71197dd940ed952aecb024c6de273456f2ae
+      revision: d7cec2d510e053fc86252b125bde21313a7e6e7c
     contractVersions:
       connect-parity: '1.0'
     schemaVersions: {}
@@ -88,7 +86,7 @@ components:
   honua-sdk-python:
     source:
       repository: https://github.com/honua-io/honua-sdk-python
-      revision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+      revision: 40ecf7318573214fb6c702b12ebd56b3ad47ba60
     contractVersions:
       protocol-factories: '1'
     schemaVersions: {}
@@ -104,7 +102,7 @@ components:
   geospatial-grpc:
     source:
       repository: https://github.com/honua-io/geospatial-grpc
-      revision: 0f701ecc6b0c41a5ea43e2dff3c46ce654312576
+      revision: 863b9b9e4fd1c5de929b3f937dc5f0bdb2a08c2a
     contractVersions:
       grpc: v1
     schemaVersions: {}
@@ -184,3 +182,15 @@ contentDigests:
 fixtures: []
 sbom: []
 provenance: []
+disasterRecovery:
+  topology: local-docker-single-tenant
+  objectives:
+    rpoMs: 300000
+    rtoMs: 900000
+  substrates:
+    postgresql: true
+    redis: true
+    object-storage: true
+    job-queue: true
+    transactional-outbox: true
+    workflow-cursors: true
