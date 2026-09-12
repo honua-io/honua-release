@@ -188,7 +188,7 @@ def build_ledger(lock: dict) -> dict:
 
 
 def bundle_files(lock: dict) -> dict[str, bytes]:
-    return {
+    files = {
         "compose.licensing-disabled.yml": b"services:\n  honua:\n    environment:\n      Licensing__Mode: Disabled\n",
         "INSTALL-2026.1.md": (Path(__file__).resolve().parents[1] / "docs/INSTALL-2026.1.md").read_bytes(),
         "platform-lock.json": canonical_bytes(lock),
@@ -203,6 +203,13 @@ def bundle_files(lock: dict) -> dict[str, bytes]:
                           "editionGating": False, "capacityMetering": False},
         }),
     }
+    if not str(lock["platform"]["id"]).startswith("honua-2026.1"):
+        files.pop("compose.licensing-disabled.yml")
+        files.pop("INSTALL-2026.1.md")
+        publication = json.loads(files["platform-release.v1.json"])
+        publication.pop("licensing")
+        files["platform-release.v1.json"] = canonical_bytes(publication)
+    return files
 
 
 def main(argv=None) -> int:
