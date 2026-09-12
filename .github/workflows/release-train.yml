@@ -176,8 +176,8 @@ jobs:
         with:
           subject-path: frozen-lock/platform-lock.json
 
+      # Both modes retain provenance for the exact lock consumed by rollback certification.
       - name: Retain the candidate signature bundle
-        if: inputs.dry_run == false
         env:
           BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
         run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
