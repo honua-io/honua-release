@@ -55,6 +55,14 @@ jobs:
             --manifest platform-manifest.yaml --output artifacts/gp-candidate/pin.json
           jq -r '"source_sha=\(.source_sha)", "server_image=\(.server_image)"' \
             artifacts/gp-candidate/pin.json >> "$GITHUB_OUTPUT"
+      - name: Verify the pinned server image provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVER_IMAGE: ${{ steps.candidate.outputs.server_image }}
+        run: |
+          gh attestation verify "oci://$SERVER_IMAGE" --repo honua-io/honua-server \
+            --signer-workflow honua-io/honua-server/.github/workflows/nightly-container-build.yml \
+            --source-ref refs/heads/trunk --format json > artifacts/gp-candidate/image-attestation.json
       - name: Check out the matching production worker source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

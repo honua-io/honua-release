@@ -39,6 +39,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" pytest
+      - name: Check out the reviewed GP receipt contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: 2a9335de36
+          path: gp-qualification
+      - name: Prove GP repins and incomplete crash receipts are rejected
+        run: python -m unittest discover -s gp-qualification/scripts/qualification -p test_gp_candidate_binding.py
       - name: Prove incomplete receipts are rejected
         run: python -m pytest tools/test_validate_dr_receipt.py -q
 

@@ -179,3 +179,18 @@ honua-evidence. That directory is one level below the aggregator's non-recursive
 `data/producers/dr-drills/*.json` envelope glob, so a receipt can never be misread as a
 `honua-evidence.dr-drill-envelope/v1` envelope. The URL is commit-pinned because a branch URL
 would let the bytes behind an already-verified receipt change afterwards.
+
+The `gp-outputs` job qualifies referenced geoprocessing output against the same
+manifest-pinned server digest. It builds the unchanged production GDAL worker
+from the manifest's server source, records its local registry digest, and runs
+the server qualification harness's `output-store-dr` and `crash-boundaries`
+lanes. The first destroys and restores PostgreSQL, Redis and the attested shared
+GP volume; the second supplies the six shared #3852 worker/store crash receipts.
+Retention and hold qualification from #3852 remains separate.
+
+The complete GP proof is embedded as `geoprocessingOutputs` before the existing
+full-platform receipt is signed, attested and published to honua-evidence.
+`gate-dr` verifies that signature identity and invokes the pinned server receipt
+consumer against its own candidate manifest. Missing proof, a changed image pin,
+unexecuted scenarios, or incomplete store restore all fail intake. A manifest
+repin on trunk triggers a fresh drill; an old signed receipt cannot certify it.
