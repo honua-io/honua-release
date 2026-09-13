@@ -36,8 +36,8 @@ for a soak.
 ## Freeze and allowance
 
 The lock's `frozenAt` and `baseline` identify the amended freeze and its measured source:
-[local-docker candidate soak 34749955367](https://github.com/honua-io/honua-server/actions/runs/34749955367),
-with an [immutable attested receipt](https://raw.githubusercontent.com/honua-io/honua-server/a8a4a073a0c7382333a3fa6b4770a703daa54be5/capacity/9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd-34749955367.json). It ran the manifest-pinned
+[local-docker candidate soak 34753540275](https://github.com/honua-io/honua-server/actions/runs/34753540275),
+with an [immutable attested receipt](https://raw.githubusercontent.com/honua-io/honua-server/e185c1aaa3b0a45704a9f517dea828d1111db62d/capacity/9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd-34753540275.json). It ran the manifest-pinned
 `9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd` image
 `sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc`
 in Production on a four-CPU Ubuntu local-docker runner, with four 10,000-feature layers,
@@ -45,9 +45,14 @@ in Production on a four-CPU Ubuntu local-docker runner, with four 10,000-feature
 and all eight SLO signals observed. The older `2a98428e` nightly used the small fixture;
 it is historical evidence and is no longer the threshold baseline.
 
-The baseline completed but failed the previous error, p99 and throughput limits. Its measured
-error rate is **4.9165%** (336,287 failures / 6,839,958 requests); the new absolute ceiling is
-**5%**, rounded up to the next whole percentage point. This capacity budget does not waive
+The first [baseline 34749955367](https://github.com/honua-io/honua-server/actions/runs/34749955367)
+observed p95 587.26 ms, p99 775.17 ms and 1,617.83 successful requests/s. Its derived limits did
+not reproduce in the independent run 34753540275: p95 was 746.50 ms, p99 929.28 ms and throughput
+1,254.18/s. That completed run is now the baseline, yielding 822 ms, 1,023 ms and 1,191/s bounds
+with the unchanged allowances. The lock retains both runs and the failed qualification.
+
+The current baseline error rate is **4.8903%** (259,240 failures / 5,301,057 requests). The absolute
+ceiling remains **5%**, which also covers the first baseline's 4.9165% reading. This capacity budget does not waive
 functional-correctness gates. The observed values and derivation are recorded in the lock.
 
 Latency limits include the existing 10% allowance, rounded up to whole milliseconds. The
