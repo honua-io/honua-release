@@ -6,10 +6,15 @@ explains the support claim; it does not carry independent numbers.
 
 ## Scope
 
+Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. See [the capacity ruling](CAPACITY-ENVELOPE-2026.1.md#scope).
+
+Options B (keeping Preview dimensions in the lock as informational) and C (a second Preview
+producer before the cut) were declined. A receipt may still report Preview observations; the
+gate echoes them as informational and never uses them to qualify the GA envelope.
+
 The 2026.1 support claim is bounded to the topology in the lock: one tenant, one service, four
 layers per service, 10,000 features per layer, 1 MiB maximum feature payloads, 170 concurrent
-virtual users, one GP worker with a queue depth of 100, 1,000 active subscriptions, and 10 alert
-evaluations per second. Larger or differently shaped deployments are not certified by this gate.
+virtual users, and one GP worker with a queue depth of 100. Larger or differently shaped deployments are not certified by this gate.
 
 The soak uses the `soak` profile for at least 3,600 seconds. It must report availability, error
 rate, p95 and p99 latency, throughput, oldest queue age, saturation, and recovery time. The
