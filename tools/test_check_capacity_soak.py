@@ -94,6 +94,22 @@ def test_preview_dimensions_are_informational():
     assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond"}
 
 
+def test_undeclared_non_preview_dimension_fails():
+    value = receipt()
+    value["envelope"]["serverReplicas"] = 3
+    assert any("neither declares nor excludes: serverReplicas" in failure for failure in failures(value))
+
+
+def test_preview_dimension_is_undeclared_without_the_lock_ruling():
+    lock = copy.deepcopy(LOCK)
+    lock.pop("rulings")
+    value = receipt()
+    value["envelope"]["activeSubscriptions"] = 0
+    result = gate.evaluate(lock, value, gate.lock_digest(LOCK_PATH), REVISION)
+    assert any("neither declares nor excludes: activeSubscriptions" in failure for failure in result)
+    assert gate.informational_dimensions(lock, value) == {}
+
+
 def test_missing_ga_dimension_fails():
     value = receipt()
     del value["envelope"]["featuresPerLayer"]
