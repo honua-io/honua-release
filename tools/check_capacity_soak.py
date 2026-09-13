@@ -59,6 +59,11 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
         name not in observed or observed[name] != value for name, value in declared.items()
     ):
         failures.append("tested capacity envelope does not exactly match the supported envelope")
+    elif undeclared := sorted(set(observed) - set(declared) - excluded_dimensions(lock)):
+        failures.append(
+            "tested capacity envelope reports dimensions the lock neither declares nor excludes: "
+            + ", ".join(undeclared)
+        )
 
     signals = receipt.get("signals")
     if not isinstance(signals, dict):
@@ -86,10 +91,20 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
     return failures
 
 
+def excluded_dimensions(lock: dict) -> set[str]:
+    """Dimensions an operator ruling recorded in the lock removed from the envelope."""
+    return {
+        name
+        for ruling in lock.get("rulings", [])
+        if isinstance(ruling, dict)
+        for name in ruling.get("excludedDimensions", [])
+    }
+
+
 def informational_dimensions(lock: dict, receipt: dict) -> dict:
     """Echo excluded Preview observations without adding them to the GA denominator."""
     result = {}
-    for name in ("activeSubscriptions", "alertEvaluationsPerSecond"):
+    for name in sorted(excluded_dimensions(lock)):
         if name in lock.get("supportedEnvelope", {}) or name in lock.get("soak", {}).get("requiredSignals", []):
             continue
         records = {
