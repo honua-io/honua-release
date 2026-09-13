@@ -99,6 +99,23 @@ jobs:
           if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-manifest.yaml' }
           python tools/validate_dr_receipt.py --candidate $candidatePath --receipt "$env:RUNNER_TEMP/dr-receipt.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check out the reviewed GP receipt consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: 2a9335de36
+          path: gp-qualification
+      - name: Require candidate-bound staged-output restore and crash proof
+        env:
+          CANDIDATE_BUNDLE: ${{ inputs.candidate_bundle }}
+        shell: pwsh
+        run: |
+          $candidatePath = 'platform-manifest.yaml'
+          if ($env:CANDIDATE_BUNDLE -eq 'true') { $candidatePath = 'candidate-input/platform-manifest.yaml' }
+          python gp-qualification/scripts/qualification/gp-candidate-binding.py `
+            --manifest $candidatePath --receipt "$env:RUNNER_TEMP/dr-receipt.json" `
+            --output "$env:RUNNER_TEMP/gp-validated.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve validated receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

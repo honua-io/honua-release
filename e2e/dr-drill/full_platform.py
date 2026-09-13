@@ -718,6 +718,8 @@ def main(argv=None) -> int:
                        f"{os.environ['GITHUB_RUN_ID']}") if os.environ.get("GITHUB_RUN_ID") else "local",
         },
     }
+    receipt["geoprocessingOutputs"] = json.loads(
+        Path(os.environ["HONUA_GP_DR_RECEIPT"]).read_text(encoding="utf-8"))
     (args.output / "receipt.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     sign(args.output)
