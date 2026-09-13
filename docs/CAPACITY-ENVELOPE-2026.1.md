@@ -6,7 +6,7 @@ explains the support claim; it does not carry independent numbers.
 
 ## Scope
 
-Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. See [the capacity ruling](CAPACITY-ENVELOPE-2026.1.md#scope).
+Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery.
 
 Options B (keeping Preview dimensions in the lock as informational) and C (a second Preview
 producer before the cut) were declined. A receipt may still report Preview observations; the
@@ -35,15 +35,37 @@ for a soak.
 
 ## Freeze and allowance
 
-The thresholds were frozen at `2026-09-01T10:05:00Z`, before the candidate soak. They are based on
-the unskipped Production baseline from packet 68: server revision `2a98428e…`, workflow run
-`33492138360`. That run completed 1,470,402 requests with zero failures, about 1,885 successful
-requests/second aggregate, worst-scenario p95 553.98 ms, and worst-scenario p99 578.56 ms.
+The lock's `frozenAt` and `baseline` identify the amended freeze and its measured source:
+[local-docker candidate soak 34749955367](https://github.com/honua-io/honua-server/actions/runs/34749955367),
+with an [immutable attested receipt](https://raw.githubusercontent.com/honua-io/honua-server/a8a4a073a0c7382333a3fa6b4770a703daa54be5/capacity/9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd-34749955367.json). It ran the manifest-pinned
+`9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd` image
+`sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc`
+in Production on a four-CPU Ubuntu local-docker runner, with four 10,000-feature layers,
+170 virtual users and a 3,600-second observation window. All eight GA dimensions were verified
+and all eight SLO signals observed. The older `2a98428e` nightly used the small fixture;
+it is historical evidence and is no longer the threshold baseline.
 
-Latency limits include 10% headroom and the throughput floor allows a 5% regression from that
-working baseline. Availability, errors, queue age, saturation, and recovery have no additional
-post-result allowance. The values in the committed lock are final for this candidate series; an
-amendment requires a new lock version before another soak begins and cannot bless an observed run.
+The baseline completed but failed the previous error, p99 and throughput limits. Its measured
+error rate is **4.9165%** (336,287 failures / 6,839,958 requests); the new absolute ceiling is
+**5%**, rounded up to the next whole percentage point. This capacity budget does not waive
+functional-correctness gates. The observed values and derivation are recorded in the lock.
+
+Latency limits include the existing 10% allowance, rounded up to whole milliseconds. The
+throughput floor includes the existing 5% regression allowance, rounded down to whole requests
+per second. Availability, queue age, saturation and recovery retain their existing bounds,
+which this run demonstrably meets; they receive no additional allowance. The error ceiling also
+receives no additional allowance during evaluation. `regressionAllowance` is never applied twice.
+
+The producer's measurement definitions remain explicit: availability, queue age and saturation
+come from the driver's 3,600-second window; error rate and worst-scenario p95/p99 come from the
+whole load run; throughput is successful requests divided by its 4,020 seconds, including ramps.
+Recovery is a subsequent container restart to the first served query. A soak is separate from
+full-platform disaster recovery. These readings must not be presented as different measurement
+windows or as cloud qualification.
+
+The amended lock must be committed before a **new** qualification soak begins. The baseline
+receipt cannot qualify that new lock: its lock digest and start time predate the amended freeze.
+Any later amendment likewise requires a new committed lock digest and another post-freeze soak.
 
 ## Receipt
 
