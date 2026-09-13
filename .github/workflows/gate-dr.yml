@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: 73f99d5ef59aa086720456bc56df372f86bcff46
+          ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
       - name: Prove GP repins and incomplete crash receipts are rejected
         run: python -m unittest discover -s gp-qualification/scripts/qualification -p test_gp_candidate_binding.py
@@ -111,7 +111,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: 73f99d5ef59aa086720456bc56df372f86bcff46
+          ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
       - name: Require candidate-bound staged-output restore and crash proof
         env:

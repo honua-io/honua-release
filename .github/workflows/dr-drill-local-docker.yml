@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: 73f99d5ef59aa086720456bc56df372f86bcff46
+          ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
