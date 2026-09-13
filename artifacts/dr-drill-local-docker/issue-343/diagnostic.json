@@ -1,0 +1,63 @@
+{
+  "candidate": {
+    "dbSchema": "116",
+    "imageDigest": "sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc",
+    "manifestSha256": "sha256:93128f683d7cc09f83e4d3b64fc2273edc84170abfc7693bad1315e391257619",
+    "releaseHead": "baa16bd3ee88b64bd47a97f62d58523ea3510abf",
+    "serverSha": "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd"
+  },
+  "createDeclaredDiagnostic": {
+    "method": "Diagnostic SQL injection into only dr-sentinel publication capabilities in the disposable local fixture; restart server; repeat identical OGC insert. Not a supported publication API or a proposed drill change.",
+    "publicationCapabilities": [
+      [
+        "Query",
+        "Extract",
+        "Create"
+      ],
+      [
+        "Query",
+        "Extract",
+        "Create"
+      ]
+    ],
+    "request": {
+      "body": {
+        "correlationId": "00-fa625e6aded4dd7e1ff3a21fda6e4d14-a228c9c267a0dcff-00",
+        "detail": "This collection is published over an external source table, which this server cannot write through. Features are served from 'honua_data.imported_dr_sentinel'; the managed feature writer cannot modify it. Edit the source table directly and refresh the published layer, or republish the data into the managed feature store.",
+        "instance": "/ogc/features/collections/dr-sentinel/items",
+        "status": 501,
+        "timestamp": "2026-09-13T02:19:21.8618163+00:00",
+        "title": "Not Implemented",
+        "type": "about:blank"
+      },
+      "status": 501
+    }
+  },
+  "isDrReceipt": false,
+  "kind": "issue-343-diagnostic-evidence",
+  "observedAt": "2026-09-13T02:19:22.101795+00:00",
+  "originalDrill": {
+    "exitCode": 1,
+    "failurePhase": "seed_state",
+    "request": {
+      "body": {
+        "correlationId": "00-9fe4d55cc3093679a7891e1e158c4b6e-79a4e6ef190f8ca9-00",
+        "detail": "Create edits are not enabled for this collection. Declare the Create capability on the publication before submitting create edits.",
+        "instance": "/ogc/features/collections/dr-sentinel/items",
+        "status": 405,
+        "timestamp": "2026-09-13T02:19:09.6832420+00:00",
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      },
+      "status": 405
+    }
+  },
+  "receiptProduced": false,
+  "status": "blocked",
+  "verification": {
+    "featureContentUnchanged": true,
+    "importedFeaturesAfter": 2,
+    "importedFeaturesBefore": 2,
+    "outboxRows": 0
+  }
+}
