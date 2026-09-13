@@ -121,7 +121,9 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS — exact candidate, frozen lock, complete signed signal set")
+    print(f"capacity-soak: PASS — {len(lock['supportedEnvelope'])}/{len(lock['supportedEnvelope'])} GA dimensions; "
+          f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} frozen SLO signals; "
+          "exact candidate, frozen lock, complete signed signal set")
     return 0
 
 
