@@ -741,3 +741,17 @@ def test_manifest_validate_verifies_declared_lock_content_digests():
     assert "if" not in step
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
+    import json
+    from pathlib import Path
+    lock = json.loads((Path(__file__).resolve().parents[1] / "certification/capacity-envelope.v1.json").read_text())
+    assert set(lock["supportedEnvelope"]) == {
+        "tenants", "services", "layersPerService", "featuresPerLayer",
+        "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth",
+    }
+    assert set(lock["soak"]["requiredSignals"]) == set(lock["thresholds"]) == {
+        "availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps",
+        "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds",
+    }
