@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+from datetime import datetime, timedelta
 
 import check_capacity_soak as gate
 
@@ -21,7 +22,7 @@ def receipt():
     return {
         "status": "completed", "candidateRevision": REVISION, "observedRevision": REVISION,
         "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
-        "startedAt": "2026-09-01T10:06:00Z", "profile": "soak", "steadyStateSeconds": 3600,
+        "startedAt": (datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00")) + timedelta(seconds=1)).isoformat(), "profile": "soak", "steadyStateSeconds": 3600,
         "envelope": copy.deepcopy(LOCK["supportedEnvelope"]), "signingIdentity": "github-actions",
         "signature": "opaque-sigstore-bundle", "signals": {
             name: {"status": "observed", "revision": REVISION, "value": value}
@@ -83,3 +84,30 @@ def test_lock_or_envelope_drift_fails():
 def test_unsigned_receipt_fails():
     value = receipt(); value["signature"] = ""
     assert any("signature" in failure for failure in failures(value))
+
+
+def test_preview_dimensions_are_informational():
+    value = receipt()
+    for name in ("activeSubscriptions", "alertEvaluationsPerSecond"):
+        value["envelope"][name] = 0
+        value["signals"][name] = {"status": "unobserved", "value": None}
+    assert failures(value) == []
+    assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond"}
+
+
+def test_missing_ga_dimension_fails():
+    value = receipt()
+    del value["envelope"]["featuresPerLayer"]
+    assert any("capacity envelope" in failure for failure in failures(value))
+
+
+def test_present_preview_dimension_is_still_required_by_an_older_lock():
+    lock = copy.deepcopy(LOCK)
+    lock["supportedEnvelope"]["activeSubscriptions"] = 1000
+    assert any("capacity envelope" in failure for failure in gate.evaluate(lock, receipt(), gate.lock_digest(LOCK_PATH), REVISION))
+
+
+def test_allowance_is_not_applied_twice():
+    value = receipt()
+    value["signals"]["p95LatencyMs"]["value"] = LOCK["thresholds"]["p95LatencyMs"]["value"] + 0.01
+    assert any("p95LatencyMs" in failure for failure in failures(value))

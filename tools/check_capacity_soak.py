@@ -53,7 +53,11 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
         failures.append("soak profile does not match the lock")
     if receipt.get("steadyStateSeconds", 0) < lock.get("soak", {}).get("minimumSteadyStateSeconds", 0):
         failures.append("steady-state duration is below the locked minimum")
-    if receipt.get("envelope") != lock.get("supportedEnvelope"):
+    declared = lock.get("supportedEnvelope", {})
+    observed = receipt.get("envelope")
+    if not isinstance(observed, dict) or any(
+        name not in observed or observed[name] != value for name, value in declared.items()
+    ):
         failures.append("tested capacity envelope does not exactly match the supported envelope")
 
     signals = receipt.get("signals")
@@ -82,6 +86,22 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
     return failures
 
 
+def informational_dimensions(lock: dict, receipt: dict) -> dict:
+    """Echo excluded Preview observations without adding them to the GA denominator."""
+    result = {}
+    for name in ("activeSubscriptions", "alertEvaluationsPerSecond"):
+        if name in lock.get("supportedEnvelope", {}) or name in lock.get("soak", {}).get("requiredSignals", []):
+            continue
+        records = {
+            section: receipt[section][name]
+            for section in ("envelope", "envelopeVerification", "signals")
+            if isinstance(receipt.get(section), dict) and name in receipt[section]
+        }
+        if records:
+            result[name] = records
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lock", type=Path, required=True)
@@ -92,6 +112,8 @@ def main() -> int:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
         failures = evaluate(lock, receipt, lock_digest(args.lock), args.expected_revision)
+        for name, records in informational_dimensions(lock, receipt).items():
+            print(f"Preview informational (not gated): {name} = {json.dumps(records, sort_keys=True)}")
     except (OSError, json.JSONDecodeError, ContractError) as exc:
         failures = [str(exc)]
     if failures:
