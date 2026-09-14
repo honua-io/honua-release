@@ -1,0 +1,113 @@
+{
+  "identity": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc",
+    "serverSha": "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd",
+    "manifestSha256": "sha256:93128f683d7cc09f83e4d3b64fc2273edc84170abfc7693bad1315e391257619"
+  },
+  "log": [
+    {
+      "sql": "managed features table",
+      "result": "public.features"
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/openapi/admin.json",
+        "body": null
+      },
+      "status": 404,
+      "response": ""
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/openapi/v1.json",
+        "body": null
+      },
+      "status": 404,
+      "response": ""
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/swagger/v1/swagger.json",
+        "body": null
+      },
+      "status": 404,
+      "response": ""
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/admin/openapi.json",
+        "body": null
+      },
+      "status": 200,
+      "response": "<openapi document omitted; see README for the PublishLayerRequest schema>"
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/openapi.json",
+        "body": null
+      },
+      "status": 200,
+      "response": "<openapi document omitted; see README for the PublishLayerRequest schema>"
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/connections/",
+        "body": {
+          "name": "dr-pg",
+          "host": "db",
+          "port": 5432,
+          "databaseName": "honua",
+          "username": "honua",
+          "password": "<redacted>",
+          "provider": "PostGIS",
+          "sslRequired": false,
+          "sslMode": "Disable"
+        }
+      },
+      "status": 201,
+      "response": "{\"success\":true,\"data\":{\"connectionId\":\"54309bb9-7f43-4503-8958-e6c29baa4210\",\"name\":\"dr-pg\",\"description\":null,\"host\":\"db\",\"port\":5432,\"databaseName\":\"honua\",\"username\":\"honua\",\"provider\":\"postgis\",\"sslRequired\":false,\"sslMode\":\"Disable\",\"storageType\":\"managed\",\"isActive\":true,\"healthStatus\":\"Unknown\",\"lastHealthCheck\":null,\"createdAt\":\"2026-09-14T12:48:00.0445172+00:00\",\"createdBy\":\"admin\"},\"message\":null,\"timestamp\":\"2026-09-14T12:48:00.0629852+00:00\"}"
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/connections/54309bb9-7f43-4503-8958-e6c29baa4210/tables/validate",
+        "body": {
+          "schema": "public",
+          "table": "features"
+        }
+      },
+      "status": 200,
+      "response": "{\"success\":true,\"data\":{\"isValid\":false,\"status\":\"invalid\",\"schema\":\"public\",\"table\":\"features\",\"serviceName\":\"default\",\"geometryColumn\":\"geometry\",\"geometryType\":\"GeometryCollection\",\"primaryKey\":\"objectid\",\"objectIdStrategy\":\"source-integer-primary-key\",\"sourceSrid\":0,\"targetSrid\":0,\"estimatedRows\":0,\"featureCount\":0,\"nullGeometryCount\":0,\"invalidGeometryCount\":0,\"fields\":[{\"name\":\"objectid\",\"dataType\":\"bigint\",\"fieldType\":\"BigInteger\",\"isNullable\":false,\"isPrimaryKey\":true,\"isSelected\":true},{\"name\":\"layer_id\",\"dataType\":\"integer\",\"fieldType\":\"Integer\",\"isNullable\":false,\"isPrimaryKey\":false,\"isSelected\":true},{\"name\":\"attributes\",\"dataType\":\"jsonb\",\"fieldType\":\"Json\",\"isNullable\":true,\"isPrimaryKey\":false,\"isSelected\":true},{\"name\":\"created_at\",\"dataType\":\"timestamp with time zone\",\"fieldType\":\"DateTime\",\"isNullable\":true,\"isPrimaryKey\":false,\"isSelected\":true},{\"name\":\"updated_at\",\"dataType\":\"timestamp with time zone\",\"fieldType\":\"DateTime\",\"isNullable\":true,\"isPrimaryKey\":false,\"isSelected\":true}],\"checks\":[{\"code\":\"source-table\",\"severity\":\"pass\",\"message\":\"Source table identifier \\u0027public.features\\u0027 is syntactically valid.\"},{\"code\":\"source-table\",\"severity\":\"pass\",\"message\":\"Table \\u0027public.features\\u0027 is discoverable.\"},{\"code\":\"selected-fields\",\"severity\":\"pass\",\"message\":\"5 field(s) selected for publishing.\"},{\"code\":\"geometry-column\",\"severity\":\"pass\",\"message\":\"Geometry column \\u0027geometry\\u0027 exists.\"},{\"code\":\"geometry-type\",\"severity\":\"pass\",\"message\":\"Geometry type \\u0027GeometryCollection\\u0027 is supported.\"},{\"code\":\"primary-key\",\"severity\":\"pass\",\"message\":\"Primary key column \\u0027objectid\\u0027 is publishable.\"},{\"code\":\"source-srid\",\"severity\":\"error\",\"message\":\"Source table does not report a valid SRID.\",\"actual\":\"0\"},{\"code\":\"target-srid\",\"severity\":\"error\",\"message\":\"Target SRID could not be resolved from the request, service, or source table.\"},{\"code\":\"feature-count\",\"severity\":\"error\",\"message\":\"Source table is empty.\"},{\"code\":\"invalid-geometries\",\"severity\":\"pass\",\"message\":\"No invalid geometries were found.\"},{\"code\":\"layer-conflict\",\"severity\":\"pass\",\"message\":\"No existing layer is mapped to this source table.\"}]},\"timestamp\":\"2026-09-14T12:48:00.1777205+00:00\"}"
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/connections/54309bb9-7f43-4503-8958-e6c29baa4210/layers",
+        "body": {
+          "schema": "public",
+          "table": "features",
+          "layerName": "dr-managed",
+          "serviceName": "dr-managed",
+          "geometryType": "Point",
+          "srid": 4326,
+          "enabled": true,
+          "allowEmptyTable": true,
+          "capabilities": [
+            "Query",
+            "Create",
+            "Update",
+            "Delete"
+          ]
+        }
+      },
+      "status": 400,
+      "response": "{\"success\":false,\"data\":null,\"message\":\"Table validation failed (source-srid): Source table does not report a valid SRID.\",\"timestamp\":\"2026-09-14T12:48:00.3776348+00:00\"}"
+    }
+  ]
+}
