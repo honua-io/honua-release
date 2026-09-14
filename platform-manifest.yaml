@@ -52,14 +52,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-09-12"             # candidate re-pin: honua-sdk-dotnet 6ba49ec3, honua-sdk-python 40ecf731, geospatial-grpc 863b9b9e (honua-server, honua-sdk-js, geospatial-mcp unchanged)
+snapshotDate: "2026-09-14"             # honua-server re-pin to imaged trunk 548b7a5 (release#348 ruling A); other components unchanged
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "7ba422672e0c751843b17beb36e954a019cc19fb"
+  ref: "548b7a5263da5a3f2381eb43f232687cdf92b0bf"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -73,7 +73,7 @@ protocolCertification:
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "7ba422672e0c751843b17beb36e954a019cc19fb"
+  serverCertificationProducerSha: "548b7a5263da5a3f2381eb43f232687cdf92b0bf"
   # NOT TOUCHED BY THIS REFRESH — DELIBERATELY STALE, AND SAID SO.
   # The ledger below is byte-frozen against the OLD candidate (e3ab87ce). Re-binding it requires
   # honua-evidence to re-aggregate at this PR's squash SHA first; the ordered procedure is
@@ -367,7 +367,12 @@ components:
     # RE-CHECKED AT 7ba42267 (2026-09-11) — filename floor only, NOT the journal read:
     #   $ git ls-tree --name-only 7ba42267... src/Honua.Server/Migrations/ | sort | tail -1
     #   src/Honua.Server/Migrations/115_AddDropImportStagingTable.sql
-    dbSchema: "115"
+    # RE-CHECKED AT 548b7a5 (2026-09-14 re-pin, release#348) — filename floor; the rollback
+    # certification's restore step compares this against the journal on the pinned image:
+    #   $ gh api 'repos/honua-io/honua-server/git/trees/548b7a5263...?recursive=1' \
+    #       -q '.tree[].path' | grep Migrations/ | sort | tail -1
+    #   src/Honua.Server/Migrations/117_AddMigrationBatchFidelityVerdict.sql
+    dbSchema: "117"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
