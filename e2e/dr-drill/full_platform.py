@@ -27,7 +27,7 @@ Substrate -> product write surface / runtime read surface on this topology:
   job-queue             GeoServices GP submitJob       -> GET .../GPServer/{task}/jobs/{id}
   workflow-cursors      workflow package -> Schedule   -> the durable orchestration definition
 
-Usage: python3 e2e/dr-drill/full_platform.py [--output DIR] [--keep]
+Usage: python3 e2e/dr-drill/full_platform.py [--output DIR] [--gp-receipt FILE] [--keep]
 """
 from __future__ import annotations
 
@@ -621,13 +621,37 @@ def sign(out: Path) -> None:
     (out / "SHA256SUMS").write_text(digest + "\n", encoding="utf-8")
 
 
+def load_gp_receipt(path: Path) -> dict:
+    """Read the gp-outputs job's candidate GP restore and crash receipt before anything is destroyed.
+
+    The signed receipt embeds it, so discovering it missing after the drill would discard a
+    completed destructive run without writing a receipt.
+    """
+    remedy = ("run the gp-outputs job (or download its gp-candidate-store artifact) and pass "
+              "--gp-receipt or HONUA_GP_DR_RECEIPT; nothing was started or destroyed")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"GP restore and crash receipt not found at {path}: {remedy}") from None
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"GP restore and crash receipt at {path} is unreadable ({error}): {remedy}") from None
+    if not isinstance(value, dict) or not value:
+        raise SystemExit(f"GP restore and crash receipt at {path} is not a receipt object: {remedy}")
+    return value
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
                         default=Path(os.environ.get("HONUA_DR_OUTPUT",
                                                     ROOT / "artifacts" / "dr-drill-full-platform")))
+    parser.add_argument("--gp-receipt", type=Path,
+                        default=Path(os.environ.get("HONUA_GP_DR_RECEIPT",
+                                                    ROOT / "artifacts" / "gp-candidate" / "receipt.json")),
+                        help="the gp-outputs job's candidate GP restore and crash receipt")
     parser.add_argument("--keep", action="store_true", help="leave the recovered stack running")
     args = parser.parse_args(argv)
+    geoprocessing_outputs = load_gp_receipt(args.gp_receipt)
     args.output.mkdir(parents=True, exist_ok=True)
     stack = Stack(args.output)
     log(f"candidate {stack.release} server {stack.server_sha[:12]} image {stack.image_digest[:19]}")
@@ -718,6 +742,7 @@ def main(argv=None) -> int:
                        f"{os.environ['GITHUB_RUN_ID']}") if os.environ.get("GITHUB_RUN_ID") else "local",
         },
     }
+    receipt["geoprocessingOutputs"] = geoprocessing_outputs
     (args.output / "receipt.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     sign(args.output)

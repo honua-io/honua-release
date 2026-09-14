@@ -6,6 +6,9 @@ on:
       - "e2e/dr-drill/**"
       - "platform-manifest.yaml"
       - ".github/workflows/dr-drill-local-docker.yml"
+  push:
+    branches: [trunk]
+    paths: [platform-manifest.yaml]
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * 1"
@@ -23,7 +26,129 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gp-outputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Job-level permissions replace the workflow defaults: `gh attestation verify` reads the server
+    # image's attestations. Verification needs no OIDC token and this job writes nothing.
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    services:
+      registry:
+        image: registry:3
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the reviewed GP qualification harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: 6937fcee585240ce49e36de726d131e9abb13d4a
+          path: gp-qualification
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML
+      - name: Bind to this run's immutable candidate manifest
+        id: candidate
+        run: |
+          mkdir -p artifacts/gp-candidate
+          cp platform-manifest.yaml artifacts/gp-candidate/platform-manifest.yaml
+          python gp-qualification/scripts/qualification/gp-candidate-binding.py \
+            --manifest platform-manifest.yaml --output artifacts/gp-candidate/pin.json
+          jq -r '"source_sha=\(.source_sha)", "server_image=\(.server_image)"' \
+            artifacts/gp-candidate/pin.json >> "$GITHUB_OUTPUT"
+      - name: Verify the pinned server image provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVER_IMAGE: ${{ steps.candidate.outputs.server_image }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # The subject is the manifest digest and the attested source commit must be the manifest
+          # server sha: a digest from one trunk build beside another build's sha is not a candidate,
+          # and the worker below is built from that sha.
+          gh attestation verify "oci://$SERVER_IMAGE" --repo honua-io/honua-server \
+            --signer-workflow honua-io/honua-server/.github/workflows/nightly-container-build.yml \
+            --source-ref refs/heads/trunk --source-digest "$SOURCE_SHA" \
+            --format json > artifacts/gp-candidate/image-attestation.json
+          python tools/check_image_attestation.py --manifest artifacts/gp-candidate/platform-manifest.yaml \
+            --attestation artifacts/gp-candidate/image-attestation.json
+      - name: Check out the matching production worker source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-server
+          ref: ${{ steps.candidate.outputs.source_sha }}
+          path: candidate-worker
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+        with:
+          driver-opts: network=host
+      - name: Build the unmodified production worker at the candidate source
+        id: worker
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: candidate-worker
+          file: candidate-worker/docker/worker-gdal/Dockerfile
+          push: true
+          tags: localhost:5000/gp-candidate-worker:qualification
+          build-args: |
+            HONUA_GIT_SHA=${{ steps.candidate.outputs.source_sha }}
+          secrets: |
+            github_actor=${{ github.actor }}
+            github_token=${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          cache-from: type=registry,ref=ghcr.io/honua-io/honua-server/buildcache:honua-worker-gdal-amd64
+      - name: Execute store attestation, cold restore and crash boundaries
+        env:
+          HONUA_SERVER_IMAGE: ${{ steps.candidate.outputs.server_image }}
+          HONUA_GP_SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          HONUA_WORKER_IMAGE: localhost:5000/gp-candidate-worker@${{ steps.worker.outputs.digest }}
+          HONUA_GP_SCENARIO_TIMEOUT_SECONDS: '900'
+        run: |
+          set -euo pipefail
+          # Resolve through the runner-local registry so even Docker daemons
+          # using the classic image store retain a real RepoDigest after pull.
+          docker pull "$HONUA_WORKER_IMAGE"
+          docker pull "$HONUA_SERVER_IMAGE"
+          docker pull pgrouting/pgrouting:17-3.5-3.7.3@sha256:e15a541283d5086981f3e19648a15f969e8d09aa9e72a5a5acf6777673da1784
+          docker pull redis:7.2-alpine@sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed
+          export HONUA_GP_SKIP_PULL=true
+          failed=0
+          for lane in output-store-dr crash-boundaries; do
+            HONUA_GP_LANE="$lane" HONUA_GP_RECEIPT_DIR="$PWD/artifacts/gp-candidate/$lane" \
+              gp-qualification/scripts/qualification/gp-lifecycle-harness.sh || failed=1
+          done
+          test "$failed" = 0
+          python gp-qualification/scripts/qualification/gp-candidate-binding.py \
+            --manifest artifacts/gp-candidate/platform-manifest.yaml \
+            --summary artifacts/gp-candidate/output-store-dr/summary.json \
+            --crash-summary artifacts/gp-candidate/crash-boundaries/summary.json \
+            --output artifacts/gp-candidate/receipt.json
+      - name: Retain executed receipts and findings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gp-candidate-store
+          path: |
+            artifacts/gp-candidate/*.json
+            artifacts/gp-candidate/*.yaml
+            artifacts/gp-candidate/*.txt
+            artifacts/gp-candidate/output-store-dr/*.json
+            artifacts/gp-candidate/output-store-dr/*.log
+            artifacts/gp-candidate/crash-boundaries/*.json
+            artifacts/gp-candidate/crash-boundaries/*.log
+          if-no-files-found: error
+          retention-days: 90
+
   full-platform:
+    needs: gp-outputs
     # The deliverable: one run over the candidate's whole declared durable-substrate inventory,
     # producing the honua.dr-drill-receipt/v2 receipt gate-dr validates.
     runs-on: ubuntu-latest
@@ -42,7 +167,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - name: Download the candidate GP restore and crash proof
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gp-candidate-store
+          path: artifacts/gp-candidate
       - name: Execute the full-platform recovery drill
+        env:
+          HONUA_GP_DR_RECEIPT: artifacts/gp-candidate/receipt.json
         run: python e2e/dr-drill/full_platform.py
       - name: Re-validate the receipt against the candidate configuration
         run: |
