@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/customer-install-manifest.v1.schema.json",
+  "title": "Honua customer installation artifact profile v1",
+  "description": "Structure of customer-install-manifest.json. The public site copies the file byte-for-byte to https://honua.io/data/customer-install-manifest.json. Cross-file identity (server and Honua client pins against platform-manifest.yaml and the compatibility ledger) is enforced by tools/validate_customer_install_manifest.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "status", "verifiedAt", "exactCandidateQualification", "cleanWindowsQualification",
+    "sourceManifest", "server", "clients", "supportingImages", "qualificationIssue", "remaining", "alternativeClients"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["pre-cut-rehearsal", "release-candidate"]},
+    "verifiedAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "exactCandidateQualification": {"type": "boolean"},
+    "cleanWindowsQualification": {"type": "boolean"},
+    "sourceManifest": {"const": "platform-manifest.yaml"},
+    "server": {"$ref": "#/$defs/server"},
+    "clients": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/pypiClient"}
+    },
+    "supportingImages": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$"}
+    },
+    "qualificationIssue": {"type": "string", "pattern": "^https://github\\.com/honua-io/[A-Za-z0-9._-]+/issues/[0-9]+$"},
+    "remaining": {"type": "string", "minLength": 1},
+    "alternativeClients": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/alternativeClient"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "pre-cut-rehearsal"}}},
+      "then": {"properties": {"exactCandidateQualification": {"const": false}, "cleanWindowsQualification": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "release-candidate"}}},
+      "then": {"properties": {"exactCandidateQualification": {"const": true}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "https": {"type": "string", "pattern": "^https://[^\\s]+$"},
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "sourceSha", "platform", "manifestUrl", "credentialsRequired", "selectionSource", "verification"],
+      "properties": {
+        "image": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"},
+        "sourceSha": {"$ref": "#/$defs/gitSha"},
+        "platform": {"enum": ["linux/amd64", "linux/arm64"]},
+        "manifestUrl": {"$ref": "#/$defs/https"},
+        "credentialsRequired": {"type": "boolean"},
+        "selectionSource": {"type": "string", "pattern": "^https://github\\.com/honua-io/[A-Za-z0-9._-]+/(pull|issues|releases/tag|actions/runs)/[^\\s]+$"},
+        "verification": {"type": "string", "minLength": 1}
+      }
+    },
+    "pypiClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "package", "version", "filename", "digest", "downloadUrl", "metadataUrl", "credentialsRequired", "role"],
+      "properties": {
+        "ecosystem": {"const": "pypi"},
+        "package": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "version": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+\\.whl$"},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "downloadUrl": {"type": "string", "pattern": "^https://files\\.pythonhosted\\.org/packages/[^\\s]+\\.whl$"},
+        "metadataUrl": {"type": "string", "pattern": "^https://pypi\\.org/pypi/[^\\s]+/json$"},
+        "repository": {"type": "string", "pattern": "^honua-io/[A-Za-z0-9._-]+$"},
+        "sourceSha": {"$ref": "#/$defs/gitSha"},
+        "credentialsRequired": {"const": false},
+        "role": {"type": "string", "minLength": 1}
+      }
+    },
+    "alternativeClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "package", "version", "repository", "sourceSha", "publicationState", "targets", "credentialsRequired", "pinSource"],
+      "properties": {
+        "ecosystem": {"enum": ["npm", "nuget", "pypi"]},
+        "package": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "integrity": {"type": "string", "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$"},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "filename": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "pattern": "^honua-io/[A-Za-z0-9._-]+$"},
+        "sourceSha": {"$ref": "#/$defs/gitSha"},
+        "publicationState": {"enum": ["published", "promoted", "staged", "unpublished"]},
+        "registry": {"type": "string", "minLength": 1},
+        "targets": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "credentialsRequired": {"type": "boolean"},
+        "pinSource": {"type": "string", "pattern": "^platform-manifest\\.yaml#clientArtifacts\\.[A-Za-z0-9._-]+$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"ecosystem": {"const": "npm"}}}, "then": {"required": ["integrity"], "not": {"required": ["digest"]}}},
+        {"if": {"properties": {"ecosystem": {"enum": ["nuget", "pypi"]}}}, "then": {"required": ["digest"], "not": {"required": ["integrity"]}}},
+        {"if": {"properties": {"ecosystem": {"const": "nuget"}}}, "then": {"required": ["registry"]}}
+      ]
+    }
+  }
+}

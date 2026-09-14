@@ -130,6 +130,18 @@ def test_manifest_validate_binds_server_and_dotnet_snapshots_to_pinned_sources()
     assert "cmp certification/sources/sdk-dotnet/sdk-certification.v1.json" in text
 
 
+def test_manifest_validate_gates_the_published_customer_install_manifest():
+    steps = _workflow("manifest-validate.yml")["jobs"]["validate"]["steps"]
+    gate = [step for step in steps
+            if "tools/validate_customer_install_manifest.py customer-install-manifest.json" in _step_text(step)]
+    drift = [step for step in steps
+             if "tools/fixtures/customer-install-manifest-drifted-pin.json" in _step_text(step)]
+    assert len(gate) == 1 and len(drift) == 1
+    for step in gate + drift:
+        assert "if" not in step and not step.get("continue-on-error")
+    assert "exit 1" in drift[0]["run"] and "$.clients.honua-sdk.digest:" in drift[0]["run"]
+
+
 def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha():
     gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
         encoding="utf-8"
