@@ -538,7 +538,11 @@ components:
 # @honua/mcp-server 0.1.8-beta.0 is also published; its separate coordinate remains release-cut work.
 # Python admin pin: PyPI /pypi/honua-admin/0.1.8/json and release
 # python-admin-v0.1.8, verified 2026-09-08. Customer pre-cut install profile:
-# customer-install-manifest.json (does not replace the certified candidate).
+# customer-install-manifest.json (does not replace the certified candidate). Its consumer is the
+# public site (honua-io/honua-site data/customer-install-manifest.json, copied byte-for-byte) and
+# the customer install guides; the required `validate` check runs
+# tools/validate_customer_install_manifest.py, which fails when a Honua client pin copied there
+# drifts from the entries below or its server identity half-matches components.honua-server.
 clientArtifacts:
   honua-admin-python-wheel:
     ecosystem: pypi

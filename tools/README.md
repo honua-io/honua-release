@@ -108,6 +108,25 @@ Validation refuses placeholders, floating tags, carried-forward/source-built ide
 type-specific integrity, and any mismatch between a component source revision and the revision
 attested by its released artifact.
 
+## `validate_customer_install_manifest.py` — customer install profile publication gate (release#314)
+
+`customer-install-manifest.json` is copied byte-for-byte to the public site
+(`https://honua.io/data/customer-install-manifest.json`) for the customer install guides. The
+required `validate` check (`manifest-validate.yml`) runs this validator on it and on a drifted
+negative fixture that must fail.
+
+| Layer | Reddens when… |
+|---|---|
+| **structure** | duplicate JSON keys, or any violation of `schemas/customer-install-manifest.v1.schema.json` (schema version, status, qualification flags, server identity, client and supporting-image pins) |
+| **qualification** | a `pre-cut-rehearsal` claims exact-candidate or clean-Windows qualification, clean-Windows is claimed without exact-candidate, or a `release-candidate` is not the certified candidate |
+| **server** | the image repository or registry manifest URL disagrees with the pinned digest; the digest and source commit half-match `components.honua-server`; a compatibility-ledger platform lock names the digest with another commit; a release candidate is absent from the ledger |
+| **clients** | a Honua client is not pinned in `clientArtifacts`, omits its source identity, or any copied version, digest/integrity, filename, repository, source commit, publication state, registry or targets differs from its pin; a PyPI URL names another file or version |
+
+```bash
+python3 tools/validate_customer_install_manifest.py
+python3 -m pytest tools/test_validate_customer_install_manifest.py
+```
+
 ## Compatibility ledger and release inspection (issue #233, part 1)
 
 `verify_sdk_baseline_sources.py LOCK` verifies consumed manifest contents and SDK

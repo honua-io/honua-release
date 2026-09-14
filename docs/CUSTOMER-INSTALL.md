@@ -21,8 +21,15 @@ credential. Only the optional `Honua.Sdk` GitHub Packages feed requires a GitHub
 account with package access and a classic PAT scoped to `read:packages` (authorize
 organization SSO if required). Do not require GitHub login for the Python journey.
 
-When updating this profile, compare every Honua client with `clientArtifacts`,
-verify registry bytes, and copy the JSON unchanged into the site `data/` directory.
+When updating this profile, verify registry bytes and run
+`python3 tools/validate_customer_install_manifest.py`. The required `validate` check
+runs the same command: it validates the file against
+`schemas/customer-install-manifest.v1.schema.json`, rejects qualification flags a
+pre-cut rehearsal cannot claim, binds the rehearsal server image to its registry
+manifest and never lets it half-match `components.honua-server`, and fails when
+any Honua client version, wheel/package digest, filename, repository or source
+commit differs from `clientArtifacts`. Only a passing commit may be copied
+unchanged into the site `data/` directory.
 Record this repository's immutable commit and the file SHA-256 in the site's
 publication record. Update the literal guide pins in the same delivery.
 
