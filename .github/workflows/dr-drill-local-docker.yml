@@ -29,6 +29,12 @@ jobs:
   gp-outputs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Job-level permissions replace the workflow defaults: `gh attestation verify` reads the server
+    # image's attestations. Verification needs no OIDC token and this job writes nothing.
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
     services:
       registry:
         image: registry:3
@@ -59,10 +65,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SERVER_IMAGE: ${{ steps.candidate.outputs.server_image }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
         run: |
+          set -euo pipefail
+          # The subject is the manifest digest and the attested source commit must be the manifest
+          # server sha: a digest from one trunk build beside another build's sha is not a candidate,
+          # and the worker below is built from that sha.
           gh attestation verify "oci://$SERVER_IMAGE" --repo honua-io/honua-server \
             --signer-workflow honua-io/honua-server/.github/workflows/nightly-container-build.yml \
-            --source-ref refs/heads/trunk --format json > artifacts/gp-candidate/image-attestation.json
+            --source-ref refs/heads/trunk --source-digest "$SOURCE_SHA" \
+            --format json > artifacts/gp-candidate/image-attestation.json
+          python tools/check_image_attestation.py --manifest artifacts/gp-candidate/platform-manifest.yaml \
+            --attestation artifacts/gp-candidate/image-attestation.json
       - name: Check out the matching production worker source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
