@@ -394,7 +394,8 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
                   authenticated_fetch: Fetcher | None = None,
                   expected_ga: dict | None = None,
                   frozen_server_sha: str | None = None,
-                  enforcement: str = "bootstrap") -> list[CheckResult]:
+                  enforcement: str = "bootstrap",
+                  platform_release: str | None = None) -> list[CheckResult]:
     """Run the canonical parity set — plus the live capability-manifest check (honua-release#61) —
     against a deployed endpoint. The optional inputs, including bootstrap/strict enforcement, pass
     straight through to `check_capability_manifest` and default to committed-file bootstrap behaviour."""
@@ -404,6 +405,27 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
                                              authenticated_fetch=authenticated_fetch,
                                              frozen_server_sha=frozen_server_sha,
                                              enforcement=enforcement))
+    from licensing import validate_disabled
+    if platform_release is None:
+        try:
+            import yaml
+            platform_release = yaml.safe_load(PLATFORM_MANIFEST_PATH.read_text())["platformRelease"]
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
+            results.append(CheckResult("licensing-disabled", "fail", "cannot resolve candidate platform release"))
+            return results
+    if not isinstance(platform_release, str) or not platform_release:
+        results.append(CheckResult("licensing-disabled", "fail", "candidate platform release is missing"))
+        return results
+    if platform_release != "2026.1" and not platform_release.startswith(("2026.1-", "2026.1.")):
+        return results
+    response = (authenticated_fetch or f)(endpoint.rstrip("/") + "/api/v1/admin/license")
+    try:
+        if response.status != 200:
+            raise ValueError(f"admin license status returned HTTP {response.status}")
+        validate_disabled(json.loads(response.body))
+        results.append(CheckResult("licensing-disabled", "pass", "admin license mode: disabled"))
+    except (ValueError, TypeError) as exc:
+        results.append(CheckResult("licensing-disabled", "fail", str(exc)))
     return results
 
 

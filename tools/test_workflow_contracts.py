@@ -130,6 +130,18 @@ def test_manifest_validate_binds_server_and_dotnet_snapshots_to_pinned_sources()
     assert "cmp certification/sources/sdk-dotnet/sdk-certification.v1.json" in text
 
 
+def test_manifest_validate_gates_the_published_customer_install_manifest():
+    steps = _workflow("manifest-validate.yml")["jobs"]["validate"]["steps"]
+    gate = [step for step in steps
+            if "tools/validate_customer_install_manifest.py customer-install-manifest.json" in _step_text(step)]
+    drift = [step for step in steps
+             if "tools/fixtures/customer-install-manifest-drifted-pin.json" in _step_text(step)]
+    assert len(gate) == 1 and len(drift) == 1
+    for step in gate + drift:
+        assert "if" not in step and not step.get("continue-on-error")
+    assert "exit 1" in drift[0]["run"] and "$.clients.honua-sdk.digest:" in drift[0]["run"]
+
+
 def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha():
     gate = (REPO_ROOT / ".github" / "workflows" / "gate-protocol-certification.yml").read_text(
         encoding="utf-8"
@@ -538,6 +550,32 @@ def test_rollback_certification_signs_success_and_mixed_state_receipts():
     assert rendered.count("actions/attest-build-provenance@") == 2
 
 
+def test_upgrade_gate_runs_the_fast_policy_layer_on_every_relevant_pr_but_not_the_kind_smoke():
+    """release#321: fast, decidable-now upgrade-compat checks must run per PR; the expensive real
+    kind cluster seed/upgrade/rollback smoke stays release-train/nightly/dispatch-only."""
+    workflow = _workflow("gate-upgrade.yml")
+    triggers = _triggers(workflow)
+    pull_request = triggers.get("pull_request")
+    assert pull_request is not None, "gate-upgrade must run on pull_request (fast policy layer)"
+    paths = set(pull_request.get("paths") or [])
+    for must_watch in (
+        "platform-manifest.yaml",
+        "compatibility-matrix.yaml",
+        "tools/check_upgrade.py",
+        "tools/semver.py",
+        ".github/workflows/gate-upgrade.yml",
+    ):
+        assert must_watch in paths, f"{must_watch} changes must trigger the fast upgrade-compat check"
+
+    static_compat = workflow["jobs"]["static-compat"]
+    assert "if" not in static_compat, "the fast static-compat layer must run on every trigger, including PRs"
+
+    kind_upgrade = workflow["jobs"]["kind-upgrade"]
+    assert kind_upgrade.get("if") == "github.event_name != 'pull_request'", (
+        "the expensive kind cluster smoke must be excluded from pull_request runs"
+    )
+
+
 def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
     workflow = _workflow("gate-upgrade.yml")
     kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
@@ -741,3 +779,17 @@ def test_manifest_validate_verifies_declared_lock_content_digests():
     assert "if" not in step
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
+    import json
+    from pathlib import Path
+    lock = json.loads((Path(__file__).resolve().parents[1] / "certification/capacity-envelope.v1.json").read_text())
+    assert set(lock["supportedEnvelope"]) == {
+        "tenants", "services", "layersPerService", "featuresPerLayer",
+        "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth",
+    }
+    assert set(lock["soak"]["requiredSignals"]) == set(lock["thresholds"]) == {
+        "availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps",
+        "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds",
+    }

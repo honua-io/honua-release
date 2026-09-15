@@ -211,7 +211,9 @@ def test_release_and_scheduled_workflows_enforce_validator():
     steps = gate["jobs"]["receipt"]["steps"]
     validate_step = next(step for step in steps if "tools/validate_dr_receipt.py" in step.get("run", ""))
     assert "--candidate $candidatePath" in validate_step["run"]
-    assert "candidate-input/platform-lock.json" in validate_step["run"]
+    # The producer always hashes platform-manifest.yaml bytes into candidateLockDigest, so the
+    # train-intake path must read the frozen artifact's copy of that same document, not the lock.
+    assert "candidate-input/platform-manifest.yaml" in validate_step["run"]
     assert not validate_step.get("continue-on-error")
     train = yaml.safe_load((root / ".github/workflows/release-train.yml").read_text(encoding="utf-8"))
     assert train["jobs"]["gate_dr"]["with"]["candidate_bundle"] is True
@@ -409,14 +411,21 @@ def test_pull_request_producer_cannot_mint_an_accepted_attestation():
     import yaml
 
     producer = yaml.safe_load((HERE.parent / ".github/workflows/dr-drill-local-docker.yml").read_text(encoding="utf-8"))
-    drill = producer["jobs"]["restore"]
-    drill_text = str(drill)
-    # The job that executes pull-request-controlled drill code holds no signing authority.
-    assert "attest" not in drill_text and "id-token" not in drill_text
-    assert drill["permissions"] == {"contents": "read", "packages": "read"}
+    # EVERY job that executes pull-request-controlled drill code holds no signing authority; adding
+    # a second drill job must not open a second path to the producer identity.
+    drill_jobs = ["full-platform", "restore"]
+    for name in drill_jobs:
+        drill = producer["jobs"][name]
+        drill_text = str(drill)
+        assert "attest" not in drill_text and "id-token" not in drill_text
+        assert drill["permissions"] == {"contents": "read", "packages": "read"}
     assert producer["permissions"] == {"contents": "read", "packages": "read"}
     attest = producer["jobs"]["attest"]
     assert attest["permissions"]["attestations"] == "write"
     assert attest["permissions"]["id-token"] == "write"
     assert attest["if"] == "github.event_name != 'pull_request'"
-    assert attest["needs"] == "restore"
+    assert sorted(attest["needs"]) == sorted(drill_jobs)
+    # Publication of a receipt is likewise off-limits to a pull request run.
+    publish = producer["jobs"]["publish"]
+    assert publish["if"] == "github.event_name != 'pull_request'"
+    assert publish["needs"] == "attest"

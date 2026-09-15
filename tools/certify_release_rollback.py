@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -40,6 +41,12 @@ def verify_frozen_sources(candidate: dict, manifest: Path, matrix: Path) -> dict
 
 def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_inputs: dict[str, str], fail_provider: str = "") -> Path:
     image_path = artifact_path(b, "honua-server", "image", "platformDigests/amd64")
+    try:
+        image_digest = rollback.pointer(b, image_path)
+    except (KeyError, TypeError) as exc:
+        raise rollback.RollbackError("ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING: candidate lock must retain the exact amd64 image identity") from exc
+    if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
+        raise rollback.RollbackError("ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_INVALID")
     schema_path = "/components/honua-server/schemaVersions/database"
     planes = [
         {"id": "serving-east", "kind": "serving", "providerId": "deploy/east", "lockPath": image_path},
@@ -67,16 +74,20 @@ def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_in
     return write(root / f"{name}-environment.json", value)
 
 
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--from-lock", type=Path, required=True, help="retained signed lock A")
-    parser.add_argument("--to-lock", type=Path, required=True, help="frozen signed candidate lock B")
-    parser.add_argument("--candidate-manifest", type=Path, required=True)
-    parser.add_argument("--compatibility-matrix", type=Path, required=True)
-    args = parser.parse_args(argv)
-    args.output.mkdir(parents=True, exist_ok=True)
+def certify(args, report: dict) -> int:
     a, b = rollback.load(args.from_lock), rollback.load(args.to_lock)
+    candidate_digest, target_digest = file_digest(args.to_lock), file_digest(args.from_lock)
+    first = report.get("first_lock_bearing_release", False)
+    if first:
+        if (report.get("no_earlier_lock_exists") is not True
+                or report.get("reason") != "no_earlier_attested_platform_lock_exists"
+                or candidate_digest != target_digest):
+            raise rollback.RollbackError("ROLLBACK_SELF_TARGET_MISMATCH")
+    elif candidate_digest == target_digest:
+        raise rollback.RollbackError("ROLLBACK_DISTINCT_RETAINED_LOCK_REQUIRED")
+    if report.get("candidate_lock_digest", candidate_digest) != candidate_digest or report.get("rollback_target_digest", target_digest) != target_digest:
+        raise rollback.RollbackError("ROLLBACK_RESOLVED_BYTES_CHANGED")
+    report.update(candidate_lock_digest=candidate_digest, rollback_target_digest=target_digest)
     sources = verify_frozen_sources(b, args.candidate_manifest, args.compatibility_matrix)
     a_path, b_path = args.output / "retained-lock.json", args.output / "candidate-lock.json"
     a_path.write_bytes(args.from_lock.read_bytes())
@@ -90,9 +101,41 @@ def main(argv=None) -> int:
     mixed = rollback.run(environment_path=mixed_env, from_path=b_path, to_path=a_path, store=args.output / "mixed-store",
                          receipt_path=args.output / "mixed-state-receipt.json")
     if success["status"] != "Succeeded" or mixed["status"] != "ManualInterventionRequired":
-        return 1
+        raise rollback.RollbackError("ROLLBACK_TERMINAL_STATE_MISMATCH")
+    if success["restartCount"] != 1 or not all(success["functionalSmoke"].values()):
+        raise rollback.RollbackError("ROLLBACK_RESTART_OR_SMOKE_FAILED")
+    if first and not all(child["state"] == "Verified" and child["observed"] == rollback.pointer(a, child["lockPath"])
+                         for child in success["children"]):
+        raise rollback.RollbackError("ROLLBACK_POST_STATE_MISMATCH")
+    report.update(overall_status="pass", post_rollback_state_equals_lock=True)
     write(args.output / "summary.json", {"successOperation": success["id"], "mixedOperation": mixed["id"], "success": "Succeeded", "negative": "ManualInterventionRequired", "sourceInputs": sources})
     return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--from-lock", type=Path, required=True, help="retained signed lock A")
+    parser.add_argument("--to-lock", type=Path, required=True, help="frozen signed candidate lock B")
+    parser.add_argument("--candidate-manifest", type=Path, required=True)
+    parser.add_argument("--compatibility-matrix", type=Path, required=True)
+    parser.add_argument("--gate-report", type=Path, help="verified target resolution report")
+    args = parser.parse_args(argv)
+    args.output.mkdir(parents=True, exist_ok=True)
+    report = {"schema": "honua.rollback-gate/v1", "first_lock_bearing_release": False,
+              "no_earlier_lock_exists": False, "overall_status": "fail"}
+    try:
+        if args.gate_report:
+            report.update(rollback.load(args.gate_report))
+            if report["overall_status"] != "pending":
+                raise rollback.RollbackError("ROLLBACK_TARGET_NOT_RESOLVED")
+        return certify(args, report)
+    except (OSError, ValueError, KeyError) as exc:
+        report.update(overall_status="fail", finding=f"ROLLBACK_CERTIFICATION_FAILED: {exc}")
+        print(report["finding"])
+        return 1
+    finally:
+        write(args.output / "gate-report.json", report)
 
 
 if __name__ == "__main__":

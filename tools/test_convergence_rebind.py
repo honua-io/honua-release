@@ -1,6 +1,9 @@
 import importlib.util
 import json
 import shutil
+
+import pytest
+import yaml
 from pathlib import Path
 
 
@@ -33,11 +36,11 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     root = fixture(tmp_path)
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     pins = {row["source"]: (row["target"][:7], row["rule"]) for row in plan["sources"]}
-    # Golden values track platform-manifest.yaml; refreshed against published identities on 2026-09-01.
-    assert pins["sdk-dotnet"] == ("8e4dd3d", "manifest/frozen")
-    assert pins["sdk-python"] == ("f7930b6", "manifest/frozen")
-    assert pins["sdk-js"] == ("c99e711", "manifest/frozen")
-    assert pins["server-certification"] == ("4ca8326", "manifest/frozen")
+    # Golden values track platform-manifest.yaml; refreshed at the 2026-09-12 candidate re-pin.
+    assert pins["sdk-dotnet"] == ("6ba49ec", "manifest/frozen")
+    assert pins["sdk-python"] == ("40ecf73", "manifest/frozen")
+    assert pins["sdk-js"] == ("d7cec2d", "manifest/frozen")
+    assert pins["server-certification"] == ("548b7a5", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
 
 
@@ -50,8 +53,13 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     assert tuple(MODULE.CALLERS) == (Path(".github/workflows/pr-protocol-certification.yml"), Path(".github/workflows/nightly-protocol-certification.yml"), Path(".github/workflows/release-train.yml"))
 
 
-def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path):
+@pytest.mark.parametrize("ledger_status", ["pending", "bound"])
+def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path, ledger_status):
     root = fixture(tmp_path)
+    manifest_path = root / MODULE.MANIFEST
+    manifest = manifest_path.read_text()
+    current = yaml.safe_load(manifest)["protocolCertification"]["ledger"]["status"]
+    manifest_path.write_text(MODULE.replace_scalar(manifest, "status", current, ledger_status))
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     requirements = "a" * 40
     evidence = "b" * 40
@@ -60,6 +68,7 @@ def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path):
     MODULE.finalize(root, plan, requirements, evidence, digest)
 
     manifest = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
+    assert yaml.safe_load(manifest)["protocolCertification"]["ledger"]["status"] == "bound"
     assert MODULE.scalar(manifest, "commit") == evidence
     assert MODULE.scalar(manifest, "requirementsSourceRevision") == requirements
     assert MODULE.scalar(manifest, "sha256") == digest
