@@ -58,7 +58,11 @@ ADMIN_KEY = os.environ.get("HONUA_DR_ADMIN_KEY", "honua-dr-drill-admin-key")
 PROJECT = os.environ.get("HONUA_DR_PROJECT", f"honua-dr-full-{os.environ.get('GITHUB_RUN_ID', 'local')}")
 SERVICE = "dr-sentinel"
 IMPORT_TABLE = "dr_sentinel"
-LAYER_ID = 1
+# The Create capability is what makes the drill's OGC insert legal; the product only accepts an
+# edit capability on a managed-store publication (honua-server#4859), so both are declared.
+CAPABILITIES = ["Query", "Create", "Update", "Delete"]
+INSERTED_MARKER = "dr-inserted-charlie"
+INSERTED_COORDINATES = [-156.5, 20.9]
 PACKAGE_ID = "dr-drill-cursor"
 PUBLICATION_ID = "dr-drill-cursor-pub"
 GP_TASK = "geometry.buffer"
@@ -277,34 +281,35 @@ def seed_state(stack: Stack) -> None:
         "sslRequired": False, "sslMode": "Disable"})["data"]["connectionId"]
     # Geometry column and primary key are deliberately left to server-side introspection: the
     # import owns the physical shape, and asserting a column name here would only couple the drill
-    # to an import detail it does not control.
-    stack.request("POST", f"/api/v1/admin/connections/{connection}/layers", {
+    # to an import detail it does not control. `storageMode: managed` copies the imported rows into
+    # the managed feature store, the only storage that accepts edits; `capabilities` declares
+    # Create on the publication (honua-server PublishLayerRequest.StorageMode/Capabilities).
+    published = stack.request("POST", f"/api/v1/admin/connections/{connection}/layers", {
         "schema": imported.get("schema", "honua_data"), "table": physical_table,
         "layerName": SERVICE, "serviceName": SERVICE,
-        "geometryType": "Point", "srid": 4326, "enabled": True})
+        "geometryType": "Point", "srid": 4326, "enabled": True,
+        "storageMode": "managed", "capabilities": CAPABILITIES})["data"]
+    if published.get("storageMode") != "managed" or "Create" not in (published.get("capabilities") or []):
+        raise RuntimeError(f"the dr-sentinel publication did not declare Create on managed storage: {published}")
+    layer_id = int(published["layerId"])
 
     # transactional-outbox + redis: a transactional insert through OGC API Features writes the
     # outbox row in the same transaction as the feature and publishes the durable change event.
-    #
-    # NOTE: on this candidate that inserted row is NOT readable back through the serving protocols
-    # of a published (source-backed) layer — the transaction writes into the managed feature store
-    # while reads resolve the published source table. That is a honua-server defect, reported with
-    # this drill; it is called out here so nobody later reads the `postgresql` evidence below as a
-    # claim about OGC transactional inserts. The outbox row and the change event ARE durably
-    # written, which is what the two substrates below are about, and the managed store the insert
-    # lands in is inside the same PostgreSQL backup either way.
-    # Geometry only: the attribute shape belongs to the import, and the substrates this insert
-    # drives care that a mutation was committed, not what it carried.
-    created = stack.request("POST", f"/ogc/features/collections/{SERVICE}/items", {
+    # File import keeps source attributes in its `properties` column, so the insert carries its
+    # marker in the same shape the imported rows are served with.
+    created = stack.request("POST", f"/ogc/features/collections/{layer_id}/items", {
         "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [-156.5, 20.9]},
-        "properties": {}},
+        "geometry": {"type": "Point", "coordinates": INSERTED_COORDINATES},
+        "properties": {"properties": {"name": INSERTED_MARKER}}},
         headers={"Content-Type": "application/geo+json"})
     object_id = int(created["id"])
+    # postgresql: the inserted row is the drill's own write, so it must read back through both
+    # serving protocols before anything is backed up, not merely be accepted.
+    assert_inserted_feature_served(stack, layer_id, object_id)
 
     # object-storage: attachment bytes land in the configured file store, referenced from the row.
     attachment = stack.form_post(
-        f"/rest/services/{SERVICE}/FeatureServer/{LAYER_ID}/{object_id}/addAttachment",
+        f"/rest/services/{SERVICE}/FeatureServer/{layer_id}/{object_id}/addAttachment",
         {"f": "json"}, {"attachment": ("dr-object-storage.txt", b"honua dr drill object bytes\n", "text/plain")})
     attachment_id = attachment["addAttachmentResult"]["objectId"]
 
@@ -342,6 +347,7 @@ def seed_state(stack: Stack) -> None:
         {"publicationId": PUBLICATION_ID, "target": "Schedule", "enabled": True,
          "schedule": {"cronExpression": "0 3 * * *", "timeZone": "UTC", "enabled": True}})["data"]
     stack.state = {
+        "layerId": layer_id,
         "objectId": object_id,
         "attachmentId": attachment_id,
         "jobId": job_id,
@@ -351,27 +357,61 @@ def seed_state(stack: Stack) -> None:
         f"workflow {stack.state['workflowDefinitionId']}")
 
 
+def marker_of(attributes) -> str | None:
+    """The drill's `name` marker from a served row, inside the import's `properties` attribute."""
+    nested = (attributes or {}).get("properties")
+    return nested.get("name") if isinstance(nested, dict) else None
+
+
+def assert_inserted_feature_served(stack: Stack, layer_id: int, object_id: int) -> None:
+    """The OGC insert reads back by id through OGC API Features and FeatureServer, values intact."""
+    item = stack.request("GET", f"/ogc/features/collections/{layer_id}/items/{object_id}?f=json")
+    served = {"id": str(item.get("id")), "name": marker_of(item.get("properties")),
+              "coordinates": (item.get("geometry") or {}).get("coordinates")}
+    expected = {"id": str(object_id), "name": INSERTED_MARKER, "coordinates": INSERTED_COORDINATES}
+    if served != expected:
+        raise RuntimeError(f"OGC API Features did not serve the inserted feature back: {served} != {expected}")
+    query = stack.request(
+        "GET", f"/rest/services/{SERVICE}/FeatureServer/{layer_id}/query?f=json&where=1%3D1"
+               f"&outFields=*&returnGeometry=true&outSR=4326")
+    if "error" in query:
+        raise RuntimeError(f"FeatureServer query refused: {query['error']}")
+    rows = [feature for feature in query.get("features", [])
+            if marker_of(feature.get("attributes")) == INSERTED_MARKER]
+    if len(rows) != 1:
+        raise RuntimeError(f"FeatureServer served {len(rows)} rows for the inserted feature: {query}")
+    attributes, geometry = rows[0]["attributes"], rows[0].get("geometry") or {}
+    if (str(attributes.get("objectid")) != str(object_id)
+            or [geometry.get("x"), geometry.get("y")] != INSERTED_COORDINATES):
+        raise RuntimeError(f"FeatureServer served the inserted feature with other values: {rows[0]}")
+
+
 # ---- phase 2: observe each substrate through its real runtime surface -----------------
 
 def observe(stack: Stack, substrate: str) -> dict:
     state = stack.state
     if substrate == "postgresql":
-        items = stack.request("GET", f"/ogc/features/collections/{SERVICE}/items?limit=1000")
+        items = stack.request("GET", f"/ogc/features/collections/{state['layerId']}/items?limit=1000")
         rows = sorted(
             [{"id": str(feature["id"]),
               "properties": feature.get("properties") or {},
               "geometry": feature["geometry"]} for feature in items["features"]],
             key=lambda row: row["id"])
         # The rows the drill itself wrote have to be in what is observed; a catalog that merely
-        # answers is not proof that written state came back. The import owns the attribute names,
-        # so match on the values the drill supplied rather than on a column name.
+        # answers is not proof that written state came back. Both the imported rows and the OGC
+        # insert are the drill's writes, matched on the values the drill supplied.
         payload = canonical(rows)
-        served = payload.decode("utf-8")
-        missing = [marker for marker in ("dr-imported-alpha", "dr-imported-bravo") if marker not in served]
+        served = {marker_of(row["properties"]): row for row in rows}
+        missing = [marker for marker in ("dr-imported-alpha", "dr-imported-bravo", INSERTED_MARKER)
+                   if marker not in served]
         if missing:
-            raise RuntimeError(f"imported features absent from the collection: {missing}")
+            raise RuntimeError(f"written features absent from the collection: {missing}")
+        inserted = served[INSERTED_MARKER]
+        if (inserted["id"] != str(state["objectId"])
+                or inserted["geometry"].get("coordinates") != INSERTED_COORDINATES):
+            raise RuntimeError(f"the inserted feature came back with other values: {inserted}")
         return observation("dr-sentinel-features", payload, len(rows),
-                           f"GET /ogc/features/collections/{SERVICE}/items")
+                           "GET /ogc/features/collections/{layerId}/items")
     if substrate == "transactional-outbox":
         # The outbox is a PostgreSQL table the dispatcher owns; SQL is its substrate surface.
         # Dispatch timestamps are deliberately excluded: the recovery claim is that the durable
@@ -395,10 +435,10 @@ def observe(stack: Stack, substrate: str) -> dict:
                            "GET /api/v1/admin/feature-events/replay")
     if substrate == "object-storage":
         payload = stack.request(
-            "GET", f"/rest/services/{SERVICE}/FeatureServer/{LAYER_ID}/{state['objectId']}"
+            "GET", f"/rest/services/{SERVICE}/FeatureServer/{state['layerId']}/{state['objectId']}"
                    f"/attachments/{state['attachmentId']}", raw=True)
         return observation(f"attachment-{state['attachmentId']}", payload, 1,
-                           f"GET /rest/services/{SERVICE}/FeatureServer/{LAYER_ID}/"
+                           f"GET /rest/services/{SERVICE}/FeatureServer/{state['layerId']}/"
                            f"{state['objectId']}/attachments/{state['attachmentId']}")
     if substrate == "job-queue":
         status = stack.request(
