@@ -152,6 +152,39 @@ def test_historical_dotnet_working_pin_cannot_certify_published_package():
     ]
 
 
+def test_548b7a5_candidate_sdk_pins_cannot_bind_the_ledger():
+    # 2026-09-15 candidate triple, read independently from each registry and repository:
+    # components are the green working pins, the catalog is still the 2026-08-27 rebind,
+    # and clientArtifacts are the published bytes (nuspec/gitHead/release tag).
+    manifest, matrix, requirements = _bound_sdk_fixture()
+    for source, component, catalog, published in (
+        ("sdk-dotnet", "6ba49ec32ea846c64bc2094807761d4884dbc4bf",
+         "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4"),
+        ("sdk-python", "40ecf7318573214fb6c702b12ebd56b3ad47ba60",
+         "516c727dc03cae3b6b312595a9f4bfcee5f34cad", "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"),
+        ("sdk-js", "d7cec2d510e053fc86252b125bde21313a7e6e7c",
+         "c99e71197dd940ed952aecb024c6de273456f2ae", "c99e71197dd940ed952aecb024c6de273456f2ae"),
+    ):
+        manifest["components"]["honua-" + source]["sha"] = component
+        requirements["source_revisions"][source]["commit"] = catalog
+        manifest["clientArtifacts"][SDK_ARTIFACTS[source]]["sourceSha"] = published
+    f = vp.validate(manifest, matrix, None, requirements=requirements)
+    prefix = "manifest: bound protocol certification ledger requires catalog source_revisions."
+    assert [e for e in f.errors if e.startswith(prefix)] == [
+        prefix + "sdk-dotnet.commit to equal components.honua-sdk-dotnet.sha "
+        "(catalog=8e4dd3d9d23f86b7f07d946ef0736d4529d332b6, manifest=6ba49ec32ea846c64bc2094807761d4884dbc4bf)",
+        prefix + "sdk-dotnet.commit to equal clientArtifacts.honua-sdk-dotnet.sourceSha "
+        "(catalog=8e4dd3d9d23f86b7f07d946ef0736d4529d332b6, published=a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4)",
+        prefix + "sdk-python.commit to equal components.honua-sdk-python.sha "
+        "(catalog=516c727dc03cae3b6b312595a9f4bfcee5f34cad, manifest=40ecf7318573214fb6c702b12ebd56b3ad47ba60)",
+        prefix + "sdk-python.commit to equal clientArtifacts.honua-sdk-python-wheel.sourceSha "
+        "(catalog=516c727dc03cae3b6b312595a9f4bfcee5f34cad, published=f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4)",
+        # JS catalog already names the published bytes; only the working component pin differs.
+        prefix + "sdk-js.commit to equal components.honua-sdk-js.sha "
+        "(catalog=c99e71197dd940ed952aecb024c6de273456f2ae, manifest=d7cec2d510e053fc86252b125bde21313a7e6e7c)",
+    ]
+
+
 def test_bound_ledger_requires_catalog_source_revisions():
     manifest, matrix, _ = _bound_sdk_fixture()
     f = vp.validate(manifest, matrix, None, requirements={})
