@@ -70,6 +70,23 @@ jobs:
       - name: Validate committed compatibility ledger
         run: python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 
+      # release#314 / honua-server#4300: the public site copies customer-install-manifest.json
+      # byte-for-byte, so its schema, qualification flags, rehearsal server binding and every copied
+      # Honua client pin must fail here before publication, not drift silently from the manifest.
+      - name: Validate customer install manifest against its schema and platform pins
+        run: python3 tools/validate_customer_install_manifest.py customer-install-manifest.json
+
+      - name: Prove a drifted customer install pin fails
+        run: |
+          set -uo pipefail
+          fixture=tools/fixtures/customer-install-manifest-drifted-pin.json
+          if python3 tools/validate_customer_install_manifest.py "$fixture" 2> "$RUNNER_TEMP/customer-drift.err"; then
+            echo "::error::validator accepted the drifted customer install pin in $fixture"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/customer-drift.err"
+          grep -F '$.clients.honua-sdk.digest:' "$RUNNER_TEMP/customer-drift.err" > /dev/null
+
       # The signing trust policy must cover exactly the tag namespaces policy.json protects.
       # `release_controls audit` also reports drift, but it is an operator command no workflow
       # runs; a drifted policy authorizing tags outside the immutable namespaces has to fail a

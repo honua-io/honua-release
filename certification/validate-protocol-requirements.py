@@ -18,6 +18,69 @@ def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
+def validate_bounded_roster(catalog: dict, roster: dict) -> None:
+    """Every bounded 2026.1 external-client row must join one receipt result (release#346).
+
+    The client-interop-cert-v1 normalizer narrows a receipt to (client_lane,
+    client_version, surface) and rejects the whole receipt unless each result's
+    test_case_id resolves to exactly one requirement there.
+    """
+    clients = roster["clients"]
+    cells = roster["cells"]
+    cell_keys = [(cell["canonical_client"], cell["surface"], cell["operation"]) for cell in cells]
+    if len(cell_keys) != len(set(cell_keys)):
+        raise ValueError("Bounded client roster contains duplicate cells.")
+    for cell, key in zip(cells, cell_keys):
+        client = clients.get(cell["canonical_client"])
+        if client is None:
+            raise ValueError(f"Bounded client roster cell names an unruled client: {key}")
+        expected_test_id = f"client-cert/{slug(cell['canonical_client'])}/{cell['surface']}/{cell['operation']}"
+        if cell["test_id"] != expected_test_id:
+            raise ValueError(f"Bounded client roster cell {key} must use test ID {expected_test_id!r}.")
+        allowed_lanes = {client["client_lane"], *client.get("retained_producer_lanes", {})}
+        if cell["client_lane"] not in allowed_lanes:
+            raise ValueError(
+                f"Bounded client roster cell {key} uses lane {cell['client_lane']!r}; "
+                f"the lane ruling allows {sorted(allowed_lanes)}."
+            )
+    rows: dict[tuple[str, str, str], list[dict]] = {}
+    for row in catalog["requirements"]:
+        if row["canonical_client"] in clients:
+            rows.setdefault((row["canonical_client"], row["surface"], row["operation"]), []).append(row)
+    if set(rows) != set(cell_keys):
+        raise ValueError(
+            "Bounded client roster differs from the generated bounded rows "
+            f"(missing={sorted(set(rows) - set(cell_keys))}, unexpected={sorted(set(cell_keys) - set(rows))})"
+        )
+    for cell, key in zip(cells, cell_keys):
+        if len(rows[key]) != 1:
+            raise ValueError(f"Bounded client roster cell {key} matches {len(rows[key])} requirements.")
+        row = rows[key][0]
+        if row["client_lane"] != cell["client_lane"] or row.get("test_ids") != [cell["test_id"]]:
+            raise ValueError(
+                f"Bounded requirement {key} must carry lane {cell['client_lane']!r} and exactly "
+                f"test_ids [{cell['test_id']!r}]."
+            )
+        pinned = clients[cell["canonical_client"]]["client_version"]
+        if pinned is not None and row["client_version"] != pinned:
+            raise ValueError(f"Bounded requirement {key} must pin client_version {pinned!r}.")
+    bounded_groups = {
+        (row["client_lane"], row["client_version"], row["surface"])
+        for matched in rows.values() for row in matched
+    }
+    claims: dict[tuple[str, str, str, str], int] = {}
+    for row in catalog["requirements"]:
+        group = (row["client_lane"], row["client_version"], row["surface"])
+        if group in bounded_groups:
+            if not row.get("test_ids"):
+                raise ValueError(f"Requirement sharing a bounded receipt group declares no test_ids: {group}")
+            for test_id in row["test_ids"]:
+                claims[(*group, test_id)] = claims.get((*group, test_id), 0) + 1
+    ambiguous = sorted(claim for claim, count in claims.items() if count > 1)
+    if ambiguous:
+        raise ValueError(f"Bounded test IDs resolve to more than one requirement: {ambiguous}")
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -37,6 +100,13 @@ def main() -> None:
     server = json.loads(
         (ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
     )
+    bounded_roster = json.loads(
+        (ROOT / "sources" / "bounded-client-roster.v1.json").read_text(encoding="utf-8")
+    )
+    bounded_lanes = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell["client_lane"]
+        for cell in bounded_roster["cells"]
+    }
     jsonschema.validate(catalog, schema)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
@@ -429,7 +499,10 @@ def main() -> None:
                     "surface": slug(capability_key),
                     "operation": capability_key,
                     "canonical_client": client["name"],
-                    "client_lane": f"{client['lane']}-{slug(capability_key)}",
+                    "client_lane": bounded_lanes.get(
+                        (client["name"], slug(capability_key), capability_key),
+                        f"{client['lane']}-{slug(capability_key)}",
+                    ),
                     "client_version": client["version"],
                     "deployment_target": "local-docker",
                     "required_tier": "nightly",
@@ -502,6 +575,7 @@ def main() -> None:
             f"(missing={sorted(expected_decision_cells - present_decision_cells)}, "
             f"unexpected={sorted(present_decision_cells - expected_decision_cells)})"
         )
+    validate_bounded_roster(catalog, bounded_roster)
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
 
 

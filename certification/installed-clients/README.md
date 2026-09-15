@@ -15,6 +15,9 @@ blocked result until [honua-release#57](https://github.com/honua-io/honua-releas
 the package independently installable from its release registry. A release-mode run therefore
 cannot pass early with only two ecosystems.
 
+The Python admin cell installs the pinned wheel with its declared dependencies and imports both
+admin clients. Every manifest client artifact must have a matrix cell; omissions fail validation.
+
 The live driver reuses the repository's one-server/one-PostgreSQL candidate harness and immutable
 `e2e/harness/seed` fixture. Static input validation and exact package-byte installation can be run
 without a server:

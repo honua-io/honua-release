@@ -53,8 +53,17 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
         failures.append("soak profile does not match the lock")
     if receipt.get("steadyStateSeconds", 0) < lock.get("soak", {}).get("minimumSteadyStateSeconds", 0):
         failures.append("steady-state duration is below the locked minimum")
-    if receipt.get("envelope") != lock.get("supportedEnvelope"):
+    declared = lock.get("supportedEnvelope", {})
+    observed = receipt.get("envelope")
+    if not isinstance(observed, dict) or any(
+        name not in observed or observed[name] != value for name, value in declared.items()
+    ):
         failures.append("tested capacity envelope does not exactly match the supported envelope")
+    elif undeclared := sorted(set(observed) - set(declared) - excluded_dimensions(lock)):
+        failures.append(
+            "tested capacity envelope reports dimensions the lock neither declares nor excludes: "
+            + ", ".join(undeclared)
+        )
 
     signals = receipt.get("signals")
     if not isinstance(signals, dict):
@@ -82,6 +91,32 @@ def evaluate(lock: dict, receipt: dict, digest: str, expected_revision: str) -> 
     return failures
 
 
+def excluded_dimensions(lock: dict) -> set[str]:
+    """Dimensions an operator ruling recorded in the lock removed from the envelope."""
+    return {
+        name
+        for ruling in lock.get("rulings", [])
+        if isinstance(ruling, dict)
+        for name in ruling.get("excludedDimensions", [])
+    }
+
+
+def informational_dimensions(lock: dict, receipt: dict) -> dict:
+    """Echo excluded Preview observations without adding them to the GA denominator."""
+    result = {}
+    for name in sorted(excluded_dimensions(lock)):
+        if name in lock.get("supportedEnvelope", {}) or name in lock.get("soak", {}).get("requiredSignals", []):
+            continue
+        records = {
+            section: receipt[section][name]
+            for section in ("envelope", "envelopeVerification", "signals")
+            if isinstance(receipt.get(section), dict) and name in receipt[section]
+        }
+        if records:
+            result[name] = records
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lock", type=Path, required=True)
@@ -92,6 +127,8 @@ def main() -> int:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
         failures = evaluate(lock, receipt, lock_digest(args.lock), args.expected_revision)
+        for name, records in informational_dimensions(lock, receipt).items():
+            print(f"Preview informational (not gated): {name} = {json.dumps(records, sort_keys=True)}")
     except (OSError, json.JSONDecodeError, ContractError) as exc:
         failures = [str(exc)]
     if failures:
@@ -99,7 +136,9 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS — exact candidate, frozen lock, complete signed signal set")
+    print(f"capacity-soak: PASS — {len(lock['supportedEnvelope'])}/{len(lock['supportedEnvelope'])} GA dimensions; "
+          f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} frozen SLO signals; "
+          "exact candidate, frozen lock, complete signed signal set")
     return 0
 
 

@@ -1,0 +1,104 @@
+# Full-platform DR drill topology — the 2026.1 local-docker install, not a seam fixture.
+#
+# `../local-docker/docker-compose.yml` is the e2e seam tier: PostGIS + server only. That stack
+# composes no durable job/workflow substrate, so a receipt taken on it could only ever claim
+# PostgreSQL. The candidate's local-docker install topology (honua-server's own quickstart
+# `docker-compose.yml`) also composes Redis and a local file-storage volume, which is what
+# `disasterRecovery.substrates` in ../../platform-manifest.yaml declares enabled. This file
+# reproduces that inventory with named volumes the drill can destroy and recreate:
+#
+#   postgres  -> postgresql (metadata/features) and the feature-change transactional outbox
+#   redis     -> redis cache, the durable job queue, and durable workflow/source cursors
+#   storage   -> object-storage (FileStorage Provider=Local referenced-output bytes)
+#
+# The server image is injected from the manifest pin (HONUA_SERVER_IMAGE); never hardcode a tag.
+name: ${HONUA_DR_PROJECT:-honua-dr-full}
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: honua
+      POSTGRES_PASSWORD: honua
+      POSTGRES_DB: honua
+      # Match the install guidance: checksums on, so a torn restore is detectable.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    # Published on loopback exactly as the quickstart install does, so the drill can speak the
+    # real substrate protocols (SQL, RESP) rather than only the application's view of them.
+    ports:
+      - "127.0.0.1:${HONUA_DR_DB_PORT:-55432}:5432"
+
+  redis:
+    # Same image, persistence and eviction policy as the quickstart install: appendonly with
+    # noeviction, so durable job/workflow keys are never silently dropped.
+    image: redis:7.4-alpine
+    command:
+      ["redis-server", "--appendonly", "yes", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:${HONUA_DR_REDIS_PORT:-56379}:6379"
+
+  # Named volumes are created root-owned; the server image runs as a non-root UID. Initialize
+  # the object-storage volume before the server starts so uploads work on a clean install and
+  # again on every restore into a freshly created volume.
+  storage-init:
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    entrypoint: ["sh", "-c"]
+    command: ["mkdir -p /var/lib/honua/storage && chown -R 1001:1001 /var/lib/honua/storage"]
+    user: "0:0"
+    volumes:
+      - honua_storage:/var/lib/honua/storage
+    restart: "no"
+
+  server:
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    # Docker can report Postgres healthy a fraction before its container port accepts the
+    # server's one-shot migration connection. A short deterministic delay prevents that race.
+    entrypoint: ["/bin/sh", "-c", "sleep 5; exec /app/Honua.Server"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      # Presence of this key is what composes the durable job/workflow substrate.
+      ConnectionStrings__Redis: "redis:6379"
+      HONUA_ADMIN_PASSWORD: "${HONUA_ADMIN_PASSWORD:-honua-dr-drill-admin-key}"
+      Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      Licensing__DevGrantEdition: "Enterprise"
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+      FileStorage__Provider: "Local"
+      FileStorage__LocalStorage__BasePath: "/var/lib/honua/storage"
+    ports:
+      - "${HONUA_SERVER_PORT:-8080}:8080"
+    volumes:
+      - honua_storage:/var/lib/honua/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://localhost:8080/healthz/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+volumes:
+  db_data:
+  redis_data:
+  honua_storage:

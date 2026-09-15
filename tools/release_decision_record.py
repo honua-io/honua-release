@@ -140,6 +140,22 @@ def classify(issue, rules):
         return exception['bucket'], exception['reason']
     if 'priority/P0' in labels:
         return 'must-fix-before-cut', 'Every priority/P0 is required before cut (operator 2026-09-05).'
+    # Operator ruling 2026-09-11 ("bugs and ci should be pre cut"): a bug or a CI
+    # item is must-fix-before-cut whatever its priority; only an explicit
+    # release/2026.2 label overrides. Test-expansion items (test(...)),
+    # bug-hunt PROGRAM/tracking issues and epics are not bugs and keep their
+    # bucket rules.
+    title = issue.get('title') or ''
+    if 'release/2026.2' not in labels and not re.search(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b', title):
+        is_test = re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b', title) is not None
+        is_ci = 'area/ci' in labels or re.match(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]', title) is not None
+        is_bug = ('bug' in labels
+                  or re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b', title) is not None
+                  or (any(s.startswith('bug-hunt/') for s in labels) and not is_test))
+        if is_ci:
+            return 'must-fix-before-cut', 'CI work is pre-cut (operator ruling 2026-09-11).'
+        if is_bug:
+            return 'must-fix-before-cut', 'Bugs are pre-cut whatever their priority (operator ruling 2026-09-11).'
     review = rules['admission_reviews'].get(key)
     if 'first-release-gate' in labels or 'priority/P1' in labels:
         if not review or review.get('body_sha256') != issue['body_sha256']:
@@ -302,14 +318,32 @@ def decision_tables(rows):
     return counts + f'\n\n<details>\n<summary>{count} pre-cut blockers — every issue, owning packet, implementation and qualification</summary>\n\n' + blockers + '\n\n</details>'
 
 
+def working_candidate(data):
+    # Working candidate pins and their latest dry-run train. Informational only: the digest header
+    # stays `not yet cut` and nothing here can mark a row qualified against the candidate.
+    wc = data.get('working_candidate')
+    if not wc:
+        return []
+    lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · dry-run train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
+             '| Component | Pinned sha | Selection |', '|---|---|---|']
+    lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
+    lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
+    lines += [f'| {gate} | {status} | {cause} |' for gate, status, cause in wc['gates']]
+    return lines + ['']
+
+
 def render(data, rows):
     active = [r for r in rows if r['state'] == 'open']
     p0_unowned = [link(issue_key(r)) for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut' and (not r.get('family') or r['family']['status']=='parked')]
     p0_activity = Counter(('queued' if r.get('family') and r['family']['status']=='queued' else 'dispatched; not confirmed running' if r.get('family') and r['family']['status'].startswith('dispatched') else 'UNOWNED/parked') for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut')
     content = [
         '# 2026.1 release decision record', '',
-        f'**Candidate digest: {data["candidate_digest"]} · Decision: HOLD · Observed: {data["observed_at"]}**', '',
+        (f'**Candidate digest: {data["candidate_digest"]}'
+         + (f' · Working server AOT image digest: {data["working_candidate"]["server_image_digest"]}'
+            if data.get("working_candidate", {}).get("server_image_digest") else "")
+         + f' · Decision: HOLD · Observed: {data["observed_at"]}**'), '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
+        *working_candidate(data),
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',
@@ -317,6 +351,7 @@ def render(data, rows):
         f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")} |',
         f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
         f'| Excluded from GA | 3D/I3S/terrain/point-cloud/BIM and warehouses remain Experimental, opt-in; this does not demote GA pcloud.translate. ARM64/Fargate, Azure, air-gap, broad deployment variants excluded; broad MCP/OKF Experimental. Branch-versioning expansion and marketplace/billing automation: 2026.2. | {link("honua-server#3249")}, {link("honua-server#3250")}, {link("honua-release#98")} |', '',
+        'Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. See [the capacity ruling](CAPACITY-ENVELOPE-2026.1.md#scope).', '',
         '| Required evidence → consuming §14 gate | Accountable repo + issue | Implementation ticket closed | Qualified against candidate |', '|---|---|---|---|',
     ]
     for owner in data.get('implementation_owners', []):
