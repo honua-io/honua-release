@@ -1,0 +1,57 @@
+# Manual release-hunt workflow for the packet-94 DB upgrade chaos matrix.
+# It intentionally lives beside gate-upgrade rather than changing the release-train verdict: this
+# is hunt coverage and must produce evidence/red failures before it can become a promotion gate.
+
+name: gate-upgrade-chaos
+
+on:
+  workflow_dispatch:
+    inputs:
+      prior_image:
+        description: "Prior server image (must be a real immutable image)"
+        required: true
+        type: string
+      candidate_image:
+        description: "Candidate server image (must be a real immutable image)"
+        required: true
+        type: string
+      scenario:
+        description: "One scenario, or the complete matrix"
+        required: true
+        type: choice
+        options:
+          - all
+          - migration-kill-every-boundary
+          - image-rollback
+          - concurrent-app-start
+          - partial-migration-failure
+          - journal-schema-divergence
+          - migration-rerun-idempotency
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run packet-94 upgrade chaos matrix
+        env:
+          HONUA_PRIOR_SERVER_IMAGE: ${{ inputs.prior_image }}
+          HONUA_CANDIDATE_SERVER_IMAGE: ${{ inputs.candidate_image }}
+          CHAOS_SCENARIO: ${{ inputs.scenario }}
+          E2E_API_KEY: UpgradeCiAdmin!2026
+          E2E_OUT: /tmp/upgrade-chaos
+        run: e2e/harness/upgrade-chaos.sh
+
+      - name: Upload chaos evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: upgrade-chaos-evidence
+          path: /tmp/upgrade-chaos
+          if-no-files-found: error
