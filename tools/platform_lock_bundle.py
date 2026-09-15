@@ -61,6 +61,8 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
             "published package coordinate is pending" in refusal
             or "$.clientArtifacts." in refusal
             or fact.startswith(("$.sbom", "$.provenance"))
+            or ".contractVersions:" in fact
+            or ".schemaVersions" in fact
         ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
@@ -79,6 +81,9 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
         raise ValueError("component denominator differs from frozen manifest")
     matched = set()
     for name, expected in draft.lock["components"].items():
+        for group in ("contractVersions", "schemaVersions"):
+            if lock["components"][name].get(group) != expected[group]:
+                raise ValueError(f"components.{name}.{group}: lock differs from frozen input")
         _declared({k: v for k, v in expected.items() if k != "artifacts"},
                   lock["components"][name], f"components.{name}")
         artifacts = lock["components"][name]["artifacts"]
