@@ -134,7 +134,7 @@ freshly created store it asserts was empty, restarts, and re-reads the identical
 
 | Substrate | Product write surface | Runtime read surface | Backup artifact |
 | --- | --- | --- | --- |
-| `postgresql` | file import (`POST /api/v1/admin/import/upload`) then publication | `GET /ogc/features/collections/{c}/items` | `pg_dump --format=custom` |
+| `postgresql` | file import (`POST /api/v1/admin/import/upload`), managed-store publication declaring `Create`, then an OGC API Features insert | `GET /ogc/features/collections/{layerId}/items` | `pg_dump --format=custom` |
 | `transactional-outbox` | an OGC API Features insert's outbox row, written in the same transaction | `SELECT` over `honua.feature_change_outbox` | table-scoped `pg_dump` |
 | `redis` | the same insert's durable feature-change event | `GET /api/v1/admin/feature-events/replay` | `DUMP`/`RESTORE` slice of `featurechange:*` |
 | `object-storage` | GeoServices `addAttachment` | `GET .../attachments/{id}` (the bytes) | `tar` of the storage volume |
@@ -149,15 +149,18 @@ carrying it. The workflow package *catalog* does not survive a restart — only 
 durable definition does — so the drill reads that definition from the orchestration store
 rather than from the in-memory publication list.
 
-**Why the PostgreSQL write is an import, not the transactional insert.** On this candidate an
-OGC API Features insert against a published (source-backed) layer answers `201 Created`, writes its
-outbox row and publishes its change event — but the row lands in the managed feature store while
-the serving protocols read the published source table, so the acknowledged feature is never
-readable back (`GET .../items/{id}` answers 404). That is a honua-server defect reported alongside
-this drill, not a property of recovery, and the drill must not launder it into a recovery claim.
-So the `postgresql` evidence is built on the import path, whose rows the serving protocols really
-do return, and the insert is kept only to drive the outbox and change-event substrates, whose
-writes are genuinely durable. Revisit this split when the server defect is fixed.
+**Why `dr-sentinel` is a managed-store publication.** A source-backed layer serves its live
+source table read-only: the server refuses to declare an edit capability on one, and an insert
+into a layer without `Create` answers 405 (honua-server#4707, #4712). The drill therefore
+publishes the imported table with `storageMode: managed` and
+`capabilities: [Query, Create, Update, Delete]` (honua-server#4859). The server copies the
+imported rows into the managed feature store and serves the collection from there, under its
+numeric layer id. The OGC API Features insert lands in the same store. Before any backup, the
+drill requires that insert to read back by id through OGC API Features and through a
+FeatureServer query, with its marker and coordinates intact. The `postgresql` observation, both
+before destruction and after restore, must contain the two imported rows and the inserted row
+with the same id and coordinates. The same insert drives the outbox and change-event
+substrates.
 
 Instance identity is the restarted runtime's boot identity: the PostgreSQL cluster's
 `system_identifier`, the Redis `run_id`, and the server's container id. Destroying the
