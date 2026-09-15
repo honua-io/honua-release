@@ -624,11 +624,14 @@ evidenceSources:
   cite:
     repository: honua-io/honua-server
     workflowPath: .github/workflows/cite-evidence-report.yml
-    # REFRESHED 2026-08-27, f8977001 -> 6aad1067 (honua-server trunk HEAD). NOTE THE INTENTIONAL
-    # DIFFERENCE from components.honua-server.sha (ac30266f): this field pins the revision of the
+    # REFRESHED 2026-09-15, 6aad1067 -> 7885b4eb (honua-server trunk HEAD, honua-server#4755 "migrate
+    # fixtures before seeding"; honua-server#4739). The trunk workflow_dispatch run 35003497740 at this
+    # sha is green and published `cite-status` (Last reviewed 2026-09-15); 6aad1067's snapshot was
+    # last reviewed 2026-08-12 and failed cite:freshness. NOTE THE INTENTIONAL
+    # DIFFERENCE from components.honua-server.sha (548b7a5): this field pins the revision of the
     # EVIDENCE PRODUCER WORKFLOW, which is correctly trunk HEAD, whereas the component pin must name a
     # commit with a deployable published image. They are different questions and are allowed to differ.
-    producerSha: "6aad10674bb30a7426c007726fe17b4ca68beb06"
+    producerSha: "7885b4ebbc76c2aaf77c269b4085f3b22c1d8a03"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: cite-status
