@@ -28,6 +28,8 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import time
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +233,47 @@ def sign_tag(repo: Path, tag: str, target: str, message: str, policy: dict[str, 
     return verify_tag(repo, tag, policy, repository, allowed_signers, policy_path)
 
 
+def verify_remote_tag(remote: str, tag: str, target: str, policy: dict[str, Any],
+                      repository: str, allowed_signers: Path | None = None,
+                      policy_path: Path = TRUST_POLICY) -> dict[str, Any]:
+    """Verify the published ref in isolation, bound to the exact certified commit.
+
+    A checkout's local tags are not evidence about what GitHub will release. Fetch only the
+    requested remote ref into a fresh repository; missing/unsigned/wrong-target tags refuse.
+    This command cannot create, move, or push a publication tag.
+    """
+    check_namespace(policy, repository, tag)
+    authorized_signers(policy, repository)
+    if not SHA1.fullmatch(target):
+        raise SigningError("a publication tag must name an immutable 40-character target revision")
+    with tempfile.TemporaryDirectory(prefix="honua-publication-tag-") as directory:
+        repo = Path(directory)
+        git(repo, "init", "--bare", "--quiet")
+        ref = f"refs/tags/{tag}"
+        git(repo, "check-ref-format", ref)
+        for delay in (0, 10, 30, 60, 120, 60):
+            if delay:
+                time.sleep(delay)
+            fetched = git(repo, "fetch", "--no-tags", "--", remote, f"{ref}:{ref}", check=False)
+            if fetched.returncode == 0:
+                break
+            error = fetched.stderr.lower()
+            if not any(term in error for term in (
+                "error connecting", "could not resolve host", "connection reset",
+                "timeout", "timed out", "403",
+            )):
+                break
+        if fetched.returncode != 0:
+            raise SigningError("cannot fetch the published tag for verification")
+        receipt = verify_tag(repo, tag, policy, repository, allowed_signers, policy_path)
+        if receipt["target"] != target or receipt["targetType"] != "commit":
+            raise SigningError("published tag target is not the exact certified candidate commit")
+        headers = git(repo, "cat-file", "tag", ref).stdout.split("\n\n", 1)[0].splitlines()
+        if f"tag {tag}" not in headers or "type commit" not in headers:
+            raise SigningError("signed tag must name this publication tag and directly target its commit")
+        return receipt
+
+
 def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
                     policy_path: Path = TRUST_POLICY, *, expected: Any = None,
                     source: Any = None) -> str | None:
@@ -302,7 +345,8 @@ def main(argv: list[str] | None = None) -> int:
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("check-policy", help="validate the trust policy against the control policy")
     for name, help_text in (("sign", "create a signed annotated publication tag"),
-                            ("verify", "verify an existing publication tag")):
+                            ("verify", "verify an existing publication tag"),
+                            ("verify-remote", "verify a published tag against the certified commit")):
         sub = subs.add_parser(name, help=help_text)
         sub.add_argument("repository")
         sub.add_argument("tag")
@@ -312,6 +356,9 @@ def main(argv: list[str] | None = None) -> int:
         if name == "sign":
             sub.add_argument("--target", required=True)
             sub.add_argument("--message", required=True)
+        if name == "verify-remote":
+            sub.add_argument("--target", required=True)
+            sub.add_argument("--remote", required=True)
     args = parser.parse_args(argv)
     try:
         policy = load_policy(args.policy)
@@ -325,6 +372,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sign":
             receipt = sign_tag(args.git_dir, args.tag, args.target, args.message, policy,
                                args.repository, args.allowed_signers, args.policy)
+        elif args.command == "verify-remote":
+            errors = check_namespaces(policy)
+            if errors:
+                raise SigningError("; ".join(errors))
+            receipt = verify_remote_tag(args.remote, args.tag, args.target, policy,
+                                        args.repository, args.allowed_signers, args.policy)
         else:
             receipt = verify_tag(args.git_dir, args.tag, policy, args.repository,
                                  args.allowed_signers, args.policy)

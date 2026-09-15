@@ -19,7 +19,7 @@
 #   3. pull the exact certified-candidate bundle from the recorded freeze RC train
 #   4. verify all gates green for that exact RC, finalize metadata, and re-tag without rebuilding
 #   5. OIDC keyless-sign the certified inputs, bound report, finalized manifest, and BOM
-#   6. create the `honua-<label>` git tag + GitHub Release at the RC's certified source SHA
+#   6. verify the published signed tag at the RC's certified source SHA, then create its GitHub Release
 
 name: promote
 run-name: "promote ${{ inputs.platform_label }} (from run ${{ inputs.train_run_id }})"
@@ -41,7 +41,7 @@ on:
         type: string
 
 permissions:
-  contents: write     # create the tag + GitHub Release
+  contents: write     # create the GitHub Release for an already verified signed tag
   id-token: write     # OIDC keyless signing of the manifest (no static keys)
   actions: read       # inspect the train run and download its certified-candidate artifact
 
@@ -240,6 +240,15 @@ jobs:
             --expected-run-id "$TRAIN_RUN_ID" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Preserve current publication trust policy and verifier
+        run: |
+          set -euo pipefail
+          TRUST_ROOT="$RUNNER_TEMP/publication-trust"
+          mkdir -p "$TRUST_ROOT/tools" "$TRUST_ROOT/certification/release-controls"
+          cp tools/tag_signing.py "$TRUST_ROOT/tools/"
+          cp certification/release-controls/{policy,tag-signing-policy}.json \
+            "$TRUST_ROOT/certification/release-controls/"
+
       # Candidate parsing, finalization, and release generation use the tools that existed at
       # certification time. The promotion checkout is never a source for candidate bytes.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -286,7 +295,8 @@ jobs:
           set -euo pipefail
           LABEL="${{ inputs.platform_label }}"
           BASE="${LABEL%%-rc*}"
-          TAG="honua-${BASE}"
+          # The initial GA publication is patch zero in the protected honua-YYYY.N.* namespace.
+          TAG="honua-${BASE}.0"
           echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
@@ -311,6 +321,25 @@ jobs:
           # Publish the BOM derived from the attested candidate lock at freeze.
           cp candidate/bom.cdx.json bom.cdx.json
 
+      - name: Verify the remote signed publication tag against the certified commit
+        env:
+          PUBLICATION_TAG: ${{ steps.finalize.outputs.tag }}
+          CERTIFIED_SHA: ${{ steps.train.outputs.source_sha }}
+          PUBLICATION_REMOTE: https://github.com/${{ github.repository }}.git
+          RELEASE_TAG_ALLOWED_SIGNERS: ${{ vars.RELEASE_TAG_ALLOWED_SIGNERS }}
+        run: |
+          set -euo pipefail
+          # Public trust material comes from the protected environment. No private key is
+          # loaded here; the protected publication producer must already have signed the tag.
+          test -n "$RELEASE_TAG_ALLOWED_SIGNERS" || {
+            echo "::error::release-promotion needs RELEASE_TAG_ALLOWED_SIGNERS public trust material"; exit 1;
+          }
+          printf '%s\n' "$RELEASE_TAG_ALLOWED_SIGNERS" > "$RUNNER_TEMP/publication-allowed-signers"
+          python "$RUNNER_TEMP/publication-trust/tools/tag_signing.py" verify-remote \
+            honua-release "$PUBLICATION_TAG" --remote "$PUBLICATION_REMOTE" \
+            --target "$CERTIFIED_SHA" --allowed-signers "$RUNNER_TEMP/publication-allowed-signers" \
+            --output signed-tag-receipt.json
+
       - name: Install cosign (Sigstore)
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign the certified inputs + release outputs (keyless / OIDC)
@@ -323,6 +352,7 @@ jobs:
             candidate/platform-manifest.yaml \
             candidate/compatibility-matrix.yaml \
             candidate/platform-lock.json \
+            signed-tag-receipt.json \
             finalized-manifest.yaml \
             bom.cdx.json; do
             cosign sign-blob --yes "$f" --bundle "$f.bundle"
@@ -333,7 +363,7 @@ jobs:
           echo "    --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/promote.yml@.*' \\"
           echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
 
-      - name: Create the platform release (tag + GitHub Release)
+      - name: Create the platform release for the verified signed tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -346,7 +376,7 @@ jobs:
           fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
-            --target "${{ steps.train.outputs.source_sha }}" \
+            --verify-tag \
             --title "Honua ${BASE}" \
             --notes-file release-notes.md \
             candidate/gate-report.json \
@@ -361,6 +391,8 @@ jobs:
             candidate/compatibility-ledger.v1.json \
             candidate/SDK-SERVER-COMPATIBILITY.md \
             candidate/platform-release.v1.json \
+            signed-tag-receipt.json \
+            signed-tag-receipt.json.bundle \
             finalized-manifest.yaml \
             bom.cdx.json \
             finalized-manifest.yaml.bundle \
