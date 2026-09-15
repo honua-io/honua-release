@@ -56,6 +56,7 @@ import trunk_reachability as tr  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
+REQUIREMENTS_PATH = REPO_ROOT / "certification" / "protocol-certification-requirements.v1.json"
 
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
@@ -95,6 +96,10 @@ class Findings:
 # --------------------------------------------------------------------------------------------------
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _load_yaml_at_ref(ref: str, rel_path: str) -> dict | None:
@@ -239,6 +244,42 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
     _check_evidence_sources(manifest.get("evidenceSources"), f)
 
 
+def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Findings) -> None:
+    """A bound ledger may only certify the SDK producers frozen by the manifest."""
+    ledger = ((manifest.get("protocolCertification") or {}).get("ledger") or {})
+    if ledger.get("status") != "bound":
+        return
+
+    components = manifest.get("components") or {}
+    source_revisions = requirements.get("source_revisions")
+    if not isinstance(source_revisions, dict):
+        f.error("manifest: bound protocol certification ledger requires catalog source_revisions")
+        return
+    artifacts = manifest.get("clientArtifacts") or {}
+    for source, component, artifact in (
+        ("sdk-dotnet", "honua-sdk-dotnet", "honua-sdk-dotnet"),
+        ("sdk-python", "honua-sdk-python", "honua-sdk-python-wheel"),
+        ("sdk-js", "honua-sdk-js", "honua-sdk-js"),
+    ):
+        manifest_sha = (components.get(component) or {}).get("sha")
+        producer = source_revisions.get(source)
+        catalog_sha = producer.get("commit") if isinstance(producer, dict) else None
+        if not _full_sha(catalog_sha) or catalog_sha != manifest_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal components.{component}.sha "
+                f"(catalog={catalog_sha or 'missing'}, manifest={manifest_sha or 'missing'})"
+            )
+        published = artifacts.get(artifact)
+        published_sha = published.get("sourceSha") if isinstance(published, dict) else None
+        if not _full_sha(published_sha) or catalog_sha != published_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal clientArtifacts.{artifact}.sourceSha "
+                f"(catalog={catalog_sha or 'missing'}, published={published_sha or 'missing'})"
+            )
+
+
 def _mapping(value: object, path: str, f: Findings) -> dict:
     if not isinstance(value, dict) or not value:
         f.error(f"manifest: {path} must be a non-empty mapping")
@@ -334,6 +375,9 @@ def check_exact_candidate(
     manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
 ) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
+    if ledger.get("status") != "bound":
+        f.error("exact-candidate: protocol certification ledger must be bound before certification")
     candidate = manifest.get("candidate") or {}
     ref_source = candidate.get("refSource")
     if ref_source != "trunk":
@@ -544,12 +588,16 @@ def validate(
     baseline_matrix: dict | None,
     exact_candidate: bool = False,
     reachability_client: tr.APIClient | None = None,
+    requirements: dict | None = None,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
+    if requirements is None:
+        requirements = _load_json(REQUIREMENTS_PATH)
+    check_bound_catalog_pin_coherence(manifest, requirements, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
@@ -564,12 +612,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drift", action="store_true", help="skip drift even if --baseline is given")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--matrix", default=str(MATRIX_PATH))
+    ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
     matrix = _load_yaml(Path(args.matrix))
+    requirements = _load_json(Path(args.requirements))
 
     baseline_matrix: dict | None = None
     if args.baseline and not args.no_drift:
@@ -592,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
         baseline_matrix,
         exact_candidate=args.exact_candidate,
         reachability_client=reachability_client,
+        requirements=requirements,
     )
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
