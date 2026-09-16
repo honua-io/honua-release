@@ -40,7 +40,7 @@ def test_plan_golden_uses_frozen_pins_without_network(tmp_path):
     assert pins["sdk-dotnet"] == ("6ba49ec", "manifest/frozen")
     assert pins["sdk-python"] == ("40ecf73", "manifest/frozen")
     assert pins["sdk-js"] == ("d7cec2d", "manifest/frozen")
-    assert pins["server-certification"] == ("8862065", "manifest/frozen")
+    assert pins["server-certification"] == ("87966c3", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
 
 
