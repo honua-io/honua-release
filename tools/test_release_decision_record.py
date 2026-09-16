@@ -113,6 +113,17 @@ def test_working_candidate_is_rendered_without_cutting_the_candidate():
     assert 'Working candidate' not in decision.render(without, rows)
 
 
+def test_working_candidate_note_is_rendered_and_optional():
+    data = json.loads(decision.INPUTS.read_text())
+    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    wc = data['working_candidate']
+    assert wc['note'] in decision.render(data, rows)
+    stripped = {k: v for k, v in wc.items() if k != 'note'}
+    record = decision.render({**data, 'working_candidate': stripped}, rows)
+    assert wc['note'] not in record
+    assert f'**Working candidate {wc["label"]}' in record
+
+
 def test_closed_implementation_never_proves_candidate():
     row = issue('priority/P0')
     row['state'] = 'closed'
