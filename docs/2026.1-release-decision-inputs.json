@@ -122,13 +122,13 @@
   "working_candidate": {
     "label": "2026.1.1-rc.1",
     "status": "proposed re-pin; HOLD; not a cut",
-    "observed_at": "2026-09-14T23:20:00Z",
+    "observed_at": "2026-09-16T03:00:00Z",
     "train": "https://github.com/honua-io/honua-release/actions/runs/34906748315",
     "pins": [
       [
         "honua-server",
-        "548b7a5263da5a3f2381eb43f232687cdf92b0bf",
-        "proposed imaged trunk re-pin (release#348 ruling A); AOT index `sha256:29974ee7b722e3ae15c3b891024e5e70800f412188aeccf5ec3d32d9dac675c1`; Lambda amd64 `sha256:4d15f1c8c6653cb7eaa2a9e86a37bbd274b77a72647447abe9b8b8e3006ea66d`; nightly build 34899113541 and full CI matrix 34899117403 pass; `gp-outputs` DR cell passes"
+        "886206527cc97bad1bbaa5fa6358910ebc45e9c0",
+        "proposed imaged trunk re-pin (release#348 ruling A, second re-pin; 53 commits past 548b7a5); AOT index `sha256:0b16046533e5330ecdd48255c06b5397e869191299e1e5e8cc7b4b2ded60b388`; Lambda amd64 `sha256:c65d3d5c4a349033819b8223dc4a825590eb5fd8546924c5057fceff054fdd4a`; nightly build 35039721236 and full CI matrix 35039723809 pass; carries honua-server#4912 (glibc AOT GeoParquet), #4918/#4926 (tile output cache), #4885 (soak key-ring boot) and #4949 (arm64 AOT Skia)"
       ],
       [
         "honua-sdk-js",
@@ -198,7 +198,7 @@
         "downstream of the red gates per the train needs graph"
       ]
     ],
-    "server_image_digest": "sha256:29974ee7b722e3ae15c3b891024e5e70800f412188aeccf5ec3d32d9dac675c1"
+    "server_image_digest": "sha256:0b16046533e5330ecdd48255c06b5397e869191299e1e5e8cc7b4b2ded60b388"
   },
   "issues": [
     {"repo": "geospatial-grpc", "number": 88, "title": "test(certification): emit normalized multi-client gRPC release evidence", "state": "open", "labels": ["area/ci", "area/grpc", "bucket/must-fix-before-cut", "first-release-gate", "priority/P1", "release/2026.1", "size/M", "state/blocked", "test"], "body_sha256": "d4766f48bf30b04374a60340d846a7d75c1094b7d4309bd7e30f8679adad82e5", "updated_at": "2026-09-06T08:29:49Z", "family": {"packet": "dispatch/queue/28-grpc-88-publish-github-packages.md", "status": "queued", "flow_commit": "f238710e0713a0ffc37e647afbad83f6363d89fc"}},

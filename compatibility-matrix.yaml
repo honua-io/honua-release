@@ -99,12 +99,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-09-14 server re-pin (7ba4226 -> 548b7a5, release#348).
-    deploysServerImage: "sha:548b7a5263da5a3f2381eb43f232687cdf92b0bf"
+    # if it drifts. Advanced with the 2026-09-16 server re-pin (548b7a5 -> 8862065, release#348).
+    deploysServerImage: "sha:886206527cc97bad1bbaa5fa6358910ebc45e9c0"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-09-14 server re-pin.
-    appVersion: "sha:548b7a5263da5a3f2381eb43f232687cdf92b0bf"
+    # Same coupling as honua-iac above; advanced with the 2026-09-16 server re-pin.
+    appVersion: "sha:886206527cc97bad1bbaa5fa6358910ebc45e9c0"
 
 data:
   honua-server:
@@ -120,6 +120,11 @@ data:
     # 2026-09-11 candidate re-pin to 7ba4226: the migration-filename floor is
     # 115_AddDropImportStagingTable.sql (`git ls-tree 7ba4226 src/Honua.Server/Migrations/`). The
     # DbUp journal read-back above was NOT repeated for this pin.
+    # 2026-09-16 re-pin to 8862065 moves manifest honua-server.dbSchema to 119
+    # (119_CreateGeoprocessingWorkspaces.sql). This field is the CLIENT-COMPATIBILITY FLOOR, not the
+    # candidate's schema: it stays at >=115 deliberately so clients certified against 115..119 remain
+    # in range. validate_platform.check_coherence only compares the two when this value is not a
+    # range, so the >= form is what keeps them independent.
     requiresDbSchema: ">=115"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.
