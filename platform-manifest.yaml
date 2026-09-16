@@ -420,13 +420,22 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    sha: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"   # branch: trunk HEAD at re-pin time
-    # Public multi-architecture candidate built from this SHA by Console Container run 32369440068.
-    # That run smoke-tested the digest, attached provenance, verified anonymous GHCR pull access,
-    # and promoted the same digest to immutable and floating nightly tags.
-    image: "ghcr.io/honua-io/honua-console:candidate-2cd3a73a6b10-32369440068-1"
-    digest: "sha256:f758bff932d4be9fb5831b3959bf294c2547834072d0781e0076a9012be204da"
-    artifactSourceRevision: "2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+    # 2026-09-16 RE-PIN (honua-server#3365 residual): 2cd3a73a -> dcb9eb2b. The old pin predates the
+    # focused 2026.1 operator client (honua-console#338, merge 95164a72) and the operator-bound reads
+    # and map proxy (honua-console#360, merge 274aa02c); it lacks /operate/release-witness and the
+    # read/approve receipt producer. dcb9eb2b is trunk HEAD, contains both merges, and is the newest
+    # sha with a published candidate:
+    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-console:candidate-dcb9eb2b39ed-34879792105-1
+    #   Digest: sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619
+    #   linux/amd64 -> sha256:78a66dd0b0959fc1b035f89255ff4616cd739dfee7c32751c4af5efa584d7b95
+    #   linux/arm64 -> sha256:87d05274963736f2bd04a857ce27f62dc21b8d0a80736e9745b1abe0a7360a54
+    sha: "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"   # branch: trunk HEAD at re-pin time
+    # Public multi-architecture candidate built from this SHA by Console Container run 34879792105.
+    # That run verified CI on the trunk head, smoke-tested the digest, attached provenance, verified
+    # anonymous GHCR pull access, and promoted the same digest to the floating nightly tag.
+    image: "ghcr.io/honua-io/honua-console:candidate-dcb9eb2b39ed-34879792105-1"
+    digest: "sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619"
+    artifactSourceRevision: "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"
     architectures: [amd64, arm64]
 
   honua-sdk-dotnet:
