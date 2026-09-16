@@ -14,7 +14,7 @@ Every image is pinned by digest, and `run.py` records every image ID:
 - the Console image pinned by the `honua-console` component of `--manifest`. Its baked `HONUA_CONSOLE_COMMIT_SHA` must equal the manifest `sha`. It runs as `Production` in `witness` mode with **no admin API key**;
 - a Caddy trusted edge, the only published route to the Console. It replaces the client's identity headers with the operator identity and strips any access token.
 
-`run.py` generates every secret fresh for the run: database password, bootstrap admin password, bearer signing key, IdP client secret, edge secret and operator password. Nothing is written to the repository. Before writing a receipt, the harness checks it and every captured Console page for any generated secret or minted key, and refuses to write if one appears.
+`run.py` generates every secret fresh for the run: database password, bootstrap admin password, bearer signing key, IdP client secret, edge secret and operator password. Secrets travel only through process environments: the compose file and realm import carry `${VAR}` placeholders, so no secret is written to disk. Before writing a receipt, the harness checks it and every captured Console page for any generated secret or minted key, and refuses to write if one appears.
 
 ## Checks
 

@@ -134,35 +134,35 @@
       ]
     },
     "consoleOperatorWitness": {
-      "capturedPagesSha256": "7477bc2e6ac07ee788add4a637efdd06c8b33ce734599123bdd0236db7e5b249",
+      "capturedPagesSha256": "d1525c7cec85461e57a29714f64a3ba97f1e74a21695bcf07818315f3c473361",
       "credentialMaterialInCapturedPages": false,
       "error": null,
       "observations": {
         "beforeServerSignIn": {
-          "detail": "PROPOSAL REVIEW Permission required The honua-server proposals API returned 401 for GET api/v1/admin/proposals/proposal-f83282cd37b1466cbde1a4e887f334e4. Technical detail",
+          "detail": "PROPOSAL REVIEW Permission required The honua-server proposals API returned 401 for GET api/v1/admin/proposals/proposal-343089510b14406eb3af8de28098e3df. Technical detail",
           "page": "/approvals",
           "proposalStatusRendered": false
         },
         "inbox": {
           "proposalIds": [
-            "proposal-eb1fa304a4224e3bb00ddb891f745fcc"
+            "proposal-957e75ead7d246b2a6baca57c10e6b4b"
           ],
-          "text": "Preview \u2014 this surface is outside the focused 2026.1 inspect, approve, operate and recover client. HUMAN-IN-THE-LOOP Approval inbox The work queue for agent-proposed operations. Agents and APIs do the writing; you review the plan, diff, dry-run, and risk here and authorize the outcome. Approve or reject through the server's governed, audited approval endpoints. Live Refresh 1 awaiting approval 1 in the queue All 1 Other 1 Other awaiting approval high risk Execute studio.draft.delete with its accepted typed payload. proposal-eb1fa304a4224e3bb00ddb891f745fcc \u00b7 00000000-0000-0000-0000-00000000000"
+          "text": "Preview \u2014 this surface is outside the focused 2026.1 inspect, approve, operate and recover client. HUMAN-IN-THE-LOOP Approval inbox The work queue for agent-proposed operations. Agents and APIs do the writing; you review the plan, diff, dry-run, and risk here and authorize the outcome. Approve or reject through the server's governed, audited approval endpoints. Live Refresh 1 awaiting approval 1 in the queue All 1 Other 1 Other awaiting approval high risk Execute studio.draft.delete with its accepted typed payload. proposal-957e75ead7d246b2a6baca57c10e6b4b \u00b7 00000000-0000-0000-0000-00000000000"
         },
         "proposals": {
           "approve": {
             "approveControlRendered": false,
-            "proposalId": "proposal-f83282cd37b1466cbde1a4e887f334e4",
+            "proposalId": "proposal-343089510b14406eb3af8de28098e3df",
             "status": "Succeeded"
           },
           "pending": {
             "approveControlRendered": true,
-            "proposalId": "proposal-eb1fa304a4224e3bb00ddb891f745fcc",
+            "proposalId": "proposal-957e75ead7d246b2a6baca57c10e6b4b",
             "status": "AwaitingApproval"
           },
           "reject": {
             "approveControlRendered": false,
-            "proposalId": "proposal-d6a7f3afc2334437b2ff5756c3ae3f4d",
+            "proposalId": "proposal-f6b6443b18984ca4ad6774668ee578dd",
             "status": "Rejected"
           }
         },
@@ -203,7 +203,7 @@
           "draftAfter": 404,
           "executionOperationId": null,
           "httpStatus": 200,
-          "proposalId": "proposal-f83282cd37b1466cbde1a4e887f334e4",
+          "proposalId": "proposal-343089510b14406eb3af8de28098e3df",
           "resolvedByScopedKey": true,
           "status": "Succeeded"
         },
@@ -212,7 +212,7 @@
           "draftAfter": 200,
           "executionOperationId": null,
           "httpStatus": 200,
-          "proposalId": "proposal-d6a7f3afc2334437b2ff5756c3ae3f4d",
+          "proposalId": "proposal-f6b6443b18984ca4ad6774668ee578dd",
           "resolvedByScopedKey": true,
           "status": "Rejected"
         }
@@ -291,7 +291,7 @@
   "notExercised": {
     "sealedTerminalHandoff": "The canonical Console receipt producer (npm run receipt:console) requires the sealed paused Studio handoff honua.studio.real-model-ai-arc-handoff/v1 and a zero-to-map checkpoint paused at console-approval. The handoff producer (release:real-model-ai-arc) exists only on unmerged honua-studio#45, and the terminal journey is still blocked (honua-release#122/#123), so no sealed handoff exists to consume. It was not simulated."
   },
-  "observedAt": "2026-09-16T18:42:23Z",
+  "observedAt": "2026-09-16T19:06:14Z",
   "operator": {
     "credential": "server-issued operator bearer",
     "distinctFromApiKeys": true,

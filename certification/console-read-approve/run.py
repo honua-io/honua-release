@@ -8,8 +8,9 @@ server, and has the pinned Console, signed in as a SEPARATE human operator
 through the server-issued operator bearer, witness the exact proposals that
 the scoped key resolved.
 
-Credentials are generated per run, held in memory or in a private temporary
-directory, and never written to the receipt. The receipt refuses to be written
+Credentials are generated per run and travel only through process environments:
+compose and realm files carry ${VAR} placeholders, so no secret is written to disk
+or to the receipt. The receipt refuses to be written
 if any generated secret appears in it or in a captured Console page.
 
 This is not the sealed terminal-journey receipt: the Console producer's sealed
@@ -26,6 +27,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import ssl
 import subprocess
 import tempfile
 import time
@@ -109,6 +111,12 @@ def prove(args):
     secrets_in_play.append(admin_password)
     db_password, master_key, bearer_key = secret(), secret(), secret()
     client_secret, edge_secret, operator_password = secret(), secret(), secret()
+    # Secrets never reach disk: compose files and the realm carry ${VAR} placeholders that docker compose
+    # and Keycloak resolve from this process environment.
+    stack_env = dict(os.environ, RECEIPT_ADMIN_PASSWORD=admin_password, RECEIPT_DB_PASSWORD=db_password,
+                     RECEIPT_MASTER_KEY=master_key, RECEIPT_BEARER_KEY=bearer_key,
+                     RECEIPT_CLIENT_SECRET=client_secret, RECEIPT_EDGE_SECRET=edge_secret,
+                     RECEIPT_OPERATOR_PASSWORD=operator_password)
     project = "console-read-approve-" + uuid.uuid4().hex[:10]
     console_port, server_port, idp_port = free_port(), free_port(), free_port()
     console_origin = f"http://127.0.0.1:{console_port}"
@@ -158,11 +166,12 @@ def prove(args):
             "roles": {"realm": [{"name": "admin"}, {"name": "user"}]},
             "users": [{"username": "release-operator", "enabled": True, "email": "release-operator@honua.invalid",
                        "emailVerified": True, "firstName": "Release", "lastName": "Operator",
-                       "credentials": [{"type": "password", "value": operator_password, "temporary": False}],
+                       "credentials": [{"type": "password", "value": "${RECEIPT_OPERATOR_PASSWORD}",
+                                        "temporary": False}],
                        "realmRoles": ["admin", "user"]}],
             "clients": [{
                 "clientId": "honua-console-bff", "enabled": True, "protocol": "openid-connect",
-                "publicClient": False, "secret": client_secret, "standardFlowEnabled": True,
+                "publicClient": False, "secret": "${RECEIPT_CLIENT_SECRET}", "standardFlowEnabled": True,
                 "directAccessGrantsEnabled": False, "serviceAccountsEnabled": False,
                 "redirectUris": [f"{console_origin}/admin/auth/callback"], "webOrigins": [console_origin],
                 "attributes": {"pkce.code.challenge.method": "S256"},
@@ -189,10 +198,10 @@ def prove(args):
             "ASPNETCORE_ENVIRONMENT": "Development",
             "ASPNETCORE_URLS": "http://+:8080",
             "ConnectionStrings__DefaultConnection":
-                f"Host=postgres;Database=honua;Username=honua;Password={db_password}",
+                "Host=postgres;Database=honua;Username=honua;Password=${RECEIPT_DB_PASSWORD}",
             "ConnectionStrings__Redis": "redis:6379",
-            "HONUA_ADMIN_PASSWORD": admin_password,
-            "Security__ConnectionEncryption__MasterKey": master_key,
+            "HONUA_ADMIN_PASSWORD": "${RECEIPT_ADMIN_PASSWORD}",
+            "Security__ConnectionEncryption__MasterKey": "${RECEIPT_MASTER_KEY}",
             "HostValidation__AllowedHosts__0": "127.0.0.1",
             "HostValidation__AllowedHosts__1": "server",
             "Licensing__DevGrantEdition": "Pro",
@@ -203,14 +212,14 @@ def prove(args):
             "Oidc__Generic__DisplayName": "Release operator IdP",
             "Oidc__Generic__Authority": f"{idp_origin}/realms/honua",
             "Oidc__Generic__ClientId": "honua-console-bff",
-            "Oidc__Generic__ClientSecret": client_secret,
+            "Oidc__Generic__ClientSecret": "${RECEIPT_CLIENT_SECRET}",
             "Authentication__OperatorBearer__Enabled": "true",
-            "Authentication__OperatorBearer__SigningKey": bearer_key,
+            "Authentication__OperatorBearer__SigningKey": "${RECEIPT_BEARER_KEY}",
             "SSL_CERT_FILE": "/certs/kc.crt",
         }
         compose = {"services": {
             "postgres": {"image": POSTGIS_IMAGE, "environment": {
-                "POSTGRES_DB": "honua", "POSTGRES_USER": "honua", "POSTGRES_PASSWORD": db_password},
+                "POSTGRES_DB": "honua", "POSTGRES_USER": "honua", "POSTGRES_PASSWORD": "${RECEIPT_DB_PASSWORD}"},
                 "healthcheck": {"test": ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"],
                                 "interval": "2s", "retries": 30}},
             "redis": {"image": REDIS_IMAGE, "command": ["redis-server", "--appendonly", "yes"]},
@@ -219,7 +228,9 @@ def prove(args):
                 "environment": {
                     "KC_HOSTNAME": idp_origin, "KC_HTTP_ENABLED": "false", "KC_HTTPS_PORT": str(idp_port),
                     "KC_HTTPS_CERTIFICATE_FILE": "/opt/keycloak/certs/kc.crt",
-                    "KC_HTTPS_CERTIFICATE_KEY_FILE": "/opt/keycloak/certs/kc.key", "KC_HEALTH_ENABLED": "true"},
+                    "KC_HTTPS_CERTIFICATE_KEY_FILE": "/opt/keycloak/certs/kc.key", "KC_HEALTH_ENABLED": "true",
+                    "RECEIPT_OPERATOR_PASSWORD": "${RECEIPT_OPERATOR_PASSWORD}",
+                    "RECEIPT_CLIENT_SECRET": "${RECEIPT_CLIENT_SECRET}"},
                 "volumes": [f"{certs}:/opt/keycloak/certs:ro", f"{realm_dir}:/opt/keycloak/data/import:ro"],
                 "ports": [f"127.0.0.1:{idp_port}:{idp_port}"],
                 # The IdP is addressed by one issuer URL from the server container and the browser.
@@ -232,7 +243,7 @@ def prove(args):
             # identity headers with the operator identity and never forwards an access token, so the
             # Console can reach honua-server only through the bearer it exchanges for the operator.
             "edge": {"image": CADDY_IMAGE, "ports": [f"127.0.0.1:{console_port}:8080"],
-                     "environment": {"EDGE_SECRET": edge_secret},
+                     "environment": {"EDGE_SECRET": "${RECEIPT_EDGE_SECRET}"},
                      "volumes": [f"{work / 'Caddyfile'}:/etc/caddy/Caddyfile:ro"],
                      "depends_on": ["console"]},
             "console": {"image": console_image,
@@ -242,7 +253,7 @@ def prove(args):
                             "HONUA_CONSOLE_MODE": "witness",
                             "Honua__Console__Auth__Mode": "EdgeForwarded",
                             "Honua__Console__Auth__EdgeForwarded__Enabled": "true",
-                            "Honua__Console__Auth__EdgeForwarded__SharedSecret": edge_secret},
+                            "Honua__Console__Auth__EdgeForwarded__SharedSecret": "${RECEIPT_EDGE_SECRET}"},
                         "depends_on": ["server"]},
         }}
         compose_path = work / "compose.json"
@@ -262,7 +273,7 @@ def prove(args):
         os.chmod(work / "Caddyfile", 0o644)
 
         def dc(*arguments):
-            return run("docker", "compose", "-p", project, "-f", str(compose_path), *arguments)
+            return run("docker", "compose", "-p", project, "-f", str(compose_path), *arguments, env=stack_env)
 
         def up():
             compose_path.write_text(json.dumps(compose))
@@ -319,6 +330,11 @@ def prove(args):
             server_ready()
             wait(lambda: urllib.request.urlopen(f"{console_origin}/version.json", timeout=5).status == 200,
                  "Console")
+            # The server resolves OIDC discovery lazily at sign-in; the IdP must have imported its realm first.
+            idp_tls = ssl.create_default_context(cafile=str(certs / "kc.crt"))
+            wait(lambda: urllib.request.urlopen(
+                f"https://localhost:{idp_port}/realms/honua/.well-known/openid-configuration",
+                timeout=5, context=idp_tls).status == 200, "Identity provider realm", seconds=300)
             version = expect("/api/v1/admin/version", 200)
             version = version.get("data", version) if isinstance(version, dict) else {}
             receipt["server"]["reportedVersion"] = version.get("version")
@@ -494,7 +510,7 @@ def prove(args):
             Path(args.output).write_text(serialized)
             if not args.keep:
                 subprocess.run(["docker", "compose", "-p", project, "-f", str(compose_path), "down", "-v"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                               env=stack_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def main():
