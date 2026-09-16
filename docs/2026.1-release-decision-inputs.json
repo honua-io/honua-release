@@ -120,10 +120,10 @@
     }
   ],
   "working_candidate": {
-    "label": "2026.1-rc.2",
+    "label": "2026.1.1-rc.1",
     "status": "proposed re-pin; HOLD; not a cut",
-    "observed_at": "2026-09-16T05:19:44Z",
-    "train": "https://github.com/honua-io/honua-release/actions/runs/35058450054",
+    "observed_at": "2026-09-16T09:53:00Z",
+    "train": "https://github.com/honua-io/honua-release/actions/runs/35080146218",
     "pins": [
       [
         "honua-server",
@@ -160,27 +160,27 @@
       [
         "freeze; gate_manifest / validate",
         "pass",
-        "Candidate manifest `sha256:120a99cb\u2026` (58,552 B) and matrix `sha256:99c7b7ca\u2026` frozen and published as the set the gates certify; structure/coherence pass."
+        "Candidate manifest `sha256:b4f891e0\u2026` (60,226 B) and matrix `sha256:9f1dc533\u2026` frozen from branch `release/repin-server-20260916b` and published as the set the gates certify; structure/coherence pass."
       ],
       [
         "gate_build_test / build-test",
-        "pass",
-        "honua-server 140/140 core check-runs green and full matrix 35039703362 complete; all eight other components pass (sdk-python `staging-smoke` env-gated)."
+        "fail",
+        "honua-server `1/139 core check-run(s) red`: the scheduled `Load/Soak Nightly` run [35072533979](https://github.com/honua-io/honua-server/actions/runs/35072533979) landed on this sha, and its `load-soak` harness gives the server no key-ring certificate, so it exits before readiness (`Operations:SecretChannel:KeyRingCertificatePath` is required). Attempt 2 fails identically. This is a harness gap, red on every nightly since 2026-09-12 and not a candidate defect: [honua-server#4968](https://github.com/honua-io/honua-server/issues/4968) ports the #4902 key-ring step. Full matrix 35070122937 completed with all expected lanes; all eight other components pass (sdk-python `staging-smoke` env-gated)."
       ],
       [
         "gate_e2e / slice1, gate_e2e / seam",
         "pass",
-        "Local-docker boot of the pinned candidate `nightly-8862065@sha256:0b16046\u2026`; both cells assert the 2026.1 licensing contract \u2014 `licensing-disabled: PASS mode: disabled` (slice1) and `[PASS] licensing-disabled: admin license mode: disabled` (seam)."
+        "Local-docker boot of the pinned candidate `nightly-87966c3@sha256:069f196\u2026`; both cells assert the 2026.1 licensing contract \u2014 `licensing-disabled: PASS mode: disabled` (slice1) and `[PASS] licensing-disabled: admin license mode: disabled` (seam)."
       ],
       [
         "gate_dr / receipt",
-        "pass",
-        "Full-platform receipt from run [35051363887](https://github.com/honua-io/honua-release/actions/runs/35051363887) binds `candidateLockDigest sha256:120a99cb\u2026` \u2014 the frozen manifest bytes \u2014 with restart recovery observed on all six durable substrates, rpoMs 1426, rtoMs 21848. Clears the lineage failure of the previous run and [honua-release#343](https://github.com/honua-io/honua-release/issues/343)."
+        "fail",
+        "Receipt-to-candidate binding: the supplied receipt from run [35051363887](https://github.com/honua-io/honua-release/actions/runs/35051363887) binds `candidateLockDigest sha256:120a99cb\u2026`, which is the 8862065 manifest, not this one. The coordinator re-mints it with `dr-drill-local-docker` against the merged manifest bytes."
       ],
       [
         "gate_capacity_soak / frozen-slo",
-        "pass",
-        "Candidate receipt from run [35051361606](https://github.com/honua-io/honua-server/actions/runs/35051361606) at `886206527cc9` under the pre-frozen lock `5a19b346\u2026`, 3600 s steady state. Clears the [honua-server#4885](https://github.com/honua-io/honua-server/issues/4885) key-ring boot failure."
+        "fail",
+        "Receipt-to-candidate binding: the supplied receipt from run [35051361606](https://github.com/honua-io/honua-server/actions/runs/35051361606) is at `886206527cc9` (`candidate revision does not match the manifest-pinned honua-server SHA`). The coordinator re-mints it with `capacity-soak-candidate` against `87966c3f` / `sha256:069f196\u2026` after merge."
       ],
       [
         "artifact-consume, evidence, sbom, security, contract, gate_dr / contract",
@@ -195,7 +195,7 @@
       [
         "gate_observability / slo",
         "skipped",
-        "The scraped instance `deploymentRevision=f8977001` is not the pinned candidate, so an error budget measured there belongs to a different build; the metric contract itself passes."
+        "The scraped instance is not the pinned candidate, so an error budget measured there belongs to a different build; the metric contract itself passes."
       ],
       [
         "gate_upgrade",
@@ -205,21 +205,16 @@
       [
         "gate_one_operation_rollback / certify",
         "fail",
-        "`ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING`. Root cause: `platform-manifest.yaml` declares only the multi-arch index `digest` for honua-server and no `platformDigests`, so `generate_platform_lock.py` refuses that AT-CUT and the dry-run draft lock carries no `/components/honua-server/artifacts/0/platformDigests/amd64` \u2014 the exact pointer `certify_release_rollback.py` dereferences. A lock-shape gap owned by [#231](https://github.com/honua-io/honua-release/issues/231) (\"image digests+architectures\"), not a candidate defect: it fails identically on the two previous pins."
+        "`ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING`. Root cause: `platform-manifest.yaml` declares only the multi-arch index `digest` for honua-server and no `platformDigests`, so `generate_platform_lock.py` refuses that AT-CUT and the dry-run draft lock carries no `/components/honua-server/artifacts/0/platformDigests/amd64` \u2014 the exact pointer `certify_release_rollback.py` dereferences. A lock-shape gap owned by [#231](https://github.com/honua-io/honua-release/issues/231) (\"image digests+architectures\"), not a candidate defect: it fails identically on the three previous pins."
       ],
       [
-        "gate_conformance / report",
-        "fail",
-        "External evidence is bound to a different build: the Esri bundle certifies `sha256:78e3088d\u2026` while the manifest pins `sha256:0b16046\u2026` (13 lane failures), and CITE evidence sha `b8ea218d` has diverged from candidate `886206`. The standing post-re-pin evidence chase, also red on trunk nightly; not a re-pin regression."
-      ],
-      [
-        "gate_protocol_certification, gate_docs",
+        "gate_conformance, gate_protocol_certification, gate_docs",
         "skipped",
-        "downstream of gate_conformance per the train needs graph. gate_docs re-run standalone on the same trunk sha under **strict** enforcement is green: run [35059221208](https://github.com/honua-io/honua-release/actions/runs/35059221208)."
+        "gate_conformance `needs: gate_build_test`, so it did not run and its two dependents skipped with it. On 8862065 it was red only because external Esri/CITE evidence is bound to other builds. gate_docs re-run standalone on this branch under **strict** enforcement is green: run [35081745989](https://github.com/honua-io/honua-release/actions/runs/35081745989)."
       ]
     ],
     "server_image_digest": "sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
-    "note": "No license input reaches this train: its `workflow_dispatch` surface is exactly `platform_label`, `dry_run`, `capacity_receipt_url` and `dr_receipt_url`, and no license envelope, minting key, edition input or `secrets.*LICENSE*`/`vars.*LICENSE*` reference remains anywhere under `.github/`, `e2e/`, `certification/` or `tools/`. Deployed-candidate licensing assertions on this pin: gate_e2e slice1 and seam above; installed-client certification [35059223231](https://github.com/honua-io/honua-release/actions/runs/35059223231), which boots the candidate image and records `licensing-disabled: PASS mode: disabled`; and terminal-journey stage `1.2-licensing-disabled` over `GET /api/v1/admin/license` ([35059225451](https://github.com/honua-io/honua-release/actions/runs/35059225451)). See [release#338](https://github.com/honua-io/honua-release/issues/338)."
+    "note": "No license input reaches this train: its `workflow_dispatch` surface is exactly `platform_label`, `dry_run`, `capacity_receipt_url` and `dr_receipt_url`, and no license envelope, minting key, edition input or `secrets.*LICENSE*`/`vars.*LICENSE*` reference remains anywhere under `.github/`, `e2e/`, `certification/` or `tools/`. Deployed-candidate licensing assertions on this pin: gate_e2e slice1 and seam above; installed-client certification [35081740780](https://github.com/honua-io/honua-release/actions/runs/35081740780), which boots the candidate image and records `licensing-disabled: PASS mode: disabled`; and terminal-journey stage `1.2-licensing-disabled` over `GET /api/v1/admin/license` ([35081743407](https://github.com/honua-io/honua-release/actions/runs/35081743407)). See [release#338](https://github.com/honua-io/honua-release/issues/338)."
   },
   "issues": [
     {"repo": "geospatial-grpc", "number": 88, "title": "test(certification): emit normalized multi-client gRPC release evidence", "state": "open", "labels": ["area/ci", "area/grpc", "bucket/must-fix-before-cut", "first-release-gate", "priority/P1", "release/2026.1", "size/M", "state/blocked", "test"], "body_sha256": "d4766f48bf30b04374a60340d846a7d75c1094b7d4309bd7e30f8679adad82e5", "updated_at": "2026-09-06T08:29:49Z", "family": {"packet": "dispatch/queue/28-grpc-88-publish-github-packages.md", "status": "queued", "flow_commit": "f238710e0713a0ffc37e647afbad83f6363d89fc"}},
