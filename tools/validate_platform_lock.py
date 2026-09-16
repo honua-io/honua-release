@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from component_versions import FLOATING_TAGS
+
 from release_facts import (
     CONTENT_DIGEST_FACTS,
     evidence_reference,
@@ -33,7 +35,6 @@ LOCK_SCHEMA = REPO_ROOT / "schemas" / "platform-lock.v1.schema.json"
 
 PLACEHOLDER_RE = re.compile(r"(?:^|[-_ ])(?:tbd|todo|unknown|unresolved)(?:$|[-_ :])", re.I)
 CARRIED_FORWARD_RE = re.compile(r"carried[ -]?forward|carry[ -]?forward", re.I)
-FLOATING_TAGS = {"latest", "nightly", "nightly-aot", "edge", "dev", "main", "master", "trunk", "stable"}
 EXACT_VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

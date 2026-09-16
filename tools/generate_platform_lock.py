@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from component_versions import version_map
+
 from release_facts import (
     CONTENT_DIGEST_FACTS,
     content_digest,
@@ -153,13 +155,24 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         cpath = f"$.components.{name}"
         entry: dict[str, Any] = {
             "source": {"repository": component.get("repository"), "revision": component.get("sha")},
-            "contractVersions": component.get("contractVersions") or {},
+            "contractVersions": {},
             "schemaVersions": {},
             "artifacts": [],
             "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
         }
+        for group in ("contractVersions", "schemaVersions"):
+            if group in component:
+                try:
+                    entry[group] = version_map(component[group])
+                except ValueError as exc:
+                    refuse(f"{cpath}.{group}: {exc}", "MECHANICAL")
         if component.get("dbSchema") is not None:
-            entry["schemaVersions"]["database"] = str(component["dbSchema"])
+            database = str(component["dbSchema"])
+            declared_database = entry["schemaVersions"].get("database")
+            if declared_database is not None and declared_database != database:
+                refuse(f"{cpath}.schemaVersions.database: conflicts with dbSchema", "MECHANICAL")
+            else:
+                entry["schemaVersions"]["database"] = database
             if component.get("migrationJournalSha256"):
                 entry["migrationJournalSha256"] = component["migrationJournalSha256"]
             else:
@@ -185,7 +198,7 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             entry["supportTier"] = lifecycle_status.lower()
         else:
             refuse(f"{cpath}.lifecycleStatus: exact GA/Preview/Experimental/Excluded status is not declared", "DECISION")
-        if not component.get("contractVersions"):
+        if not entry["contractVersions"]:
             resolution = "PUBLISH" if name in {"honua-sdk-dotnet", "honua-sdk-js", "honua-sdk-python"} else "AT-CUT"
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"]:
