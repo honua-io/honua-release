@@ -43,10 +43,50 @@ def validate_bounded_roster(catalog: dict, roster: dict) -> None:
                 f"Bounded client roster cell {key} uses lane {cell['client_lane']!r}; "
                 f"the lane ruling allows {sorted(allowed_lanes)}."
             )
+    preview_capabilities = set(next(
+        ruling for ruling in roster["rulings"] if ruling["id"] == "preview-surfaces"
+    )["preview_capability_keys"])
+    preview_keys = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell
+        for cell in roster["preview_cells"]
+    }
+    not_addressable_keys = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell
+        for cell in roster["not_addressable_cells"]
+    }
+    dispositions = [*cell_keys, *preview_keys, *not_addressable_keys]
+    if len(dispositions) != len(set(dispositions)):
+        raise ValueError("Bounded client roster gives a cell more than one disposition.")
+    governed_test_ids = {cell["test_id"] for cell in cells}
+    for key, cell in preview_keys.items():
+        if cell["capability_key"] not in preview_capabilities:
+            raise ValueError(
+                f"Bounded client roster preview cell {key} names non-Preview capability {cell['capability_key']!r}."
+            )
+        if not all(cell.get(field) for field in ("rationale", "decision", "target_release")):
+            raise ValueError(f"Bounded client roster preview cell {key} needs rationale, decision and target_release.")
+    for key, cell in not_addressable_keys.items():
+        if not cell.get("addressability_reason") or cell.get("governed_by_test_id") not in governed_test_ids:
+            raise ValueError(
+                f"Bounded client roster non-addressable cell {key} needs a reason and a governed_by_test_id "
+                "that names a governed cell."
+            )
     rows: dict[tuple[str, str, str], list[dict]] = {}
     for row in catalog["requirements"]:
         if row["canonical_client"] in clients:
             rows.setdefault((row["canonical_client"], row["surface"], row["operation"]), []).append(row)
+    previewed = sorted(set(rows) & set(preview_keys))
+    if previewed:
+        raise ValueError(f"Bounded client roster Preview cells carry generated requirements: {previewed}")
+    for key, cell in not_addressable_keys.items():
+        matched = rows.pop(key, [])
+        if len(matched) != 1 or matched[0]["addressable_by_client"] is not False \
+                or matched[0]["addressability_reason"] != cell["addressability_reason"] \
+                or matched[0].get("test_ids") or matched[0]["client_lane"] != cell["client_lane"]:
+            raise ValueError(
+                f"Bounded client roster non-addressable cell {key} must match one non-addressable requirement "
+                "with its reason, its lane and no test_ids."
+            )
     if set(rows) != set(cell_keys):
         raise ValueError(
             "Bounded client roster differs from the generated bounded rows "
@@ -56,6 +96,8 @@ def validate_bounded_roster(catalog: dict, roster: dict) -> None:
         if len(rows[key]) != 1:
             raise ValueError(f"Bounded client roster cell {key} matches {len(rows[key])} requirements.")
         row = rows[key][0]
+        if row["capability_key"] in preview_capabilities:
+            raise ValueError(f"Bounded client roster cell {key} governs Preview capability {row['capability_key']!r}.")
         if row["client_lane"] != cell["client_lane"] or row.get("test_ids") != [cell["test_id"]]:
             raise ValueError(
                 f"Bounded requirement {key} must carry lane {cell['client_lane']!r} and exactly "
@@ -71,7 +113,7 @@ def validate_bounded_roster(catalog: dict, roster: dict) -> None:
     claims: dict[tuple[str, str, str, str], int] = {}
     for row in catalog["requirements"]:
         group = (row["client_lane"], row["client_version"], row["surface"])
-        if group in bounded_groups:
+        if group in bounded_groups and row["addressable_by_client"]:
             if not row.get("test_ids"):
                 raise ValueError(f"Requirement sharing a bounded receipt group declares no test_ids: {group}")
             for test_id in row["test_ids"]:
@@ -199,9 +241,23 @@ def main() -> None:
         for row in catalog["requirements"]
     }
     expected_assignments = set()
+    implemented_keys = {
+        capability["key"]
+        for capability in server["capabilities"]
+        if capability.get("maturity", {}).get("implemented")
+    }
+    roster_preview_cells = {
+        (cell["canonical_client"], cell["surface"], cell["operation"])
+        for cell in bounded_roster["preview_cells"]
+    }
     for assignment in assignments["assignments"]:
+        # The generator only emits assignments for implemented capabilities.
+        if assignment["capability_key"] not in implemented_keys:
+            continue
         for client_id in assignment["clients"]:
             client = assignments["clients"][client_id]
+            if (client["name"], assignment["surface"], assignment["capability_key"]) in roster_preview_cells:
+                continue
             expected_assignments.add((
                 assignment["capability_key"],
                 assignment["surface"],
@@ -284,6 +340,7 @@ def main() -> None:
     }
     actual_harness_capabilities = {
         assignment["capability_key"] for assignment in harness_assignments
+        if assignment["capability_key"] in implemented_keys
     }
     if actual_harness_capabilities != expected_harness_capabilities:
         raise ValueError(
@@ -301,6 +358,8 @@ def main() -> None:
             f"server-test-fixtures@{harness_source_sha}", tuple(assignment["test_ids"]),
         )
         for assignment in harness_assignments
+        # The generator only emits harness rows for implemented capabilities.
+        if assignment["capability_key"] in implemented_keys
     }
     present_harness_rows = {
         (

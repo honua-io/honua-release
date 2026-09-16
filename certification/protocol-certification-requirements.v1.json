@@ -1,9 +1,9 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-09-13-complete.12",
+  "revision": "2026-09-16-complete.13",
   "receipt_schema_min": "v2",
   "complete": true,
-  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, exact operation-to-test contracts for the server protocol integration harness, and one governed test ID per bounded 2026.1 external-client cell. The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
+  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, exact operation-to-test contracts for the server protocol integration harness, and one governed test ID per bounded 2026.1 external-client cell. 5 bounded cells on Preview surfaces are excluded by the preview-surfaces roster ruling and 2 cells no released client can exercise remain non-addressable rows (release#351, release#359). The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
   "source_revisions": {
     "server": {
       "repository": "honua-io/honua-server",
@@ -26925,7 +26925,7 @@
       "maturity": "supported",
       "canonical_client": "GDAL",
       "client_lane": "gdal-geoparquet",
-      "client_version": "3.14.0",
+      "client_version": "3.13.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46230,8 +46230,8 @@
       "required_tier": "nightly",
       "licensed": false,
       "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
+      "addressable_by_client": false,
+      "addressability_reason": "The GDAL/OGR OAPIF driver never requests /conformance: GDAL 3.8.4 and 3.13.3 (the newest release) read only the landing page, the service-desc, /collections and items, even when the landing page links conformance and an attribute filter is set, so GDAL/OGR does not exercise this operation on any server.",
       "scenario_facets": [
         "positive",
         "negative",
@@ -46242,10 +46242,7 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-CONFORMANCE"
-      ]
+      "budget_expectations": null
     },
     {
       "capability_key": "serve.ogc",
@@ -46650,8 +46647,8 @@
       "required_tier": "nightly",
       "licensed": false,
       "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
+      "addressable_by_client": false,
+      "addressability_reason": "The GDAL/OGR OAPIF driver is read-only: in GDAL 3.8.4 and 3.13.3 (the newest release) update-mode open fails, SequentialWrite/RandomWrite/DeleteFeature capabilities are false and CreateFeature returns Unsupported operation even against a server that declares create-replace-delete, so GDAL/OGR does not exercise this operation on any server.",
       "scenario_facets": [
         "positive",
         "negative",
@@ -46662,10 +46659,7 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-TRANSACTIONS"
-      ]
+      "budget_expectations": null
     },
     {
       "capability_key": "serve.ogc",
@@ -47283,36 +47277,6 @@
       "surface": "ogc-api-coverages",
       "operation": "serve.ogc-api-coverages",
       "maturity": "supported",
-      "canonical_client": "GDAL",
-      "client_lane": "gdal",
-      "client_version": "3.8.4",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/gdal/ogc-api-coverages/serve.ogc-api-coverages"
-      ]
-    },
-    {
-      "capability_key": "serve.ogc-api-coverages",
-      "surface": "ogc-api-coverages",
-      "operation": "serve.ogc-api-coverages",
-      "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-coverages",
       "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
@@ -47334,36 +47298,6 @@
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc-api-coverages",
-      "surface": "ogc-api-coverages",
-      "operation": "serve.ogc-api-coverages",
-      "maturity": "supported",
-      "canonical_client": "OWSLib",
-      "client_lane": "py-owslib",
-      "client_version": "0.36.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/owslib/ogc-api-coverages/serve.ogc-api-coverages"
-      ]
     },
     {
       "capability_key": "serve.ogc-api-coverages",
@@ -47733,36 +47667,6 @@
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc-api-edr",
-      "surface": "ogc-api-edr",
-      "operation": "serve.ogc-api-edr",
-      "maturity": "supported",
-      "canonical_client": "OWSLib",
-      "client_lane": "py-owslib",
-      "client_version": "0.36.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/owslib/ogc-api-edr/serve.ogc-api-edr"
-      ]
     },
     {
       "capability_key": "serve.ogc-api-features",
@@ -50961,35 +50865,6 @@
       "surface": "wmts",
       "operation": "serve.wmts",
       "maturity": "supported",
-      "canonical_client": "MapLibre GL JS",
-      "client_lane": "js-maplibre",
-      "client_version": "5.7",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/maplibre-gl-js/wmts/serve.wmts"
-      ]
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "serve.wmts",
-      "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wmts",
       "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
@@ -51010,33 +50885,6 @@
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "serve.wmts",
-      "maturity": "supported",
-      "canonical_client": "QGIS",
-      "client_lane": "desktop-qgis",
-      "client_version": "3.44.13-Solothurn",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "metadata",
-        "media-schema"
-      ],
-      "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "test_ids": [
-        "client-cert/qgis/wmts/serve.wmts"
-      ]
     },
     {
       "capability_key": "serve.wmts",
