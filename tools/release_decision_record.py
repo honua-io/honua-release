@@ -329,6 +329,10 @@ def working_candidate(data):
     lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
     lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
     lines += [f'| {gate} | {status} | {cause} |' for gate, status, cause in wc['gates']]
+    # An optional prose note carries what no gate row can: the shape of the train's own input
+    # surface (release#338 requires the dry run to show no license input at all).
+    if wc.get('note'):
+        lines += ['', wc['note']]
     return lines + ['']
 
 
