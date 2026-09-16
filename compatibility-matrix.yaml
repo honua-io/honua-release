@@ -99,12 +99,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-09-16 server re-pin (548b7a5 -> 8862065, release#348).
-    deploysServerImage: "sha:886206527cc97bad1bbaa5fa6358910ebc45e9c0"
+    # if it drifts. Advanced with the 2026-09-16 third server re-pin (8862065 -> 87966c3, release#348).
+    deploysServerImage: "sha:87966c3f7b6c840ffc4d4da0b451714ab717b18a"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-09-16 server re-pin.
-    appVersion: "sha:886206527cc97bad1bbaa5fa6358910ebc45e9c0"
+    # Same coupling as honua-iac above; advanced with the 2026-09-16 third server re-pin.
+    appVersion: "sha:87966c3f7b6c840ffc4d4da0b451714ab717b18a"
 
 data:
   honua-server:
@@ -125,6 +125,8 @@ data:
     # candidate's schema: it stays at >=115 deliberately so clients certified against 115..119 remain
     # in range. validate_platform.check_coherence only compares the two when this value is not a
     # range, so the >= form is what keeps them independent.
+    # 2026-09-16 third re-pin to 87966c3 moves manifest honua-server.dbSchema to 120
+    # (120_AddStudioTenantOwnership.sql); the client-compatibility floor stays >=115 for the same reason.
     requiresDbSchema: ">=115"
 
 # Support window policy: server supports clients within N-2 minor of its contract version.

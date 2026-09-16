@@ -127,8 +127,8 @@
     "pins": [
       [
         "honua-server",
-        "886206527cc97bad1bbaa5fa6358910ebc45e9c0",
-        "proposed imaged trunk re-pin (release#348 ruling A, second re-pin; 53 commits past 548b7a5); AOT index `sha256:0b16046533e5330ecdd48255c06b5397e869191299e1e5e8cc7b4b2ded60b388`; Lambda amd64 `sha256:c65d3d5c4a349033819b8223dc4a825590eb5fd8546924c5057fceff054fdd4a`; nightly build 35039721236 and full CI matrix 35039723809 pass; carries honua-server#4912 (glibc AOT GeoParquet), #4918/#4926 (tile output cache), #4885 (soak key-ring boot) and #4949 (arm64 AOT Skia)"
+        "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+        "proposed imaged trunk re-pin (release#348 ruling A, third re-pin; 10 commits past 8862065); AOT index `sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a`; Lambda amd64 `sha256:99eb4c9f8e5fa0fbd8e91e7673378d076ec73432cee48bec3adc6adfb56b2746`; nightly build 35070119767 and full CI matrix 35070122937 pass; dbSchema 120; carries honua-server#4963 (server#4958 rollback-surface fencing), #4951 (arm64 AOT), #4912 (glibc AOT GeoParquet) and #4918 (tile output cache)"
       ],
       [
         "honua-sdk-js",
@@ -218,7 +218,7 @@
         "downstream of gate_conformance per the train needs graph. gate_docs re-run standalone on the same trunk sha under **strict** enforcement is green: run [35059221208](https://github.com/honua-io/honua-release/actions/runs/35059221208)."
       ]
     ],
-    "server_image_digest": "sha256:0b16046533e5330ecdd48255c06b5397e869191299e1e5e8cc7b4b2ded60b388",
+    "server_image_digest": "sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
     "note": "No license input reaches this train: its `workflow_dispatch` surface is exactly `platform_label`, `dry_run`, `capacity_receipt_url` and `dr_receipt_url`, and no license envelope, minting key, edition input or `secrets.*LICENSE*`/`vars.*LICENSE*` reference remains anywhere under `.github/`, `e2e/`, `certification/` or `tools/`. Deployed-candidate licensing assertions on this pin: gate_e2e slice1 and seam above; installed-client certification [35059223231](https://github.com/honua-io/honua-release/actions/runs/35059223231), which boots the candidate image and records `licensing-disabled: PASS mode: disabled`; and terminal-journey stage `1.2-licensing-disabled` over `GET /api/v1/admin/license` ([35059225451](https://github.com/honua-io/honua-release/actions/runs/35059225451)). See [release#338](https://github.com/honua-io/honua-release/issues/338)."
   },
   "issues": [
