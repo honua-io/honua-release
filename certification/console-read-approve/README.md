@@ -21,7 +21,7 @@ Every image is pinned by digest, and `run.py` records every image ID:
 | Check | #3365 box | What is asserted |
 | --- | --- | --- |
 | `mintKeysThroughAdminApi` | 1, 2 | Both keys are minted through `POST /api/v1/admin/api-keys`. Each key reads its own `effective-permissions`, which must be exactly the requested grants, `active` and able to authenticate. |
-| `adminGetsAuthorizedForReadApproveKey` | 1 | Covers every parameterless GET in the running image's `/api/v1/admin/openapi.json`. Each route is called as full admin, as `admin:read`+`admin:approve` and as `admin:read`. The scoped key must never get 401/403 and must get the full-admin status. |
+| `adminGetsAuthorizedForReadApproveKey` | 1 | Covers every parameterless GET in the running image's `/api/v1/admin/openapi.json`. Each route is called as full admin, as `admin:read`+`admin:approve` and as `admin:read`. Both scoped keys must never get 401/403 and must get the full-admin status. New receipts retain every route's three statuses in `responses`, including successful `/api/v1/admin/jobs` reads. |
 | `unrelatedAccessPolicyWriteDenied` | 1 | `PUT /api/v1/admin/services/x/access-policy` returns 403 for both scoped keys. |
 | `readOnlyKeyDecisionDenied` | 2 | Three real studio-draft deletions are paused behind `RequiresApproval`. `admin:read` approve and reject return 403, the problem detail names `admin:approve`, and the proposal and draft are unchanged. |
 | `readApproveKeyDecides` | 1 | The scoped key's approve returns 200 `Succeeded` and deletes the draft. Its reject returns 200 `Rejected` and keeps the draft. `resolvedBy` is the scoped key. |
@@ -35,7 +35,7 @@ They were delivered by server PRs #3576, #4372 and #4736.
 
 Not exercised: the sealed terminal handoff. The canonical Console producer (`npm run receipt:console`) needs a zero-to-map checkpoint paused at `console-approval` and the sealed Studio handoff `honua.studio.real-model-ai-arc-handoff/v1`. That handoff's producer exists only on unmerged honua-studio#45, and the terminal journey is still blocked (honua-release#122/#123). The receipt records this under `notExercised`; it doesn't simulate the input.
 
-## Receipt on file
+## Original receipt
 
 `receipt.nightly-2cc2213.console-dcb9eb2.json` was observed 2026-09-16 with:
 
@@ -43,6 +43,11 @@ Not exercised: the sealed terminal handoff. The canonical Console producer (`npm
 - Console `candidate-dcb9eb2b39ed-34879792105-1` (`sha256:37685c71…a619`), the pin proposed in honua-release#357.
 
 **Status: failed on one check.** 109 of the 110 admin GET routes match full admin for the scoped key. `GET /api/v1/admin/jobs` returns 403 to `admin:read` keys, with or without `admin:approve`, but 200 to admin, `admin:write` and `admin:manage` keys. The cause is `OperatorApprovalGate` job-read authorization ignoring the read grant, tracked in [honua-server#4981](https://github.com/honua-io/honua-server/issues/4981). Every other check passed.
+
+That defect was fixed in [honua-server#4990](https://github.com/honua-io/honua-server/pull/4990).
+Its auth unit and real HTTP integration tests prove scoped job list/detail reads while denying
+non-admin reads and read-key cancellation. The original failed receipt remains unchanged as
+the before-fix evidence.
 
 Also observed and recorded, but not asserted:
 

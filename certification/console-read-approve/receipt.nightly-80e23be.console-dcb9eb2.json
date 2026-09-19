@@ -1,0 +1,966 @@
+{
+  "checks": {
+    "adminGetsAuthorizedForReadApproveKey": {
+      "authorizationDenials": 0,
+      "nonOkRoutes": [
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/channels",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/rules",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/zones",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/cloud-rasters",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/federation/sources",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 204,
+          "path": "/api/v1/admin/migration/performance-evidence/latest",
+          "readApprove": 204,
+          "readOnly": 204
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/multidim-coverages",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/observability/alerts",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/operations/streaming/alerts",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/rate-limits/status",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/scenes",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/security/client-certificates/profiles",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 500,
+          "path": "/api/v1/admin/share/traffic",
+          "readApprove": 500,
+          "readOnly": 500
+        },
+        {
+          "admin": 500,
+          "path": "/api/v1/admin/share/traffic/series",
+          "readApprove": 500,
+          "readOnly": 500
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/streaming/features/sessions",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 402,
+          "path": "/api/v1/admin/tenants",
+          "readApprove": 402,
+          "readOnly": 402
+        },
+        {
+          "admin": 402,
+          "path": "/api/v1/admin/tenants/usage",
+          "readApprove": 402,
+          "readOnly": 402
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/zarr-stores",
+          "readApprove": 400,
+          "readOnly": 400
+        }
+      ],
+      "readApproveStatusCounts": {
+        "200": 92,
+        "204": 1,
+        "400": 5,
+        "402": 2,
+        "404": 8,
+        "500": 2
+      },
+      "readOnlyAuthorizationDenials": 0,
+      "responses": [
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/channels",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/rules",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/alerts/zones",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/api-keys",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/auth/config",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/auth/session",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/cache/status",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/capabilities",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/cloud-rasters",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/compliance/dashboard",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/compliance/report",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/config",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/audit",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/auto-documentation",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/discover",
+          "readApprove": 200,
+          "readApproveBodyEndedEarly": true,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/metadata",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/secrets/validate",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/configuration/summary",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/connections",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/deploy/operations",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/deploy/preflight",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/embed/keys",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/embed/usage",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/feature-events/replay",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/features",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/federation/sources",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/field-mask-policies",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/field-workflows/exports",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/field-workflows/submissions",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/forms/packages",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/geocoding/providers",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/geoprocessing/tools/usage-ranking",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/identity/providers",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/arcgis/migrations",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/formats",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/geoserver/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/geoservices/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/limits",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/raster/formats",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/import/uploads",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/imports/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/investigations",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/license",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/license/capacity",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/license/entitlements",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/license/features",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/license/status",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/metadata/release-packages",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/migration/performance-evidence/history",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 204,
+          "path": "/api/v1/admin/migration/performance-evidence/latest",
+          "readApprove": 204,
+          "readOnly": 204
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/migration/runs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/multidim-coverages",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/network-datasets",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/oauth-clients",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/oauth-scopes",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/observability/alerts",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/audit",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/audit/export",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/audit/verify",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/autonomy/policies",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/autonomy/settings",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/errors",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/events",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/findings",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/logs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/migrations",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/ops-health",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/ops-health/history",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/observability/telemetry",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/oidc/providers",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/openapi.json",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/active",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/cache/health",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/cache/redis",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/cache/statistics",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/geocoding/configuration",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/geocoding/providers",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/operations/streaming/alerts",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/operations/streaming/subscribers",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/database/query-cache/statistics",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/cache/effectiveness",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/cache/statistics",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/database/query-performance",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/database/slow-queries",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/exceptions/recent",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/exceptions/statistics",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/resources/potential-leaks",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/resources/tracking",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/performance/enhanced/summary",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/proposals",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/rate-limits",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/rate-limits/status",
+          "readApprove": 400,
+          "readOnly": 400
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/rls-policies",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/roles",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/scenes",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/security/client-certificates/profiles",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/services",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/share/exports",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 500,
+          "path": "/api/v1/admin/share/traffic",
+          "readApprove": 500,
+          "readOnly": 500
+        },
+        {
+          "admin": 500,
+          "path": "/api/v1/admin/share/traffic/series",
+          "readApprove": 500,
+          "readOnly": 500
+        },
+        {
+          "admin": 404,
+          "path": "/api/v1/admin/streaming/features/sessions",
+          "readApprove": 404,
+          "readOnly": 404
+        },
+        {
+          "admin": 402,
+          "path": "/api/v1/admin/tenants",
+          "readApprove": 402,
+          "readOnly": 402
+        },
+        {
+          "admin": 402,
+          "path": "/api/v1/admin/tenants/usage",
+          "readApprove": 402,
+          "readOnly": 402
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/tile-operations/cache/inventory",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/tile-operations/jobs",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/users",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 200,
+          "path": "/api/v1/admin/version",
+          "readApprove": 200,
+          "readOnly": 200
+        },
+        {
+          "admin": 400,
+          "path": "/api/v1/admin/zarr-stores",
+          "readApprove": 400,
+          "readOnly": 400
+        }
+      ],
+      "routes": 110,
+      "status": "passed",
+      "statusDiffersFromFullAdmin": []
+    },
+    "consoleOperatorWitness": {
+      "capturedPagesSha256": "67df6e015b1476fcfef51858840b83a0ed7a1484be673883fa8fef197be4cc99",
+      "credentialMaterialInCapturedPages": false,
+      "error": null,
+      "observations": {
+        "beforeServerSignIn": {
+          "detail": "PROPOSAL REVIEW Permission required The honua-server proposals API returned 401 for GET api/v1/admin/proposals/proposal-f6813cb84a8f4f588b8780ec6b6a8a61. Technical detail",
+          "page": "/approvals",
+          "proposalStatusRendered": false
+        },
+        "inbox": {
+          "proposalIds": [
+            "proposal-564c324a14744a55987a3059424e5d6c"
+          ],
+          "text": "Preview \u2014 this surface is outside the focused 2026.1 inspect, approve, operate and recover client. HUMAN-IN-THE-LOOP Approval inbox The work queue for agent-proposed operations. Agents and APIs do the writing; you review the plan, diff, dry-run, and risk here and authorize the outcome. Approve or reject through the server's governed, audited approval endpoints. Live Refresh 1 awaiting approval 1 in the queue All 1 Other 1 Other awaiting approval high risk Execute studio.draft.delete with its accepted typed payload. proposal-564c324a14744a55987a3059424e5d6c \u00b7 00000000-0000-0000-0000-00000000000"
+        },
+        "proposals": {
+          "approve": {
+            "approveControlRendered": false,
+            "proposalId": "proposal-f6813cb84a8f4f588b8780ec6b6a8a61",
+            "status": "Succeeded"
+          },
+          "pending": {
+            "approveControlRendered": true,
+            "proposalId": "proposal-564c324a14744a55987a3059424e5d6c",
+            "status": "AwaitingApproval"
+          },
+          "reject": {
+            "approveControlRendered": false,
+            "proposalId": "proposal-63ba14d5d7744382adfa3d4e5671c3f1",
+            "status": "Rejected"
+          }
+        },
+        "serverSignIn": {
+          "identityProviderHost": "host.docker.internal",
+          "returnedTo": "/approvals"
+        }
+      },
+      "status": "passed"
+    },
+    "mintKeysThroughAdminApi": {
+      "keys": {
+        "readApprove": {
+          "effectivePermissions": [
+            "admin:read",
+            "admin:approve"
+          ],
+          "grants": [
+            "admin:read",
+            "admin:approve"
+          ]
+        },
+        "readOnly": {
+          "effectivePermissions": [
+            "admin:read"
+          ],
+          "grants": [
+            "admin:read"
+          ]
+        }
+      },
+      "status": "passed"
+    },
+    "readApproveKeyDecides": {
+      "decisions": {
+        "approve": {
+          "decision": "approve",
+          "draftAfter": 404,
+          "executionOperationId": null,
+          "httpStatus": 200,
+          "proposalId": "proposal-f6813cb84a8f4f588b8780ec6b6a8a61",
+          "resolvedByScopedKey": true,
+          "status": "Succeeded"
+        },
+        "reject": {
+          "decision": "reject",
+          "draftAfter": 200,
+          "executionOperationId": null,
+          "httpStatus": 200,
+          "proposalId": "proposal-63ba14d5d7744382adfa3d4e5671c3f1",
+          "resolvedByScopedKey": true,
+          "status": "Rejected"
+        }
+      },
+      "status": "passed"
+    },
+    "readOnlyKeyDecisionDenied": {
+      "responses": {
+        "approve": {
+          "detail": "The 'admin:approve' grant is required to approve or reject proposals.",
+          "status": 403,
+          "type": "https://honua.io/problems/admin"
+        },
+        "reject": {
+          "detail": "The 'admin:approve' grant is required to approve or reject proposals.",
+          "status": 403,
+          "type": "https://honua.io/problems/admin"
+        }
+      },
+      "status": "passed"
+    },
+    "unrelatedAccessPolicyWriteDenied": {
+      "responses": {
+        "readApprove": {
+          "detail": null,
+          "status": 403
+        },
+        "readOnly": {
+          "detail": null,
+          "status": 403
+        }
+      },
+      "status": "passed"
+    }
+  },
+  "console": {
+    "image": "ghcr.io/honua-io/honua-console@sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619",
+    "manifestPinned": true,
+    "mode": "witness",
+    "sharedAdminKeyConfigured": false,
+    "sourceRevision": "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071",
+    "tag": "ghcr.io/honua-io/honua-console:candidate-dcb9eb2b39ed-34879792105-1"
+  },
+  "consoleIssue": "honua-io/honua-console#351",
+  "failedChecks": [],
+  "images": {
+    "console": {
+      "image": "ghcr.io/honua-io/honua-console@sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619",
+      "imageId": "sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619"
+    },
+    "edge": {
+      "image": "caddy@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d",
+      "imageId": "sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d"
+    },
+    "keycloak": {
+      "image": "quay.io/keycloak/keycloak@sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858",
+      "imageId": "sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858"
+    },
+    "postgis": {
+      "image": "postgis/postgis@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677",
+      "imageId": "sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677"
+    },
+    "redis": {
+      "image": "redis@sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed",
+      "imageId": "sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed"
+    },
+    "server": {
+      "image": "ghcr.io/honua-io/honua-server@sha256:9869f044b1c5d0de15aef6c87cc3d60383037ee9a4346d08bb9c83f2c56cc176",
+      "imageId": "sha256:9869f044b1c5d0de15aef6c87cc3d60383037ee9a4346d08bb9c83f2c56cc176"
+    }
+  },
+  "issue": "honua-io/honua-server#3365",
+  "notExercised": {
+    "sealedTerminalHandoff": "The canonical Console receipt producer (npm run receipt:console) requires the sealed paused Studio handoff honua.studio.real-model-ai-arc-handoff/v1 and a zero-to-map checkpoint paused at console-approval. The handoff producer (release:real-model-ai-arc) exists only on unmerged honua-studio#45, and the terminal journey is still blocked (honua-release#122/#123), so no sealed handoff exists to consume. It was not simulated."
+  },
+  "observedAt": "2026-09-19T09:00:21Z",
+  "operator": {
+    "credential": "server-issued operator bearer",
+    "distinctFromApiKeys": true,
+    "edge": "caddy reverse proxy injecting the operator identity; Console port unpublished",
+    "identityProvider": "keycloak (real OIDC, PKCE, TLS)",
+    "realmRoles": [
+      "admin"
+    ],
+    "tenantClaim": "tenant_id=public"
+  },
+  "schemaVersion": "honua.console.focused-read-approve/v1",
+  "server": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:9869f044b1c5d0de15aef6c87cc3d60383037ee9a4346d08bb9c83f2c56cc176",
+    "reportedSourceRevision": null,
+    "reportedVersion": "2026.1.1",
+    "sourceRevision": "80e23bedfe8ff7b43362c8d8ea22bfae1756df7d",
+    "tag": "nightly-80e23be"
+  },
+  "status": "passed"
+}
