@@ -42,7 +42,7 @@ DEFAULT_TARGET = HERE / "targets" / "local-docker.json"
 STATE_ROOT = Path.cwd() / ".terminal-journey" / "sessions"
 
 # Blockers that stop a live model run before any action can be attempted.
-EXECUTE_BLOCKERS = [stagelib.SETUP_VIEW, stagelib.OPERATION_RUNTIME]
+EXECUTE_BLOCKERS = [stagelib.JOURNEY_DRIVER]
 APPROVE_BLOCKERS = [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]
 
 
@@ -122,17 +122,18 @@ def _tool_view(observation: stagelib.Observation) -> dict[str, Any]:
     the model could act on, so `bounded` stays false and `tools` stays empty until
     the candidate negotiates a real view.
     """
+    discovery = observation.setup_discovery or {}
     return {
         "bounded": observation.setup_view_present,
-        "viewId": None,
-        "tools": [],
+        "viewId": discovery.get("metadata", {}).get("view") if observation.setup_view_present else None,
+        "tools": discovery.get("tools", []) if observation.setup_view_present else [],
+        "metadata": discovery.get("metadata") if observation.setup_view_present else None,
         "catalogToolCount": len(observation.tool_names),
         "blockedBy": [] if observation.setup_view_present else [stagelib.SETUP_VIEW],
         "detail": (
             "the candidate negotiates a bounded server-authored setup view"
             if observation.setup_view_present
-            else "the candidate exposes no named server-authored setup view; the full "
-            "catalog is deliberately withheld rather than presented as a bounded view"
+            else discovery.get("error") or "initialize-bound setup discovery has not been verified through both transports"
         ),
     }
 
@@ -278,10 +279,9 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
     """Execute exactly the model-selected action — but only from a bounded view.
 
-    Protocol prohibition 2 requires rejecting anything outside the server-authored
-    bounded tool view. The candidate publishes no such view, so every action is
-    outside it and nothing may execute. Falling back to the full catalog here would
-    hand a model authority the server never granted.
+    Discovery does not grant authority or implement execution. Even a verified
+    bounded view must remain non-executable until the release driver performs
+    the real authenticated operation and records its canonical identities.
     """
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
@@ -296,9 +296,8 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
         "result": {
             "accepted": False,
             "reason": (
-                "the requested action is outside the server-authored bounded tool view; "
-                "no bounded view is published by the candidate, and the full catalog is "
-                "not a substitute for one"
+                "the release driver has not implemented authenticated action execution; "
+                "verified discovery alone cannot establish call authority or execution success"
             ),
             "requested": {
                 "kind": action.get("kind"),

@@ -13,6 +13,17 @@ on:
       - artifacts/terminal-journey-*.md
       - .github/workflows/terminal-journey-contract.yml
   workflow_dispatch:
+    inputs:
+      engineering_server_image:
+        description: Immutable Honua image for optional engineering discovery rehearsal; does not change candidate pins
+        required: false
+        default: ""
+        type: string
+      engineering_server_revision:
+        description: Full source SHA that image configuration and runtime must report
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +33,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  engineering-discovery:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.engineering_server_image != '' || inputs.engineering_server_revision != '') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - name: Measure actual image and frozen installed clients
+        env:
+          ENGINEERING_SERVER_IMAGE: ${{ inputs.engineering_server_image }}
+          ENGINEERING_SERVER_REVISION: ${{ inputs.engineering_server_revision }}
+          EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python certification/terminal-journey/rehearse_discovery.py \
+            --server-image "$ENGINEERING_SERVER_IMAGE" \
+            --server-revision "$ENGINEERING_SERVER_REVISION" \
+            --output-dir "$RUNNER_TEMP/terminal-discovery" \
+            --evidence-uri "$EVIDENCE_URI"
+      - name: Retain engineering observation only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-discovery-engineering
+          path: |
+            ${{ runner.temp }}/terminal-discovery/rehearsal.json
+            ${{ runner.temp }}/terminal-discovery/setup-discovery.json
+          if-no-files-found: error
+
   terminal-contract:
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +83,9 @@ jobs:
       # and the stage-outcome discipline that stops a blocked journey reading as pass.
       - name: Test fail-closed roster, stage discipline and receipt schema
         run: python certification/terminal-journey/test_run.py -v
+
+      - name: Test measured discovery and real loopback HTTP sessions
+        run: python certification/terminal-journey/test_discovery.py -v
 
       - name: Build blocked receipt without claiming live success
         env:
