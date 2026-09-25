@@ -25,6 +25,7 @@ from typing import Any
 HTTP_TIMEOUT_SECONDS = 30
 READINESS_POLL_SECONDS = 3
 MCP_TIMEOUT_SECONDS = 120
+MCP_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 @dataclass
@@ -156,8 +157,9 @@ class McpProxySession:
         self.argv = [argv] if isinstance(argv, str) else list(argv)
         self.remote_url = remote_url
         self.env = env or {}
-        self._process: subprocess.Popen[str] | None = None
+        self._process: subprocess.Popen[bytes] | None = None
         self._next_id = 0
+        self._stdout_buffer = bytearray()
 
     def __enter__(self) -> McpProxySession:
         environment = {**os.environ, **self.env, "HONUA_MCP_REMOTE_URL": self.remote_url}
@@ -166,8 +168,7 @@ class McpProxySession:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+            bufsize=0,
             env=environment,
         )
         return self
@@ -181,6 +182,7 @@ class McpProxySession:
             self._process.wait(timeout=15)
         except (subprocess.TimeoutExpired, OSError):
             self._process.kill()
+            self._process.wait(timeout=5)
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if self._process is None or self._process.stdin is None or self._process.stdout is None:
@@ -190,31 +192,32 @@ class McpProxySession:
         if params is not None:
             message["params"] = params
         try:
-            self._process.stdin.write(json.dumps(message) + "\n")
+            self._process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
             self._process.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
             raise McpError(f"proxy closed the connection during {method}: {exc}") from exc
 
         deadline = time.monotonic() + MCP_TIMEOUT_SECONDS
-        selector = selectors.DefaultSelector()
-        selector.register(self._process.stdout, selectors.EVENT_READ)
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not selector.select(remaining):
-                raise McpError(f"proxy did not answer {method} within {MCP_TIMEOUT_SECONDS}s")
-            line = self._process.stdout.readline()
-            if not line:
-                stderr = self._process.stderr.read() if self._process.stderr else ""
-                raise McpError(f"proxy exited during {method}: {stderr.strip()[:300]}")
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if payload.get("id") == self._next_id:
-                return payload
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._process.stdout, selectors.EVENT_READ)
+            while True:
+                newline = self._stdout_buffer.find(b"\n")
+                if newline >= 0:
+                    line = bytes(self._stdout_buffer[:newline])
+                    del self._stdout_buffer[:newline + 1]
+                    payload = parse_mcp_response(line)
+                    if type(payload.get("id")) is int and payload["id"] == self._next_id:
+                        return payload
+                    continue
+                if len(self._stdout_buffer) > MCP_MAX_RESPONSE_BYTES:
+                    raise McpError("proxy response exceeds the byte bound")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise McpError(f"proxy did not answer {method} within {MCP_TIMEOUT_SECONDS}s")
+                chunk = os.read(self._process.stdout.fileno(), min(65536, MCP_MAX_RESPONSE_BYTES + 1 - len(self._stdout_buffer)))
+                if not chunk:
+                    raise McpError(f"proxy exited during {method}")
+                self._stdout_buffer.extend(chunk)
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         if self._process is None or self._process.stdin is None:
@@ -222,16 +225,17 @@ class McpProxySession:
         message: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             message["params"] = params
-        self._process.stdin.write(json.dumps(message) + "\n")
+        self._process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
         self._process.stdin.flush()
 
-    def initialize(self) -> dict[str, Any]:
+    def initialize(self, *, workflow_view: str | None = None) -> dict[str, Any]:
         response = self.request(
             "initialize",
             {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
                 "clientInfo": {"name": "honua-terminal-journey-driver", "version": "1"},
+                **({"_meta": {"honua.io/workflow-view": workflow_view}} if workflow_view is not None else {}),
             },
         )
         self.notify("notifications/initialized")
@@ -251,6 +255,38 @@ class McpProxySession:
             cursor = result.get("nextCursor")
             if not cursor:
                 return tools
+
+
+def parse_mcp_response(line: bytes) -> dict[str, Any]:
+    """Strict original proxy wire parsing, before any lossy reserialization."""
+    if len(line) > MCP_MAX_RESPONSE_BYTES:
+        raise McpError("proxy response exceeds the byte bound")
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise McpError("proxy response contains duplicate JSON keys")
+            result[key] = value
+        return result
+
+    def invalid_constant(_value):
+        raise McpError("proxy response contains a nonstandard JSON constant")
+
+    try:
+        payload = json.loads(line.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid_constant)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise McpError("proxy response is not valid UTF-8 JSON") from exc
+    if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
+        raise McpError("proxy response is not a JSON-RPC object")
+    if "id" in payload:
+        if type(payload["id"]) not in (int, str) or ("result" in payload) == ("error" in payload):
+            raise McpError("proxy response has an invalid identity or result/error envelope")
+        if not isinstance(payload.get("result", payload.get("error")), dict):
+            raise McpError("proxy response result/error must be an object")
+    elif not isinstance(payload.get("method"), str):
+        raise McpError("proxy notification has no method")
+    return payload
 
 
 def enumerate_tools(bin_path: Path, remote_url: str) -> tuple[tuple[str, ...], str | None, str | None]:

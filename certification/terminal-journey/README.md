@@ -118,3 +118,44 @@ and that still does not pass the journey.
 
 AWS wrapping and genuine-model evidence are linked as #129 and #161, never embedded or
 treated as substitutes.
+# Measured setup discovery
+
+Stage 1 now selects the server's `setup` view in the actual HTTP and installed
+stdio initialize requests. Later selector-free discovery must retain that view.
+An authenticated `full` request is drained independently of any expected tool
+count, and a subsequent selector-free request must restore the initialized view.
+Full catalog names remain available to later stage diagnostics; only the bounded
+setup descriptors are exposed in `toolView.tools`.
+
+`setup-discovery.json` retains the original HTTP JSON response, complete canonical
+catalog descriptors, revision metadata, and measured byte/digest evidence. The
+tools array and each descriptor are sliced from original UTF-8 JSON without
+reserialization. The unchanged ceilings are 48 tools, 128 KiB aggregate and
+16 KiB per descriptor; estimated tokens must equal aggregate bytes divided by
+four, rounded down. The membership digest follows each tool's stage in original
+wire order. The revision digest is server-authored and compared across transports,
+not reconstructed from incomplete stage metadata. Full-catalog comparison hashes
+use a separately named normalized serialization and are not server wire digests.
+
+Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
+responses and incomplete catalog pagination. The stdio consumer reads bounded
+binary chunks before parsing. It invokes only the verified installed executable;
+there is no source, resolved-module or floating-package success fallback.
+
+The optional `Terminal journey contract` workflow dispatch accepts
+`engineering_server_image` (an immutable Honua GHCR digest) and
+`engineering_server_revision` (its full source SHA). The dedicated engineering
+job reuses the hosted Docker fixture, generates an ephemeral bootstrap credential,
+verifies image configuration/runtime identity and anonymous refusal, and consumes
+the unchanged frozen client pins. It retains only `rehearsal.json` and
+`setup-discovery.json`, excluding installation directories and credentials. The
+receipt explicitly sets `qualification: false`; an image override does not create
+a governed candidate cut or attestation. Failed pinned-proxy behavior remains a
+failed rehearsal even if direct HTTP measurements pass.
+
+The proxy negotiation prerequisite is
+[SDK PR 1783](https://github.com/honua-io/honua-sdk-js/pull/1783). Its locally packed
+source tests do not replace a published package or update this repository's
+frozen pins. Later execution, distinct-principal approval, model/error recovery
+and saved-map stages remain blocked until their actual driver implementation and
+candidate receipts exist. Discovery never grants call authority.
