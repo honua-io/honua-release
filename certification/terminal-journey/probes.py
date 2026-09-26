@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import selectors
+import stat
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
@@ -301,3 +304,335 @@ def _enumerate_with(argv: list[str], remote_url: str) -> tuple[tuple[str, ...], 
         return tuple(sorted(str(tool.get("name", "")) for tool in tools)), None
     except (McpError, OSError) as exc:
         return (), str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 credential preflight. Read-only discovery is not this probe.
+# ---------------------------------------------------------------------------
+_PREFLIGHT_NAME = "honua-terminal-journey-preflight"
+_PREFLIGHT_GRANTS = ["admin:read"]
+_GUID = re.compile(
+    r"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z"
+)
+_SECRET_FIELDS = {"key", "secret", "password", "adminKey", "apiKey", "token", "accessToken"}
+_CREDENTIAL_INVOCATION = (
+    "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure "
+    "createAdminApiKey --yes --body "
+    '{"name":"honua-terminal-journey-preflight","permissions":["admin:read"]} '
+    "--secret-output <private-sink>; "
+    "getAdminApiKeyEffectivePermissions --path id=<id>; "
+    "listAdminApiKeys; "
+    "revokeAdminApiKey --yes --path id=<id>"
+)
+_CLI_TIMEOUT_SECONDS = 60
+
+
+@dataclass
+class CredentialProbe:
+    """Secret-free outcome of the reversible admin credential preflight."""
+
+    status: str  # pass | fail | blocked
+    detail: str
+    invocation: str = _CREDENTIAL_INVOCATION
+    blocked_by: list[str] = field(default_factory=list)
+    key_id: str | None = None
+
+
+def _redact(text: str, secrets: list[str]) -> tuple[str, bool]:
+    leaked = False
+    redacted = text
+    for secret in secrets:
+        if secret and secret in redacted:
+            leaked = True
+            redacted = redacted.replace(secret, "[redacted]")
+    return redacted, leaked
+
+
+def _admin_target_refusal(base_url: str) -> str | None:
+    parsed = urllib.parse.urlparse(base_url)
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return "admin base URL must not include credentials, a query, or a fragment"
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https" and host:
+        return None
+    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    return "admin credential is not sent to a non-loopback HTTP endpoint"
+
+
+def _has_secret_field(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(key in _SECRET_FIELDS or _has_secret_field(child) for key, child in value.items())
+    if isinstance(value, list):
+        return any(_has_secret_field(child) for child in value)
+    return False
+
+
+def _load_json(stdout: str) -> tuple[Any | None, str | None]:
+    text = stdout.strip()
+    if not text:
+        return None, "command produced no JSON"
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError:
+        return None, "command produced non-JSON output"
+
+
+def _envelope_data(document: Any) -> Any:
+    if not isinstance(document, dict) or document.get("success") is not True:
+        return None
+    return document.get("data")
+
+
+def _run_honua(
+    honua: Path, args: list[str], env: dict[str, str]
+) -> subprocess.CompletedProcess[str] | str:
+    try:
+        return subprocess.run(
+            [str(honua), *args],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=_CLI_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return type(exc).__name__
+
+
+def run_credential_preflight(
+    *, honua: Path, base_url: str, admin_key: str, workdir: Path
+) -> CredentialProbe:
+    """Mint, inspect, and revoke one temporary admin:read key.
+
+    The root credential is passed only as ``HONUA_ADMIN_KEY`` in the child
+    environment. The one-time key is written by the CLI to a private sink and
+    deleted here. Neither value is returned.
+    """
+    refusal = _admin_target_refusal(base_url)
+    if refusal is not None:
+        return CredentialProbe("fail", refusal)
+    if len(admin_key) < 8:
+        return CredentialProbe("blocked", "no usable admin credential is configured for this target")
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    os.chmod(workdir, 0o700)
+    config_home = workdir / "config"
+    config_home.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(config_home, 0o700)
+    secret_path = workdir / "one-time-secret"
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(workdir),
+        "HONUA_CONFIG_HOME": str(config_home),
+        "HONUA_ADMIN_KEY": admin_key,
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    body = json.dumps({"name": _PREFLIGHT_NAME, "permissions": list(_PREFLIGHT_GRANTS)}, separators=(",", ":"))
+    outputs: list[str] = []
+    issued_secret = ""
+    key_id: str | None = None
+    revoked = False
+    problems: list[str] = []
+
+    def capture(completed: subprocess.CompletedProcess[str] | str, label: str) -> Any | None:
+        if isinstance(completed, str):
+            problems.append(f"{label} {completed}")
+            return None
+        outputs.append(completed.stdout)
+        outputs.append(completed.stderr)
+        if completed.returncode != 0:
+            problems.append(f"{label} exited {completed.returncode}")
+            return None
+        document, error = _load_json(completed.stdout)
+        if error is not None:
+            problems.append(f"{label} {error}")
+            return None
+        if _has_secret_field(document):
+            problems.append(f"{label} JSON contained secret material")
+        return document
+
+    try:
+        created = capture(
+            _run_honua(
+                honua,
+                [
+                    "--base-url",
+                    base_url,
+                    "--json",
+                    "admin",
+                    "secure",
+                    "createAdminApiKey",
+                    "--yes",
+                    "--body",
+                    body,
+                    "--secret-output",
+                    str(secret_path),
+                ],
+                env,
+            ),
+            "createAdminApiKey",
+        )
+        resource = created.get("resource") if isinstance(created, dict) else None
+        if not isinstance(created, dict) or created.get("operationId") != "createAdminApiKey":
+            problems.append("createAdminApiKey did not return the private-sink receipt")
+        elif created.get("secretWritten") is not True or not isinstance(resource, dict):
+            problems.append("createAdminApiKey did not write a private sink")
+        else:
+            candidate_id = resource.get("id")
+            if not isinstance(candidate_id, str) or _GUID.fullmatch(candidate_id) is None:
+                problems.append("createAdminApiKey did not return a key id")
+            elif resource.get("name") != _PREFLIGHT_NAME or resource.get("permissions") != _PREFLIGHT_GRANTS:
+                problems.append("createAdminApiKey did not grant exactly admin:read")
+            elif resource.get("status") not in (None, "active"):
+                problems.append("createAdminApiKey did not return an active key")
+            else:
+                key_id = candidate_id
+        if secret_path.is_symlink():
+            problems.append("private sink is a symlink")
+        elif secret_path.is_file():
+            file_mode = stat.S_IMODE(secret_path.stat().st_mode)
+            if file_mode != 0o600:
+                problems.append(f"private sink mode is {file_mode:04o}, expected 0600")
+            issued_secret = secret_path.read_text(encoding="utf-8")
+            if not issued_secret or issued_secret == admin_key:
+                problems.append("private sink did not contain a distinct one-time key")
+        elif key_id is not None:
+            problems.append("private sink is missing")
+
+        if key_id is not None:
+            effective = capture(
+                _run_honua(
+                    honua,
+                    [
+                        "--base-url",
+                        base_url,
+                        "--json",
+                        "admin",
+                        "secure",
+                        "getAdminApiKeyEffectivePermissions",
+                        "--path",
+                        f"id={key_id}",
+                    ],
+                    env,
+                ),
+                "getAdminApiKeyEffectivePermissions",
+            )
+            effective_data = _envelope_data(effective)
+            if not isinstance(effective_data, dict):
+                problems.append("effective permissions response was not a success envelope")
+            elif (
+                effective_data.get("id") != key_id
+                or effective_data.get("status") != "active"
+                or effective_data.get("canAuthenticate") is not True
+                or effective_data.get("permissions") != _PREFLIGHT_GRANTS
+            ):
+                problems.append("effective permissions were not exactly active admin:read")
+
+            listed = capture(
+                _run_honua(
+                    honua,
+                    ["--base-url", base_url, "--json", "admin", "secure", "listAdminApiKeys"],
+                    env,
+                ),
+                "listAdminApiKeys",
+            )
+            rows = _envelope_data(listed)
+            if not isinstance(rows, list):
+                problems.append("listAdminApiKeys response was not a success envelope")
+            else:
+                matches = [row for row in rows if isinstance(row, dict) and row.get("id") == key_id]
+                if len(matches) != 1 or matches[0].get("status") != "active":
+                    problems.append("listAdminApiKeys did not show the temporary key as active")
+                elif matches[0].get("permissions") != _PREFLIGHT_GRANTS:
+                    problems.append("listed grants were not exactly admin:read")
+
+            revoked_doc = capture(
+                _run_honua(
+                    honua,
+                    [
+                        "--base-url",
+                        base_url,
+                        "--json",
+                        "admin",
+                        "secure",
+                        "revokeAdminApiKey",
+                        "--yes",
+                        "--path",
+                        f"id={key_id}",
+                    ],
+                    env,
+                ),
+                "revokeAdminApiKey",
+            )
+            revoked_data = _envelope_data(revoked_doc)
+            if not isinstance(revoked_data, dict) or revoked_data.get("id") != key_id or revoked_data.get("status") != "revoked":
+                problems.append("revokeAdminApiKey did not revoke the temporary key")
+            else:
+                confirmed = capture(
+                    _run_honua(
+                        honua,
+                        ["--base-url", base_url, "--json", "admin", "secure", "listAdminApiKeys"],
+                        env,
+                    ),
+                    "listAdminApiKeys after revoke",
+                )
+                remaining = _envelope_data(confirmed)
+                if not isinstance(remaining, list):
+                    problems.append("post-revoke list was not a success envelope")
+                else:
+                    still_active = [
+                        row
+                        for row in remaining
+                        if isinstance(row, dict) and row.get("id") == key_id and row.get("status") == "active"
+                    ]
+                    if still_active:
+                        problems.append("temporary key was still active after revoke")
+                    else:
+                        revoked = True
+    finally:
+        if key_id is not None and not revoked:
+            capture(
+                _run_honua(
+                    honua,
+                    [
+                        "--base-url",
+                        base_url,
+                        "--json",
+                        "admin",
+                        "secure",
+                        "revokeAdminApiKey",
+                        "--yes",
+                        "--path",
+                        f"id={key_id}",
+                    ],
+                    env,
+                ),
+                "revokeAdminApiKey cleanup",
+            )
+        if secret_path.exists():
+            try:
+                secret_path.unlink()
+            except OSError:
+                problems.append("private sink could not be deleted")
+        if secret_path.exists():
+            problems.append("private sink still exists")
+
+    _, leaked = _redact("\n".join(outputs), [admin_key, issued_secret])
+    if leaked:
+        problems.append("command output contained credential material and was redacted")
+    if not problems and key_id is None:
+        problems.append("credential preflight did not observe a key id")
+    detail, detail_leaked = _redact("; ".join(dict.fromkeys(problems)), [admin_key, issued_secret])
+    if detail_leaked:
+        detail = "credential material was removed from the preflight detail"
+    if problems:
+        return CredentialProbe("fail", detail or "credential preflight failed", key_id=key_id)
+    return CredentialProbe(
+        "pass",
+        f"temporary admin:read key {key_id} reported canAuthenticate true; "
+        "list omitted key material; revoke removed the active key; private sink deleted",
+        key_id=key_id,
+    )

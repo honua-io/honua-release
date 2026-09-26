@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from probes import Check, HttpResult, McpError, blocked
+from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 
 # ---------------------------------------------------------------------------
 # Upstream dependency identities. These are the only things a stage may cite as
@@ -85,6 +85,7 @@ class Observation:
     image_ref: str | None = None
     expected_revision: str | None = None
     setup_view_present: bool = False
+    credential_probe: CredentialProbe | None = None
 
 
 @dataclass
@@ -336,12 +337,20 @@ def stage_2(observation: Observation, workspace_blockers: Callable[[int], list[s
             2,
         )
     ]
-    checks.append(blocked(
-        "2.3-credential-permissions", "cli",
-        "honua admin apiKeys list; honua admin apiKeys effective-permissions",
-        "the driver has not executed credentialed key-list and effective-permissions checks; command discovery is insufficient",
-        [JOURNEY_DRIVER, SCOPE_NARROWING],
-    ))
+    probe = observation.credential_probe
+    if probe is None:
+        checks.append(blocked(
+            "2.3-credential-permissions", "cli",
+            "honua admin secure listAdminApiKeys; honua admin secure getAdminApiKeyEffectivePermissions",
+            "the driver has not executed credentialed key-list and effective-permissions checks; command discovery is insufficient",
+            [JOURNEY_DRIVER],
+        ))
+    elif probe.status == "blocked":
+        checks.append(blocked(
+            "2.3-credential-permissions", "cli", probe.invocation, probe.detail, probe.blocked_by or [JOURNEY_DRIVER],
+        ))
+    else:
+        checks.append(Check("2.3-credential-permissions", "cli", probe.invocation, probe.status, probe.detail))
     # Anonymous refusal is independently observable; it does not prove the
     # credentialed CLI calls or the installer's effective permissions.
     api_key_status = observation.anonymous_api_keys_status
