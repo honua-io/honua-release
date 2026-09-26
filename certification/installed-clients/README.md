@@ -15,6 +15,16 @@ Packages, and nuget.org does not serve that version. Later public versions are n
 ([honua-release#57](https://github.com/honua-io/honua-release/issues/57)). A release-mode run
 therefore cannot pass early with only two ecosystems.
 
+The service/layer import cell (`nuget-service-layer-import-fidelity`,
+[honua-release#317](https://github.com/honua-io/honua-release/issues/317)) is part of this same
+matrix, not a second certification framework. Its requirement IDs are the frozen import-fidelity
+scorecard denominator plus the published-SDK journey (discover, select, apply, wait,
+cancellation/recovery, reconciliation, fixtures, and Esri cross-checks). `time_query_parity` stays
+not-applicable and is outside the pass denominator. The cell consumes a receipt from a clean
+consumer of the manifest-pinned public NuGet package (`--import-fidelity-receipt`). It does not
+pack a checkout, restore a local feed, or synthesize a receipt. Omitted, skipped, stale,
+source-built, waived, released, wrong-pin, mocked-seam, or shrunk-denominator evidence fails.
+
 The Python admin cell installs the pinned wheel with its declared dependencies and imports both
 admin clients. Every manifest client artifact must have a matrix cell; omissions fail validation.
 
