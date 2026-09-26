@@ -585,6 +585,31 @@ def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicens
     assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
 
 
+def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
+    """release#321 AC: 'failed rollback' is one of the mandatory injected fault classes -- it must be
+    exercised in the targeted nightly lane, not merely reachable via a manual workflow_dispatch game
+    day that an operator has to remember to run."""
+    workflow = _workflow("gate-upgrade.yml")
+    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["scenario"]
+    assert "'schedule'" in matrix_scenario
+    assert '"rollback-failure"' in matrix_scenario
+    for scenario in ("normal", "post-migration-readiness", "bad-config", "migration-boundary"):
+        assert f'"{scenario}"' in matrix_scenario
+
+
+def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():
+    """A deliberately injected unrecoverable rollback must PASS the gate when the system correctly
+    classifies it rollback-failed with candidate-bound evidence and operator recovery instructions --
+    the same negative-transcript proof rollback-certification's mixed-state-receipt already treats as
+    passing -- so scheduling it nightly does not permanently redden that lane. An unexpected mis-
+    classification (or this branch being hit by a scenario that was supposed to recover) still fails."""
+    kind_commands = "\n".join(
+        _step_text(step) for step in _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    )
+    assert '[ "$FAILURE_SCENARIO" = rollback-failure ] && [ "$CLASS" = rollback-failed ]' in kind_commands
+    assert "STATUS=pass; WHY=\"deterministic rollback-failure correctly classified rollback-failed" in kind_commands
+
+
 def test_upgrade_gate_consumes_verified_candidate_and_fails_closed_on_receipt_verification():
     steps = _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
     resolve = next(step for step in steps if step.get("name") == "Resolve exact signed locks, images, schema, and chart package")["run"]

@@ -1,6 +1,6 @@
 {
   "schema": "honua.bounded-client-roster/v1",
-  "revision": "2026-09-13.1",
+  "revision": "2026-09-16.1",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/346",
   "bounded_roster_issue": "https://github.com/honua-io/honua-server/issues/3434",
   "consumer": {
@@ -21,6 +21,23 @@
       "decision": "A client_lane names the producer runner that executes one canonical client; the surface is already a separate join key, so the denominator no longer mints a lane per surface. Where honua-server already runs the canonical client in a single-client runner lane, the denominator adopts that lane. Where the existing runner lane does not identify one canonical client, honua-server is directed to emit a distinctly named lane. A lane that a registered producer already emits is retained.",
       "evidence": "honua-server docs/gis/data/client-certification-roster.v1.json registers desktop-qgis (QGIS), py-owslib (OWSLib), py-pystac (pystac-client), js-maplibre (MapLibre GL JS, currently emitted under the multi-client js lane by tests/js-browser/maplibre) and cli (GDAL/OGR); this denominator already assigns cli to the Honua CLI through the server capability matrix. ci-desktop is the curl-driven client-template smoke lane (docs/gis/CLIENT_TEMPLATE_RUNBOOK.md), not a QGIS runner. The CNG producer scripts/conformance/cng/validate-canonical-artifacts.py emits gdal-cog, gdal-flatgeobuf and gdal-geoparquet.",
       "consequence": "Existing OWSLib, PySTAC-Client and QGIS observations bind without relabeling them, and no second producer may be created for those clients (honua-server#3434 duplicate-producer criterion). MapLibre GL JS and GDAL/OGR cells stay producer-lane-not-emitted until honua-server emits js-maplibre and gdal."
+    },
+    {
+      "id": "preview-surfaces",
+      "decision": "A bounded cell whose capability the 2026.1 product contract makes Preview is not a governed cell. It moves to preview_cells with the ruling, the rationale and the release in which the cell is reconsidered for GA, and the generated denominator carries no supported requirement for it, so it can neither count as a pass nor block the cut. The Preview capability set is exactly preview_capability_keys; a governed cell on one of these keys, or a preview cell on any other key, fails generation.",
+      "preview_capability_keys": [
+        "serve.ogc-api-coverages",
+        "serve.ogc-api-edr",
+        "serve.wmts"
+      ],
+      "evidence": "honua-flow docs/2026.1-quality-contract.md AMENDMENT (operator, 2026-09-03): ImageServer and its WMTS, OGC API EDR and OGC API Coverages are PREVIEW in 2026.1 (honua-release#264/#266), recorded in docs/2026.1-release-decision-record.md and docs/2026.1-evidence-map.md. honua-server docs/gis/data/capability-maturity-overrides.v1.json demotes serve.wmts to preview on that ruling, and the capability matrix at the frozen candidate (548b7a5, 87966c3) reports serve.ogc-api-coverages, serve.ogc-api-edr and serve.wmts as status preview, so canonical-client-assignments no longer emits their external-client rows (honua-release#351).",
+      "consequence": "The five cells are Preview rows, not silent removals. Security, isolation and lifecycle-truth floors still apply to these surfaces through their own gates, and the open server defects on them (honua-server#4996) stay open. GA capabilities keep their governed cells even where the candidate fails them."
+    },
+    {
+      "id": "released-client-only",
+      "decision": "A governed cell names a client release that exists and whose public API can exercise the operation. Where the named release is unreleased, the cell is re-bound to the newest released version that supports it. Where the client cannot exercise the operation on any server, the cell moves to not_addressable_cells: the generated row stays in the denominator with addressable_by_client false and its reason, carries no bindable test ID, and names the governed cell of the client that does exercise the operation.",
+      "evidence": "honua-server#3434 roster run on nightly-2cc2213 (honua-server PR #5000, docs/internal/evidence/client-certification-2cc2213/): GDAL 3.14.0 is not released (newest ghcr.io/osgeo/gdal and PyPI GDAL are 3.13.3; a dev build reports 3.14.0dev, which the exact client_version join rejects); the GDAL/OGR OAPIF driver is read-only (update-mode open fails, SequentialWrite/RandomWrite/DeleteFeature capabilities are false, CreateFeature returns Unsupported operation) and never requests /conformance. The same probes against a local OGC API Features stub that declares create-replace-delete and links /conformance give identical results on ghcr.io/osgeo/gdal ubuntu-small-3.8.4 and ubuntu-small-3.13.3. QGIS 3.44.13-Solothurn passes both operations on the same candidate.",
+      "consequence": "The GDAL geoparquet feature-read cell pins GDAL 3.13.3 (the Parquet driver ships in the ubuntu-full image). A producer reports the two GDAL/OGR operations as not_applicable, which the client-interop-cert-v1 normalizer skips; OGC API Features conformance and transactions stay governed through QGIS (honua-release#359)."
     }
   ],
   "clients": {
@@ -108,18 +125,15 @@
     {"canonical_client": "GDAL", "surface": "flatgeobuf", "operation": "feature-read", "client_lane": "gdal-flatgeobuf", "test_id": "client-cert/gdal/flatgeobuf/feature-read"},
     {"canonical_client": "GDAL", "surface": "geoparquet", "operation": "feature-read", "client_lane": "gdal-geoparquet", "test_id": "client-cert/gdal/geoparquet/feature-read"},
     {"canonical_client": "GDAL", "surface": "ogc", "operation": "OGC-OP-WCS-2-0-COVERAGE", "client_lane": "gdal", "test_id": "client-cert/gdal/ogc/OGC-OP-WCS-2-0-COVERAGE"},
-    {"canonical_client": "GDAL", "surface": "ogc-api-coverages", "operation": "serve.ogc-api-coverages", "client_lane": "gdal", "test_id": "client-cert/gdal/ogc-api-coverages/serve.ogc-api-coverages"},
     {"canonical_client": "GDAL", "surface": "raster-cloud-cog-serving", "operation": "raster.cloud-cog-serving", "client_lane": "gdal", "test_id": "client-cert/gdal/raster-cloud-cog-serving/raster.cloud-cog-serving"},
     {"canonical_client": "GDAL", "surface": "raster-multidim-coverage", "operation": "raster.multidim-coverage", "client_lane": "gdal", "test_id": "client-cert/gdal/raster-multidim-coverage/raster.multidim-coverage"},
     {"canonical_client": "GDAL", "surface": "wcs", "operation": "serve.wcs", "client_lane": "gdal", "test_id": "client-cert/gdal/wcs/serve.wcs"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-COLLECTION", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-COLLECTION"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-COLLECTIONS"},
-    {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-CONFORMANCE", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-CONFORMANCE"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-ITEM", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-ITEM"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-ITEMS", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-ITEMS"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-LANDING", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-LANDING"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-QUERYABLES", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-QUERYABLES"},
-    {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-TRANSACTIONS", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-TRANSACTIONS"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-WFS-2-0", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc/OGC-OP-WFS-2-0"},
     {"canonical_client": "GDAL/OGR", "surface": "ogc-api-features", "operation": "serve.ogc-api-features", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/ogc-api-features/serve.ogc-api-features"},
     {"canonical_client": "GDAL/OGR", "surface": "wfs", "operation": "serve.wfs", "client_lane": "gdal", "test_id": "client-cert/gdal-ogr/wfs/serve.wfs"},
@@ -132,10 +146,7 @@
     {"canonical_client": "MapLibre GL JS", "surface": "ogc-api-tiles", "operation": "serve.ogc-api-tiles", "client_lane": "js-maplibre", "test_id": "client-cert/maplibre-gl-js/ogc-api-tiles/serve.ogc-api-tiles"},
     {"canonical_client": "MapLibre GL JS", "surface": "raster-terrain-rgb", "operation": "raster.terrain-rgb", "client_lane": "js-maplibre", "test_id": "client-cert/maplibre-gl-js/raster-terrain-rgb/raster.terrain-rgb"},
     {"canonical_client": "MapLibre GL JS", "surface": "wms", "operation": "serve.wms", "client_lane": "js-maplibre", "test_id": "client-cert/maplibre-gl-js/wms/serve.wms"},
-    {"canonical_client": "MapLibre GL JS", "surface": "wmts", "operation": "serve.wmts", "client_lane": "js-maplibre", "test_id": "client-cert/maplibre-gl-js/wmts/serve.wmts"},
     {"canonical_client": "OWSLib", "surface": "ogc", "operation": "OGC-OP-WCS-2-0-COVERAGE", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc/OGC-OP-WCS-2-0-COVERAGE"},
-    {"canonical_client": "OWSLib", "surface": "ogc-api-coverages", "operation": "serve.ogc-api-coverages", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-coverages/serve.ogc-api-coverages"},
-    {"canonical_client": "OWSLib", "surface": "ogc-api-edr", "operation": "serve.ogc-api-edr", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-edr/serve.ogc-api-edr"},
     {"canonical_client": "OWSLib", "surface": "ogc-api-processes", "operation": "process.ogc-api-processes", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-processes/process.ogc-api-processes"},
     {"canonical_client": "OWSLib", "surface": "ogc-api-records", "operation": "serve.ogc-api-records", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-records/serve.ogc-api-records"},
     {"canonical_client": "OWSLib", "surface": "wcs", "operation": "serve.wcs", "client_lane": "py-owslib", "test_id": "client-cert/owslib/wcs/serve.wcs"},
@@ -161,7 +172,17 @@
     {"canonical_client": "QGIS", "surface": "ogc-api-tiles", "operation": "serve.ogc-api-tiles", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/ogc-api-tiles/serve.ogc-api-tiles"},
     {"canonical_client": "QGIS", "surface": "ogc-features", "operation": "serve.ogc-api-features", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/ogc-features/serve.ogc-api-features"},
     {"canonical_client": "QGIS", "surface": "wfs", "operation": "serve.wfs", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/wfs/serve.wfs"},
-    {"canonical_client": "QGIS", "surface": "wms", "operation": "serve.wms", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/wms/serve.wms"},
-    {"canonical_client": "QGIS", "surface": "wmts", "operation": "serve.wmts", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/wmts/serve.wmts"}
+    {"canonical_client": "QGIS", "surface": "wms", "operation": "serve.wms", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/wms/serve.wms"}
+  ],
+  "preview_cells": [
+    {"canonical_client": "GDAL", "surface": "ogc-api-coverages", "operation": "serve.ogc-api-coverages", "client_lane": "gdal", "test_id": "client-cert/gdal/ogc-api-coverages/serve.ogc-api-coverages", "capability_key": "serve.ogc-api-coverages", "ruling": "preview-surfaces", "rationale": "OGC API Coverages is Preview in 2026.1. The cell returns to the governed roster only if a later release promotes the capability to GA.", "decision": "honua-flow quality contract AMENDMENT (operator, 2026-09-03); honua-release#264/#266", "target_release": "2026.2"},
+    {"canonical_client": "MapLibre GL JS", "surface": "wmts", "operation": "serve.wmts", "client_lane": "js-maplibre", "test_id": "client-cert/maplibre-gl-js/wmts/serve.wmts", "capability_key": "serve.wmts", "ruling": "preview-surfaces", "rationale": "WMTS is Preview in 2026.1. The cell returns to the governed roster only if a later release promotes the capability to GA.", "decision": "honua-flow quality contract AMENDMENT (operator, 2026-09-03); honua-release#264/#266", "target_release": "2026.2"},
+    {"canonical_client": "OWSLib", "surface": "ogc-api-coverages", "operation": "serve.ogc-api-coverages", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-coverages/serve.ogc-api-coverages", "capability_key": "serve.ogc-api-coverages", "ruling": "preview-surfaces", "rationale": "OGC API Coverages is Preview in 2026.1. The cell returns to the governed roster only if a later release promotes the capability to GA.", "decision": "honua-flow quality contract AMENDMENT (operator, 2026-09-03); honua-release#264/#266", "target_release": "2026.2"},
+    {"canonical_client": "OWSLib", "surface": "ogc-api-edr", "operation": "serve.ogc-api-edr", "client_lane": "py-owslib", "test_id": "client-cert/owslib/ogc-api-edr/serve.ogc-api-edr", "capability_key": "serve.ogc-api-edr", "ruling": "preview-surfaces", "rationale": "OGC API EDR is Preview in 2026.1. The cell returns to the governed roster only if a later release promotes the capability to GA.", "decision": "honua-flow quality contract AMENDMENT (operator, 2026-09-03); honua-release#264/#266", "target_release": "2026.2"},
+    {"canonical_client": "QGIS", "surface": "wmts", "operation": "serve.wmts", "client_lane": "desktop-qgis", "test_id": "client-cert/qgis/wmts/serve.wmts", "capability_key": "serve.wmts", "ruling": "preview-surfaces", "rationale": "WMTS is Preview in 2026.1. The cell returns to the governed roster only if a later release promotes the capability to GA.", "decision": "honua-flow quality contract AMENDMENT (operator, 2026-09-03); honua-release#264/#266", "target_release": "2026.2"}
+  ],
+  "not_addressable_cells": [
+    {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-CONFORMANCE", "client_lane": "gdal", "ruling": "released-client-only", "addressability_reason": "The GDAL/OGR OAPIF driver never requests /conformance: GDAL 3.8.4 and 3.13.3 (the newest release) read only the landing page, the service-desc, /collections and items, even when the landing page links conformance and an attribute filter is set, so GDAL/OGR does not exercise this operation on any server.", "governed_by_test_id": "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-CONFORMANCE", "decision": "honua-release#359"},
+    {"canonical_client": "GDAL/OGR", "surface": "ogc", "operation": "OGC-OP-OGC-API-FEATURES-TRANSACTIONS", "client_lane": "gdal", "ruling": "released-client-only", "addressability_reason": "The GDAL/OGR OAPIF driver is read-only: in GDAL 3.8.4 and 3.13.3 (the newest release) update-mode open fails, SequentialWrite/RandomWrite/DeleteFeature capabilities are false and CreateFeature returns Unsupported operation even against a server that declares create-replace-delete, so GDAL/OGR does not exercise this operation on any server.", "governed_by_test_id": "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-TRANSACTIONS", "decision": "honua-release#359"}
   ]
 }

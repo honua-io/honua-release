@@ -48,7 +48,7 @@ on:
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
       failure_scenario:
-        description: "Deterministic recovery game day (rollback-failure is an expected red negative)"
+        description: "Deterministic recovery game day (rollback-failure passes when it is correctly classified rollback-failed with evidence + operator instructions; it fails only if the classifier is wrong)"
         required: false
         type: choice
         options: [normal, post-migration-readiness, bad-config, migration-boundary, rollback-failure]
@@ -156,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["normal","post-migration-readiness","bad-config","migration-boundary"]' || format('["{0}"]', inputs.failure_scenario || 'normal')) }}
+        scenario: ${{ fromJSON(github.event_name == 'schedule' && '["normal","post-migration-readiness","bad-config","migration-boundary","rollback-failure"]' || format('["{0}"]', inputs.failure_scenario || 'normal')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -596,7 +596,18 @@ jobs:
                   echo '{"ready":false}' > /tmp/upg/prior-readiness.json
                   echo '{"read":false,"write":false}' > /tmp/upg/rollback-read-write.json
                   build_failed_recovery_receipt rollback-failure true false false false false false || true
-                  STATUS=fail; WHY="candidate failed and bounded rollback failed; manual recovery required"
+                  CLASS="$(jq -r '.classification // "unknown"' /tmp/upg/recovery-receipt.json 2>/dev/null || echo unknown)"
+                  # A deliberately injected unrecoverable rollback (the "rollback-failure" game day) is
+                  # NOT a gate failure when the system correctly detects it and produces a candidate-bound
+                  # receipt classified rollback-failed with evidence and operator recovery instructions --
+                  # exactly the negative-transcript proof rollback-certification's mixed-state-receipt
+                  # already treats as passing. Only a wrong classification (or this branch being reached
+                  # by a scenario that was supposed to recover) is a real failure.
+                  if [ "$FAILURE_SCENARIO" = rollback-failure ] && [ "$CLASS" = rollback-failed ]; then
+                    STATUS=pass; WHY="deterministic rollback-failure correctly classified rollback-failed with candidate-bound evidence and operator recovery instructions (manual intervention required, as designed)"
+                  else
+                    STATUS=fail; WHY="candidate failed and bounded rollback failed; manual recovery required (classified $CLASS)"
+                  fi
                 fi
                 tail -n 60 /tmp/upgrade.log || true
               fi
@@ -637,7 +648,14 @@ jobs:
           cp _locks/candidate.json /tmp/upg/candidate-platform-lock.json 2>/dev/null || true
           cp /tmp/*-identity.json /tmp/upg/ 2>/dev/null || true
           cp /tmp/migration-journal.json /tmp/upg/ 2>/dev/null || true
-          if [ "${status:-fail}" = pass ]; then
+          # The exact-lock-receipt below asserts install/candidate/rollback chart identities together;
+          # only the happy-path lifecycle smoke (scenario=normal) populates all three phase files, so
+          # gate it on their presence rather than on `$status` alone. A fault-injection scenario
+          # (post-migration-readiness, bad-config, migration-boundary, rollback-failure) can legitimately
+          # pass without ever reaching the voluntary-rollback phase this receipt describes -- its own
+          # candidate-bound recovery-receipt (validated above) is that scenario's evidence instead.
+          if [ "${status:-fail}" = pass ] && [ -f /tmp/install-identity.json ] && [ -f /tmp/candidate-identity.json ] \
+             && [ -f /tmp/rollback-identity.json ] && [ -f /tmp/migration-journal.json ]; then
             JOURNAL_SHA="sha256:$(sha256sum /tmp/migration-journal.json | awk '{print $1}')"
             jq -n \
               --arg arch amd64 --arg priorLock "${{ steps.images.outputs.prior_lock_digest }}" \
