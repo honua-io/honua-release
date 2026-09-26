@@ -58,9 +58,13 @@ The historical smoke fixture used SDK 0.1.7-beta.0 without Admin. The later
 [issue #123 run](../../artifacts/terminal-journey-issue-123.md) verified Admin in
 SDK 0.1.9-beta.0, but preserved obsolete stage blockers. Both are immutable
 observations, not the current command inventory. New receipts distinguish command
-discovery from credentialed execution: discovering Admin does not prove effective
-permissions, service mutations, approval, or publication. The unimplemented
-execution checks remain blocked on #123 even when discovery passes.
+discovery from credentialed execution. When the pinned `honua` binary and a
+loopback admin credential are present, stage 2 runs a reversible private-CLI
+preflight: mint an `admin:read` key into a 0600 sink, read its effective
+permissions, list it without key material, revoke it, and delete the sink.
+The root credential and the one-time key never enter the receipt. Service
+mutation, style pixels, GP, composition, publication, and separate-principal
+approval remain blocked until their own observations exist.
 
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.
@@ -107,8 +111,10 @@ The committed smoke receipt records eleven passing probes against the pinned can
 including readiness, exact candidate identity (`deploymentRevision` equal to the manifest
 server SHA), anonymous admin refusal, a paginated 52-tool surface read through the pinned
 proxy, and the presence of the style, GP, Studio and publication tool families. Every
-stage is nonetheless `blocked`, because no stage's full contract is satisfied yet. The
-receipt names which dependency stops each one.
+stage in that receipt is `blocked`, because no stage's full contract was satisfied.
+The receipt names which dependency stops each one. It is not rewritten by the
+stage 2 preflight. A later live run can pass stage 2 only from those observations,
+and that still does not pass the journey.
 
 AWS wrapping and genuine-model evidence are linked as #129 and #161, never embedded or
 treated as substitutes.
