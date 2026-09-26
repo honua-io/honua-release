@@ -21,7 +21,7 @@ Every image is pinned by digest, and `run.py` records every image ID:
 | Check | #3365 box | What is asserted |
 | --- | --- | --- |
 | `mintKeysThroughAdminApi` | 1, 2 | Both keys are minted through `POST /api/v1/admin/api-keys`. Each key reads its own `effective-permissions`, which must be exactly the requested grants, `active` and able to authenticate. |
-| `adminGetsAuthorizedForReadApproveKey` | 1 | Covers every parameterless GET in the running image's `/api/v1/admin/openapi.json`. Each route is called as full admin, as `admin:read`+`admin:approve` and as `admin:read`. The scoped key must never get 401/403 and must get the full-admin status. |
+| `adminGetsAuthorizedForReadApproveKey` | 1 | Covers every parameterless GET in the running image's `/api/v1/admin/openapi.json`. Each route is called as full admin, as `admin:read`+`admin:approve` and as `admin:read`. Both scoped keys must never get 401/403 and must get the full-admin status. New receipts retain every route's three statuses in `responses`, including successful `/api/v1/admin/jobs` reads. |
 | `unrelatedAccessPolicyWriteDenied` | 1 | `PUT /api/v1/admin/services/x/access-policy` returns 403 for both scoped keys. |
 | `readOnlyKeyDecisionDenied` | 2 | Three real studio-draft deletions are paused behind `RequiresApproval`. `admin:read` approve and reject return 403, the problem detail names `admin:approve`, and the proposal and draft are unchanged. |
 | `readApproveKeyDecides` | 1 | The scoped key's approve returns 200 `Succeeded` and deletes the draft. Its reject returns 200 `Rejected` and keeps the draft. `resolvedBy` is the scoped key. |
@@ -35,7 +35,59 @@ They were delivered by server PRs #3576, #4372 and #4736.
 
 Not exercised: the sealed terminal handoff. The canonical Console producer (`npm run receipt:console`) needs a zero-to-map checkpoint paused at `console-approval` and the sealed Studio handoff `honua.studio.real-model-ai-arc-handoff/v1`. That handoff's producer exists only on unmerged honua-studio#45, and the terminal journey is still blocked (honua-release#122/#123). The receipt records this under `notExercised`; it doesn't simulate the input.
 
-## Receipt on file
+## Current receipt
+
+[`receipt.nightly-42596b4.console-dcb9eb2.json`](receipt.nightly-42596b4.console-dcb9eb2.json)
+was observed 2026-09-26T22:54:02Z against the newest successful published nightly when the run started:
+
+- server source `42596b49c34d93cb53da64c27efcef6c36677356`, tag `nightly-42596b4`, image
+  `sha256:9377090504ecb8de9bcbf469a69c173576ea282f3be2cb54de167344a997dc7e`;
+- the same manifest-pinned Console `dcb9eb2` artifact used in the earlier receipts;
+- [nightly publication](https://github.com/honua-io/honua-server/actions/runs/36235760767).
+
+Server trunk later moved to `b817f60d835d403b168571980b88fdd9d6118e35` (`#5235`, scene host-cache).
+That commit is not in a published nightly, and this receipt does not claim it. The `admin:approve`
+grant itself is already on trunk via `#3576`, `#4372`, `#4736` and `#4990`.
+
+**All six implemented check groups passed.** Both scoped keys matched full admin on all
+110 parameterless GET routes, with zero 401/403 responses. `/api/v1/admin/jobs` returned
+200 for all three credentials. Approval deleted the real draft; rejection preserved the other
+draft. Read-only approve and reject returned 403 with
+`The 'admin:approve' grant is required to approve or reject proposals.`
+The separate operator's Console session rendered those exact proposal IDs as `Succeeded` and
+`Rejected`, and a third as `AwaitingApproval`. Before sign-in the proposals API returned 401
+and the proposal was not rendered. The receipt and captured pages passed the generated-credential
+leakage check.
+
+This is an authorization comparison on a minimal fixture: 92 GETs returned 200, one 204,
+five 400, two 402, eight 404 and two 500, identically for all three credentials. The two
+500 responses are `/api/v1/admin/share/traffic` and `/api/v1/admin/share/traffic/series`.
+The configuration discovery stream also ended early after its 200 response. These are
+recorded observations, not claims that every admin endpoint is functionally healthy or
+that parameterized/resource-specific GETs were swept.
+
+The sealed terminal handoff remains **unexercised**. Studio #45 is still an open draft at
+`0d3920d19a3246439a76b8705947c076df0f7732`; its producer is absent from the default branch.
+honua-release#122 and #123 are still open. The candidate exists, so this is an upstream
+handoff dependency rather than an absent-candidate deferral. This receipt does not close
+#3365 or qualify the complete terminal-to-Console journey. The server image was selected
+under the September 16 newest-imaged-nightly ruling; this change does not re-pin the
+platform server or change any release/support claim.
+
+Chromium started with the host library path
+`/home/mike/.cache/chromelibs/root/usr/lib/x86_64-linux-gnu` on `LD_LIBRARY_PATH`.
+
+## Prior passing receipt
+
+[`receipt.nightly-80e23be.console-dcb9eb2.json`](receipt.nightly-80e23be.console-dcb9eb2.json)
+was observed 2026-09-19 against nightly `80e23bed` (`sha256:9869f044…cc176`,
+[publication](https://github.com/honua-io/honua-server/actions/runs/35333311726)) and the same
+Console pin. All six implemented check groups passed, including `/api/v1/admin/jobs` at 200.
+It remains as the previous newest-nightly proof. The first browser attempt on that lane failed
+to launch Chromium because `libnspr4.so` was not on its search path; the recorded proof was
+rerun after supplying the host Chromium library path.
+
+## Original receipt
 
 `receipt.nightly-2cc2213.console-dcb9eb2.json` was observed 2026-09-16 with:
 
@@ -43,6 +95,11 @@ Not exercised: the sealed terminal handoff. The canonical Console producer (`npm
 - Console `candidate-dcb9eb2b39ed-34879792105-1` (`sha256:37685c71…a619`), the pin proposed in honua-release#357.
 
 **Status: failed on one check.** 109 of the 110 admin GET routes match full admin for the scoped key. `GET /api/v1/admin/jobs` returns 403 to `admin:read` keys, with or without `admin:approve`, but 200 to admin, `admin:write` and `admin:manage` keys. The cause is `OperatorApprovalGate` job-read authorization ignoring the read grant, tracked in [honua-server#4981](https://github.com/honua-io/honua-server/issues/4981). Every other check passed.
+
+That defect was fixed in [honua-server#4990](https://github.com/honua-io/honua-server/pull/4990).
+Its auth unit and real HTTP integration tests prove scoped job list/detail reads while denying
+non-admin reads and read-key cancellation. The original failed receipt remains unchanged as
+the before-fix evidence.
 
 Also observed and recorded, but not asserted:
 
@@ -55,9 +112,9 @@ Also observed and recorded, but not asserted:
 ```sh
 docker pull <each image above>   # anonymous GHCR pulls work
 python3 certification/console-read-approve/run.py \
-  --server-digest sha256:61e06ef3a94d00e4c8fc57ce93e008a5e31b2dcf1da5deb22781fdd42d2d4e51 \
-  --server-revision 2cc221388ea47d78c29e79eaee62737e4c792351 \
-  --server-tag nightly-2cc2213 \
+  --server-digest sha256:9377090504ecb8de9bcbf469a69c173576ea282f3be2cb54de167344a997dc7e \
+  --server-revision 42596b49c34d93cb53da64c27efcef6c36677356 \
+  --server-tag nightly-42596b4 \
   --playwright <honua-console>/e2e/playwright/node_modules/@playwright/test \
   --manifest platform-manifest.yaml \
   --output receipt.json
