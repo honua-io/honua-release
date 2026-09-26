@@ -45,6 +45,7 @@ python tools/validate_platform.py                      # structure + coherence
 python tools/validate_platform.py --baseline origin/main   # + drift vs that ref
 python tools/validate_platform.py --exact-candidate    # reject release placeholders/fallbacks
 python tools/verify_client_artifacts.py                # fetch and hash exact published package bytes
+python tools/first_publication_preflight.py --check    # anonymous #57 registry preflight; fails on drift or an invented digest
 python tools/verify_evidence_sources.py                # verify producer SHA ancestry + workflow triggers
 python -m pytest tools/test_platform.py                # self-test (proves each rule can fail)
 ```
