@@ -82,6 +82,26 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def admin_get_results(rows):
+    """Retain every route result and fail if either read-level key loses access."""
+    mismatches = [row["path"] for row in rows
+                  if any(row[key] in (401, 403) or row[key] != row["admin"]
+                         for key in ("readApprove", "readOnly"))]
+    distribution = {}
+    for row in rows:
+        status = str(row["readApprove"])
+        distribution[status] = distribution.get(status, 0) + 1
+    return {
+        "status": "passed" if rows and not mismatches else "failed",
+        "routes": len(rows), "readApproveStatusCounts": dict(sorted(distribution.items())),
+        "authorizationDenials": sum(row["readApprove"] in (401, 403) for row in rows),
+        "readOnlyAuthorizationDenials": sum(row["readOnly"] in (401, 403) for row in rows),
+        "statusDiffersFromFullAdmin": mismatches,
+        "nonOkRoutes": [row for row in rows if row["readApprove"] != 200],
+        "responses": rows,
+    }
+
+
 def prove(args):
     server_image = f"ghcr.io/honua-io/honua-server@{args.server_digest}"
     console = manifest_component(args.manifest, "honua-console")
@@ -373,7 +393,7 @@ def prove(args):
             get_paths = sorted(path for path, operations in spec.get("paths", {}).items()
                                if "get" in operations and "{" not in path)
             require(len(get_paths) >= 50, "Admin OpenAPI document lists too few parameterless GET routes")
-            rows, mismatches = [], []
+            rows = []
             for path in get_paths:
                 full = path if path.startswith("/api/") else base + path
                 admin_status, _ = call(full)
@@ -383,17 +403,7 @@ def prove(args):
                 if approve_body is INCOMPLETE:
                     row["readApproveBodyEndedEarly"] = True
                 rows.append(row)
-                if approve_status in (401, 403) or (approve_status != admin_status and admin_status not in (401, 403)):
-                    mismatches.append(full)
-            distribution = {}
-            for row in rows:
-                distribution[str(row["readApprove"])] = distribution.get(str(row["readApprove"]), 0) + 1
-            receipt["checks"]["adminGetsAuthorizedForReadApproveKey"] = {
-                "status": "passed" if not mismatches else "failed",
-                "routes": len(rows), "readApproveStatusCounts": dict(sorted(distribution.items())),
-                "authorizationDenials": sum(1 for row in rows if row["readApprove"] in (401, 403)),
-                "statusDiffersFromFullAdmin": mismatches,
-                "nonOkRoutes": [row for row in rows if row["readApprove"] != 200]}
+            receipt["checks"]["adminGetsAuthorizedForReadApproveKey"] = admin_get_results(rows)
             # Recorded, not raised: a GET authorization defect must not hide the remaining criteria.
 
             # 3. The unrelated write stays denied for both scoped keys.
