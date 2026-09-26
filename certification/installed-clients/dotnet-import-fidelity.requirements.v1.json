@@ -1,0 +1,1176 @@
+{
+  "schema": "honua.dotnet-import-fidelity-requirements/v1",
+  "revision": "sha256:a12699cb73991d9553f75c9148f6d415ee995f60bb068b2812f368a55da59936",
+  "issue": "https://github.com/honua-io/honua-release/issues/317",
+  "dependencies": [
+    "https://github.com/honua-io/honua-release/issues/7",
+    "https://github.com/honua-io/honua-release/issues/157",
+    "https://github.com/honua-io/honua-server/issues/4420"
+  ],
+  "publicRegistries": [
+    "https://api.nuget.org/v3/index.json"
+  ],
+  "frozenBaseline": {
+    "source": "honua-server tests/dotnet/Honua.Server.Tests/Import/import-fidelity-scorecard-baseline.json",
+    "serviceCases": 10,
+    "checksPerCase": 12,
+    "supportedBaselineCells": 110,
+    "notApplicableCells": 10,
+    "note": "time_query_parity is not applicable on the frozen baseline and is outside the pass denominator. Journey cells add the published-SDK consumer requirements; they do not replace or shrink the baseline."
+  },
+  "cells": [
+    {
+      "id": "crosscheck.attachment-hashes",
+      "requirementId": "crosscheck.attachment-hashes",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "crosscheck.counts-values",
+      "requirementId": "crosscheck.counts-values",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "crosscheck.geometry-tolerances",
+      "requirementId": "crosscheck.geometry-tolerances",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "crosscheck.honua-and-esri-clients",
+      "requirementId": "crosscheck.honua-and-esri-clients",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "crosscheck.relationships",
+      "requirementId": "crosscheck.relationships",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "crosscheck.schema-metadata",
+      "requirementId": "crosscheck.schema-metadata",
+      "kind": "supported",
+      "group": "crosscheck"
+    },
+    {
+      "id": "dependency.server-4420",
+      "requirementId": "dependency.server-4420",
+      "kind": "supported",
+      "group": "dependency",
+      "dependsOn": "https://github.com/honua-io/honua-server/issues/4420"
+    },
+    {
+      "id": "esri_census_states/all_fields_diff",
+      "requirementId": "esri_census_states/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_census_states/core_query_parity",
+      "requirementId": "esri_census_states/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_census_states/distinct_parity",
+      "requirementId": "esri_census_states/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_census_states/edge_case_query_parity",
+      "requirementId": "esri_census_states/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_census_states/error_shape_parity",
+      "requirementId": "esri_census_states/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_census_states/geojson_query_parity",
+      "requirementId": "esri_census_states/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_census_states/geometry_parity",
+      "requirementId": "esri_census_states/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_census_states/grouped_statistics_parity",
+      "requirementId": "esri_census_states/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_census_states/mapserver_featureserver_parity",
+      "requirementId": "esri_census_states/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_census_states/spatial_envelope_parity",
+      "requirementId": "esri_census_states/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_census_states/statistics_parity",
+      "requirementId": "esri_census_states/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_census_states/time_query_parity",
+      "requirementId": "esri_census_states/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_census_states",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/all_fields_diff",
+      "requirementId": "esri_military_ops_area_z/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_military_ops_area_z/core_query_parity",
+      "requirementId": "esri_military_ops_area_z/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/distinct_parity",
+      "requirementId": "esri_military_ops_area_z/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/edge_case_query_parity",
+      "requirementId": "esri_military_ops_area_z/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/error_shape_parity",
+      "requirementId": "esri_military_ops_area_z/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/geojson_query_parity",
+      "requirementId": "esri_military_ops_area_z/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/geometry_parity",
+      "requirementId": "esri_military_ops_area_z/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/grouped_statistics_parity",
+      "requirementId": "esri_military_ops_area_z/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/mapserver_featureserver_parity",
+      "requirementId": "esri_military_ops_area_z/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/spatial_envelope_parity",
+      "requirementId": "esri_military_ops_area_z/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/statistics_parity",
+      "requirementId": "esri_military_ops_area_z/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_military_ops_area_z/time_query_parity",
+      "requirementId": "esri_military_ops_area_z/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_area_z",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/all_fields_diff",
+      "requirementId": "esri_military_ops_line_zm/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_military_ops_line_zm/core_query_parity",
+      "requirementId": "esri_military_ops_line_zm/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/distinct_parity",
+      "requirementId": "esri_military_ops_line_zm/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/edge_case_query_parity",
+      "requirementId": "esri_military_ops_line_zm/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/error_shape_parity",
+      "requirementId": "esri_military_ops_line_zm/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/geojson_query_parity",
+      "requirementId": "esri_military_ops_line_zm/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/geometry_parity",
+      "requirementId": "esri_military_ops_line_zm/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/grouped_statistics_parity",
+      "requirementId": "esri_military_ops_line_zm/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/mapserver_featureserver_parity",
+      "requirementId": "esri_military_ops_line_zm/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/spatial_envelope_parity",
+      "requirementId": "esri_military_ops_line_zm/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/statistics_parity",
+      "requirementId": "esri_military_ops_line_zm/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_military_ops_line_zm/time_query_parity",
+      "requirementId": "esri_military_ops_line_zm/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_military_ops_line_zm",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "esri_usa_cities/all_fields_diff",
+      "requirementId": "esri_usa_cities/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_usa_cities/core_query_parity",
+      "requirementId": "esri_usa_cities/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_usa_cities/distinct_parity",
+      "requirementId": "esri_usa_cities/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_usa_cities/edge_case_query_parity",
+      "requirementId": "esri_usa_cities/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_usa_cities/error_shape_parity",
+      "requirementId": "esri_usa_cities/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_usa_cities/geojson_query_parity",
+      "requirementId": "esri_usa_cities/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_usa_cities/geometry_parity",
+      "requirementId": "esri_usa_cities/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_usa_cities/grouped_statistics_parity",
+      "requirementId": "esri_usa_cities/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_usa_cities/mapserver_featureserver_parity",
+      "requirementId": "esri_usa_cities/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_usa_cities/spatial_envelope_parity",
+      "requirementId": "esri_usa_cities/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_usa_cities/statistics_parity",
+      "requirementId": "esri_usa_cities/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_usa_cities/time_query_parity",
+      "requirementId": "esri_usa_cities/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_usa_cities",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "esri_usa_highways/all_fields_diff",
+      "requirementId": "esri_usa_highways/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_usa_highways/core_query_parity",
+      "requirementId": "esri_usa_highways/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_usa_highways/distinct_parity",
+      "requirementId": "esri_usa_highways/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_usa_highways/edge_case_query_parity",
+      "requirementId": "esri_usa_highways/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_usa_highways/error_shape_parity",
+      "requirementId": "esri_usa_highways/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_usa_highways/geojson_query_parity",
+      "requirementId": "esri_usa_highways/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_usa_highways/geometry_parity",
+      "requirementId": "esri_usa_highways/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_usa_highways/grouped_statistics_parity",
+      "requirementId": "esri_usa_highways/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_usa_highways/mapserver_featureserver_parity",
+      "requirementId": "esri_usa_highways/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_usa_highways/spatial_envelope_parity",
+      "requirementId": "esri_usa_highways/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_usa_highways/statistics_parity",
+      "requirementId": "esri_usa_highways/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_usa_highways/time_query_parity",
+      "requirementId": "esri_usa_highways/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_usa_highways",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/all_fields_diff",
+      "requirementId": "esri_wildfire_lines/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "esri_wildfire_lines/core_query_parity",
+      "requirementId": "esri_wildfire_lines/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/distinct_parity",
+      "requirementId": "esri_wildfire_lines/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/edge_case_query_parity",
+      "requirementId": "esri_wildfire_lines/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/error_shape_parity",
+      "requirementId": "esri_wildfire_lines/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/geojson_query_parity",
+      "requirementId": "esri_wildfire_lines/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/geometry_parity",
+      "requirementId": "esri_wildfire_lines/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/grouped_statistics_parity",
+      "requirementId": "esri_wildfire_lines/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/mapserver_featureserver_parity",
+      "requirementId": "esri_wildfire_lines/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/spatial_envelope_parity",
+      "requirementId": "esri_wildfire_lines/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/statistics_parity",
+      "requirementId": "esri_wildfire_lines/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "esri_wildfire_lines/time_query_parity",
+      "requirementId": "esri_wildfire_lines/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "esri_wildfire_lines",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "evidence.immutable-identities",
+      "requirementId": "evidence.immutable-identities",
+      "kind": "supported",
+      "group": "evidence"
+    },
+    {
+      "id": "evidence.rejects-data-loss",
+      "requirementId": "evidence.rejects-data-loss",
+      "kind": "supported",
+      "group": "evidence"
+    },
+    {
+      "id": "evidence.rollback-repoint",
+      "requirementId": "evidence.rollback-repoint",
+      "kind": "supported",
+      "group": "evidence"
+    },
+    {
+      "id": "fixture.attachments",
+      "requirementId": "fixture.attachments",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.auth",
+      "requirementId": "fixture.auth",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.bounded-large-data",
+      "requirementId": "fixture.bounded-large-data",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.domains-subtypes",
+      "requirementId": "fixture.domains-subtypes",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.filters-crs",
+      "requirementId": "fixture.filters-crs",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.injected-failure",
+      "requirementId": "fixture.injected-failure",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.lines",
+      "requirementId": "fixture.lines",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.nulls-int64-time",
+      "requirementId": "fixture.nulls-int64-time",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.pagination-limits",
+      "requirementId": "fixture.pagination-limits",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.points",
+      "requirementId": "fixture.points",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.polygons",
+      "requirementId": "fixture.polygons",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.related-records",
+      "requirementId": "fixture.related-records",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.renderer-time-metadata",
+      "requirementId": "fixture.renderer-time-metadata",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.tables",
+      "requirementId": "fixture.tables",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "fixture.zm-curves",
+      "requirementId": "fixture.zm-curves",
+      "kind": "supported",
+      "group": "fixture"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/all_fields_diff",
+      "requirementId": "hawaii_historiccultural_moku/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/core_query_parity",
+      "requirementId": "hawaii_historiccultural_moku/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/distinct_parity",
+      "requirementId": "hawaii_historiccultural_moku/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/edge_case_query_parity",
+      "requirementId": "hawaii_historiccultural_moku/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/error_shape_parity",
+      "requirementId": "hawaii_historiccultural_moku/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/geojson_query_parity",
+      "requirementId": "hawaii_historiccultural_moku/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/geometry_parity",
+      "requirementId": "hawaii_historiccultural_moku/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/grouped_statistics_parity",
+      "requirementId": "hawaii_historiccultural_moku/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/mapserver_featureserver_parity",
+      "requirementId": "hawaii_historiccultural_moku/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/spatial_envelope_parity",
+      "requirementId": "hawaii_historiccultural_moku/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/statistics_parity",
+      "requirementId": "hawaii_historiccultural_moku/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "hawaii_historiccultural_moku/time_query_parity",
+      "requirementId": "hawaii_historiccultural_moku/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "hawaii_historiccultural_moku",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/all_fields_diff",
+      "requirementId": "hawaii_infra_dams/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "hawaii_infra_dams/core_query_parity",
+      "requirementId": "hawaii_infra_dams/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/distinct_parity",
+      "requirementId": "hawaii_infra_dams/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/edge_case_query_parity",
+      "requirementId": "hawaii_infra_dams/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/error_shape_parity",
+      "requirementId": "hawaii_infra_dams/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/geojson_query_parity",
+      "requirementId": "hawaii_infra_dams/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/geometry_parity",
+      "requirementId": "hawaii_infra_dams/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/grouped_statistics_parity",
+      "requirementId": "hawaii_infra_dams/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/mapserver_featureserver_parity",
+      "requirementId": "hawaii_infra_dams/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/spatial_envelope_parity",
+      "requirementId": "hawaii_infra_dams/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/statistics_parity",
+      "requirementId": "hawaii_infra_dams/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "hawaii_infra_dams/time_query_parity",
+      "requirementId": "hawaii_infra_dams/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_dams",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/all_fields_diff",
+      "requirementId": "hawaii_infra_marine_sewerlines/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/core_query_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/distinct_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/edge_case_query_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/error_shape_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/geojson_query_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/geometry_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/grouped_statistics_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/mapserver_featureserver_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/spatial_envelope_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/statistics_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "hawaii_infra_marine_sewerlines/time_query_parity",
+      "requirementId": "hawaii_infra_marine_sewerlines/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "hawaii_infra_marine_sewerlines",
+      "check": "time_query_parity"
+    },
+    {
+      "id": "journey.apply",
+      "requirementId": "journey.apply",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "journey.cancellation-recovery",
+      "requirementId": "journey.cancellation-recovery",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "journey.inventory-discovery",
+      "requirementId": "journey.inventory-discovery",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "journey.published-package-install",
+      "requirementId": "journey.published-package-install",
+      "kind": "supported",
+      "group": "package"
+    },
+    {
+      "id": "journey.reconciliation",
+      "requirementId": "journey.reconciliation",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "journey.service-selection",
+      "requirementId": "journey.service-selection",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "journey.wait",
+      "requirementId": "journey.wait",
+      "kind": "supported",
+      "group": "lifecycle"
+    },
+    {
+      "id": "kauai_bridges/all_fields_diff",
+      "requirementId": "kauai_bridges/all_fields_diff",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "all_fields_diff"
+    },
+    {
+      "id": "kauai_bridges/core_query_parity",
+      "requirementId": "kauai_bridges/core_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "core_query_parity"
+    },
+    {
+      "id": "kauai_bridges/distinct_parity",
+      "requirementId": "kauai_bridges/distinct_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "distinct_parity"
+    },
+    {
+      "id": "kauai_bridges/edge_case_query_parity",
+      "requirementId": "kauai_bridges/edge_case_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "edge_case_query_parity"
+    },
+    {
+      "id": "kauai_bridges/error_shape_parity",
+      "requirementId": "kauai_bridges/error_shape_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "error_shape_parity"
+    },
+    {
+      "id": "kauai_bridges/geojson_query_parity",
+      "requirementId": "kauai_bridges/geojson_query_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "geojson_query_parity"
+    },
+    {
+      "id": "kauai_bridges/geometry_parity",
+      "requirementId": "kauai_bridges/geometry_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "geometry_parity"
+    },
+    {
+      "id": "kauai_bridges/grouped_statistics_parity",
+      "requirementId": "kauai_bridges/grouped_statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "grouped_statistics_parity"
+    },
+    {
+      "id": "kauai_bridges/mapserver_featureserver_parity",
+      "requirementId": "kauai_bridges/mapserver_featureserver_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "mapserver_featureserver_parity"
+    },
+    {
+      "id": "kauai_bridges/spatial_envelope_parity",
+      "requirementId": "kauai_bridges/spatial_envelope_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "spatial_envelope_parity"
+    },
+    {
+      "id": "kauai_bridges/statistics_parity",
+      "requirementId": "kauai_bridges/statistics_parity",
+      "kind": "supported",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "statistics_parity"
+    },
+    {
+      "id": "kauai_bridges/time_query_parity",
+      "requirementId": "kauai_bridges/time_query_parity",
+      "kind": "not-applicable",
+      "group": "baseline",
+      "serviceCase": "kauai_bridges",
+      "check": "time_query_parity"
+    }
+  ]
+}
