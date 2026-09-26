@@ -569,6 +569,23 @@ def test_structure_requires_explicit_aws_runtime_architectures():
     assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
 
 
+@pytest.mark.parametrize("apply", ["drop", "drop-amd64", "truncate", "string"])
+def test_structure_requires_server_amd64_platform_digest(apply):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    server = manifest["components"]["honua-server"]
+    if apply == "drop":
+        del server["platformDigests"]
+    elif apply == "drop-amd64":
+        del server["platformDigests"]["amd64"]
+    elif apply == "truncate":
+        server["platformDigests"]["amd64"] = "sha256:abcd"
+    else:
+        server["platformDigests"] = "sha256:" + "a" * 64
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("platformDigests.amd64" in e for e in f.errors)
+
+
 # ---- awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else --------------------
 @pytest.mark.parametrize("value", [
     "TBD-at-publish",                       # a hand-wave

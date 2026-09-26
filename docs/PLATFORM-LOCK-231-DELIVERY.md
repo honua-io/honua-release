@@ -184,22 +184,24 @@ operator ruled is the public spec identity (2026-09-01 decision 3). The runtime 
 digests, the fixture revisions, the SBOM/provenance references and the release notes are produced
 by the candidate itself and remain AT-CUT; they now refuse against a real input path.
 
-The generator's refusal list is **41: 29 AT-CUT, 12 PUBLISH**. Declaring the
-geospatial-MCP standard content digest resolved one line; the deployment recovery inventory that
-arrived with #278 added one.
+The generator's refusal list is **41: 26 AT-CUT, 15 PUBLISH**. The honua-server
+image now declares the pinned index's linux/amd64 and linux/arm64 manifests, so
+the dry-run lock carries `platformDigests/amd64` for rollback certification.
+Console platform digests, and the server artifact version and source revision,
+remain unresolved.
 
 ```text
-[AT-CUT] $.disasterRecovery: candidate deployment durable-substrate inventory is not declared
 [AT-CUT] $.components.honua-server.migrationJournalSha256: exact declared migration set is not bound
 [AT-CUT] $.components.honua-server.artifacts[0].version: source snapshot/pre-release is not a released artifact version
-[AT-CUT] $.components.honua-server.artifacts[0].architectures: registry architecture set is not declared
-[AT-CUT] $.components.honua-server.artifacts[0].platformDigests: platform-specific image digests are not declared
 [AT-CUT] $.components.honua-server.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
 [AT-CUT] $.components.honua-console.contractVersions: not declared
 [AT-CUT] $.components.honua-console.schemaVersions: not declared
 [PUBLISH] $.components.honua-console.artifacts[0].version: source snapshot/pre-release is not a released artifact version
 [AT-CUT] $.components.honua-console.artifacts[0].platformDigests: platform-specific image digests are not declared
 [AT-CUT] $.components.honua-sdk-dotnet.schemaVersions: not declared
+[PUBLISH] $.clientArtifacts.honua-sdk-dotnet: published identity conflicts with component artifact: version
+[PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sha256: package hash is not declared
+[PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
 [PUBLISH] $.components.honua-sdk-dotnet.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
 [AT-CUT] $.components.honua-sdk-js.schemaVersions: not declared
 [PUBLISH] $.components.honua-sdk-js.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned

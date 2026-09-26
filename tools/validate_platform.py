@@ -239,6 +239,11 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             f"the literal {PENDING_ECR_MIRROR!r} sentinel, got {ecr_digest!r}"
         )
 
+    # Rollback certification dereferences this exact child, not the multi-arch index in `digest`.
+    platform_digests = server.get("platformDigests") if isinstance(server.get("platformDigests"), dict) else {}
+    if not DIGEST_RE.fullmatch(str(platform_digests.get("amd64", ""))):
+        f.error("manifest: honua-server.platformDigests.amd64 must be the exact linux/amd64 image digest")
+
     # Matrix ranges must parse, and every named client/component must exist in the manifest.
     for contract, body in (matrix.get("contracts") or {}).items():
         for client, spec in (body.get("clients") or {}).items():

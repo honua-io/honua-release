@@ -287,12 +287,95 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
+    assert "honua-server.artifacts[0].platformDigests" not in joined
+    assert "honua-server.artifacts[0].architectures" not in joined
     assert all(
         component["supportTier"] == component["lifecycleStatus"].lower()
         for component in draft.lock["components"].values()
     )
     assert draft.lock["sbom"] == []
     assert draft.lock["provenance"] == []
+
+
+def _server_image_manifest(platform_digests, architectures=None):
+    server = {
+        "repository": "https://github.com/honua-io/honua-server",
+        "sha": REVISION,
+        "lifecycleStatus": "GA",
+        "image": "ghcr.io/honua-io/honua-server:candidate",
+        "digest": DIGEST,
+        "contractVersions": {"admin": "v1"},
+        "dbSchema": "1",
+    }
+    if platform_digests is not None:
+        server["platformDigests"] = platform_digests
+    if architectures is not None:
+        server["architectures"] = architectures
+    return {"platformRelease": "2026.1", "components": {"honua-server": server}}
+
+
+def _server_artifact(draft):
+    return draft.lock["components"]["honua-server"]["artifacts"][0]
+
+
+def test_committed_server_image_exposes_amd64_digest_to_rollback_certifier():
+    """The dry-run lock must carry the child the certifier dereferences, not the index."""
+    import sys
+    sys.path.insert(0, str(ROOT / "mcp"))
+    import release_rollback as rollback
+    import certify_release_rollback as certification
+
+    draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
+    path = certification.artifact_path(draft.lock, "honua-server", "image", "platformDigests/amd64")
+    amd64 = "sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93"
+    arm64 = "sha256:3931efaa25642b80a3db42fc6deead63241a58e7eec93c592f803313c6253378"
+    artifact = _server_artifact(draft)
+    assert artifact["digest"] == "sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+    assert artifact["digest"] not in (amd64, arm64)
+    assert artifact["platformDigests"] == {"amd64": amd64, "arm64": arm64}
+    assert artifact["architectures"] == ["amd64", "arm64"]
+    assert rollback.pointer(draft.lock, path) == amd64
+    assert not any("honua-server.artifacts[0].platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_copies_exact_amd64_platform_digest(tmp_path):
+    amd64, arm64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": amd64, "arm64": arm64}, ["amd64", "arm64"]))
+    assert _server_artifact(draft)["platformDigests"] == {"amd64": amd64, "arm64": arm64}
+    assert not any("platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_allows_single_arch_digest_to_equal_the_image_digest(tmp_path):
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": DIGEST}, ["amd64"]))
+    assert _server_artifact(draft)["platformDigests"] == {"amd64": DIGEST}
+    assert not any("platformDigests" in item for item in draft.unresolved)
+
+
+@pytest.mark.parametrize("declared", [
+    None,
+    {},
+    {"arm64": DIGEST},
+    {"amd64": "sha256:abcd"},
+    {"linux/amd64": DIGEST},
+    {"amd64": DIGEST, "ppc64le": DIGEST},
+])
+def test_generator_does_not_copy_platform_digests_the_certifier_cannot_read(tmp_path, declared):
+    draft = draft_of(tmp_path, _server_image_manifest(declared, ["amd64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any(item.startswith("[AT-CUT]") and "platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_refuses_platform_digest_that_repeats_the_multi_arch_index(tmp_path):
+    declared = {"amd64": DIGEST, "arm64": "sha256:" + "c" * 64}
+    draft = draft_of(tmp_path, _server_image_manifest(declared, ["amd64", "arm64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any("multi-arch index" in item for item in draft.unresolved)
+
+
+def test_generator_refuses_platform_digests_that_disagree_with_architectures(tmp_path):
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": "sha256:" + "c" * 64}, ["amd64", "arm64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any("architectures do not match platformDigests" in item for item in draft.unresolved)
 
 
 def test_generator_derives_support_tier_from_lifecycle_status(tmp_path):

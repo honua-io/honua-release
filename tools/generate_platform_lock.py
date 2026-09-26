@@ -35,6 +35,8 @@ except ImportError as exc:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)?$")
 PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+PLATFORM_DIGEST_ARCHITECTURES = {"amd64", "arm64"}
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -54,6 +56,36 @@ def _load(path: Path) -> dict[str, Any]:
 
 def _file_identity(path: Path) -> dict[str, str]:
     return {"path": path.name, "sha256": f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"}
+
+
+def image_platform_digests(declared: Any, *, index_digest: Any = None, architectures: Any = None) -> dict[str, str]:
+    """Exact amd64/arm64 image digests the rollback certifier can dereference.
+
+    ``platformDigests/amd64`` is the serving identity. A missing, malformed, or
+    non-architecture entry must not be copied into the lock, and neither may a
+    multi-arch index digest repeated as one of its own children.
+    """
+    if not isinstance(declared, dict) or not declared:
+        raise ValueError("platform-specific image digests are not declared")
+    accepted: dict[str, str] = {}
+    errors: list[str] = []
+    for architecture, digest in declared.items():
+        exact = isinstance(digest, str) and DIGEST_RE.fullmatch(digest) is not None
+        if architecture not in PLATFORM_DIGEST_ARCHITECTURES or not exact:
+            errors.append(f"{architecture}: image requires an exact platform-specific digest")
+            continue
+        accepted[architecture] = digest
+    if "amd64" not in accepted and not any(item.startswith("amd64:") for item in errors):
+        errors.append("amd64: image requires an exact platform-specific digest")
+    if len(accepted) > 1 and isinstance(index_digest, str) and index_digest in accepted.values():
+        errors.append("platform digest repeats the multi-arch index digest")
+    if architectures not in (None, []) and (
+        not isinstance(architectures, list) or set(architectures) != set(accepted)
+    ):
+        errors.append("architectures do not match platformDigests")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dict(accepted)
 
 
 def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
@@ -250,11 +282,14 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                 else:
                     refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
                 if seed["kind"] == "image":
-                    platform_digests = component.get("platformDigests")
-                    if isinstance(platform_digests, dict) and platform_digests:
-                        seed["platformDigests"] = platform_digests
-                    else:
-                        refuse(f"{apath}.platformDigests: platform-specific image digests are not declared", "AT-CUT")
+                    try:
+                        seed["platformDigests"] = image_platform_digests(
+                            component.get("platformDigests"),
+                            index_digest=component.get("digest"),
+                            architectures=component.get("architectures"),
+                        )
+                    except (TypeError, ValueError) as exc:
+                        refuse(f"{apath}.platformDigests: {exc}", "AT-CUT")
                 else:
                     package_sha = component.get("artifactSha256")
                     if isinstance(package_sha, str) and package_sha.startswith("sha256:"):
