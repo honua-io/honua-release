@@ -50,9 +50,9 @@ is safe; those are distinct acceptance conditions.
 ## First release: the introduction floor a publisher cannot declare
 
 The rule above assumes an earlier server exists to name. `honua-io/honua-server` has never
-published one. On 2026-09-07 its tag list, its release list, and its `refs/tags` namespace were
+published one. On 2026-09-26 its tag list, its release list, and its `refs/tags` namespace were
 all empty, recorded in `certification/sources/server-publication-history.v1.json` at
-`honua-server` `98414e8c`. Regenerate and re-check that receipt with
+`honua-server` `b817f60d`. Regenerate and re-check that receipt with
 
 ```sh
 python3 tools/server_publication_history.py collect
@@ -106,12 +106,16 @@ genuinely established, because there is no earlier server.
 
 ## Current qualification blocker
 
-As of 2026-09-04, the pinned manifests do not contain capability introduction
+As of 2026-09-26, the pinned manifests do not contain capability introduction
 versions and the platform lock generator still reports unresolved release inputs.
-The current declarations conflict: JavaScript `1.0.0`, .NET `0.1.0`, Python
-`1.0.0` with a separate hidden `2026.3.0` CalVer floor. MCP has no independent
-numeric baseline declaration. Replacing these with one chosen number would not
-implement the derivation rule.
+`components.honua-server.version` is still the `pre-release` sentinel. The pinned
+declarations still conflict: JavaScript `d7cec2d5` declares `1.0.0`, .NET
+`6ba49ec3` declares `0.1.0`, and Python `40ecf731` declares `1.0.0` plus a hidden
+`2026.3.0` CalVer floor. MCP `d5a09d13` has no introduction floors. JavaScript,
+.NET, and MCP trunk heads match those pins. Python trunk `28d90152` (honua-sdk-python#224,
+`2e91603f`) drops the CalVer floor and keeps `1.0.0`, but that revision is not the
+pinned artifact. Replacing these with one chosen number would not implement the
+derivation rule.
 
 Before #233 can close, protocol publishers must bind introduction evidence — for
 2026.1 that means the first-release model above, since no earlier server exists —
