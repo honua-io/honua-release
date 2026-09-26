@@ -52,6 +52,12 @@ python -m pytest tools/test_platform.py                # self-test (proves each 
 CI: `.github/workflows/manifest-validate.yml` runs this per-PR (drift vs the PR base) and is
 callable by the release train as a reusable gate (`workflow_call`, input `baseline_ref`).
 
+A `bound` protocol ledger requires all three SDK catalog producer commits to equal the
+manifest component SHAs and published `clientArtifacts.*.sourceSha` provenance.
+`--requirements PATH` selects the catalog for an alternate manifest.
+A `pending` ledger permits staging a rebind but fails `--exact-candidate`; FINALIZE restores
+`bound` with the verified ledger commit, digest, and requirements revision together.
+
 The validators require `pyyaml`; schema self-tests also require `jsonschema`. `semver.py` is a
 minimal stdlib SemVer + range implementation (no third-party semver lib). The two remote pin
 verifiers run only for a non-dry-run release cut; they fail closed when published bytes or trusted
@@ -75,16 +81,57 @@ The generator writes the partial draft but exits 1 while any value cannot be res
 with placeholders—so a non-zero result is expected until release manufacture/signing (part 2)
 supplies registry and evidence identities.
 
+Every fact the lock carries outside `components` — the MCP/catalog/OKF content digests, fixture
+revisions, SBOM/provenance references and the release notes — is declared by `platformLockEvidence`
+in `platform-manifest.yaml`, at immutable coordinates. `tools/release_facts.py` holds those rules
+once, so the generator, the semantic validator and candidate binding cannot drift: a content
+digest is the byte SHA-256 of one file at a 40-character revision; evidence URIs must be
+content-addressed and may not float in any path segment (`latest`, an unpinned `oci://` reference,
+a `/blob/<branch>/` source, `https://host/releases/latest/download/sbom.json`); SBOM and provenance
+must name components of this candidate and cover every component whose artifacts it publishes; a
+content digest may not contradict a component's `spec:` artifact for the same repository; one
+fixture repository path carries one revision; and release notes enter the lock as
+`repository@revision:path#sha256:<digest>`. Candidate binding compares all five fields for equality
+with those declarations and refuses to bind while any `$.sbom`/`$.provenance` fact is unresolved,
+so a manufactured lock can neither introduce a release-level fact, drop one, nor be signed with
+evidence that is not bound to it. Every release-level revision is also a `trunk_reachability` pin.
+
+Re-read every declared content digest at its pinned source revision (`manifest-validate` runs
+this on each pull request; `--source-root` reads local git objects instead of the GitHub API):
+
+```bash
+python3 tools/verify_content_digests.py platform-manifest.yaml
+```
+
 Validate a manufactured lock:
 
 ```bash
 python3 tools/validate_platform_lock.py platform-lock.v1.yaml
-python3 -m pytest tools/test_platform_lock.py
+python3 -m pytest tools/test_platform_lock.py tools/test_verify_content_digests.py
 ```
 
 Validation refuses placeholders, floating tags, carried-forward/source-built identities, missing
 type-specific integrity, and any mismatch between a component source revision and the revision
 attested by its released artifact.
+
+## `validate_customer_install_manifest.py` — customer install profile publication gate (release#314)
+
+`customer-install-manifest.json` is copied byte-for-byte to the public site
+(`https://honua.io/data/customer-install-manifest.json`) for the customer install guides. The
+required `validate` check (`manifest-validate.yml`) runs this validator on it and on a drifted
+negative fixture that must fail.
+
+| Layer | Reddens when… |
+|---|---|
+| **structure** | duplicate JSON keys, or any violation of `schemas/customer-install-manifest.v1.schema.json` (schema version, status, qualification flags, server identity, client and supporting-image pins) |
+| **qualification** | a `pre-cut-rehearsal` claims exact-candidate or clean-Windows qualification, clean-Windows is claimed without exact-candidate, or a `release-candidate` is not the certified candidate |
+| **server** | the image repository or registry manifest URL disagrees with the pinned digest; the digest and source commit half-match `components.honua-server`; a compatibility-ledger platform lock names the digest with another commit; a release candidate is absent from the ledger |
+| **clients** | a Honua client is not pinned in `clientArtifacts`, omits its source identity, or any copied version, digest/integrity, filename, repository, source commit, publication state, registry or targets differs from its pin; a PyPI URL names another file or version |
+
+```bash
+python3 tools/validate_customer_install_manifest.py
+python3 -m pytest tools/test_validate_customer_install_manifest.py
+```
 
 ## Compatibility ledger and release inspection (issue #233, part 1)
 
@@ -96,7 +143,22 @@ live train before artifact certification and in the compatibility table's strict
 Missing introduction metadata still fails qualification. Source byte verification
 does not replace each SDK's runtime declaration generation/drift checks.
 
-SDK minimum-server derivation and unresolved publisher requirements are documented
+`server_publication_history.py collect|verify` enumerates the server publisher's
+`tags`, `releases` and `git/refs/tags` namespaces and writes
+`certification/sources/server-publication-history.v1.json`. `verify` accepts the
+receipt only when each source is the exact `api.github.com` collection, each count
+is a genuine nonnegative integer, all three are completely enumerated and empty,
+and (with `--max-age-days`) the enumeration is inside its freshness bound. One ref
+of any shape withdraws the first-release introduction model, and every capability
+then needs its own introduction evidence again. The lock pins the receipt at
+`components.honua-server.publicationHistory`, and `verify_sdk_baseline_sources.py`
+binds that pin to the committed bytes. Because a freshness bound is not a proof of
+emptiness, the gate also re-enumerates live (`confirm_current`, or
+`verify --confirm-current`) and qualifies on that reading; `--source-root` is a
+byte check only and refuses a first-release lock offline.
+
+SDK minimum-server derivation, the first-release model, and unresolved publisher
+requirements are documented
 in [SDK-SERVER-BASELINE-RULE.md](../docs/SDK-SERVER-BASELINE-RULE.md). Generate the
 [customer table](../docs/SDK-SERVER-COMPATIBILITY.md) from a release lock with
 `python tools/generate_compatibility_table.py <lock>`. `--check` fails on absent
@@ -148,6 +210,32 @@ certify local bytes. A coordinate lookup answers the ledger's declaration for th
 and version; use the package path to verify downloaded bytes. Rebuilt packages with unchanged
 versions return `NOT-CERTIFIED`. Multiple matching receipts or ambiguous archive identities
 are refused. npm identity comes only from `package/package.json`, not bundled dependencies.
+
+## `tag_signing.py` — signed publication tags (issue #236)
+
+Produces and verifies annotated **signed tag objects** against
+`certification/release-controls/tag-signing-policy.json`. GitHub's
+`required_signatures` rule verifies commits, a ruleset `update`/`deletion` rule
+gives immutability, and `gh release create` writes a lightweight tag with no tag
+object; none of the three is a signed tag, and all three are refused.
+
+```bash
+python3 tools/tag_signing.py check-policy
+python3 tools/tag_signing.py verify honua-release <tag> --git-dir . \
+  --allowed-signers /path/to/allowed_signers
+```
+
+The trust policy carries **fingerprints only**. Public keys live in an
+operator-supplied allowed-signers file that is never committed, and any principal
+in it whose fingerprint the policy does not name is rejected.
+`release_controls.py audit --signing-receipts --release-identity` drops the
+signed-tag failure only when the receipt is bound to the committed policy's exact
+bytes, matches the audited release tag and candidate revision, and re-verifies
+cryptographically against the tag object in a real repository. The audit also
+checks namespace parity itself, and `check-policy` runs in the branch-protected
+`validate` job so drift cannot land. The policy nominates no signer today, so every
+command fails closed. See
+[release-controls/README.md](../certification/release-controls/README.md).
 
 ## `candidate_binding.py` — certified-candidate integrity boundary
 

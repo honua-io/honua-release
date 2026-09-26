@@ -82,68 +82,168 @@ A complete lock is separately supplied and must pass the binding checks. The
 site record is supplied as a publication artifact; deployment into honua-site is
 not evidence supplied by this PR.
 
+## Published-client reconciliation (2026-09-06, Windows)
+
+The follow-up at trunk baseline `6774e00` fixes the generator's published-client
+join. Primary packages match ecosystem and coordinate instead of an arbitrary
+client row name. Secondary packages join their unique component repository.
+`@honua/mcp-server` belongs to **honua-sdk-js**, not geospatial-mcp, and retains
+its own published version, hash and revision. Conflicting component/package
+versions, revisions or hashes, incomplete identities, duplicate coordinates and
+ambiguous ownership remain explicit signing blockers. Binding refuses those
+inventory errors even when supplied with an otherwise complete lock.
+
+The obsolete special case that ignored the declared Honua.Sdk package has been
+removed. No manifest version, registry, hash, source pin or lifecycle changed.
+The following command downloaded all four declared artifacts on the native
+Windows host, without building source, and returned exit 0:
+
+```powershell
+python tools/verify_client_artifacts.py
+```
+
+The existing GitHub credential was supplied through `GITHUB_TOKEN` for the
+declared GitHub Packages NuGet feed. Public npm/PyPI downloads used no token.
+The verifier checked downloaded bytes against the manifest hash and checked
+the package name/version inside each archive:
+
+| Artifact | Result |
+| --- | --- |
+| npm `@honua/mcp-server@0.1.4-beta.0` | SHA-512 integrity and package metadata match |
+| GitHub Packages `Honua.Sdk@1.6.0` | SHA-256 `e5c3bf0a243822cb3d76cca6ef090b226f8502480c6a6699d7e34e24c1aeeadc` and package metadata match |
+| npm `@honua/sdk-js@0.1.9-beta.0` | SHA-512 integrity and package metadata match |
+| PyPI `honua_sdk-0.1.11-py3-none-any.whl` | SHA-256 `80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9` and package metadata match |
+
+These downloads prove the current manifest's four client packages are accessible
+with the declared access model. They do not prove their source provenance or
+certify the future candidate's full artifact set. The generator preserves the
+manifest's artifact source declarations separately from component source heads.
+
+The new regression fixture creates real npm tarballs and a NuGet archive, computes
+expected SHA-512/SHA-256 directly from their bytes, and asserts all three artifacts
+reach the lock-derived BOM with their exact versions, hashes and source revisions.
+It also challenges conflicting versions/revisions/hashes, missing or ambiguous
+repository ownership, duplicate coordinates and incomplete identities. Existing
+secondary-package tampering assertions now fail at the earlier generated-input
+binding check. No rejection case was removed.
+
+## Release-level candidate facts (2026-09-07)
+
+Everything the signed lock carries outside `components` - the MCP/catalog/OKF content digests,
+fixture revisions, SBOM and provenance references, and the release notes - is now declared by
+`platformLockEvidence` in the platform manifest, exactly like the component facts.
+
+Before this change those five fields had no input path at all. The generator hard-coded
+`contentDigests: {}` and `fixtures: []` and refused all five unconditionally, so the worklist
+could not burn down even when the facts existed, and `$.notes` was reported as undeclared even
+when the manifest declared it. Candidate binding compared `sourceInputs`, `platform`,
+`components` and `clientArtifacts` against the frozen inputs but never the release-level fields,
+so a manufactured lock could introduce a content digest, a fixture revision, an SBOM or
+provenance reference, or release-notes text that no reviewed input declared - and those values
+travel into the derived BOM, the compatibility ledger and the customer `platform-release.v1.json`.
+
+The rules are now one module, `tools/release_facts.py`, shared by the generator, the semantic
+validator and candidate binding, so they cannot drift:
+
+- a content digest is the byte SHA-256 of one file at an immutable 40-character revision;
+- a fixture is a repository at an immutable revision, at most one revision per repository path;
+- an SBOM/provenance reference must be immutable and content-addressed: an `oci://` reference
+  pinned to `@sha256:...`, or an `https://` URL carrying a 40-character revision or a sha256
+  digest. A floating name (`latest`, `nightly`, ...) is refused in **any** path segment, so a
+  release-asset URL such as `https://host/releases/latest/download/sbom.json` cannot enter the
+  lock even though its last path element is an ordinary file name; a declared `sha256` that
+  nothing fetches does not make a moving coordinate immutable;
+- SBOM/provenance evidence is **mechanically bound**: every reference names a component of this
+  candidate, and every component whose artifacts the candidate publishes is covered by one. That
+  is what the frozen inputs alone can prove; it is not an assertion that the referenced document
+  describes those exact bytes, which only the candidate's own emitted evidence can show;
+- a content digest may not contradict a component's `spec:` artifact for the same repository:
+  one standard has one identity, so a divergent revision, path or digest is refused and the
+  contradicted digest never reaches the lock;
+- every revision behind a release-level fact is a `trunk_reachability` pin, so a content digest,
+  fixture or notes declaration cannot be backed by a commit that exists only on an unmerged
+  branch;
+- release notes enter the lock as `repository@revision:path#sha256:<digest>`, never as prose,
+  a placeholder, or a page that can be edited after the candidate is signed;
+- candidate binding compares all five fields for **equality** with the declarations the frozen
+  manifest produces. A lock may neither add a release fact nor drop one.
+
+`tools/verify_content_digests.py` re-reads each declared file at its pinned revision - through
+the pinned GitHub contents API, or from git objects with `--source-root` - and recomputes the
+digest, and refuses a declaration that contradicts a component artifact. `manifest-validate` runs
+it on every pull request, so a moved or edited source reddens the branch-protected job.
+
+Candidate binding treats an unresolved `$.sbom`/`$.provenance` fact as fatal. The release train's
+`freeze` job attests the lock immediately after `platform_lock_bundle.py` succeeds, so evidence
+that is undeclared, mutable, or not bound to this candidate's own components cannot reach a
+signature. Every other refusal class is reported by the generator's worklist as before.
+
+One fact is declared and verified today: the geospatial-MCP standard content digest
+`sha256:595f0ac8...` for `spec/schemas/index.json` at `d5a09d13`, the schema-index artifact the
+operator ruled is the public spec identity (2026-09-01 decision 3). The runtime catalog and OKF
+digests, the fixture revisions, the SBOM/provenance references and the release notes are produced
+by the candidate itself and remain AT-CUT; they now refuse against a real input path.
+
+The generator's refusal list is **41: 29 AT-CUT, 12 PUBLISH**. Declaring the
+geospatial-MCP standard content digest resolved one line; the deployment recovery inventory that
+arrived with #278 added one.
+
+```text
+[AT-CUT] $.disasterRecovery: candidate deployment durable-substrate inventory is not declared
+[AT-CUT] $.components.honua-server.migrationJournalSha256: exact declared migration set is not bound
+[AT-CUT] $.components.honua-server.artifacts[0].version: source snapshot/pre-release is not a released artifact version
+[AT-CUT] $.components.honua-server.artifacts[0].architectures: registry architecture set is not declared
+[AT-CUT] $.components.honua-server.artifacts[0].platformDigests: platform-specific image digests are not declared
+[AT-CUT] $.components.honua-server.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
+[AT-CUT] $.components.honua-console.contractVersions: not declared
+[AT-CUT] $.components.honua-console.schemaVersions: not declared
+[PUBLISH] $.components.honua-console.artifacts[0].version: source snapshot/pre-release is not a released artifact version
+[AT-CUT] $.components.honua-console.artifacts[0].platformDigests: platform-specific image digests are not declared
+[AT-CUT] $.components.honua-sdk-dotnet.schemaVersions: not declared
+[PUBLISH] $.components.honua-sdk-dotnet.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
+[AT-CUT] $.components.honua-sdk-js.schemaVersions: not declared
+[PUBLISH] $.components.honua-sdk-js.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
+[AT-CUT] $.components.honua-sdk-python.schemaVersions: not declared
+[PUBLISH] $.components.honua-sdk-python.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
+[AT-CUT] $.components.geospatial-grpc.schemaVersions: not declared
+[PUBLISH] $.components.geospatial-grpc.artifacts[python]: published package coordinate is pending https://github.com/honua-io/geospatial-grpc/issues/88
+[PUBLISH] $.components.geospatial-grpc.artifacts[typescript]: published package coordinate is pending https://github.com/honua-io/geospatial-grpc/issues/88
+[AT-CUT] $.components.geospatial-mcp.contractVersions: not declared
+[AT-CUT] $.components.geospatial-mcp.schemaVersions: not declared
+[PUBLISH] $.components.geospatial-mcp.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
+[AT-CUT] $.components.honua-iac.contractVersions: not declared
+[AT-CUT] $.components.honua-iac.schemaVersions: not declared
+[AT-CUT] $.components.honua-helm.contractVersions: not declared
+[AT-CUT] $.components.honua-helm.schemaVersions: not declared
+[PUBLISH] $.components.honua-helm.artifacts[0].version: source snapshot/pre-release is not a released artifact version
+[PUBLISH] $.components.honua-helm.artifacts[0].digest: immutable registry digest is not declared
+[PUBLISH] $.components.honua-helm.artifacts[0].architectures: registry architecture set is not declared
+[PUBLISH] $.components.honua-helm.artifacts[0].sha256: pulled chart package checksum is not declared
+[PUBLISH] $.components.honua-helm.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
+[AT-CUT] $.components.honua-mobile.contractVersions: not declared
+[AT-CUT] $.components.honua-mobile.schemaVersions: not declared
+[AT-CUT] $.components.honua-collect.contractVersions: not declared
+[AT-CUT] $.components.honua-collect.schemaVersions: not declared
+[AT-CUT] $.contentDigests.catalog: catalog digest is not declared
+[AT-CUT] $.contentDigests.okf: OKF digest is not declared
+[AT-CUT] $.fixtures: fixture repository revisions are not declared
+[AT-CUT] $.sbom: immutable SBOM references and hashes are not declared
+[AT-CUT] $.provenance: immutable provenance references and hashes are not declared
+[AT-CUT] $.notes: immutable release-notes content/reference is not declared
+```
+
 ## Current factual blockers
 
-At the remote trunk baseline `d02d459587844c99942a4854fe9e705d67e0f61b`
-(checked 2026-09-06 UTC), `gh release list` listed only the historical
-`honua-2026.1` prerelease. Anonymous retrieval of
-`https://api.nuget.org/v3-flatcontainer/honua.sdk/index.json` returned HTTP 404.
-[SDK #263](https://github.com/honua-io/honua-sdk-dotnet/issues/263) is closed for
-publication plumbing; that is not a public artifact receipt.
+At the remote trunk baseline `6774e00` (checked 2026-09-06 UTC),
+`gh release list` still listed only the historical `honua-2026.1` prerelease.
+The earlier NuGet.org HTTP 404 is not a blocker for the manifest's declared
+GitHub Packages feed; its exact Honua.Sdk 1.6.0 download passed above.
 [Release #57](https://github.com/honua-io/honua-release/issues/57) still records the
 SDK publication/receipts, Console dependency and stable server/chart prerequisites.
 [gRPC #88](https://github.com/honua-io/geospatial-grpc/issues/88) remains open.
 
-The generator also does not yet seed secondary client packages such as
-`@honua/mcp-server`; the complete-lock binding now refuses that omission.
+The generator and the authoritative manifest/matrix now produce
+**41 refusals: 29 AT-CUT, 12 PUBLISH** (enumerated above). These are the generator's classifications,
+not a blanket release of every AT-CUT line: non-candidate metadata must still be resolved before
+cut. No registry value, lifecycle ruling, or source pin was invented to clear them.
 
-The unmodified authoritative manifest/matrix produce **43 refusals: 29 AT-CUT,
-14 PUBLISH**. These are the generator's classifications, not a blanket release
-of every AT-CUT line: non-candidate metadata must still be resolved before cut.
-No registry value, lifecycle ruling, or source pin was invented to clear them.
-
-```text
-- [AT-CUT] $.components.honua-server.migrationJournalSha256: exact declared migration set is not bound
-- [AT-CUT] $.components.honua-server.artifacts[0].version: source snapshot/pre-release is not a released artifact version
-- [AT-CUT] $.components.honua-server.artifacts[0].architectures: registry architecture set is not declared
-- [AT-CUT] $.components.honua-server.artifacts[0].platformDigests: platform-specific image digests are not declared
-- [AT-CUT] $.components.honua-server.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
-- [AT-CUT] $.components.honua-console.contractVersions: not declared
-- [AT-CUT] $.components.honua-console.schemaVersions: not declared
-- [PUBLISH] $.components.honua-console.artifacts[0].version: source snapshot/pre-release is not a released artifact version
-- [AT-CUT] $.components.honua-console.artifacts[0].platformDigests: platform-specific image digests are not declared
-- [AT-CUT] $.components.honua-sdk-dotnet.schemaVersions: not declared
-- [PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sha256: package hash is not declared (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)
-- [PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)
-- [PUBLISH] $.components.honua-sdk-dotnet.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
-- [AT-CUT] $.components.honua-sdk-js.schemaVersions: not declared
-- [PUBLISH] $.components.honua-sdk-js.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
-- [AT-CUT] $.components.honua-sdk-python.schemaVersions: not declared
-- [PUBLISH] $.components.honua-sdk-python.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
-- [AT-CUT] $.components.geospatial-grpc.schemaVersions: not declared
-- [PUBLISH] $.components.geospatial-grpc.artifacts[python]: published package coordinate is pending https://github.com/honua-io/geospatial-grpc/issues/88
-- [PUBLISH] $.components.geospatial-grpc.artifacts[typescript]: published package coordinate is pending https://github.com/honua-io/geospatial-grpc/issues/88
-- [AT-CUT] $.components.geospatial-mcp.contractVersions: not declared
-- [AT-CUT] $.components.geospatial-mcp.schemaVersions: not declared
-- [PUBLISH] $.components.geospatial-mcp.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
-- [AT-CUT] $.components.honua-iac.contractVersions: not declared
-- [AT-CUT] $.components.honua-iac.schemaVersions: not declared
-- [AT-CUT] $.components.honua-helm.contractVersions: not declared
-- [AT-CUT] $.components.honua-helm.schemaVersions: not declared
-- [PUBLISH] $.components.honua-helm.artifacts[0].version: source snapshot/pre-release is not a released artifact version
-- [PUBLISH] $.components.honua-helm.artifacts[0].digest: immutable registry digest is not declared
-- [PUBLISH] $.components.honua-helm.artifacts[0].architectures: registry architecture set is not declared
-- [PUBLISH] $.components.honua-helm.artifacts[0].sha256: pulled chart package checksum is not declared
-- [PUBLISH] $.components.honua-helm.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
-- [AT-CUT] $.components.honua-mobile.contractVersions: not declared
-- [AT-CUT] $.components.honua-mobile.schemaVersions: not declared
-- [AT-CUT] $.components.honua-collect.contractVersions: not declared
-- [AT-CUT] $.components.honua-collect.schemaVersions: not declared
-- [AT-CUT] $.contentDigests.geospatialMcp: certified content digest is not declared
-- [AT-CUT] $.contentDigests.catalog: catalog digest is not declared
-- [AT-CUT] $.contentDigests.okf: OKF digest is not declared
-- [AT-CUT] $.fixtures: fixture repository revisions are not declared
-- [AT-CUT] $.notes: immutable release-notes content/reference is not declared
-- [AT-CUT] $.sbom: immutable SBOM references and hashes are not declared
-- [AT-CUT] $.provenance: immutable provenance references and hashes are not declared
-```

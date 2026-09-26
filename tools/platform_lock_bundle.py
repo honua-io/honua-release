@@ -53,10 +53,28 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
         raise ValueError("platform label differs from atomic candidate identity")
     draft = generate(manifest, matrix)
     for refusal in draft.unresolved:
-        if "published package coordinate is pending" in refusal:
+        fact = refusal.partition("] ")[2] or refusal
+        # SBOM/provenance refusals are fatal here: the freeze job attests the lock straight after
+        # this call, so evidence that is undeclared, mutable, or not bound to the candidate's own
+        # components must never reach a signature.
+        if (
+            "published package coordinate is pending" in refusal
+            or "$.clientArtifacts." in refusal
+            or fact.startswith(("$.sbom", "$.provenance"))
+        ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
     _declared(draft.lock["platform"], lock["platform"], "platform")
+    # Release-level facts are part of the same atomic identity as the components, so they are
+    # compared for equality, not containment: a lock may not add a content digest, fixture
+    # revision, SBOM/provenance reference or release-notes reference that the reviewed frozen
+    # inputs never declared, and it may not drop one they did.
+    for field in ("contentDigests", "fixtures", "sbom", "provenance", "notes"):
+        expected = draft.lock.get(field)
+        if expected is None:
+            raise ValueError(f"{field}: frozen inputs declare no {field}; the lock cannot introduce one")
+        if lock.get(field) != expected:
+            raise ValueError(f"{field}: lock differs from frozen input")
     if set(lock["components"]) != set(draft.lock["components"]):
         raise ValueError("component denominator differs from frozen manifest")
     matched = set()
@@ -170,7 +188,9 @@ def build_ledger(lock: dict) -> dict:
 
 
 def bundle_files(lock: dict) -> dict[str, bytes]:
-    return {
+    files = {
+        "compose.licensing-disabled.yml": b"services:\n  honua:\n    environment:\n      Licensing__Mode: Disabled\n",
+        "INSTALL-2026.1.md": (Path(__file__).resolve().parents[1] / "docs/INSTALL-2026.1.md").read_bytes(),
         "platform-lock.json": canonical_bytes(lock),
         "bom.cdx.json": canonical_bytes(build_bom(lock)),
         "compatibility-ledger.v1.json": canonical_bytes(build_ledger(lock)),
@@ -179,8 +199,17 @@ def bundle_files(lock: dict) -> dict[str, bytes]:
         "platform-release.v1.json": canonical_bytes({
             "platform": lock["platform"], "lockDigest": canonical_digest(lock),
             "components": lock["components"], "notes": lock["notes"],
+            "licensing": {"mode": "disabled", "allCatalogEntitlementsActive": True,
+                          "editionGating": False, "capacityMetering": False},
         }),
     }
+    if not str(lock["platform"]["id"]).startswith("honua-2026.1"):
+        files.pop("compose.licensing-disabled.yml")
+        files.pop("INSTALL-2026.1.md")
+        publication = json.loads(files["platform-release.v1.json"])
+        publication.pop("licensing")
+        files["platform-release.v1.json"] = canonical_bytes(publication)
+    return files
 
 
 def main(argv=None) -> int:

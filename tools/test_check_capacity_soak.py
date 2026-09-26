@@ -14,7 +14,18 @@ LOCK_PATH = ROOT / "certification" / "capacity-envelope.v1.json"
 LOCK = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 REVISION = "a" * 40
 IMAGE_DIGEST = "sha256:" + "b" * 64
-WINDOW = {"startedAt": "2026-09-06T10:06:00Z", "endedAt": "2026-09-06T11:06:00Z"}
+
+
+def _z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_FREEZE = datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00"))
+_START = _FREEZE + timedelta(days=1)
+WINDOW = {"startedAt": _z(_START), "endedAt": _z(_START + timedelta(seconds=3600))}
+INJECTED = _z(_START + timedelta(minutes=30))
+DETECTED = _z(_START + timedelta(minutes=30, seconds=5))
+RECOVERED = _z(_START + timedelta(minutes=32))
 
 
 def _sha(value: str | bytes) -> str:
@@ -112,9 +123,9 @@ def receipt(artifact_root: Path):
     }
     signals["recoveryTimeSeconds"]["recoveryEvidence"] = {
         "failure": "redis-restart",
-        "injectedAt": "2026-09-06T10:30:00Z",
-        "detectedAt": "2026-09-06T10:30:05Z",
-        "recoveredAt": "2026-09-06T10:32:00Z",
+        "injectedAt": INJECTED,
+        "detectedAt": DETECTED,
+        "recoveredAt": RECOVERED,
         "rawArtifactIds": ["recovery"],
     }
 
@@ -123,6 +134,8 @@ def receipt(artifact_root: Path):
         "status": "completed",
         "candidateIdentity": candidate,
         "observedRevision": REVISION,
+        "signingIdentity": "github-actions",
+        "signature": "opaque-sigstore-bundle",
         "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
         "profile": "soak",
         "evidenceScope": "single-tenant-ga",
@@ -166,7 +179,7 @@ def receipt(artifact_root: Path):
         'metrics': [dict(at=at, worker=.6, database=.7, redis=.5, queueAgeSeconds=5) for at in times],
         'workloads': [dict(at=at, dimensions=copy.deepcopy(LOCK['supportedEnvelope']), executionMode='candidate-topology', proxy=False) for at in times],
         'recoveries': [dict(dependency=dependency, failure=dependency+'-restart', probe='authenticated-serving-query',
-                            injectedAt='2026-09-06T10:30:00Z', detectedAt='2026-09-06T10:30:05Z', recoveredAt='2026-09-06T10:32:00Z')
+                            injectedAt=INJECTED, detectedAt=DETECTED, recoveredAt=RECOVERED)
                        for dependency in ('worker', 'database', 'redis')],
     })
     # 95% is in the 630ms bucket unless 95% of the full population is 600ms.
@@ -405,3 +418,137 @@ def test_raw_artifact_cannot_be_borrowed_from_another_run(tmp_path):
     value = receipt(tmp_path)
     value['rawArtifacts'][0]['uri'] = 'https://github.com/honua-io/honua-server/actions/runs/999999/artifacts/100'
     assert any('different producer run' in item for item in failures(value, tmp_path))
+
+
+def numeric_receipt():
+    """The pre-provenance shape: eight finite values and no observation binding."""
+    values = {name: threshold["value"] for name, threshold in LOCK["thresholds"].items()}
+    after_freeze = datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00")) + timedelta(seconds=1)
+    return {
+        "status": "completed", "candidateRevision": REVISION, "observedRevision": REVISION,
+        "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+        "startedAt": after_freeze.isoformat(), "profile": "soak", "steadyStateSeconds": 3600,
+        "envelope": copy.deepcopy(LOCK["supportedEnvelope"]), "signingIdentity": "github-actions",
+        "signature": "opaque-sigstore-bundle", "signals": {
+            name: {"status": "observed", "revision": REVISION, "value": value}
+            for name, value in values.items()
+        },
+    }
+
+
+def numeric_failures(value, artifact_root: Path):
+    return gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH), REVISION, artifact_root, IMAGE_DIGEST)
+
+
+def test_numeric_receipt_without_observation_provenance_fails(tmp_path):
+    result = numeric_failures(numeric_receipt(), tmp_path)
+    assert result
+    assert any("source observations" in failure or "raw observation" in failure for failure in result)
+
+
+def test_revision_mismatch_fails(tmp_path):
+    value = numeric_receipt()
+    value["signals"]["queueAgeSeconds"]["revision"] = "b" * 40
+    assert any("revision mismatch" in failure for failure in numeric_failures(value, tmp_path))
+
+
+def test_receipt_cannot_select_an_unrelated_candidate_revision(tmp_path):
+    value = numeric_receipt()
+    value["candidateRevision"] = value["observedRevision"] = "b" * 40
+    for signal in value["signals"].values():
+        signal["revision"] = "b" * 40
+    assert any("manifest-pinned" in failure for failure in numeric_failures(value, tmp_path))
+
+
+def test_missing_candidate_revision_fails(tmp_path):
+    value = numeric_receipt()
+    value.pop("candidateRevision")
+    value.pop("observedRevision")
+    assert any("manifest-pinned" in failure for failure in numeric_failures(value, tmp_path))
+
+
+def test_threshold_cannot_be_selected_after_soak_starts(tmp_path):
+    value = numeric_receipt()
+    value["startedAt"] = LOCK["frozenAt"]
+    assert any("after the threshold freeze" in failure for failure in numeric_failures(value, tmp_path))
+
+
+def test_regression_beyond_frozen_allowance_fails(tmp_path):
+    value = receipt(tmp_path)
+    value["signals"]["throughputRps"]["value"] = LOCK["thresholds"]["throughputRps"]["value"] - 0.01
+    assert any("throughputRps" in failure and "violates" in failure for failure in failures(value, tmp_path))
+
+
+def test_unsigned_receipt_fails(tmp_path):
+    value = receipt(tmp_path)
+    value["signature"] = ""
+    assert any("signature" in failure for failure in failures(value, tmp_path))
+
+
+def test_preview_dimensions_are_informational(tmp_path):
+    value = receipt(tmp_path)
+    for name in ("activeSubscriptions", "alertEvaluationsPerSecond"):
+        value["envelope"][name] = 0
+        value["signals"][name] = {"status": "unobserved", "value": None}
+    assert failures(value, tmp_path) == []
+    assert set(gate.informational_dimensions(LOCK, value)) == {"activeSubscriptions", "alertEvaluationsPerSecond"}
+
+
+def test_undeclared_non_preview_dimension_fails(tmp_path):
+    value = receipt(tmp_path)
+    value["envelope"]["serverReplicas"] = 3
+    assert any("neither declares nor excludes: serverReplicas" in failure for failure in failures(value, tmp_path))
+
+
+def test_preview_dimension_is_undeclared_without_the_lock_ruling(tmp_path):
+    lock = copy.deepcopy(LOCK)
+    lock.pop("rulings")
+    value = receipt(tmp_path)
+    value["envelope"]["activeSubscriptions"] = 0
+    result = gate.evaluate(lock, value, gate.lock_digest(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
+    assert any("neither declares nor excludes: activeSubscriptions" in failure for failure in result)
+    assert gate.informational_dimensions(lock, value) == {}
+
+
+def test_missing_ga_dimension_fails(tmp_path):
+    value = receipt(tmp_path)
+    del value["envelope"]["featuresPerLayer"]
+    assert any("capacity envelope" in failure for failure in failures(value, tmp_path))
+
+
+def test_present_preview_dimension_is_still_required_by_an_older_lock(tmp_path):
+    lock = copy.deepcopy(LOCK)
+    lock["supportedEnvelope"]["activeSubscriptions"] = 1000
+    result = gate.evaluate(lock, receipt(tmp_path), gate.lock_digest(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
+    assert any("capacity envelope" in failure for failure in result)
+
+
+def test_allowance_is_not_applied_twice(tmp_path):
+    value = receipt(tmp_path)
+    value["signals"]["p95LatencyMs"]["value"] = LOCK["thresholds"]["p95LatencyMs"]["value"] + 0.01
+    assert any("p95LatencyMs" in failure and "violates" in failure for failure in failures(value, tmp_path))
+
+
+@pytest.mark.parametrize("name", LOCK["soak"]["requiredSignals"])
+def test_each_ga_signal_fails_beyond_its_frozen_limit(tmp_path, name):
+    value = receipt(tmp_path)
+    threshold = LOCK["thresholds"][name]
+    value["signals"][name]["value"] = threshold["value"] + (0.01 if threshold["operator"] == "<=" else -0.01)
+    assert any(name in failure and "violates" in failure for failure in failures(value, tmp_path))
+
+
+def test_cli_echoes_preview_as_informational(tmp_path, monkeypatch, capsys):
+    value = receipt(tmp_path)
+    value["envelope"]["activeSubscriptions"] = 0
+    value["signals"]["alertEvaluationsPerSecond"] = {"status": "skipped"}
+    path = tmp_path / "capacity-soak-receipt.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", [
+        "check_capacity_soak.py", "--lock", str(LOCK_PATH), "--receipt", str(path),
+        "--artifact-root", str(tmp_path), "--expected-revision", REVISION,
+        "--expected-image-digest", IMAGE_DIGEST,
+    ])
+    assert gate.main() == 0
+    report = capsys.readouterr().out
+    assert "Preview informational (not gated): activeSubscriptions" in report
+    assert "Preview informational (not gated): alertEvaluationsPerSecond" in report

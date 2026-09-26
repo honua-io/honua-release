@@ -1,4 +1,4 @@
-﻿name: Capacity evidence contract
+name: Capacity evidence contract
 on:
   pull_request:
     paths:

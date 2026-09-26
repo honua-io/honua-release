@@ -1,0 +1,24 @@
+{
+  "platformRelease": "2026.1-rc.2",
+  "components": {
+    "honua-server": {
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "disasterRecovery": {
+    "topology": "fixture-all-stores",
+    "objectives": {
+      "rpoMs": 60000,
+      "rtoMs": 300000
+    },
+    "substrates": {
+      "postgresql": true,
+      "redis": true,
+      "object-storage": true,
+      "job-queue": true,
+      "transactional-outbox": true,
+      "workflow-cursors": true
+    }
+  }
+}

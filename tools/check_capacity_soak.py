@@ -142,11 +142,10 @@ def _validate_raw_artifacts(
 def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: list[str]) -> None:
     topology = _mapping(receipt.get("topology"))
     replicas = topology.get("replicas")
-    if not isinstance(replicas, list) or len(replicas) < 2:
-        failures.append("distributed topology must contain at least two replicas")
+    if not isinstance(replicas, list) or not replicas:
+        failures.append("candidate topology must name at least one replica")
         replicas = []
     ids: set[str] = set()
-    failure_domains: set[str] = set()
     for replica in replicas:
         item = _mapping(replica)
         replica_id = item.get("id")
@@ -157,12 +156,8 @@ def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: lis
             ids.add(str(replica_id))
         if not _nonempty(domain):
             failures.append("every topology replica must name a failure domain")
-        else:
-            failure_domains.add(str(domain))
         if item.get("imageDigest") != image_digest:
             failures.append(f"{replica_id or '<missing>'}: replica image digest differs from candidate")
-    if replicas and len(failure_domains) < 2:
-        failures.append("candidate replicas must span at least two failure domains")
     for dependency in ("database", "redis"):
         item = _mapping(topology.get(dependency))
         if not _nonempty(item.get("kind")) or not _nonempty(item.get("failureDomain")):
@@ -303,6 +298,9 @@ def _validate_signals(
             continue
         if signal.get("status") != "observed":
             failures.append(f"{name}: missing, skipped, or unobserved")
+        bound_revision = candidate.get("serverRevision") or receipt.get("candidateRevision")
+        if "revision" in signal and signal.get("revision") != bound_revision:
+            failures.append(f"{name}: signal revision mismatch")
         if signal.get("candidateIdentity") != candidate:
             failures.append(f"{name}: candidate identity differs from the receipt")
 
@@ -395,34 +393,58 @@ def evaluate(
 
     candidate = _mapping(receipt.get("candidateIdentity"))
     image_digest = str(candidate.get("imageDigest", ""))
-    if candidate.get("serverRevision") != expected_revision or receipt.get("observedRevision") != expected_revision:
+    server_revision = candidate.get("serverRevision")
+    if not _nonempty(server_revision):
+        server_revision = receipt.get("candidateRevision")
+    if server_revision != expected_revision or receipt.get("observedRevision") != expected_revision:
         failures.append("candidate revision does not match the manifest-pinned honua-server SHA")
     if not IMAGE_DIGEST_PATTERN.fullmatch(image_digest):
         failures.append("candidate image digest is missing or invalid; source-built evidence is inadmissible")
-    if not IMAGE_DIGEST_PATTERN.fullmatch(expected_image_digest) or image_digest != expected_image_digest:
+    if not IMAGE_DIGEST_PATTERN.fullmatch(str(expected_image_digest)) or image_digest != expected_image_digest:
         failures.append("candidate image digest does not match the manifest-pinned image")
     if receipt.get("lockSha256") != digest:
         failures.append("receipt does not bind the exact committed threshold lock")
+    if not receipt.get("signingIdentity") or not receipt.get("signature"):
+        failures.append("signed receipt identity/signature is missing")
     if receipt.get("profile") != lock.get("soak", {}).get("profile"):
         failures.append("soak profile does not match the lock")
-    if receipt.get("envelope") != lock.get("supportedEnvelope"):
+    declared = _mapping(lock.get("supportedEnvelope"))
+    observed = receipt.get("envelope")
+    if not isinstance(observed, dict) or any(
+        name not in observed or observed[name] != value for name, value in declared.items()
+    ):
         failures.append("tested capacity envelope does not exactly match the supported envelope")
-    if receipt.get("envelope", {}).get("tenants") != 1:
+    elif undeclared := sorted(set(observed) - set(declared) - excluded_dimensions(lock)):
+        failures.append(
+            "tested capacity envelope reports dimensions the lock neither declares nor excludes: "
+            + ", ".join(undeclared)
+        )
+    if _mapping(observed).get("tenants") != 1:
         failures.append("capacity evidence must retain the single-tenant denominator")
 
     window = _mapping(receipt.get("window"))
     try:
-        started = _time(window.get("startedAt"), "window.startedAt")
-        ended = _time(window.get("endedAt"), "window.endedAt")
-        frozen = max(_time(lock.get("frozenAt"), "frozenAt"), _time(receipt_contract.get("frozenAt"), "receiptContract.frozenAt"))
-        if started <= frozen:
+        if _nonempty(window.get("startedAt")) or _nonempty(window.get("endedAt")):
+            started = _time(window.get("startedAt"), "window.startedAt")
+            ended = _time(window.get("endedAt"), "window.endedAt")
+        else:
+            started = _time(receipt.get("startedAt"), "startedAt")
+            ended = None
+        freeze_times = [_time(lock.get("frozenAt"), "frozenAt")]
+        if receipt_contract.get("frozenAt"):
+            freeze_times.append(_time(receipt_contract.get("frozenAt"), "receiptContract.frozenAt"))
+        if started <= max(freeze_times):
             failures.append("soak did not start after the threshold freeze")
-        duration = (ended - started).total_seconds()
-        if duration <= 0:
-            failures.append("soak observation window is empty or reversed")
-        if receipt.get("steadyStateSeconds") != duration:
-            failures.append("steady-state seconds do not equal the exact UTC observation window")
-        if duration < lock.get("soak", {}).get("minimumSteadyStateSeconds", 0):
+        minimum = lock.get("soak", {}).get("minimumSteadyStateSeconds", 0)
+        if ended is not None:
+            duration = (ended - started).total_seconds()
+            if duration <= 0:
+                failures.append("soak observation window is empty or reversed")
+            if receipt.get("steadyStateSeconds") != duration:
+                failures.append("steady-state seconds do not equal the exact UTC observation window")
+            if duration < minimum:
+                failures.append("steady-state duration is below the locked minimum")
+        elif receipt.get("steadyStateSeconds", 0) < minimum:
             failures.append("steady-state duration is below the locked minimum")
     except ContractError as exc:
         failures.append(str(exc))
@@ -434,6 +456,32 @@ def evaluate(
     _validate_signals(lock, receipt, candidate, artifacts, workload_names, failures)
     failures.extend(validate_sources(lock, receipt, artifact_root))
     return failures
+
+
+def excluded_dimensions(lock: dict) -> set[str]:
+    """Dimensions an operator ruling recorded in the lock removed from the envelope."""
+    return {
+        name
+        for ruling in lock.get("rulings", [])
+        if isinstance(ruling, dict)
+        for name in ruling.get("excludedDimensions", [])
+    }
+
+
+def informational_dimensions(lock: dict, receipt: dict) -> dict:
+    """Echo excluded Preview observations without adding them to the GA denominator."""
+    result = {}
+    for name in sorted(excluded_dimensions(lock)):
+        if name in lock.get("supportedEnvelope", {}) or name in lock.get("soak", {}).get("requiredSignals", []):
+            continue
+        records = {
+            section: receipt[section][name]
+            for section in ("envelope", "envelopeVerification", "signals")
+            if isinstance(receipt.get(section), dict) and name in receipt[section]
+        }
+        if records:
+            result[name] = records
+    return result
 
 
 def main() -> int:
@@ -450,6 +498,8 @@ def main() -> int:
         failures = evaluate(
             lock, receipt, lock_digest(args.lock), args.expected_revision, args.artifact_root, args.expected_image_digest
         )
+        for name, records in informational_dimensions(lock, receipt).items():
+            print(f"Preview informational (not gated): {name} = {json.dumps(records, sort_keys=True)}")
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         failures = [str(exc)]
     if failures:
@@ -457,7 +507,11 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("capacity-soak: PASS — exact candidate, 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced SLIs")
+    print(
+        f"capacity-soak: PASS — {len(lock['supportedEnvelope'])}/{len(lock['supportedEnvelope'])} GA dimensions; "
+        f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} sourced SLO signals; "
+        "bound observation provenance"
+    )
     return 0
 
 

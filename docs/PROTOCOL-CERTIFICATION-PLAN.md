@@ -100,6 +100,17 @@ Evidence is invalidated by a change to the server image digest, protocol contrac
 
 An external OGC client selection must record package/repository, maintained release, supported platform, owner, operation mapping, and replacement policy. Until selected, the cell is an explicit blocking gap for a `supported` surface, not a placeholder pass.
 
+### Bounded 2026.1 external-client roster
+
+The 59 QGIS, GDAL/OGR, GDAL, MapLibre GL JS, OWSLib, and PySTAC-Client cells that honua-server#3434 certifies are governed by `certification/sources/bounded-client-roster.v1.json` (honua-release#346). The generator and validator fail closed unless every one of those rows carries exactly the lane and single test ID that file names.
+
+- **Test IDs.** Each cell names one ID, `client-cert/<client>/<surface>/<operation>`. The `client-interop-cert-v1` normalizer resolves every receipt result to exactly one requirement for its lane, version, and surface, and a passing result must exercise every scenario facet of that requirement. Producers therefore report one result per cell under that ID. Per-scenario sub-cases (`CERT-*`, `NB-*`) remain producer evidence, not bindable IDs.
+- **QGIS version ruling.** The denominator pins QGIS 3.44 at the exact string the digest-pinned honua-server `desktop-qgis` lane records, `3.44.13-Solothurn`. honua-server is not re-pinned to 3.40. A change to that image digest must re-pin this value in the same change.
+- **Lane identity ruling.** A lane names the runner that executes one canonical client; the surface is a separate join key.
+  - Where honua-server already runs the client in a single-client lane, the denominator adopts it: QGIS → `desktop-qgis` (replacing `qgis-*` and the curl-driven `ci-desktop` smoke lane), OWSLib → `py-owslib`, PySTAC-Client → `py-pystac`. Existing observations bind without relabeling, and no second producer may be created for those clients.
+  - Where the existing lane does not identify one client, honua-server is directed to emit a distinct lane: MapLibre GL JS → `js-maplibre` (today inside the multi-client `js` lane), GDAL/OGR and GDAL → `gdal` (today `cli`, which this denominator assigns to the Honua CLI).
+  - Lanes a registered producer already emits are retained: `gdal-cog`, `gdal-flatgeobuf`, and `gdal-geoparquet` from the CNG producer.
+
 ## Scenario depth and cloud-native budgets
 
 Operation presence alone is insufficient. Each supported operation declares applicable facets from: positive, malformed input, boundary values, authorization, pagination/cursor, result limits, CRS/axis order, media type/schema, cancellation/idempotency, and recovery. Release coverage is reported as passed required scenario cells divided by all required scenario cells, with separate negative/auth/limit percentages.

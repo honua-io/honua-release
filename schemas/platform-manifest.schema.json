@@ -5,6 +5,7 @@
   "type": "object",
   "required": ["platformRelease", "status", "candidate", "protocolCertification", "components", "clientArtifacts", "evidenceSources"],
   "properties": {
+    "disasterRecovery": {"$ref": "#/$defs/disasterRecovery"},
     "platformRelease": {"type": "string", "minLength": 1},
     "status": {"enum": ["draft", "rc", "released"]},
     "candidate": {
@@ -37,11 +38,112 @@
       "type": "object",
       "minProperties": 1,
       "additionalProperties": {"$ref": "#/$defs/evidenceSource"}
+    },
+    "platformLockEvidence": {
+      "type": "object",
+      "description": "Release-level facts of the atomic candidate identity (release#231): everything the signed platform lock carries outside components. Absent facts are refused by the lock generator; they are never inferred.",
+      "additionalProperties": false,
+      "properties": {
+        "contentDigests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "geospatialMcp": {"$ref": "#/$defs/contentDigest"},
+            "catalog": {"$ref": "#/$defs/contentDigest"},
+            "okf": {"$ref": "#/$defs/contentDigest"}
+          }
+        },
+        "fixtures": {"type": "array", "items": {"$ref": "#/$defs/sourceReference"}},
+        "sbom": {"type": "array", "items": {"$ref": "#/$defs/lockEvidenceReference"}},
+        "provenance": {"type": "array", "items": {"$ref": "#/$defs/lockEvidenceReference"}},
+        "notes": {"$ref": "#/$defs/contentDigest"}
+      }
     }
   },
   "$defs": {
+    "disasterRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topology",
+        "objectives",
+        "substrates"
+      ],
+      "properties": {
+        "topology": {
+          "type": "string",
+          "minLength": 1
+        },
+        "objectives": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rpoMs",
+            "rtoMs"
+          ],
+          "properties": {
+            "rpoMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "rtoMs": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "substrates": {
+          "type": "object",
+          "required": [
+            "postgresql",
+            "redis",
+            "object-storage",
+            "job-queue",
+            "transactional-outbox",
+            "workflow-cursors"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
     "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sourceReference": {
+      "type": "object",
+      "required": ["repository", "revision"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "revision": {"$ref": "#/$defs/sha"},
+        "path": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "contentDigest": {
+      "type": "object",
+      "required": ["repository", "revision", "path", "sha256"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "revision": {"$ref": "#/$defs/sha"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/digest"}
+      },
+      "additionalProperties": false
+    },
+    "lockEvidenceReference": {
+      "type": "object",
+      "required": ["component", "uri", "sha256"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1},
+        "uri": {"type": "string", "pattern": "^(https|oci)://"},
+        "sha256": {"$ref": "#/$defs/digest"}
+      },
+      "additionalProperties": false
+    },
     "clientArtifact": {
       "type": "object",
       "required": ["ecosystem", "package", "version", "repository", "sourceSha", "publicationState", "targets"],

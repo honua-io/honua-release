@@ -23,6 +23,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
 CATALOG = Path("certification/protocol-certification-requirements.v1.json")
@@ -256,6 +258,13 @@ def finalize(root: Path, plan: dict[str, Any], requirements_revision: str, evide
     manifest = replace_scalar(manifest, "commit", bindings["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"], evidence_commit)
     manifest = replace_scalar(manifest, "requirementsSourceRevision", bindings["PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION"]["current"], requirements_revision)
     manifest = replace_scalar(manifest, "sha256", bindings["PROTOCOL_CERTIFICATION_MATRIX_SHA256"]["current"], ledger_sha256)
+    # A working snapshot can explicitly invalidate its old ledger while awaiting
+    # candidate evidence. Only FINALIZE restores bound alongside all three pins.
+    ledger_status = yaml.safe_load(manifest)["protocolCertification"]["ledger"]["status"]
+    if ledger_status not in {"pending", "bound"}:
+        raise Finding(f"invalid ledger status: {ledger_status!r}")
+    if ledger_status == "pending":
+        manifest = replace_scalar(manifest, "status", "pending", "bound")
     manifest_path.write_text(manifest, encoding="utf-8")
     for path in CALLERS:
         text = (root / path).read_text(encoding="utf-8")
