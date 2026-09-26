@@ -107,10 +107,14 @@ checks rule with a separate review rule into a fictitious complete protection.
 
 ## Signed publication tags — producer and trust policy
 
-Promotion maps the calendar candidate `2026.1-rc.N` to the initial GA publication tag
-`honua-2026.1.0`, within the protected `refs/tags/honua-2026.1.*` namespace. The release
-title and platform label remain `Honua 2026.1` and `2026.1`. The signing producer must
-publish that exact tag against the certified commit before promotion verifies it.
+`tag_signing.py publication-tag` maps a promotable candidate label onto the GA tag in
+the protected `refs/tags/honua-2026.1.*` namespace. A calendar candidate `2026.1-rc.N`
+publishes `honua-2026.1.0` (the release title stays `Honua 2026.1`). An explicit patch
+candidate `2026.1.Z-rc.N` publishes `honua-2026.1.Z`; appending another `.0` would name
+`honua-2026.1.Z.0`, which is not the contract tag. Promotion asks the preserved producer
+for that name and then verifies the signed remote tag. It does not sign or create the tag.
+The command does not require a nominated signer; `sign` and `verify` still fail closed
+until one is recorded.
 
 `certification/release-controls/tag-signing-policy.json` is the trust policy, and
 `tools/tag_signing.py` is the producer and verifier. Together they close the "implement a
@@ -179,6 +183,10 @@ still reproduce byte-for-byte from their snapshots.
 
 ## Unmet acceptance criteria and sequencing
 
+`python3 tools/release_controls.py operator-actions` prints the click-ops below and
+performs none of them. It exits nonzero while a policy prerequisite is still open.
+Do not wire that command into `validate`; it describes work this repository cannot do.
+
 - Nominate and authorize an independent human code owner, add that identity to
   the policy and CODEOWNERS, and land ownership PRs in the remaining repositories.
   No user/team is invented and no collaborator access is granted by this PR.
@@ -196,9 +204,9 @@ still reproduce byte-for-byte from their snapshots.
 - Qualify the native tag namespace in repositories without declared tag rules, and
   enforce tag immutability. The renderer's tag rules prevent update/deletion; they
   do **not** require annotated-tag signatures.
-- Wire the signing producer into the protected publication workflow after an authorized
-  signer is nominated. Promotion now verifies an existing remote signed tag and cannot
-  create a lightweight substitute; it does not produce that tag itself.
+- Wire signing into publication after an authorized signer is nominated. Promotion
+  names the GA tag with the preserved `publication-tag` command and verifies an existing
+  remote signed tag; it cannot create a lightweight substitute and it does not sign.
 - The signature receipt for the actual candidate/native release tags must wait
   until those tags exist. That receipt alone is candidate-dependent. The signing
   producer, trust policy, and branch controls remain pre-cut implementation work.

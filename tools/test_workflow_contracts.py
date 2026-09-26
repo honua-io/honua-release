@@ -414,11 +414,15 @@ def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
                     if s.get("name") == "Preserve current publication trust policy and verifier")
     candidate_checkout = next(i for i, s in enumerate(steps)
                               if (s.get("with") or {}).get("ref") == "${{ steps.train.outputs.source_sha }}")
+    finalize = next(i for i, s in enumerate(steps) if s.get("id") == "finalize")
     guard = next(i for i, s in enumerate(steps) if "verify-remote" in s.get("run", ""))
     publish = next(i for i, s in enumerate(steps) if "gh release create" in s.get("run", ""))
-    assert preserve < candidate_checkout < guard < publish
+    assert preserve < candidate_checkout < finalize < guard < publish
     assert 'cp tools/tag_signing.py' in steps[preserve]['run']
     assert '{policy,tag-signing-policy}.json' in steps[preserve]['run']
+    assert 'publication-tag honua-release' in steps[finalize]['run']
+    assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py' in steps[finalize]['run']
+    assert 'honua-${BASE}.0' not in steps[finalize]['run']
     assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py' in steps[guard]['run']
     assert steps[guard]['env']['CERTIFIED_SHA'] == '${{ steps.train.outputs.source_sha }}'
     assert steps[guard]['env']['PUBLICATION_TAG'] == '${{ steps.finalize.outputs.tag }}'

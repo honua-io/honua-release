@@ -40,6 +40,8 @@ RECEIPT_SCHEMA = "honua.signed-tag-receipt/v1"
 ISSUE = "honua-io/honua-release#236"
 FORMATS = ("ssh", "openpgp")
 SHA1 = re.compile(r"^[0-9a-f]{40}$")
+# Promotable labels are N.N-rc.N (initial calendar release) or N.N.N-rc.N (explicit patch).
+CANDIDATE_LABEL = re.compile(r"^(?P<version>[0-9]+\.[0-9]+(?:\.[0-9]+)?)-rc\.(?:[1-9][0-9]*)$")
 # `git verify-tag` reports an SSH signer as `... with <TYPE> key SHA256:<base64>`; GnuPG's
 # machine-readable status line carries the 40-hex OpenPGP fingerprint after VALIDSIG.
 SSH_SIGNER = re.compile(r'Good "git" signature for (?P<principal>\S+) with \S+ key (?P<fingerprint>SHA256:[A-Za-z0-9+/=]+)')
@@ -111,6 +113,22 @@ def authorized_signers(policy: dict[str, Any], repository: str) -> list[dict[str
         raise SigningError(f"{repository}: no publication signing key is nominated in the trust "
                            "policy; a signed tag cannot be produced or trusted")
     return signers
+
+
+def publication_tag(label: str) -> str:
+    """Map a promotable candidate label to the GA tag the quality contract names.
+
+    `2026.1-rc.N` is the initial calendar release and publishes `honua-2026.1.0`.
+    `2026.1.Z-rc.N` publishes `honua-2026.1.Z`. Appending `.0` to a label that
+    already carries a patch would name a different tag (`honua-2026.1.2.0`).
+    """
+    match = CANDIDATE_LABEL.fullmatch(label)
+    if not match:
+        raise SigningError(f"{label} is not a promotable N.N-rc.N or N.N.N-rc.N candidate label")
+    version = match.group("version")
+    if version.count(".") == 1:
+        version = f"{version}.0"
+    return f"honua-{version}"
 
 
 def check_namespace(policy: dict[str, Any], repository: str, tag: str) -> str:
@@ -344,6 +362,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--policy", type=Path, default=TRUST_POLICY)
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("check-policy", help="validate the trust policy against the control policy")
+    name_tag = subs.add_parser("publication-tag",
+                               help="print the GA tag for a candidate label; does not sign or publish")
+    name_tag.add_argument("repository")
+    name_tag.add_argument("label")
     for name, help_text in (("sign", "create a signed annotated publication tag"),
                             ("verify", "verify an existing publication tag"),
                             ("verify-remote", "verify a published tag against the certified commit")):
@@ -368,6 +390,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise SigningError("; ".join(errors))
             print(f"PASS: trust policy covers {len(policy['repositories'])} protected tag "
                   f"namespace set(s); {len(policy['signers'])} signer(s) nominated")
+            return 0
+        if args.command == "publication-tag":
+            errors = check_namespaces(policy)
+            if errors:
+                raise SigningError("; ".join(errors))
+            tag = publication_tag(args.label)
+            check_namespace(policy, args.repository, tag)
+            print(tag)
             return 0
         if args.command == "sign":
             receipt = sign_tag(args.git_dir, args.tag, args.target, args.message, policy,

@@ -90,6 +90,30 @@ def test_committed_policy_is_valid_and_nominates_no_signer():
     assert check_namespaces(committed) == []
 
 
+@pytest.mark.parametrize("label,tag", [
+    ("2026.1-rc.1", "honua-2026.1.0"),
+    ("2026.1-rc.9", "honua-2026.1.0"),
+    ("2026.1.0-rc.1", "honua-2026.1.0"),
+    ("2026.1.2-rc.3", "honua-2026.1.2"),
+])
+def test_publication_tag_matches_the_contract_and_protected_namespace(label, tag):
+    assert tag_signing.publication_tag(label) == tag
+    tag_signing.check_namespace(load_policy(), REPOSITORY, tag)
+
+
+@pytest.mark.parametrize("label", [
+    "2026.1", "2026.1.0", "2026.1.0-rc.0", "2026.1.0.0-rc.1", "honua-2026.1.0", "../2026.1-rc.1",
+])
+def test_publication_tag_rejects_labels_promotion_does_not_accept(label):
+    with pytest.raises(SigningError, match="not a promotable"):
+        tag_signing.publication_tag(label)
+
+
+def test_publication_tag_command_names_a_tag_without_a_signer(capsys):
+    assert tag_signing.main(["publication-tag", REPOSITORY, "2026.1.2-rc.3"]) == 0
+    assert capsys.readouterr().out.strip() == "honua-2026.1.2"
+
+
 def test_committed_policy_covers_exactly_the_protected_tag_namespaces():
     controls = json.loads(CONTROL_POLICY.read_text(encoding="utf-8"))["repositories"]
     protected = {name: sorted(row["tag_refs"]) for name, row in controls.items() if row.get("tag_refs")}
@@ -484,30 +508,37 @@ def test_remote_verification_refuses_unqualified_publication(repo, signer, publi
 
 
 @pytest.mark.parametrize('failure', [None, 'wrong-target', 'no-trust', 'no-signer'])
-@pytest.mark.parametrize('label', ['2026.1-rc.1', '2026.1-rc.9'])
-def test_promotion_executes_remote_tag_guard(tmp_path, repo, signer, publication_remote, failure, label):
+@pytest.mark.parametrize('label,expected_tag,expected_base', [
+    ('2026.1-rc.1', 'honua-2026.1.0', '2026.1'),
+    ('2026.1.2-rc.3', 'honua-2026.1.2', '2026.1.2'),
+])
+def test_promotion_executes_remote_tag_guard(tmp_path, repo, signer, publication_remote, failure,
+                                            label, expected_tag, expected_base):
     """Execute the actual promotion step on a real signed remote; assert its receipt and exit."""
     target = head(repo)
     root = tag_signing.ROOT
     steps = yaml.safe_load((root / '.github/workflows/promote.yml').read_text())['jobs']['promote']['steps']
     finalize = next(s for s in steps if s.get('id') == 'finalize')
-    # Execute the workflow's own tag calculation with a dispatchable candidate label.
-    output = tmp_path / 'finalize-output'
-    calculation = finalize['run'].split('# finalize_release.py', 1)[0]
-    calculation = calculation.replace('${{ inputs.platform_label }}', label)
-    subprocess.run(['bash', '-c', calculation], cwd=tmp_path,
-                   env={**os.environ, 'GITHUB_OUTPUT': str(output)}, check=True, capture_output=True)
-    outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
-    tag = outputs['tag']
-    assert outputs['base'] == '2026.1'
-    tag_object = publish_signed(repo, signer, publication_remote, tag=tag)
     preserve = next(s for s in steps if s.get('name') == 'Preserve current publication trust policy and verifier')
     guard = next(s for s in steps if 'verify-remote' in s.get('run', ''))
     temp = tmp_path / 'runner'
     temp.mkdir()
-    env = {**os.environ, 'RUNNER_TEMP': str(temp), 'PUBLICATION_TAG': tag,
-           'CERTIFIED_SHA': target, 'PUBLICATION_REMOTE': str(publication_remote),
-           'RELEASE_TAG_ALLOWED_SIGNERS': signer['allowed'].read_text()}
+    output = tmp_path / 'finalize-output'
+    env = {**os.environ, 'RUNNER_TEMP': str(temp), 'GITHUB_OUTPUT': str(output),
+           'PLATFORM_LABEL': label}
+    # The tag name comes from the preserved current producer, before the candidate checkout.
+    subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
+    calculation = finalize['run'].split('# finalize_release.py', 1)[0]
+    calculation = calculation.replace('python "$RUNNER_TEMP', f'"{sys.executable}" "$RUNNER_TEMP')
+    subprocess.run(['bash', '-c', calculation], cwd=tmp_path, env=env, check=True, capture_output=True)
+    outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    tag = outputs['tag']
+    assert tag == expected_tag
+    assert outputs['base'] == expected_base
+    tag_object = publish_signed(repo, signer, publication_remote, tag=tag)
+    env.update({'PUBLICATION_TAG': tag,
+                'CERTIFIED_SHA': target, 'PUBLICATION_REMOTE': str(publication_remote),
+                'RELEASE_TAG_ALLOWED_SIGNERS': signer['allowed'].read_text()})
     subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
     trust = temp / 'publication-trust/certification/release-controls/tag-signing-policy.json'
     trusted = json.loads(trust.read_text())
@@ -534,7 +565,7 @@ def test_promotion_executes_remote_tag_guard(tmp_path, repo, signer, publication
     else:
         assert result.returncode == 0, result.stdout + result.stderr
         receipt = json.loads(receipt_path.read_text())
-        assert receipt['tag'] == tag == 'honua-2026.1.0'
+        assert receipt['tag'] == tag == expected_tag
         assert receipt['target'] == target
         assert receipt['tagObject'] == tag_object
         assert receipt['signature']['fingerprint'] == signer['fingerprint']

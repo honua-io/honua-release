@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       platform_label:
-        description: "Platform label to release, e.g. 2026.1"
+        description: "Candidate label to promote, e.g. 2026.1-rc.1 or 2026.1.2-rc.3"
         required: true
         type: string
       train_run_id:
@@ -291,12 +291,15 @@ jobs:
 
       - name: Finalize (fail closed unless all-green) + generate notes
         id: finalize
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
         run: |
           set -euo pipefail
-          LABEL="${{ inputs.platform_label }}"
+          LABEL="$PLATFORM_LABEL"
           BASE="${LABEL%%-rc*}"
-          # The initial GA publication is patch zero in the protected honua-YYYY.N.* namespace.
-          TAG="honua-${BASE}.0"
+          # Name the GA tag from the preserved producer so an older candidate checkout cannot
+          # append an extra .0 or leave refs/tags/honua-2026.1.*.
+          TAG="$(python "$RUNNER_TEMP/publication-trust/tools/tag_signing.py" publication-tag honua-release "$LABEL")"
           echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           # finalize_release.py exits non-zero (REFUSED) if the candidate is not all-green for this
