@@ -142,11 +142,26 @@ def test_cli_returns_nonzero_and_binds_failure_receipt(tmp_path):
                              '--policy', str(policy), 'audit', str(observed), '--output', str(output)],
                             capture_output=True, text=True)
     assert result.returncode == 1
+    assert b'\r' not in output.read_bytes(), 'receipt bytes must survive Git checkout on Windows'
     receipt = json.loads(output.read_text())
     assert receipt['repositories'] == {'example': ['repository missing from snapshot']}
     import hashlib
     assert receipt['snapshot_sha256'] == hashlib.sha256(observed.read_bytes()).hexdigest()
     assert receipt['policy_sha256'] == hashlib.sha256(policy.read_bytes()).hexdigest()
+
+
+def test_capture_writes_portable_hashable_bytes(tmp_path, monkeypatch):
+    import release_controls as controls
+    policy = tmp_path / 'policy.json'
+    policy.write_text(json.dumps({'repositories': {'example': POLICY}}))
+    output = tmp_path / 'snapshot.json'
+    monkeypatch.setattr(controls, 'capture_repository', lambda repo: snapshot())
+    monkeypatch.setattr(sys, 'argv', ['release_controls.py', '--policy', str(policy),
+                                     'capture', '--output', str(output)])
+    assert controls.main() == 0
+    raw = output.read_bytes()
+    assert b'\r' not in raw
+    assert json.loads(raw)['repositories'] == {'example': snapshot()}
 
 
 def test_an_independent_writer_without_code_ownership_cannot_approve():

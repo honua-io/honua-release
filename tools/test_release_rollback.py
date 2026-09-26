@@ -209,3 +209,153 @@ def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
     refused = json.loads((incompatible_output / "success-receipt.json").read_text())
     assert refused["status"] == "ManualInterventionRequired"
     assert next(child for child in refused["children"] if child["kind"] == "schema")["state"] == "Failed"
+
+
+# First-lock certification extends the retained-lock tests above without changing them.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import release_rollback_target as targets
+import certify_release_rollback as certification
+
+
+def _release(tag, lock=False, published_at=None):
+    return {"tag_name": tag, "draft": False, "published_at": published_at or tag,
+            "assets": [{"name": "platform-lock.json"}] if lock else []}
+
+
+def _target_fixture(tmp_path, pages, reject=False):
+    candidate = _write(tmp_path / "candidate.json", {"platform": {"id": "honua-2026.1.1-rc.1"}})
+    target = tmp_path / "retained" / "platform-lock.json"
+    calls = []
+
+    def command(*args):
+        calls.append(args)
+        if args[0] == "api":
+            assert "--paginate" in args and "--slurp" in args
+            return json.dumps(pages)
+        if args[:2] == ("release", "download"):
+            _write(target, {"platform": {"id": args[2]}})
+        if args[0] == "attestation" and reject:
+            raise targets.Finding("invalid signature")
+        return "verified"
+
+    return candidate, target, calls, command
+
+
+@pytest.mark.parametrize("pages", [[[]], [[_release("honua-2026.1")]]])
+def test_first_lock_detection_preserves_exact_candidate_bytes(tmp_path, pages):
+    candidate, target, calls, command = _target_fixture(tmp_path, pages)
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report == {
+        "first_lock_bearing_release": True, "no_earlier_lock_exists": True,
+        "candidate_lock_digest": rollback.digest(candidate), "rollback_target_digest": rollback.digest(candidate),
+        "retained_release": None, "scanned_releases": [r["tag_name"] for page in pages for r in page],
+        "reason": "no_earlier_attested_platform_lock_exists",
+    }
+    assert target.read_bytes() == candidate.read_bytes()
+    assert len(calls) == 1  # No download of an absent asset and no reconstructed lock.
+
+
+def test_retained_lock_on_later_page_uses_ordinary_path(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [
+        [_release("honua-2026.2")], [_release("honua-2026.1", lock=True)]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["first_lock_bearing_release"] is False
+    assert report["no_earlier_lock_exists"] is False
+    assert report["retained_release"] == "honua-2026.1"
+    assert report["rollback_target_digest"] != report["candidate_lock_digest"]
+    assert calls[-1][:2] == ("attestation", "verify")
+
+
+def test_candidate_release_is_not_misidentified_as_an_earlier_lock(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.1.1-rc.1", lock=True), _release("honua-2026.1")]])
+    assert targets.resolve(candidate, target, "honua-io/honua-release", command)["first_lock_bearing_release"]
+
+
+def test_candidate_ga_and_newer_release_are_not_rollback_targets(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.2", lock=True, published_at="2026-09-13T00:00:00Z"),
+        _release("honua-2026.1.1", lock=True, published_at="2026-09-12T00:00:00Z"),
+        _release("honua-2026.1", lock=True, published_at="2026-09-11T00:00:00Z")]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["retained_release"] == "honua-2026.1"
+    download = next(call for call in calls if call[:2] == ("release", "download"))
+    assert download[2] == "honua-2026.1"
+
+
+def test_unpublished_candidate_uses_release_version_boundary(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.2", lock=True), _release("honua-2026.1", lock=True)]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["retained_release"] == "honua-2026.1"
+
+
+def test_unverified_retained_lock_cannot_enable_self_rollback(tmp_path):
+    candidate, target, calls, command = _target_fixture(tmp_path, [[_release("honua-2026.1", lock=True)]], reject=True)
+    with pytest.raises(targets.Finding, match="ROLLBACK_RETAINED_ATTESTATION_FAILED"):
+        targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert target.read_bytes() != candidate.read_bytes()
+
+
+def test_release_lookup_failure_is_a_named_finding(tmp_path, monkeypatch):
+    def unavailable(*args):
+        raise targets.Finding("ROLLBACK_RETAINED_LOOKUP_FAILED: unavailable")
+    monkeypatch.setattr(targets, "resolve", unavailable)
+    report = tmp_path / "gate-report.json"
+    assert targets.main(["--candidate", "missing", "--target", "missing", "--repository", "honua-io/honua-release",
+                         "--report", str(report)]) == 1
+    result = json.loads(report.read_text())
+    assert result["overall_status"] == "fail"
+    assert "ROLLBACK_RETAINED_LOOKUP_FAILED" in result["finding"]
+    assert "first_lock_bearing_release" not in result
+
+
+@pytest.mark.parametrize("tamper", [False, True, "missing_image_digest"])
+def test_first_lock_report_and_real_operation(tmp_path, tamper):
+    manifest = tmp_path / "platform-manifest.yaml"
+    matrix = tmp_path / "compatibility-matrix.yaml"
+    manifest.write_text("platformRelease: 2026.1.1-rc.1\n")
+    matrix.write_text("contracts: {}\n")
+    candidate = _write(tmp_path / "candidate.json", {
+        "platform": {"id": "honua-2026.1.1-rc.1"},
+        "sourceInputs": {"platformManifest": {"sha256": rollback.digest(manifest)},
+                         "compatibilityMatrix": {"sha256": rollback.digest(matrix)}},
+        "components": {"honua-server": {"schemaVersions": {"database": "107"},
+            "artifacts": [{"kind": "image", "platformDigests": {"amd64": "sha256:" + "b" * 64}}]}},
+    })
+    if tamper == "missing_image_digest":
+        value = json.loads(candidate.read_text())
+        del value["components"]["honua-server"]["artifacts"][0]["platformDigests"]
+        _write(candidate, value)
+    target = tmp_path / "retained" / "platform-lock.json"
+    report = targets.resolve(candidate, target, "honua-io/honua-release", lambda *args: "[[]]")
+    report.update(schema="honua.rollback-gate/v1", overall_status="pending")
+    report_path = _write(tmp_path / "resolution.json", report)
+    if tamper is True:
+        target.write_bytes(target.read_bytes() + b"\n")
+    output = tmp_path / "certification"
+    status = certification.main(["--from-lock", str(target), "--to-lock", str(candidate),
+        "--candidate-manifest", str(manifest), "--compatibility-matrix", str(matrix),
+        "--output", str(output), "--gate-report", str(report_path)])
+    result = json.loads((output / "gate-report.json").read_text())
+    assert result["first_lock_bearing_release"] is True
+    assert result["no_earlier_lock_exists"] is True
+    assert result["candidate_lock_digest"] == rollback.digest(candidate)
+    if tamper:
+        assert status == 1
+        assert result["overall_status"] == "fail"
+        finding = "ROLLBACK_SELF_TARGET_MISMATCH" if tamper is True else "ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING"
+        assert finding in result["finding"]
+        return
+    assert status == 0
+    assert result["overall_status"] == "pass"
+    assert result["post_rollback_state_equals_lock"] is True
+    receipt = json.loads((output / "success-receipt.json").read_text())
+    assert receipt["fromLockDigest"] == receipt["toLockDigest"] == rollback.digest(candidate)
+    assert receipt["restartCount"] == 1
+    assert len(receipt["providerMutations"]) == 5
+    assert all(c["state"] == "Verified" and c["observed"] == c["expected"] for c in receipt["children"])
+    assert all(receipt["functionalSmoke"].values())
+    mixed = json.loads((output / "mixed-state-receipt.json").read_text())
+    assert mixed["status"] == "ManualInterventionRequired"
+    assert any(c["state"] == "Failed" for c in mixed["children"])

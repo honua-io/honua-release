@@ -10,7 +10,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sdk_baselines import SDK_COMPONENTS, check_component
+from release_facts import (
+    CONTENT_DIGEST_FACTS,
+    evidence_reference,
+    fixture_reference,
+    notes_reference,
+)
+from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
 
 try:
     import yaml
@@ -66,6 +72,51 @@ def _require(mapping: dict, keys: tuple[str, ...], path: str, f: Findings) -> No
             f.error(f"{path}.{key}", "required field is missing")
 
 
+def _validate_release_facts(lock: dict[str, Any], f: Findings) -> None:
+    """The candidate's release-level facts must name immutable bytes, exactly like its artifacts.
+
+    The JSON schema only constrains their shape: it accepts a release-notes sentence, an SBOM
+    published under a moving tag, or two fixture rows for the same repository at two revisions.
+    None of those can identify one candidate, so they fail closed here.
+    """
+    digests = lock.get("contentDigests")
+    if isinstance(digests, dict):
+        for name in sorted(set(digests) - {key for key, _ in CONTENT_DIGEST_FACTS}):
+            f.error(f"$.contentDigests.{name}", "the lock carries no such content digest")
+
+    fixtures = lock.get("fixtures")
+    if isinstance(fixtures, list):
+        seen: set[tuple[str, str]] = set()
+        for index, fixture in enumerate(fixtures):
+            path = f"$.fixtures[{index}]"
+            try:
+                reference = fixture_reference(fixture)
+            except (ValueError, TypeError) as exc:
+                f.error(path, str(exc))
+                continue
+            key = (reference["repository"], reference.get("path", ""))
+            if key in seen:
+                f.error(path, "duplicate fixture source: one revision per fixture repository path")
+            seen.add(key)
+
+    for field in ("sbom", "provenance"):
+        references = lock.get(field)
+        if not isinstance(references, list):
+            continue
+        for index, reference in enumerate(references):
+            try:
+                evidence_reference(reference)
+            except (ValueError, TypeError) as exc:
+                f.error(f"$.{field}[{index}]", str(exc))
+
+    notes = lock.get("notes")
+    if notes is not None:
+        try:
+            notes_reference(notes)
+        except (ValueError, TypeError) as exc:
+            f.error("$.notes", str(exc))
+
+
 def validate(lock: dict[str, Any]) -> Findings:
     f = Findings()
     schema = json.loads(LOCK_SCHEMA.read_text(encoding="utf-8"))
@@ -90,6 +141,8 @@ def validate(lock: dict[str, Any]) -> Findings:
             if CARRIED_FORWARD_RE.search(value):
                 f.error(path, "carried-forward markers are forbidden")
 
+    _validate_release_facts(lock, f)
+
     components = lock.get("components")
     if not isinstance(components, dict) or not components:
         f.error("$.components", "must be a non-empty mapping")
@@ -99,6 +152,7 @@ def validate(lock: dict[str, Any]) -> Findings:
         if name not in components:
             f.error(f"$.components.{name}", "required official SDK component is missing")
 
+    context = release_context(lock)
     for name, component in components.items():
         path = f"$.components.{name}"
         if not isinstance(component, dict):
@@ -108,10 +162,21 @@ def validate(lock: dict[str, Any]) -> Findings:
         lifecycle_status = component.get("lifecycleStatus")
         if component.get("supportTier") != str(lifecycle_status).lower():
             f.error(f"{path}.supportTier", "must be derived from lifecycleStatus by lowercasing it")
+        # The first-release fields belong to the publisher alone, and the named release must be
+        # the artifact that actually ships; otherwise a floor is published for an absent server.
+        for field in ("releaseVersion", "publicationHistory"):
+            if component.get(field) is not None and name != PUBLISHER:
+                f.error(f"{path}.{field}", f"only {PUBLISHER} declares a first-release {field}")
+        if name == PUBLISHER and component.get("releaseVersion") is not None:
+            versions = {artifact.get("version") for artifact in (component.get("artifacts") or [])
+                        if isinstance(artifact, dict)}
+            if component["releaseVersion"] not in versions:
+                f.error(f"{path}.releaseVersion",
+                        "must equal the released version of a locked publisher artifact")
         source = component.get("source") or {}
         if name in SDK_COMPONENTS:
             try:
-                check_component(component)
+                check_component(component, context)
             except (ValueError, TypeError, KeyError, AttributeError) as exc:
                 f.error(f"{path}.serverCompatibility", str(exc))
         revision = source.get("revision") if isinstance(source, dict) else None

@@ -6,15 +6,15 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:1b17d59656aba2d310e8122a2f599d741d522645cfa649d3583eb97f9cb9593f
+    sha256: sha256:99debbb523700e1c195be21256efdab7400da1e0002d978478993c25725c9d99
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:9cb0b0a87359cb8d7528c3301f99025d77c037b943bf0a85330b8d37dcfd21bb
+    sha256: sha256:e8900ab641d78b6e5c767c8a0b2d79ecb2a02ae868bf16e9366d4c463b31b5a3
 components:
   honua-server:
     source:
       repository: https://github.com/honua-io/honua-server
-      revision: 4ca8326f37b3225315033ee58e1a652e231992df
+      revision: 7ba422672e0c751843b17beb36e954a019cc19fb
     contractVersions:
       admin: v1
       metadata: metadata.honua.io/v2alpha1
@@ -23,11 +23,11 @@ components:
       ogc: 1.0.0
       stac: 1.0.0
     schemaVersions:
-      database: '107'
+      database: '115'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
-      digest: sha256:571395718765a499d8e25e069ded7bb8d990dd784e9f1e6bef4fd2b8322f2508
+      digest: sha256:dd50cd81c057e37e73a6144572abdfc90d48de314d7625c54c4ef3b6eb65b0fd
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -51,21 +51,21 @@ components:
   honua-sdk-dotnet:
     source:
       repository: https://github.com/honua-io/honua-sdk-dotnet
-      revision: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6
+      revision: 6ba49ec32ea846c64bc2094807761d4884dbc4bf
     contractVersions:
       sdk-certification: v1
     schemaVersions: {}
     artifacts:
     - kind: nuget
       coordinate: Honua.Sdk
-      version: 1.6.0
+      version: 1.6.2
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
   honua-sdk-js:
     source:
       repository: https://github.com/honua-io/honua-sdk-js
-      revision: c99e71197dd940ed952aecb024c6de273456f2ae
+      revision: d7cec2d510e053fc86252b125bde21313a7e6e7c
     contractVersions:
       connect-parity: '1.0'
     schemaVersions: {}
@@ -75,13 +75,18 @@ components:
       version: 0.1.9-beta.0
       integrity: sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ==
       sourceRevision: c99e71197dd940ed952aecb024c6de273456f2ae
+    - kind: npm
+      coordinate: '@honua/mcp-server'
+      version: 0.1.4-beta.0
+      sourceRevision: ac29d1601f499ebd9b099fd4629b0997fdc81f1f
+      integrity: sha512-TqqVscgNZMg+y+qUs3f9ShpKT8n38W3njXkTciqXKdXsk5PILG1fjwQur5/Da0KVg895L0qH5EqXRAwnjzO30w==
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
   honua-sdk-python:
     source:
       repository: https://github.com/honua-io/honua-sdk-python
-      revision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+      revision: 40ecf7318573214fb6c702b12ebd56b3ad47ba60
     contractVersions:
       protocol-factories: '1'
     schemaVersions: {}
@@ -91,13 +96,18 @@ components:
       version: 0.1.11
       sha256: sha256:80ac6a25fa5fed0ee7d8dca4ca94d14c098d9f72a149c9e271b1a1d04b78c3e9
       sourceRevision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+    - kind: wheel
+      coordinate: honua-admin
+      version: 0.1.8
+      sourceRevision: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4
+      sha256: sha256:fe69794cdcf9293e095401a9c361b6cfb00a28886dc504df511a0795d8d7096b
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
   geospatial-grpc:
     source:
       repository: https://github.com/honua-io/geospatial-grpc
-      revision: 0f701ecc6b0c41a5ea43e2dff3c46ce654312576
+      revision: 863b9b9e4fd1c5de929b3f937dc5f0bdb2a08c2a
     contractVersions:
       grpc: v1
     schemaVersions: {}
@@ -172,7 +182,20 @@ components:
     artifactIdentityModel: source-pinned
     lifecycleStatus: Experimental
     supportTier: experimental
-contentDigests: {}
+contentDigests:
+  geospatialMcp: sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5
 fixtures: []
 sbom: []
 provenance: []
+disasterRecovery:
+  topology: local-docker-single-tenant
+  objectives:
+    rpoMs: 300000
+    rtoMs: 900000
+  substrates:
+    postgresql: true
+    redis: true
+    object-storage: true
+    job-queue: true
+    transactional-outbox: true
+    workflow-cursors: true

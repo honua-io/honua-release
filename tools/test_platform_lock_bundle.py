@@ -24,7 +24,22 @@ def candidate(tmp_path):
     # The bytes and expected digests are external to the BOM implementation.
     data = b"a fixture of published package bytes\n"
     integrity = "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
-    manifest = {"platformRelease": "2026.1-rc.1", "status": "rc", "components": {}}
+    manifest = {"platformRelease": "2026.1-rc.1", "status": "rc", "components": {},
+                # The frozen inputs declare the release-level facts too; binding compares them.
+                "platformLockEvidence": {
+                    "contentDigests": {
+                        name: {"repository": "https://github.com/honua-io/geospatial-mcp",
+                               "revision": REVISION, "path": f"content/{name}.json",
+                               "sha256": digest}
+                        for name, digest in lock["contentDigests"].items()
+                    },
+                    "fixtures": lock["fixtures"],
+                    "sbom": lock["sbom"],
+                    "provenance": lock["provenance"],
+                    "notes": {"repository": "https://github.com/honua-io/honua-release",
+                              "revision": REVISION, "path": "release-notes/2026.1.md",
+                              "sha256": lock["notes"].rsplit("#", 1)[1]},
+                }}
     for name, comp in lock["components"].items():
         comp["artifactIdentityModel"] = "published"
         comp["artifacts"] = [{"kind": "npm", "coordinate": f"@honua/{name}",
@@ -43,8 +58,9 @@ def candidate(tmp_path):
         }
     manifest["clientArtifacts"] = {
         name: {"ecosystem": "npm", "package": f"@honua/{name}", "version": "1.2.3",
-               "integrity": integrity, "sourceSha": "c" * 40}
-        for name in lock["components"]
+               "integrity": integrity, "sourceSha": "c" * 40,
+               "repository": comp["source"]["repository"]}
+        for name, comp in lock["components"].items()
     }
     paths = [tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"]
     paths[0].write_text(yaml.safe_dump(manifest))
@@ -74,6 +90,13 @@ def test_bundle_keeps_published_identity_independent_of_source_head(candidate, t
     assert bom["metadata"]["component"]["version"] == "honua-2026.1-rc.1"
     assert bom["metadata"]["component"]["bom-ref"] == expected_digest
     files = bundle.bundle_files(lock)
+    assert yaml.safe_load(files["compose.licensing-disabled.yml"])["services"]["honua"]["environment"] == {
+        "Licensing__Mode": "Disabled"}
+    assert json.loads(files["platform-release.v1.json"])["licensing"] == {
+        "mode": "disabled", "allCatalogEntitlementsActive": True,
+        "editionGating": False, "capacityMetering": False}
+    assert b"serving-unit bands are neither measured nor enforced" in files["INSTALL-2026.1.md"]
+
     assert files["platform-lock.json"] == json.dumps(lock, sort_keys=True, separators=(",", ":")).encode()
     assert json.loads(files["platform-release.v1.json"])["lockDigest"] == expected_digest
     ledger_path = tmp_path / "ledger.json"
@@ -92,6 +115,16 @@ def test_bundle_keeps_published_identity_independent_of_source_head(candidate, t
     (lambda lock: lock["components"]["sdk"]["artifacts"][0].update(version="9.9.9"), "frozen input"),
     (lambda lock: lock["components"]["sdk"]["artifacts"][0].update(sourceRevision="d" * 40), "frozen input"),
     (lambda lock: lock.update(notes="TBD"), "placeholder"),
+    # Release-level facts belong to the same atomic identity: a lock may neither invent one the
+    # frozen inputs never declared nor drop one they did.
+    (lambda lock: lock["contentDigests"].update(catalog="sha256:" + "e" * 64), "frozen input"),
+    (lambda lock: lock["fixtures"].append(
+        {"repository": "https://github.com/honua-io/extra-fixtures", "revision": "e" * 40}), "frozen input"),
+    (lambda lock: lock.update(sbom=[{**lock["sbom"][0], "sha256": "sha256:" + "e" * 64}]), "frozen input"),
+    (lambda lock: lock.update(provenance=lock["sbom"]), "frozen input"),
+    (lambda lock: lock.update(
+        notes="https://github.com/honua-io/honua-release@" + "e" * 40 + ":NOTES.md#sha256:" + "e" * 64),
+     "frozen input"),
 ])
 def test_rejects_wrong_candidate_and_incomplete_lock(candidate, mutation, reason):
     lock, paths, _ = candidate
@@ -104,6 +137,22 @@ def test_manifest_bytes_cannot_move_after_freeze(candidate):
     lock, paths, _ = candidate
     paths[0].write_text(paths[0].read_text() + "# edited after freeze\n")
     with pytest.raises(ValueError, match="sourceInputs.platformManifest.sha256"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda m: m["clientArtifacts"]["sdk"].pop("integrity"), "incomplete published identity"),
+    (lambda m: m["clientArtifacts"]["sdk"].update(repository="honua-io/missing"), "exactly one component"),
+    (lambda m: m["components"]["sdk"].update(artifactSourceRevision="f" * 40), "published identity conflicts"),
+    (lambda m: m["clientArtifacts"].update(duplicate=copy.deepcopy(m["clientArtifacts"]["sdk"])), "duplicate published"),
+])
+def test_inventory_refusals_block_an_otherwise_complete_lock(candidate, mutation, reason):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    mutation(manifest)
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match=reason):
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
@@ -135,7 +184,7 @@ def test_secondary_mcp_package_must_match_published_version_and_hash(candidate):
     manifest["clientArtifacts"]["honua-mcp-server"] = published
     paths[0].write_text(yaml.safe_dump(manifest))
     lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest()
-    with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+    with pytest.raises(ValueError, match="sdk: artifact denominator differs"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
     artifact = {**lock["components"]["sdk"]["artifacts"][0], "coordinate": "@honua/mcp-server", "version": "4.5.6"}
     lock["components"]["sdk"]["artifacts"].append(artifact)
@@ -143,7 +192,7 @@ def test_secondary_mcp_package_must_match_published_version_and_hash(candidate):
     for field, value in (("version", "4.5.7"), ("integrity", "sha512-" + base64.b64encode(b"x" * 64).decode())):
         changed = copy.deepcopy(lock)
         changed["components"]["sdk"]["artifacts"][1][field] = value
-        with pytest.raises(ValueError, match="honua-mcp-server.*exactly one identical"):
+        with pytest.raises(ValueError, match=r"components.sdk.artifacts\[1\].*frozen input"):
             bundle.bind(changed, *paths, "2026.1-rc.1")
 
 
@@ -240,3 +289,52 @@ def test_freeze_requires_committed_and_attested_lock_bytes_to_match(candidate, t
     assert subprocess.run(["bash", "-c", condition], cwd=tmp_path, capture_output=True).returncode == 1
     source.write_bytes(bundle.canonical_bytes(lock))
     assert subprocess.run(["bash", "-c", condition], cwd=tmp_path, capture_output=True).returncode == 0
+
+
+def test_bind_refuses_release_facts_no_frozen_input_declares(candidate):
+    """An undeclared release-level fact cannot enter the signed candidate identity."""
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformLockEvidence"].pop("notes")
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = (
+        "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest())
+    with pytest.raises(ValueError, match="notes: frozen inputs declare no notes"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def _refreeze(lock, paths, manifest):
+    paths[0].write_text(yaml.safe_dump(manifest))
+    lock["sourceInputs"]["platformManifest"]["sha256"] = (
+        "sha256:" + hashlib.sha256(paths[0].read_bytes()).hexdigest())
+
+
+def test_bind_refuses_evidence_that_is_not_bound_to_the_candidate(candidate):
+    """The freeze job attests straight after bind(): unbound evidence must never be signed."""
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    dropped = manifest["platformLockEvidence"]["sbom"].pop()["component"]
+    lock["sbom"] = [row for row in lock["sbom"] if row["component"] != dropped]
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match=f"no SBOM reference covers the candidate artifacts of {dropped}"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_bind_refuses_evidence_naming_a_component_outside_the_candidate(candidate):
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformLockEvidence"]["provenance"][0]["component"] = "not-a-component"
+    lock["provenance"][0] = dict(lock["provenance"][0], component="not-a-component")
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match="not a component of this candidate"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_bind_refuses_sbom_the_frozen_inputs_never_declared(candidate):
+    """A lock cannot supply its own SBOM: the frozen inputs are the only declaration."""
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformLockEvidence"]["sbom"] = []
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match="immutable SBOM references and hashes are not declared"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
