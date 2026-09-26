@@ -82,6 +82,9 @@ class InstalledCertificationTests(unittest.TestCase):
         self.assertEqual(len(receipt["results"]), len(matrix["cells"]))
         self.assertEqual({r["status"] for r in receipt["results"]}, {"pass", "fail"})
         self.assertTrue(next(r for r in receipt["results"] if r["target"] == "nuget")["detail"].endswith("/57"))
+        imported = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
+        self.assertEqual(imported["status"], "fail")
+        self.assertIn("missing evidence is not a pass", imported["detail"])
 
     def test_matrix_includes_mcp_consumer(self):
         _, matrix = inputs()
