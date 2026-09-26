@@ -87,6 +87,12 @@ jobs:
           cat "$RUNNER_TEMP/customer-drift.err"
           grep -F '$.clients.honua-sdk.digest:' "$RUNNER_TEMP/customer-drift.err" > /dev/null
 
+      # honua-release#57: re-probe the public registries with no credential. A published row
+      # must be bytes this probe downloaded. A missing coordinate stays a named blocker; drift
+      # from the committed receipt fails. This does not publish, rebind, or invent a digest.
+      - name: Check anonymous first-publication preflight
+        run: python3 tools/first_publication_preflight.py --check
+
       # The signing trust policy must cover exactly the tag namespaces policy.json protects.
       # `release_controls audit` also reports drift, but it is an operator command no workflow
       # runs; a drifted policy authorizing tags outside the immutable namespaces has to fail a
