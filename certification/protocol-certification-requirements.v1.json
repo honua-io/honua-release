@@ -1,9 +1,9 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-08-29-complete.11",
+  "revision": "2026-09-16-complete.13",
   "receipt_schema_min": "v2",
   "complete": true,
-  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, and exact operation-to-test contracts for the server protocol integration harness. The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
+  "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, exact operation-to-test contracts for the server protocol integration harness, and one governed test ID per bounded 2026.1 external-client cell. 5 bounded cells on Preview surfaces are excluded by the preview-surfaces roster ruling and 2 cells no released client can exercise remain non-addressable rows (release#351, release#359). The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
   "source_revisions": {
     "server": {
       "repository": "honua-io/honua-server",
@@ -26590,7 +26590,10 @@
           "overview_count": 3
         }
       },
-      "entitlement_policy_revision": null
+      "entitlement_policy_revision": null,
+      "test_ids": [
+        "client-cert/gdal/cog/dataset-read"
+      ]
     },
     {
       "capability_key": "format.cog",
@@ -26763,7 +26766,10 @@
           ]
         }
       },
-      "entitlement_policy_revision": null
+      "entitlement_policy_revision": null,
+      "test_ids": [
+        "client-cert/gdal/flatgeobuf/feature-read"
+      ]
     },
     {
       "capability_key": "format.flatgeobuf",
@@ -26919,7 +26925,7 @@
       "maturity": "supported",
       "canonical_client": "GDAL",
       "client_lane": "gdal-geoparquet",
-      "client_version": "3.14.0",
+      "client_version": "3.13.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -26963,7 +26969,10 @@
           ]
         }
       },
-      "entitlement_policy_revision": null
+      "entitlement_policy_revision": null,
+      "test_ids": [
+        "client-cert/gdal/geoparquet/feature-read"
+      ]
     },
     {
       "capability_key": "format.geoparquet",
@@ -36904,7 +36913,7 @@
       "operation": "process.ogc-api-processes",
       "maturity": "supported",
       "canonical_client": "OWSLib",
-      "client_lane": "owslib-ogc-api-processes",
+      "client_lane": "py-owslib",
       "client_version": "0.36.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -36922,7 +36931,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/owslib/ogc-api-processes/process.ogc-api-processes"
+      ]
     },
     {
       "capability_key": "process.ogc-api-processes",
@@ -37095,7 +37107,7 @@
       "operation": "raster.cloud-cog-serving",
       "maturity": "supported",
       "canonical_client": "GDAL",
-      "client_lane": "gdal-raster-cloud-cog-serving",
+      "client_lane": "gdal",
       "client_version": "3.13.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -37115,7 +37127,10 @@
       "contract_revision": "canonical-client-applicability@2026-08-21.3",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal/raster-cloud-cog-serving/raster.cloud-cog-serving"
+      ]
     },
     {
       "capability_key": "raster.cloud-cog-serving",
@@ -37197,7 +37212,7 @@
       "operation": "raster.multidim-coverage",
       "maturity": "supported",
       "canonical_client": "GDAL",
-      "client_lane": "gdal-raster-multidim-coverage",
+      "client_lane": "gdal",
       "client_version": "3.13.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -37217,7 +37232,10 @@
       "contract_revision": "canonical-client-applicability@2026-08-21.3",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal/raster-multidim-coverage/raster.multidim-coverage"
+      ]
     },
     {
       "capability_key": "raster.multidim-coverage",
@@ -37345,7 +37363,7 @@
       "operation": "raster.terrain-rgb",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-raster-terrain-rgb",
+      "client_lane": "js-maplibre",
       "client_version": "6.5.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -37364,7 +37382,10 @@
       "contract_revision": "canonical-client-applicability@2026-08-21.3",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/raster-terrain-rgb/raster.terrain-rgb"
+      ]
     },
     {
       "capability_key": "routing.solve",
@@ -44376,8 +44397,8 @@
       "operation": "serve.geoservices-featureserver",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "ci-desktop",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44392,7 +44413,10 @@
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/featureserver/serve.geoservices-featureserver"
+      ]
     },
     {
       "capability_key": "serve.geoservices-featureserver",
@@ -45395,8 +45419,8 @@
       "operation": "serve.geoservices-mapserver",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "ci-desktop",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45411,7 +45435,10 @@
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/mapserver/serve.geoservices-mapserver"
+      ]
     },
     {
       "capability_key": "serve.geoservices-mapserver",
@@ -46029,7 +46056,7 @@
       "operation": "OGC-OP-OGC-API-FEATURES-COLLECTION",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46047,7 +46074,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-COLLECTION"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46081,8 +46111,66 @@
       "operation": "OGC-OP-OGC-API-FEATURES-COLLECTION",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "auth",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-COLLECTION"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc",
+      "surface": "ogc",
+      "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
+      "maturity": "supported",
+      "canonical_client": "GDAL/OGR",
+      "client_lane": "gdal",
+      "client_version": "3.8.4",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "auth",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-COLLECTIONS"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc",
+      "surface": "ogc",
+      "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc",
+      "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46106,61 +46194,9 @@
       "surface": "ogc",
       "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
       "maturity": "supported",
-      "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
-      "client_version": "3.8.4",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc",
-      "surface": "ogc",
-      "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
-      "maturity": "supported",
-      "canonical_client": "OGC CITE",
-      "client_lane": "cite-ogc",
-      "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc",
-      "surface": "ogc",
-      "operation": "OGC-OP-OGC-API-FEATURES-COLLECTIONS",
-      "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46177,7 +46213,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-COLLECTIONS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46185,14 +46224,14 @@
       "operation": "OGC-OP-OGC-API-FEATURES-CONFORMANCE",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
       "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
+      "addressable_by_client": false,
+      "addressability_reason": "The GDAL/OGR OAPIF driver never requests /conformance: GDAL 3.8.4 and 3.13.3 (the newest release) read only the landing page, the service-desc, /collections and items, even when the landing page links conformance and an attribute filter is set, so GDAL/OGR does not exercise this operation on any server.",
       "scenario_facets": [
         "positive",
         "negative",
@@ -46237,8 +46276,66 @@
       "operation": "OGC-OP-OGC-API-FEATURES-CONFORMANCE",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "auth",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-CONFORMANCE"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc",
+      "surface": "ogc",
+      "operation": "OGC-OP-OGC-API-FEATURES-ITEM",
+      "maturity": "supported",
+      "canonical_client": "GDAL/OGR",
+      "client_lane": "gdal",
+      "client_version": "3.8.4",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "auth",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-ITEM"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc",
+      "surface": "ogc",
+      "operation": "OGC-OP-OGC-API-FEATURES-ITEM",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc",
+      "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46262,61 +46359,9 @@
       "surface": "ogc",
       "operation": "OGC-OP-OGC-API-FEATURES-ITEM",
       "maturity": "supported",
-      "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
-      "client_version": "3.8.4",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc",
-      "surface": "ogc",
-      "operation": "OGC-OP-OGC-API-FEATURES-ITEM",
-      "maturity": "supported",
-      "canonical_client": "OGC CITE",
-      "client_lane": "cite-ogc",
-      "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc",
-      "surface": "ogc",
-      "operation": "OGC-OP-OGC-API-FEATURES-ITEM",
-      "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46333,7 +46378,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-ITEM"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46341,7 +46389,7 @@
       "operation": "OGC-OP-OGC-API-FEATURES-ITEMS",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46359,7 +46407,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-ITEMS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46393,8 +46444,8 @@
       "operation": "OGC-OP-OGC-API-FEATURES-ITEMS",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46411,7 +46462,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-ITEMS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46419,7 +46473,7 @@
       "operation": "OGC-OP-OGC-API-FEATURES-LANDING",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46437,7 +46491,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-LANDING"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46471,8 +46528,8 @@
       "operation": "OGC-OP-OGC-API-FEATURES-LANDING",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46489,7 +46546,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-LANDING"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46497,7 +46557,7 @@
       "operation": "OGC-OP-OGC-API-FEATURES-QUERYABLES",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46515,7 +46575,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-OGC-API-FEATURES-QUERYABLES"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46549,8 +46612,8 @@
       "operation": "OGC-OP-OGC-API-FEATURES-QUERYABLES",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46567,7 +46630,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-QUERYABLES"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46575,14 +46641,14 @@
       "operation": "OGC-OP-OGC-API-FEATURES-TRANSACTIONS",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
       "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
+      "addressable_by_client": false,
+      "addressability_reason": "The GDAL/OGR OAPIF driver is read-only: in GDAL 3.8.4 and 3.13.3 (the newest release) update-mode open fails, SequentialWrite/RandomWrite/DeleteFeature capabilities are false and CreateFeature returns Unsupported operation even against a server that declares create-replace-delete, so GDAL/OGR does not exercise this operation on any server.",
       "scenario_facets": [
         "positive",
         "negative",
@@ -46627,8 +46693,8 @@
       "operation": "OGC-OP-OGC-API-FEATURES-TRANSACTIONS",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46645,7 +46711,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-FEATURES-TRANSACTIONS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46705,7 +46774,7 @@
       "operation": "OGC-OP-OGC-API-TILES-LANDING-TILESETS",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46723,7 +46792,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc/OGC-OP-OGC-API-TILES-LANDING-TILESETS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46757,8 +46829,8 @@
       "operation": "OGC-OP-OGC-API-TILES-LANDING-TILESETS",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46775,7 +46847,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-TILES-LANDING-TILESETS"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46783,7 +46858,7 @@
       "operation": "OGC-OP-OGC-API-TILES-TILE",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46801,7 +46876,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc/OGC-OP-OGC-API-TILES-TILE"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46835,8 +46913,8 @@
       "operation": "OGC-OP-OGC-API-TILES-TILE",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46853,7 +46931,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-OGC-API-TILES-TILE"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46861,7 +46942,7 @@
       "operation": "OGC-OP-WCS-2-0-COVERAGE",
       "maturity": "supported",
       "canonical_client": "GDAL",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46879,7 +46960,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal/ogc/OGC-OP-WCS-2-0-COVERAGE"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46913,7 +46997,7 @@
       "operation": "OGC-OP-WCS-2-0-COVERAGE",
       "maturity": "supported",
       "canonical_client": "OWSLib",
-      "client_lane": "owslib-ogc",
+      "client_lane": "py-owslib",
       "client_version": "0.36.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46931,7 +47015,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/owslib/ogc/OGC-OP-WCS-2-0-COVERAGE"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46939,7 +47026,7 @@
       "operation": "OGC-OP-WFS-2-0",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -46957,7 +47044,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc/OGC-OP-WFS-2-0"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -46991,8 +47081,8 @@
       "operation": "OGC-OP-WFS-2-0",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47009,7 +47099,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-WFS-2-0"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -47017,7 +47110,7 @@
       "operation": "OGC-OP-WMS-GETCAPABILITIES-GETMAP-GETFEATUREINF",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -47035,7 +47128,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc/OGC-OP-WMS-GETCAPABILITIES-GETMAP-GETFEATUREINF"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -47069,8 +47165,8 @@
       "operation": "OGC-OP-WMS-GETCAPABILITIES-GETMAP-GETFEATUREINF",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47087,7 +47183,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-WMS-GETCAPABILITIES-GETMAP-GETFEATUREINF"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -47095,7 +47194,7 @@
       "operation": "OGC-OP-WMTS-GETCAPABILITIES-GETTILE",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -47113,7 +47212,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc/OGC-OP-WMTS-GETCAPABILITIES-GETTILE"
+      ]
     },
     {
       "capability_key": "serve.ogc",
@@ -47147,8 +47249,8 @@
       "operation": "OGC-OP-WMTS-GETCAPABILITIES-GETTILE",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47165,34 +47267,10 @@
       "contract_revision": "esri-ogc-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc-api-coverages",
-      "surface": "ogc-api-coverages",
-      "operation": "serve.ogc-api-coverages",
-      "maturity": "supported",
-      "canonical_client": "GDAL",
-      "client_lane": "gdal-ogc-api-coverages",
-      "client_version": "3.8.4",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc/OGC-OP-WMTS-GETCAPABILITIES-GETTILE"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-coverages",
@@ -47202,33 +47280,6 @@
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-coverages",
       "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.ogc-api-coverages",
-      "surface": "ogc-api-coverages",
-      "operation": "serve.ogc-api-coverages",
-      "maturity": "supported",
-      "canonical_client": "OWSLib",
-      "client_lane": "owslib-ogc-api-coverages",
-      "client_version": "0.36.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47618,33 +47669,6 @@
       "budget_expectations": null
     },
     {
-      "capability_key": "serve.ogc-api-edr",
-      "surface": "ogc-api-edr",
-      "operation": "serve.ogc-api-edr",
-      "maturity": "supported",
-      "canonical_client": "OWSLib",
-      "client_lane": "owslib-ogc-api-edr",
-      "client_version": "0.36.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "boundary",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
       "capability_key": "serve.ogc-api-features",
       "surface": "ogc-api-features",
       "operation": "items",
@@ -47696,7 +47720,7 @@
       "operation": "serve.ogc-api-features",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-ogc-api-features",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -47716,7 +47740,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/ogc-api-features/serve.ogc-api-features"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-features",
@@ -47752,8 +47779,8 @@
       "operation": "serve.ogc-api-features",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc-api-features",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47772,7 +47799,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc-api-features/serve.ogc-api-features"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-features",
@@ -47973,7 +48003,7 @@
       "maturity": "supported",
       "canonical_client": "QGIS",
       "client_lane": "desktop-qgis",
-      "client_version": "3.40",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47988,7 +48018,10 @@
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc-features/serve.ogc-api-features"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-features",
@@ -48203,7 +48236,7 @@
       "operation": "serve.ogc-api-maps",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc-api-maps",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -48221,7 +48254,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc-api-maps/serve.ogc-api-maps"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-maps",
@@ -48255,8 +48291,8 @@
       "operation": "serve.ogc-api-maps",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc-api-maps",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48273,7 +48309,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc-api-maps/serve.ogc-api-maps"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-maps",
@@ -48519,7 +48558,7 @@
       "operation": "serve.ogc-api-records",
       "maturity": "supported",
       "canonical_client": "OWSLib",
-      "client_lane": "owslib-ogc-api-records",
+      "client_lane": "py-owslib",
       "client_version": "0.36.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -48538,7 +48577,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/owslib/ogc-api-records/serve.ogc-api-records"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-records",
@@ -48826,7 +48868,7 @@
       "operation": "serve.ogc-api-tiles",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc-api-tiles",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -48844,7 +48886,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc-api-tiles/serve.ogc-api-tiles"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-tiles",
@@ -48878,8 +48923,8 @@
       "operation": "serve.ogc-api-tiles",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc-api-tiles",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48896,7 +48941,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc-api-tiles/serve.ogc-api-tiles"
+      ]
     },
     {
       "capability_key": "serve.ogc-api-tiles",
@@ -49500,8 +49548,8 @@
       "operation": "serve.stac",
       "maturity": "supported",
       "canonical_client": "PySTAC-Client",
-      "client_lane": "pystac-client-stac",
-      "client_version": "0.9.0",
+      "client_lane": "py-pystac",
+      "client_version": "pystac=1.15.2;pystac-client=0.9.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49519,7 +49567,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/pystac-client/stac/serve.stac"
+      ]
     },
     {
       "capability_key": "serve.vector-tiles",
@@ -49759,7 +49810,7 @@
       "operation": "serve.wcs",
       "maturity": "supported",
       "canonical_client": "GDAL",
-      "client_lane": "gdal-wcs",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -49778,7 +49829,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal/wcs/serve.wcs"
+      ]
     },
     {
       "capability_key": "serve.wcs",
@@ -49813,7 +49867,7 @@
       "operation": "serve.wcs",
       "maturity": "supported",
       "canonical_client": "OWSLib",
-      "client_lane": "owslib-wcs",
+      "client_lane": "py-owslib",
       "client_version": "0.36.0",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -49832,7 +49886,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/owslib/wcs/serve.wcs"
+      ]
     },
     {
       "capability_key": "serve.wcs",
@@ -50050,7 +50107,7 @@
       "operation": "serve.wfs",
       "maturity": "supported",
       "canonical_client": "GDAL/OGR",
-      "client_lane": "gdal-wfs",
+      "client_lane": "gdal",
       "client_version": "3.8.4",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -50070,7 +50127,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/gdal-ogr/wfs/serve.wfs"
+      ]
     },
     {
       "capability_key": "serve.wfs",
@@ -50155,7 +50215,7 @@
       "maturity": "supported",
       "canonical_client": "QGIS",
       "client_lane": "desktop-qgis",
-      "client_version": "3.40",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50170,7 +50230,10 @@
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/wfs/serve.wfs"
+      ]
     },
     {
       "capability_key": "serve.wfs",
@@ -50486,7 +50549,7 @@
       "operation": "serve.wms",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-wms",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -50504,7 +50567,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/wms/serve.wms"
+      ]
     },
     {
       "capability_key": "serve.wms",
@@ -50539,7 +50605,7 @@
       "maturity": "supported",
       "canonical_client": "QGIS",
       "client_lane": "desktop-qgis",
-      "client_version": "3.40",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -50554,7 +50620,10 @@
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/wms/serve.wms"
+      ]
     },
     {
       "capability_key": "serve.wms",
@@ -50796,32 +50865,6 @@
       "surface": "wmts",
       "operation": "serve.wmts",
       "maturity": "supported",
-      "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-wmts",
-      "client_version": "5.7",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "canonical-client-assignments@2026-08-21.1",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "serve.wmts",
-      "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wmts",
       "client_version": "ets-selection@ac30266fbd153363bebdbed13130accc8ab0c94a",
@@ -50840,30 +50883,6 @@
       ],
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "serve.wmts",
-      "maturity": "supported",
-      "canonical_client": "QGIS",
-      "client_lane": "desktop-qgis",
-      "client_version": "3.40",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "metadata",
-        "media-schema"
-      ],
-      "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
     },
@@ -51062,7 +51081,7 @@
       "operation": "styling.ogc-api-styles",
       "maturity": "supported",
       "canonical_client": "MapLibre GL JS",
-      "client_lane": "maplibre-ogc-api-styles",
+      "client_lane": "js-maplibre",
       "client_version": "5.7",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
@@ -51079,7 +51098,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/maplibre-gl-js/ogc-api-styles/styling.ogc-api-styles"
+      ]
     },
     {
       "capability_key": "styling.ogc-api-styles",
@@ -51112,8 +51134,8 @@
       "operation": "styling.ogc-api-styles",
       "maturity": "supported",
       "canonical_client": "QGIS",
-      "client_lane": "qgis-ogc-api-styles",
-      "client_version": "3.40",
+      "client_lane": "desktop-qgis",
+      "client_version": "3.44.13-Solothurn",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -51129,7 +51151,10 @@
       "contract_revision": "canonical-client-assignments@2026-08-21.1",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "test_ids": [
+        "client-cert/qgis/ogc-api-styles/styling.ogc-api-styles"
+      ]
     },
     {
       "capability_key": "styling.ogc-api-styles",

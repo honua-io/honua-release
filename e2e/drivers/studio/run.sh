@@ -8,17 +8,19 @@
 # TWO THINGS THIS SEAM LEARNED THE HARD WAY (honua-release#305)
 #
 # 1. THE OPERATOR GATE. Every Studio draft mutation runs through the durable operation runtime. Under
-#    the Enterprise edition -- which compose.candidate.yml grants, because the GP driver needs the
-#    Redis job runtime entitlement -- DefaultGuardrailLadder maps mutating classes to
+#    the Enterprise edition DefaultGuardrailLadder maps mutating classes to
 #    GuardrailTier.RequiresApproval, so `POST /studio/package-drafts` answers 202 with an operation
 #    handle and a control-plane proposal instead of 201 with a draft. That is CORRECT product
 #    behaviour; the seam has to drive it. Approval is separation-of-duties enforced, so the seam
 #    provisions a SECOND identity (an `admin:approve` key) and approves as the approver, then polls
 #    the operation handle to Completed and reads the typed result. On an edition that direct-executes
 #    (Community/Pro) the same steps answer 200/201 and the approval lane is simply not entered.
-#    WHICH of those is honest is not the server's answer to decide: the seam asks the server for its
-#    EDITION first and requires the lane that edition's guardrail ladder mandates, so a 200 on the
-#    Enterprise harness is a guardrail regression and fails. The report records both lanes.
+#    Licensing:Mode=Disabled -- the 2026.1 posture compose.candidate.yml deploys -- splits the two:
+#    draft composition direct-executes while the governed publish-request keeps approval
+#    (honua-server#4758). WHICH lane is honest is not the server's answer to decide: the seam asks the
+#    server for its licensing mode and edition first and requires, per step, the lane that ladder
+#    mandates, so an answer on the wrong lane is a guardrail regression and fails. The report records
+#    both lanes.
 #
 # 2. WHAT `blocked` IS FOR. Per e2e/canonical_checks.py (honua-release#128) `blocked` means the probe
 #    had no INPUT to work with -- something OURS to supply was missing. A reachable server answering
@@ -51,11 +53,14 @@ LAYER="$(jq -r '.slice1.e2e_src_fs.layerId // 0' "$E2E_OUT/seed-manifest.json" 2
 # --- which guardrail lane this edition MUST drive ---------------------------------------------------
 # DefaultGuardrailLadder is edition-driven: Enterprise routes mutating operation classes through
 # approval, Community/Pro direct-execute, and any other edition fails closed to approval
-# (honua-server src/Honua.Core/Features/Guardrails/DefaultGuardrailLadder.cs). compose.candidate.yml
-# grants Enterprise, so on THIS harness a direct-executed Studio mutation is the guardrail
-# REGRESSING -- and accepting 200/201 unconditionally would let every family pass with
-# `separationOfDuties: not-exercised` and zero proposals. Ask the server which edition it runs and
-# require the lane that edition mandates; only an explicitly direct-executing edition may skip it.
+# (honua-server src/Honua.Core/Features/Guardrails/DefaultGuardrailLadder.cs). Licensing:Mode=Disabled
+# grants Enterprise-equivalent entitlements but gives Studio draft composition (StudioDraftMutation
+# without an action discriminator) the direct tier; the publish-request is the governed
+# `studio.publication_request` step and keeps the Enterprise approval baseline (honua-server#4758).
+# compose.candidate.yml deploys Disabled, so a gated composition step OR a direct-executed publish is
+# the guardrail REGRESSING -- and accepting either lane unconditionally would let every family pass
+# with `separationOfDuties: not-exercised` and zero proposals. Ask the server which mode and edition it
+# runs and require the lane that ladder mandates per step class.
 api_get "/api/v1/admin/license"
 if [ "$HTTP_CODE" != "200" ]; then
   emit_scenario "$SCENARIO" fail \
@@ -63,10 +68,16 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 0
 fi
 EDITION="$(jget '.data.edition')"
-case "$EDITION" in
-  Community|Pro) EXPECT_GATE=false ;;
-  *)             EXPECT_GATE=true ;;   # Enterprise, and the ladder's own defensive default
-esac
+LICENSE_MODE="$(jget '.data.mode // "enabled"')"
+if [ "$LICENSE_MODE" = "disabled" ]; then
+  COMPOSE_GATE=false; GOVERNED_GATE=true
+else
+  case "$EDITION" in
+    Community|Pro) COMPOSE_GATE=false; GOVERNED_GATE=false ;;
+    *)             COMPOSE_GATE=true;  GOVERNED_GATE=true ;;   # Enterprise, and the ladder's own defensive default
+  esac
+fi
+lane_name() { if [ "$1" = true ]; then echo operator-gated; else echo direct-execute; fi; }
 
 # --- the approval lane ------------------------------------------------------------------------------
 # api_json (common.sh) always carries the AUTHOR key. The approver is a distinct principal, so it gets
@@ -96,8 +107,9 @@ provision_approver() {
 # actually approved a proposal per step, which is precisely the kind of quiet mis-evidence this
 # scenario exists to stop.
 GATE_STATE="$E2E_OUT/s3-gate-state.json"
-jq -nc --arg ed "$EDITION" --argjson req "$EXPECT_GATE" \
-  '{edition:$ed, requiredLane:(if $req then "operator-gated" else "direct-execute" end),
+jq -nc --arg ed "$EDITION" --arg lm "$LICENSE_MODE" \
+  --arg compose "$(lane_name "$COMPOSE_GATE")" --arg governed "$(lane_name "$GOVERNED_GATE")" \
+  '{edition:$ed, licenseMode:$lm, requiredLane:{composition:$compose, publication:$governed},
     mode:"direct-execute", proposalsApproved:0, separationOfDuties:"not-exercised"}' > "$GATE_STATE"
 gate_get() { jq -r --arg k "$1" '.[$k]' "$GATE_STATE"; }
 gate_set() { # key json-value
@@ -105,18 +117,19 @@ gate_set() { # key json-value
   jq -c --arg k "$1" --argjson v "$2" '.[$k] = $v' "$GATE_STATE" > "$tmp" && mv "$tmp" "$GATE_STATE"
 }
 
-# studio_step PATH BODY LABEL -> echoes "ok:<result-json>" | "fail:<reason>"
+# studio_step PATH BODY LABEL EXPECT_GATE -> echoes "ok:<result-json>" | "fail:<reason>"
 #
 # 200/201 is the direct-execute answer and its `data` IS the result. 202 is the operator gate: assert
 # the handle+proposal, approve as the approver, then poll the operation handle for the typed result.
+# EXPECT_GATE is the lane the ladder mandates for this step; an answer on the other lane fails.
 studio_step() {
-  local path="$1" body="$2" label="$3"
+  local path="$1" body="$2" label="$3" expect_gate="$4"
   api_post "$path" "$body"
 
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-    if [ "$EXPECT_GATE" = true ]; then
-      printf 'fail:%s direct-executed (HTTP %s) on the %s edition, whose guardrail ladder routes mutating Studio classes through approval -- the operator gate did not run\n' \
-        "$label" "$HTTP_CODE" "$EDITION"; return
+    if [ "$expect_gate" = true ]; then
+      printf 'fail:%s direct-executed (HTTP %s) on the %s edition (licensing mode %s), whose guardrail ladder routes this Studio step through approval -- the operator gate did not run\n' \
+        "$label" "$HTTP_CODE" "$EDITION" "$LICENSE_MODE"; return
     fi
     printf 'ok:%s\n' "$(jget '.data')"; return
   fi
@@ -124,6 +137,11 @@ studio_step() {
   if [ "$HTTP_CODE" != "202" ]; then
     printf 'fail:%s HTTP %s %s\n' "$label" "$HTTP_CODE" \
       "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"; return
+  fi
+
+  if [ "$expect_gate" != true ]; then
+    printf 'fail:%s was routed to approval (HTTP 202) on the %s edition (licensing mode %s), whose guardrail ladder direct-executes this Studio step\n' \
+      "$label" "$EDITION" "$LICENSE_MODE"; return
   fi
 
   gate_set mode '"operator-gated"'
@@ -227,12 +245,12 @@ author_family() {
 
   r="$(studio_step "/api/v1/studio/package-drafts" \
         "$(jq -nc --arg k "$key" --argjson e "$envelope" \
-           '{packageKey:$k, workspaceId:"e2e", ownerId:"e2e", envelope:$e}')" create-draft)"
+           '{packageKey:$k, workspaceId:"e2e", ownerId:"e2e", envelope:$e}')" create-draft "$COMPOSE_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   draft="$(printf '%s' "${r#ok:}" | jq -r '.draftId // .resourceIds.draftId // empty')"
   [ -n "$draft" ] || { echo "fail:create-draft returned no draftId"; return; }
 
-  r="$(studio_step "/api/v1/studio/package-drafts/$draft/validate" '{}' validate)"
+  r="$(studio_step "/api/v1/studio/package-drafts/$draft/validate" '{}' validate "$COMPOSE_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   local val diag
   val="$(printf '%s' "${r#ok:}" | jq -r '.validation.status // .status // "unknown"')"
@@ -244,10 +262,10 @@ author_family() {
     echo "fail:validation=$val $diag"; return
   fi
 
-  r="$(studio_step "/api/v1/studio/package-drafts/$draft/preview-plan" '{}' preview-plan)"
+  r="$(studio_step "/api/v1/studio/package-drafts/$draft/preview-plan" '{}' preview-plan "$COMPOSE_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
 
-  r="$(studio_step "/api/v1/studio/package-drafts/$draft/content-versions" '{"changeNote":"e2e"}' content-version)"
+  r="$(studio_step "/api/v1/studio/package-drafts/$draft/content-versions" '{"changeNote":"e2e"}' content-version "$COMPOSE_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   local item ver
   item="$(printf '%s' "${r#ok:}" | jq -r '.itemId // .resourceIds.itemId // empty')"
@@ -273,7 +291,7 @@ author_family() {
     return
   fi
 
-  r="$(studio_step "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}' publish-request)"
+  r="$(studio_step "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}' publish-request "$GOVERNED_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   local pstatus
   pstatus="$(printf '%s' "${r#ok:}" | jq -r '.status // empty')"
@@ -300,15 +318,22 @@ for family in query analysis; do
   [ "$st" = "pass" ] || any_fail=true
 done
 
-GATE_MODE="$(gate_get mode)"
 evidence="$(jq -nc --argjson fam "$results" --slurpfile lane "$GATE_STATE" \
   '{families:$fam, approvalLane:$lane[0]}')"
+
+if [ "$any_fail" = false ] && [ "$GOVERNED_GATE" = true ] \
+    && [ "$(gate_get separationOfDuties)" != "enforced" ]; then
+  # The query family's publish-request is gated on this ladder, so a pass that never approved a
+  # proposal did not exercise the operator gate it claims.
+  any_fail=true
+  evidence="$(printf '%s' "$evidence" | jq -c '.gateNotExercised = true')"
+fi
 
 if [ "$any_fail" = true ]; then
   emit_scenario "$SCENARIO" fail \
     "a family did not complete its declared authoring lifecycle" "$evidence"
 else
   emit_scenario "$SCENARIO" pass \
-    "query+analysis authored through the ${GATE_MODE} lane to each family's declared publish boundary" \
+    "query+analysis authored with $(lane_name "$COMPOSE_GATE") composition and $(lane_name "$GOVERNED_GATE") publication to each family's declared publish boundary" \
     "$evidence"
 fi

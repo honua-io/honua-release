@@ -31,6 +31,9 @@ def render(lock: dict) -> str:
         "| SDK / protocol | Locked artifact | Minimum server | Qualification |",
         "| --- | --- | --- | --- |",
     ]
+    if str(lock.get("platform", {}).get("id", "")).startswith("honua-2026.1"):
+        lines[4:4] = ["2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,",
+                      "license enforcement or serving-unit metering. Maturity and safety limits still apply.", ""]
     for name in SDK_COMPONENTS:
         component = lock.get("components", {}).get(name, {})
         artifacts = "; ".join(f"{a.get('coordinate', 'unqualified')} {a.get('version', 'unqualified')}" for a in component.get("artifacts", [])) or "source pin only"

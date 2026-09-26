@@ -47,6 +47,7 @@ assert_all_tenant_isolation() {
 
 START_NS=$(date +%s%N)
 dc up -d --wait
+python3 "$ROOT/e2e/licensing.py" --base-url "http://127.0.0.1:${HONUA_SERVER_PORT:-8080}"
 psql_db -f - < "$ROOT/e2e/dr-drill/seed.sql"
 assert_all_tenant_isolation
 SEED_NS=$(date +%s%N)
@@ -76,6 +77,7 @@ dc exec -T db pg_restore -U honua -d honua --clean --if-exists --no-owner --exit
 AFTER=$(psql_db -At -f - < "$ROOT/e2e/dr-drill/snapshot.sql")
 assert_all_tenant_isolation
 dc up -d --wait server
+python3 "$ROOT/e2e/licensing.py" --base-url "http://127.0.0.1:${HONUA_SERVER_PORT:-8080}"
 
 JOURNEY=$(curl --fail --silent --show-error "http://127.0.0.1:${PORT}/rest/services?f=json")
 python3 - "$JOURNEY" <<'PY'
