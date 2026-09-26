@@ -465,14 +465,16 @@ components:
     #   $ gh api repos/honua-io/honua-sdk-dotnet/commits/6ba49ec.../check-runs
     #   -> 31 success/skipped, 0 failure, 0 in-progress
     # `version` stays the newest reachable release tag (dotnet-sdk-v1.6.2, tag commit 9a9ed85a, an
-    # ancestor of this sha); Honua.Sdk is still not on nuget.org (honua-release#57).
+    # ancestor of this sha). nuget.org lists Honua.Sdk 1.6.4–1.10.0; it does not serve this 1.6.2
+    # tag or clientArtifacts 1.6.0 (honua-release#57). Those later versions are not this pin.
     sha: "6ba49ec32ea846c64bc2094807761d4884dbc4bf"   # trunk, newest green; release tag dotnet-sdk-v1.6.2 is 9a9ed85a
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
-    # Honua.Sdk is NOT on nuget.org (honua-release#57); gate-artifact-consume's consume-nuget
-    # resolves it from the staging feed and otherwise `dotnet pack`s this exact sha, so the version
-    # here is the reachable release tag rather than a registry-published one.
+    # clientArtifacts pins Honua.Sdk 1.6.0 on GitHub Packages. nuget.org does not serve that
+    # version (honua-release#57). gate-artifact-consume's consume-nuget resolves the pin from the
+    # staging feed and otherwise `dotnet pack`s this exact sha. Later nuget.org versions are a
+    # different publication and are not substituted here.
 
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
