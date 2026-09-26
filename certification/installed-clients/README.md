@@ -10,10 +10,10 @@ The JS npm, MCP npm, and PyPI cells are executable now. Both npm lanes download 
 tarball and recompute its SHA-512 before installation; lockfile metadata alone is not accepted as
 byte proof. The MCP lane co-installs the independently byte-verified manifest-pinned JS SDK (its
 declared peer), then verifies and executes every declared package binary. The
-NuGet cell is deliberately materialized as a failing
-blocked result until [honua-release#57](https://github.com/honua-io/honua-release/issues/57) makes
-the package independently installable from its release registry. A release-mode run therefore
-cannot pass early with only two ecosystems.
+NuGet cell stays a failing blocked result. `clientArtifacts` pins Honua.Sdk 1.6.0 on GitHub
+Packages, and nuget.org does not serve that version. Later public versions are not this pin
+([honua-release#57](https://github.com/honua-io/honua-release/issues/57)). A release-mode run
+therefore cannot pass early with only two ecosystems.
 
 The service/layer import cell (`nuget-service-layer-import-fidelity`,
 [honua-release#317](https://github.com/honua-io/honua-release/issues/317)) is part of this same
