@@ -7,8 +7,10 @@ ever reading as a pass.
 """
 import importlib.util
 import json
+import os
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -451,6 +453,268 @@ class DriverProtocolTests(unittest.TestCase):
         original = pins.ClientWorkspace(status="pass", root=Path("clients"), reason=None, command_surface=[{"command": "honua", "requiredBy": [1], "status": "present"}])
         restored = pins.ClientWorkspace.from_receipt(original.as_receipt(), Path("clients"))
         self.assertEqual(restored.command_surface, original.command_surface)
+
+
+class CredentialPreflightTests(unittest.TestCase):
+    ADMIN_KEY = "root-admin-secret-value"
+    ISSUED = "issued-one-time-material"
+    KEY_ID = "11111111-1111-4111-8111-111111111111"
+
+    def _write_honua(self, directory: Path, mode: str) -> Path:
+        script = textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import json, os, stat, sys
+            from pathlib import Path
+            MODE = {mode!r}
+            ADMIN = {self.ADMIN_KEY!r}
+            ISSUED = {self.ISSUED!r}
+            KEY_ID = {self.KEY_ID!r}
+            NAME = "honua-terminal-journey-preflight"
+            argv = sys.argv[1:]
+            config = Path(os.environ["HONUA_CONFIG_HOME"])
+            config.mkdir(parents=True, exist_ok=True)
+            log_path = config / "argv-log.json"
+            previous = json.loads(log_path.read_text()) if log_path.exists() else []
+            previous.append({{
+                "argv": argv,
+                "home": os.environ.get("HOME"),
+                "configHome": os.environ.get("HONUA_CONFIG_HOME"),
+                "adminKeyInArgv": any(ADMIN and ADMIN in arg for arg in argv),
+                "issuedInArgv": any(ISSUED in arg for arg in argv),
+            }})
+            log_path.write_text(json.dumps(previous))
+            if os.environ.get("HONUA_ADMIN_KEY") != ADMIN:
+                sys.stderr.write("missing admin credential\\n")
+                raise SystemExit(2)
+
+            def flag(name):
+                if name not in argv:
+                    return None
+                index = argv.index(name)
+                return argv[index + 1] if index + 1 < len(argv) else None
+
+            operation = argv[argv.index("secure") + 1]
+            state_path = config / "state.json"
+            state = json.loads(state_path.read_text()) if state_path.exists() else {{"revoked": False}}
+
+            def emit(document):
+                sys.stdout.write(json.dumps(document) + "\\n")
+                if MODE == "leak" and operation == "createAdminApiKey":
+                    sys.stdout.write(ADMIN + "\\n" + ISSUED + "\\n")
+
+            if operation == "createAdminApiKey":
+                body = json.loads(flag("--body") or "{{}}")
+                if body.get("name") != NAME or body.get("permissions") != ["admin:read"]:
+                    raise SystemExit(2)
+                sink = Path(flag("--secret-output"))
+                sink.write_text(ISSUED, encoding="utf-8")
+                os.chmod(sink, 0o644 if MODE == "loose" else 0o600)
+                emit({{
+                    "operationId": "createAdminApiKey",
+                    "resource": {{
+                        "id": KEY_ID,
+                        "name": NAME,
+                        "permissions": ["admin:read"],
+                        "status": "active",
+                        "keyPrefix": "hnua_pre",
+                    }},
+                    "secretWritten": True,
+                    "secretOutput": str(sink),
+                    "secretSha256": "ab" * 32,
+                }})
+            elif operation == "getAdminApiKeyEffectivePermissions":
+                grants = ["admin:read", "admin:write"] if MODE == "broad" else ["admin:read"]
+                emit({{
+                    "success": True,
+                    "data": {{
+                        "id": KEY_ID,
+                        "name": NAME,
+                        "status": "active",
+                        "permissions": grants,
+                        "canAuthenticate": True,
+                    }},
+                }})
+            elif operation == "listAdminApiKeys":
+                status = "revoked" if state.get("revoked") else "active"
+                emit({{
+                    "success": True,
+                    "data": [{{
+                        "id": KEY_ID,
+                        "name": NAME,
+                        "status": status,
+                        "permissions": ["admin:read"],
+                        "keyPrefix": "hnua_pre",
+                    }}],
+                }})
+            elif operation == "revokeAdminApiKey":
+                if MODE == "revoke-fails":
+                    sys.stderr.write("revoke refused\\n")
+                    raise SystemExit(1)
+                state["revoked"] = True
+                state_path.write_text(json.dumps(state))
+                emit({{"success": True, "data": {{"id": KEY_ID, "status": "revoked", "name": NAME}}}})
+            else:
+                raise SystemExit(2)
+            """
+        )
+        path = directory / "honua"
+        path.write_text(script)
+        path.chmod(0o755)
+        return path
+
+    def _run(self, mode: str, base_url: str = "http://127.0.0.1:8137"):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        workdir = Path(tmp.name)
+        honua = self._write_honua(workdir, mode)
+        probe = probes.run_credential_preflight(
+            honua=honua,
+            base_url=base_url,
+            admin_key=self.ADMIN_KEY,
+            workdir=workdir / "probe",
+        )
+        log = json.loads((workdir / "probe" / "config" / "argv-log.json").read_text())
+        return probe, log, workdir / "probe"
+
+    def test_preflight_revokes_and_omits_credential_material(self):
+        probe, log, probe_dir = self._run("pass")
+        self.assertEqual(probe.status, "pass", probe.detail)
+        self.assertEqual(probe.key_id, self.KEY_ID)
+        self.assertNotIn(self.ADMIN_KEY, probe.detail)
+        self.assertNotIn(self.ISSUED, probe.detail)
+        self.assertFalse((probe_dir / "one-time-secret").exists())
+        self.assertIn("revokeAdminApiKey", " ".join(" ".join(row["argv"]) for row in log))
+        self.assertTrue(all(row["adminKeyInArgv"] is False and row["issuedInArgv"] is False for row in log))
+        self.assertTrue(all(row["home"] == str(probe_dir) for row in log))
+        self.assertTrue(all(row["configHome"] == str(probe_dir / "config") for row in log))
+        self.assertNotIn(self.ADMIN_KEY, json.dumps(log))
+        self.assertNotIn(self.ISSUED, json.dumps(log))
+
+    def test_leaked_credential_fails_closed_and_is_redacted(self):
+        probe, _log, probe_dir = self._run("leak")
+        self.assertEqual(probe.status, "fail")
+        self.assertNotIn(self.ADMIN_KEY, probe.detail)
+        self.assertNotIn(self.ISSUED, probe.detail)
+        self.assertIn("redacted", probe.detail)
+        self.assertFalse((probe_dir / "one-time-secret").exists())
+
+    def test_broader_effective_grants_fail(self):
+        probe, log, _probe_dir = self._run("broad")
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("effective permissions", probe.detail)
+        self.assertIn("revokeAdminApiKey", " ".join(" ".join(row["argv"]) for row in log))
+
+    def test_loose_sink_mode_fails(self):
+        probe, _log, probe_dir = self._run("loose")
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("0600", probe.detail)
+        self.assertFalse((probe_dir / "one-time-secret").exists())
+
+    def test_revoke_failure_is_not_a_pass(self):
+        probe, _log, probe_dir = self._run("revoke-fails")
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("revokeAdminApiKey", probe.detail)
+        self.assertFalse((probe_dir / "one-time-secret").exists())
+
+    def test_non_loopback_http_does_not_start_the_cli(self):
+        probe = probes.run_credential_preflight(
+            honua=Path("/does/not/exist"),
+            base_url="http://example.com",
+            admin_key=self.ADMIN_KEY,
+            workdir=Path("/tmp/unused-credential-preflight"),
+        )
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("non-loopback", probe.detail)
+
+    def test_passing_preflight_does_not_pass_later_stages_or_the_journey(self):
+        probe = probes.CredentialProbe(
+            status="pass",
+            detail="temporary admin:read key checked; private sink deleted",
+            key_id=self.KEY_ID,
+        )
+        observation = stagelib.Observation(
+            image_ref="candidate",
+            ready=True,
+            readiness_detail="Ready",
+            licensing_disabled=True,
+            licensing_detail="admin license mode: disabled",
+            capability_manifest={
+                "server": {"deploymentRevision": "a" * 40, "deploymentRevisionSource": "commit-sha"}
+            },
+            expected_revision="a" * 40,
+            anonymous_admin_status=401,
+            anonymous_api_keys_status=401,
+            tools_error="proxy unavailable",
+            credential_probe=probe,
+        )
+        results = stagelib.run_stages(JOURNEY, observation, lambda _number: [])
+        self.assertEqual(results[1].status, "pass")
+        self.assertTrue(all(result.status != "pass" for index, result in enumerate(results) if index != 1))
+        self.assertNotIn(self.ADMIN_KEY, json.dumps([check.as_receipt() for check in results[1].checks]))
+        receipt = build(
+            mode="live",
+            target=json.loads((HERE / "targets" / "local-docker.json").read_text()),
+            target_path=HERE / "targets" / "local-docker.json",
+            target_base_url="http://127.0.0.1:8137",
+            workspace=pins.ClientWorkspace(
+                status="pass",
+                root=None,
+                reason=None,
+                resolved=[
+                    pins.ResolvedArtifact(
+                        name="honua-sdk-js",
+                        package="@honua/sdk-js",
+                        version="0.0.0",
+                        ecosystem="npm",
+                        registry_url=None,
+                        integrity_verified=True,
+                        tarball_sha256="f" * 64,
+                        bin={"honua": "./bin.js"},
+                    )
+                ],
+                command_surface=[{"command": "honua admin", "requiredBy": [2, 3, 8], "status": "present", "providedBy": "@honua/sdk-js"}],
+            ),
+            stage_results=results,
+        )
+        validate(receipt)
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertEqual(receipt["stages"][1]["status"], "pass")
+        self.assertTrue(all(stage["status"] != "pass" for stage in receipt["stages"] if stage["number"] != 2))
+
+    def test_observe_runs_preflight_only_after_readiness(self):
+        target = json.loads((HERE / "targets" / "local-docker.json").read_text())
+        workspace = pins.ClientWorkspace(status="pass", root=None, reason=None)
+        with tempfile.TemporaryDirectory() as tmp:
+            bindir = Path(tmp) / "bin"
+            bindir.mkdir()
+            honua = bindir / "honua"
+            honua.write_text("#!/bin/sh\nexit 1\n")
+            honua.chmod(0o755)
+            blocked = probes.CredentialProbe(status="blocked", detail="not sent", blocked_by=["ticket"])
+            with mock.patch.object(probes, "wait_for_ready", return_value=(False, "down")), mock.patch.object(
+                probes, "run_credential_preflight"
+            ) as preflight:
+                early = gate.observe(target, "http://127.0.0.1:8137", workspace, bindir, None, "a" * 40)
+            preflight.assert_not_called()
+            self.assertIsNone(early.credential_probe)
+
+            with mock.patch.object(probes, "wait_for_ready", return_value=(True, "Ready")), mock.patch.object(
+                probes, "http_get", return_value=probes.HttpResult(401, b"", "text/plain")
+            ), mock.patch.object(probes, "enumerate_tools", return_value=((), "proxy down", None)), mock.patch.object(
+                gate, "assert_disabled"
+            ), mock.patch.dict(
+                os.environ, {"HONUA_ADMIN_PASSWORD": self.ADMIN_KEY}
+            ), mock.patch.object(
+                probes, "run_credential_preflight", return_value=blocked
+            ) as preflight:
+                observed = gate.observe(target, "http://127.0.0.1:8137", workspace, bindir, "candidate", "a" * 40)
+            preflight.assert_called_once()
+            self.assertEqual(preflight.call_args.kwargs["admin_key"], self.ADMIN_KEY)
+            self.assertEqual(preflight.call_args.kwargs["base_url"], "http://127.0.0.1:8137")
+            self.assertFalse(preflight.call_args.kwargs["workdir"].exists())
+            self.assertIs(observed.credential_probe, blocked)
+            self.assertNotIn(self.ADMIN_KEY, json.dumps(observed.credential_probe.__dict__))
 
 
 class ProbeTests(unittest.TestCase):
