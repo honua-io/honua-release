@@ -35,23 +35,29 @@ They were delivered by server PRs #3576, #4372 and #4736.
 
 Not exercised: the sealed terminal handoff. The canonical Console producer (`npm run receipt:console`) needs a zero-to-map checkpoint paused at `console-approval` and the sealed Studio handoff `honua.studio.real-model-ai-arc-handoff/v1`. That handoff's producer exists only on unmerged honua-studio#45, and the terminal journey is still blocked (honua-release#122/#123). The receipt records this under `notExercised`; it doesn't simulate the input.
 
-## Refreshed receipt
+## Current receipt
 
-[`receipt.nightly-80e23be.console-dcb9eb2.json`](receipt.nightly-80e23be.console-dcb9eb2.json)
-was observed 2026-09-19 against the newest successful published nightly when the run started:
+[`receipt.nightly-42596b4.console-dcb9eb2.json`](receipt.nightly-42596b4.console-dcb9eb2.json)
+was observed 2026-09-26T22:54:02Z against the newest successful published nightly when the run started:
 
-- server source `80e23bedfe8ff7b43362c8d8ea22bfae1756df7d`, image
-  `sha256:9869f044b1c5d0de15aef6c87cc3d60383037ee9a4346d08bb9c83f2c56cc176`;
-- the same manifest-pinned Console `dcb9eb2` artifact used in the original receipt;
-- [nightly publication](https://github.com/honua-io/honua-server/actions/runs/35333311726).
+- server source `42596b49c34d93cb53da64c27efcef6c36677356`, tag `nightly-42596b4`, image
+  `sha256:9377090504ecb8de9bcbf469a69c173576ea282f3be2cb54de167344a997dc7e`;
+- the same manifest-pinned Console `dcb9eb2` artifact used in the earlier receipts;
+- [nightly publication](https://github.com/honua-io/honua-server/actions/runs/36235760767).
+
+Server trunk later moved to `b817f60d835d403b168571980b88fdd9d6118e35` (`#5235`, scene host-cache).
+That commit is not in a published nightly, and this receipt does not claim it. The `admin:approve`
+grant itself is already on trunk via `#3576`, `#4372`, `#4736` and `#4990`.
 
 **All six implemented check groups passed.** Both scoped keys matched full admin on all
 110 parameterless GET routes, with zero 401/403 responses. `/api/v1/admin/jobs` returned
-200 for all three credentials, closing the observed authorization regression from #4981.
-Approval deleted the real draft; rejection preserved the other draft. The separate operator's
-Console session rendered those exact proposal IDs as `Succeeded` and `Rejected`, and a third
-as `AwaitingApproval`. Before sign-in it returned 401 without rendering the proposal.
-The receipt and captured pages passed the generated-credential leakage check.
+200 for all three credentials. Approval deleted the real draft; rejection preserved the other
+draft. Read-only approve and reject returned 403 with
+`The 'admin:approve' grant is required to approve or reject proposals.`
+The separate operator's Console session rendered those exact proposal IDs as `Succeeded` and
+`Rejected`, and a third as `AwaitingApproval`. Before sign-in the proposals API returned 401
+and the proposal was not rendered. The receipt and captured pages passed the generated-credential
+leakage check.
 
 This is an authorization comparison on a minimal fixture: 92 GETs returned 200, one 204,
 five 400, two 402, eight 404 and two 500, identically for all three credentials. The two
@@ -62,15 +68,24 @@ that parameterized/resource-specific GETs were swept.
 
 The sealed terminal handoff remains **unexercised**. Studio #45 is still an open draft at
 `0d3920d19a3246439a76b8705947c076df0f7732`; its producer is absent from the default branch.
-The candidate exists, so this is an upstream handoff dependency rather than an absent-candidate
-deferral. This receipt does not close #3365 or qualify the complete terminal-to-Console journey.
-The server image was selected under the September 16 newest-imaged-nightly ruling; this change
-does not re-pin the platform server or change any release/support claim.
+honua-release#122 and #123 are still open. The candidate exists, so this is an upstream
+handoff dependency rather than an absent-candidate deferral. This receipt does not close
+#3365 or qualify the complete terminal-to-Console journey. The server image was selected
+under the September 16 newest-imaged-nightly ruling; this change does not re-pin the
+platform server or change any release/support claim.
 
-The browser run uses the host's existing Chromium dependencies. On this lane they are under
-`/home/mike/.cache/chromelibs/root/usr/lib/x86_64-linux-gnu`, supplied through `LD_LIBRARY_PATH`.
-An initial attempt failed to launch Chromium because `libnspr4.so` was not on its search path;
-the complete proof above was rerun after verifying browser startup with that dependency path.
+Chromium started with the host library path
+`/home/mike/.cache/chromelibs/root/usr/lib/x86_64-linux-gnu` on `LD_LIBRARY_PATH`.
+
+## Prior passing receipt
+
+[`receipt.nightly-80e23be.console-dcb9eb2.json`](receipt.nightly-80e23be.console-dcb9eb2.json)
+was observed 2026-09-19 against nightly `80e23bed` (`sha256:9869f044…cc176`,
+[publication](https://github.com/honua-io/honua-server/actions/runs/35333311726)) and the same
+Console pin. All six implemented check groups passed, including `/api/v1/admin/jobs` at 200.
+It remains as the previous newest-nightly proof. The first browser attempt on that lane failed
+to launch Chromium because `libnspr4.so` was not on its search path; the recorded proof was
+rerun after supplying the host Chromium library path.
 
 ## Original receipt
 
@@ -97,9 +112,9 @@ Also observed and recorded, but not asserted:
 ```sh
 docker pull <each image above>   # anonymous GHCR pulls work
 python3 certification/console-read-approve/run.py \
-  --server-digest sha256:9869f044b1c5d0de15aef6c87cc3d60383037ee9a4346d08bb9c83f2c56cc176 \
-  --server-revision 80e23bedfe8ff7b43362c8d8ea22bfae1756df7d \
-  --server-tag nightly-80e23be \
+  --server-digest sha256:9377090504ecb8de9bcbf469a69c173576ea282f3be2cb54de167344a997dc7e \
+  --server-revision 42596b49c34d93cb53da64c27efcef6c36677356 \
+  --server-tag nightly-42596b4 \
   --playwright <honua-console>/e2e/playwright/node_modules/@playwright/test \
   --manifest platform-manifest.yaml \
   --output receipt.json
