@@ -74,12 +74,50 @@ Any later amendment likewise requires a new committed lock digest and another po
 
 ## Receipt
 
-`tools/check_capacity_soak.py` validates the lock and a receipt. The release train runs this gate
-with its required `capacity_receipt_url`; a missing or failing soak therefore blocks certification
-and promotion. A receipt's candidate and observed revisions must both equal the manifest-pinned
-`honua-server` SHA. It also binds the SHA-256 of the exact lock, proves its observation began after
-the freeze, includes all signals and the whole declared envelope, and carries a non-empty signing
-identity and signature.
-Before evaluation, the workflow also uses GitHub artifact-attestation verification to prove that
-`honua-io/honua-server` signed the receipt; self-asserted signature text is insufficient. The
-workflow uploads the validated receipt as immutable run evidence. No skipped outcome maps to green.
+`tools/check_capacity_soak.py` validates the lock and an extracted evidence bundle. The release train
+runs this gate with its required `capacity_receipt_url`, which is the attested evidence ZIP rather than
+a numeric JSON document. A missing or failing soak therefore blocks certification and promotion.
+Candidate and observed revisions must equal the manifest-pinned `honua-server` SHA, and every replica
+must name the same immutable image digest.
+
+The ZIP contains the receipt plus every raw request-ledger, metric, load, and recovery artifact the
+receipt references. The checker re-hashes those bytes, requires an immutable Actions artifact URL and
+raw observation population for each, and rejects missing evidence or changed bytes. Every one of the
+eight GA envelope dimensions must be exercised on the candidate topology; declared-only, skipped, demo,
+source-built, or Preview/proxy workloads fail. Every one of the eight SLIs carries a frozen query and
+hash, owner, alert, runbook, exact UTC window, candidate identity, raw-artifact references, exercised
+workload references, observation population, computed value, and lock-derived verdict. Ratio signals
+retain numerator and denominator; distribution/gauge/duration signals retain sample counts. Recovery
+also retains an injected/detected/recovered timeline, while saturation retains worker, database, and
+Redis populations separately and gates on their maximum.
+
+Before extraction, the workflow verifies SLSA provenance for the complete ZIP, pins the signer to
+`honua-io/honua-server/.github/workflows/load-soak-nightly.yml`, pins the source digest to the manifest
+candidate, and denies self-hosted attestations. The receipt, raw hashes, producer identity, and workflow
+run are therefore one signed subject. This is single-tenant GA evidence only: it creates neither a
+per-tenant SLO nor a demo-environment SLA. No skipped or numeric-only outcome maps to green.
+
+
+## Recomputed observations and remaining qualification
+
+The `capacity-observations` artifact uses `honua.capacity-observations/v1`. It binds the
+candidate image/SHA, producer, topology, lock hash and window to complete, disjoint request
+intervals for every replica. Request buckets are lossless joint histograms of protocol,
+HTTP status, in-band failure, duration and count. They are interval deltas from the full
+serving population, never cumulative-counter snapshots, percentile averages or retained tails.
+The checker recomputes success/error ratios, nearest-rank p95/p99 and throughput from that
+single population. Periodic worker/database/Redis and queue observations, GA workload samples,
+and injected/detected/recovered events for all three dependencies must cover the same window.
+Sampling gaps or collection failures fail the gate. All eight queries are frozen in the lock;
+changing a query and rehashing it inside a receipt cannot change the gate calculation.
+
+The manifest's image digest is an independent checker input. Matching only the SHA or supplying
+another well-formed image digest is insufficient. Provenance requirements are part of the amended
+lock. The historical numeric baseline predates that lock and has no bound observation population, so
+it cannot qualify a candidate.
+
+A green result requires the approved producer to attest this observation schema for the locked
+local-docker envelope: immutable candidate image, exercised GA dimensions, retained recovery probes,
+and the raw artifacts the receipt cites. Numeric signal values, a source-built load report, or a
+unit fixture are not a soak receipt and must not be submitted as release evidence. Preview
+observations may be echoed and are not part of the GA denominator.
