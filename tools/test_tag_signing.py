@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
+import yaml
 
 import tag_signing
 from tag_signing import (CONTROL_POLICY, SigningError, check_namespaces, load_policy,
@@ -85,6 +88,30 @@ def test_committed_policy_is_valid_and_nominates_no_signer():
     committed = load_policy()
     assert committed["signers"] == []
     assert check_namespaces(committed) == []
+
+
+@pytest.mark.parametrize("label,tag", [
+    ("2026.1-rc.1", "honua-2026.1.0"),
+    ("2026.1-rc.9", "honua-2026.1.0"),
+    ("2026.1.0-rc.1", "honua-2026.1.0"),
+    ("2026.1.2-rc.3", "honua-2026.1.2"),
+])
+def test_publication_tag_matches_the_contract_and_protected_namespace(label, tag):
+    assert tag_signing.publication_tag(label) == tag
+    tag_signing.check_namespace(load_policy(), REPOSITORY, tag)
+
+
+@pytest.mark.parametrize("label", [
+    "2026.1", "2026.1.0", "2026.1.0-rc.0", "2026.1.0.0-rc.1", "honua-2026.1.0", "../2026.1-rc.1",
+])
+def test_publication_tag_rejects_labels_promotion_does_not_accept(label):
+    with pytest.raises(SigningError, match="not a promotable"):
+        tag_signing.publication_tag(label)
+
+
+def test_publication_tag_command_names_a_tag_without_a_signer(capsys):
+    assert tag_signing.main(["publication-tag", REPOSITORY, "2026.1.2-rc.3"]) == 0
+    assert capsys.readouterr().out.strip() == "honua-2026.1.2"
 
 
 def test_committed_policy_covers_exactly_the_protected_tag_namespaces():
@@ -412,3 +439,133 @@ def test_audit_treats_an_unreadable_signing_policy_as_failure(tmp_path, monkeypa
            'tag_refs': ['refs/tags/honua-2026.1.*'], 'code_owners': ['mikemcdougall']}
     errors = release_controls.audit_repository(row, {'rulesets': []}, None, 'honua-release')
     assert any('signing trust policy unreadable' in error for error in errors)
+
+
+@pytest.fixture
+def publication_remote(tmp_path, repo):
+    remote = tmp_path / 'published.git'
+    run('git', 'init', '--bare', '-q', str(remote), cwd=tmp_path)
+    run('git', 'push', str(remote), 'HEAD:refs/heads/trunk', cwd=repo)
+    return remote
+
+
+def publish_signed(repo, signer, publication_remote, tag=TAG):
+    # Produce the fixture independently of sign_tag/verify_remote_tag.
+    run('git', 'tag', '-s', '-m', 'first release', tag, head(repo), cwd=repo)
+    run('git', 'push', str(publication_remote), f'refs/tags/{tag}', cwd=repo)
+    return run('git', 'rev-parse', f'refs/tags/{tag}', cwd=repo)
+
+
+def test_remote_verification_proves_published_tag_bytes(repo, signer, publication_remote):
+    target = head(repo)
+    tag_object = publish_signed(repo, signer, publication_remote)
+    receipt = tag_signing.verify_remote_tag(str(publication_remote), TAG, target,
+                                            policy(signer), REPOSITORY, signer['allowed'])
+    assert receipt['tag'] == TAG
+    assert receipt['tagObject'] == tag_object
+    assert receipt['target'] == target
+    assert receipt['targetType'] == 'commit'
+    assert receipt['signature']['fingerprint'] == signer['fingerprint']
+    run('git', '-c', 'gpg.format=ssh', '-c', f'gpg.ssh.allowedSignersFile={signer["allowed"]}',
+        'verify-tag', TAG, cwd=publication_remote)
+
+
+@pytest.mark.parametrize('failure', ['missing', 'lightweight', 'wrong-target', 'alias', 'tampered'])
+def test_remote_verification_refuses_unqualified_publication(repo, signer, publication_remote, failure):
+    target = head(repo)
+    expected = 'cannot fetch'
+    if failure == 'missing':
+        # A perfectly signed local tag cannot substitute for an absent published ref.
+        run('git', 'tag', '-s', '-m', 'local only', TAG, target, cwd=repo)
+    elif failure == 'lightweight':
+        run('git', 'tag', TAG, target, cwd=repo)
+        run('git', 'push', str(publication_remote), f'refs/tags/{TAG}', cwd=repo)
+        expected = 'not an annotated tag'
+    else:
+        tag_object = publish_signed(repo, signer, publication_remote)
+        expected = 'exact certified candidate'
+        if failure == 'wrong-target':
+            (repo / 'README.md').write_text('a different candidate\n', encoding='utf-8')
+            run('git', 'commit', '-qam', 'new candidate', cwd=repo)
+            target = head(repo)
+        elif failure == 'alias':
+            alias = 'honua-2026.1.1'
+            run('git', 'update-ref', f'refs/tags/{alias}', tag_object, cwd=publication_remote)
+            with pytest.raises(SigningError, match='must name this publication tag'):
+                tag_signing.verify_remote_tag(str(publication_remote), alias, target,
+                                             policy(signer), REPOSITORY, signer['allowed'])
+            return
+        elif failure == 'tampered':
+            payload = run('git', 'cat-file', 'tag', tag_object, cwd=repo)
+            broken = subprocess.run(['git', 'hash-object', '-t', 'tag', '-w', '--stdin'],
+                                    input=payload.replace('first release', 'forged release') + '\n',
+                                    cwd=publication_remote, text=True, capture_output=True, check=True)
+            run('git', 'update-ref', f'refs/tags/{TAG}', broken.stdout.strip(), cwd=publication_remote)
+            expected = 'signature did not verify'
+    with pytest.raises(SigningError, match=expected):
+        tag_signing.verify_remote_tag(str(publication_remote), TAG, target,
+                                     policy(signer), REPOSITORY, signer['allowed'])
+
+
+@pytest.mark.parametrize('failure', [None, 'wrong-target', 'no-trust', 'no-signer'])
+@pytest.mark.parametrize('label,expected_tag,expected_base', [
+    ('2026.1-rc.1', 'honua-2026.1.0', '2026.1'),
+    ('2026.1.2-rc.3', 'honua-2026.1.2', '2026.1.2'),
+])
+def test_promotion_executes_remote_tag_guard(tmp_path, repo, signer, publication_remote, failure,
+                                            label, expected_tag, expected_base):
+    """Execute the actual promotion step on a real signed remote; assert its receipt and exit."""
+    target = head(repo)
+    root = tag_signing.ROOT
+    steps = yaml.safe_load((root / '.github/workflows/promote.yml').read_text())['jobs']['promote']['steps']
+    finalize = next(s for s in steps if s.get('id') == 'finalize')
+    preserve = next(s for s in steps if s.get('name') == 'Preserve current publication trust policy and verifier')
+    guard = next(s for s in steps if 'verify-remote' in s.get('run', ''))
+    temp = tmp_path / 'runner'
+    temp.mkdir()
+    output = tmp_path / 'finalize-output'
+    env = {**os.environ, 'RUNNER_TEMP': str(temp), 'GITHUB_OUTPUT': str(output),
+           'PLATFORM_LABEL': label}
+    # The tag name comes from the preserved current producer, before the candidate checkout.
+    subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
+    calculation = finalize['run'].split('# finalize_release.py', 1)[0]
+    calculation = calculation.replace('python "$RUNNER_TEMP', f'"{sys.executable}" "$RUNNER_TEMP')
+    subprocess.run(['bash', '-c', calculation], cwd=tmp_path, env=env, check=True, capture_output=True)
+    outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    tag = outputs['tag']
+    assert tag == expected_tag
+    assert outputs['base'] == expected_base
+    tag_object = publish_signed(repo, signer, publication_remote, tag=tag)
+    env.update({'PUBLICATION_TAG': tag,
+                'CERTIFIED_SHA': target, 'PUBLICATION_REMOTE': str(publication_remote),
+                'RELEASE_TAG_ALLOWED_SIGNERS': signer['allowed'].read_text()})
+    subprocess.run(['bash', '-c', preserve['run']], cwd=root, env=env, check=True, capture_output=True)
+    trust = temp / 'publication-trust/certification/release-controls/tag-signing-policy.json'
+    trusted = json.loads(trust.read_text())
+    if failure != 'no-signer':
+        trusted['signers'] = policy(signer)['signers']
+        trusted['repositories'][REPOSITORY]['signers'] = ['release-owner']
+    trust.write_text(json.dumps(trusted), encoding='utf-8')
+    if failure == 'wrong-target':
+        env['CERTIFIED_SHA'] = 'a' * 40
+    if failure == 'no-trust':
+        env['RELEASE_TAG_ALLOWED_SIGNERS'] = ''
+    # setup-python supplies `python` on Actions; use this interpreter on the local host.
+    command = guard['run'].replace('python "$RUNNER_TEMP', f'"{sys.executable}" "$RUNNER_TEMP')
+    result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env=env,
+                            text=True, capture_output=True)
+    receipt_path = tmp_path / 'signed-tag-receipt.json'
+    if failure:
+        assert result.returncode != 0, result.stdout + result.stderr
+        expected = {'wrong-target': 'exact certified candidate',
+                    'no-trust': 'needs RELEASE_TAG_ALLOWED_SIGNERS public trust material',
+                    'no-signer': 'no publication signing key is nominated'}[failure]
+        assert expected in result.stdout + result.stderr
+        assert not receipt_path.exists()
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        receipt = json.loads(receipt_path.read_text())
+        assert receipt['tag'] == tag == expected_tag
+        assert receipt['target'] == target
+        assert receipt['tagObject'] == tag_object
+        assert receipt['signature']['fingerprint'] == signer['fingerprint']
