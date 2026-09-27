@@ -7,7 +7,8 @@ import sys
 
 import pytest
 
-from release_controls import audit, audit_repository, branch_rules, rule_drift, tag_rules
+from release_controls import (audit, audit_repository, branch_rules, codeowners_entry,
+                             operator_actions, rule_drift, tag_rules)
 
 
 POLICY = {'release_refs': ['refs/heads/release/2026.1'],
@@ -175,6 +176,60 @@ def test_comments_in_codeowners_do_not_remove_coverage():
     data = snapshot()
     data['codeowners']['content'] = '# Ownership includes workflows\n\n' + data['codeowners']['content']
     assert not audit_repository(POLICY, data)
+
+
+def test_committed_codeowners_is_the_policy_catch_all():
+    root = Path(__file__).resolve().parents[1]
+    policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
+    text = (root / '.github/CODEOWNERS').read_text(encoding='utf-8')
+    entries = [line.strip() for line in text.splitlines()
+               if line.strip() and not line.lstrip().startswith('#')]
+    assert entries == [codeowners_entry(policy['repositories']['honua-release']['code_owners'])]
+
+
+def test_operator_actions_match_the_committed_policy_and_do_not_call_github(monkeypatch):
+    import release_controls as controls
+    monkeypatch.setattr(controls, 'github', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('github')))
+    root = Path(__file__).resolve().parents[1]
+    policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
+    trust = json.loads((root / 'certification/release-controls/tag-signing-policy.json').read_text())
+    rows = {row['id']: row for row in operator_actions(policy, trust)}
+    assert rows['independent-code-owner']['status'] == 'open'
+    assert rows['independent-code-owner']['repositories'] == sorted(policy['repositories'])
+    assert rows['missing-check-denominators']['repositories'] == [
+        'honua-demo-infra', 'honua-esri-compat', 'honua-evidence', 'honua-iac']
+    assert rows['nominate-signing-key']['status'] == 'open'
+    assert rows['nominate-signing-key']['repositories'] == [
+        'geospatial-grpc', 'honua-helm', 'honua-release', 'honua-sdk-dotnet', 'honua-sdk-python']
+    assert rows['apply-repository-rulesets']['status'] == 'operator'
+    assert all(row['performs_github_writes'] is False for row in rows.values())
+    for name in rows['missing-check-denominators']['repositories']:
+        with pytest.raises(ValueError, match='nonempty'):
+            branch_rules(policy['repositories'][name])
+
+
+def test_operator_actions_clear_policy_prerequisites_without_claiming_live_enforcement():
+    trust = {'signers': [{'id': 'release', 'format': 'ssh', 'fingerprint': 'SHA256:' + 'A' * 43}],
+             'repositories': {'honua-release': {'signers': ['release']}}}
+    policy = {'owner': 'mikemcdougall', 'repositories': {
+        'honua-release': {**POLICY, 'tag_refs': ['refs/tags/honua-2026.1.*']}}}
+    rows = {row['id']: row for row in operator_actions(policy, trust)}
+    assert rows['independent-code-owner']['status'] == 'satisfied'
+    assert rows['missing-check-denominators']['status'] == 'satisfied'
+    assert rows['nominate-signing-key']['status'] == 'satisfied'
+    assert rows['apply-repository-rulesets']['status'] == 'operator'
+    assert rows['apply-repository-rulesets']['performs_github_writes'] is False
+
+
+def test_operator_actions_cli_prints_open_work_and_writes_nothing():
+    result = subprocess.run([sys.executable, str(Path(__file__).with_name('release_controls.py')),
+                             'operator-actions'], capture_output=True, text=True)
+    assert result.returncode == 1
+    rows = json.loads(result.stdout)
+    assert {row['id'] for row in rows} == {
+        'independent-code-owner', 'missing-check-denominators',
+        'apply-repository-rulesets', 'nominate-signing-key'}
+    assert all(row['performs_github_writes'] is False for row in rows)
 
 
 def test_committed_inventory_covers_the_adopted_denominator_and_manifest():

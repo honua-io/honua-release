@@ -107,6 +107,15 @@ checks rule with a separate review rule into a fictitious complete protection.
 
 ## Signed publication tags — producer and trust policy
 
+`tag_signing.py publication-tag` maps a promotable candidate label onto the GA tag in
+the protected `refs/tags/honua-2026.1.*` namespace. A calendar candidate `2026.1-rc.N`
+publishes `honua-2026.1.0` (the release title stays `Honua 2026.1`). An explicit patch
+candidate `2026.1.Z-rc.N` publishes `honua-2026.1.Z`; appending another `.0` would name
+`honua-2026.1.Z.0`, which is not the contract tag. Promotion asks the preserved producer
+for that name and then verifies the signed remote tag. It does not sign or create the tag.
+The command does not require a nominated signer; `sign` and `verify` still fail closed
+until one is recorded.
+
 `certification/release-controls/tag-signing-policy.json` is the trust policy, and
 `tools/tag_signing.py` is the producer and verifier. Together they close the "implement a
 signing producer with an explicit trust policy" item below; the item's remaining half, an
@@ -117,9 +126,9 @@ Three things are routinely mistaken for a signed tag, and all three are refused:
 - GitHub's ruleset `required_signatures` rule verifies **commit** signatures, not tag objects.
 - The renderer's tag rules (`update`, `deletion`) give **immutability**. Immutability is not a
   signature.
-- `gh release create`, which the current promotion workflow uses, writes a **lightweight** tag:
+- `gh release create` without `--verify-tag` writes a **lightweight** tag:
   a ref straight at a commit, with no tag object, so there is nothing that could be signed. The
-  platform promotion must move to this producer before the candidate is cut.
+  promotion now requires the already published signed tag and passes `--verify-tag`.
 
 A qualified publication tag is an annotated tag object whose signature verifies against a signer
 the trust policy names by fingerprint. The policy holds **fingerprints only**; public key
@@ -174,6 +183,10 @@ still reproduce byte-for-byte from their snapshots.
 
 ## Unmet acceptance criteria and sequencing
 
+`python3 tools/release_controls.py operator-actions` prints the click-ops below and
+performs none of them. It exits nonzero while a policy prerequisite is still open.
+Do not wire that command into `validate`; it describes work this repository cannot do.
+
 - Nominate and authorize an independent human code owner, add that identity to
   the policy and CODEOWNERS, and land ownership PRs in the remaining repositories.
   No user/team is invented and no collaborator access is granted by this PR.
@@ -191,9 +204,9 @@ still reproduce byte-for-byte from their snapshots.
 - Qualify the native tag namespace in repositories without declared tag rules, and
   enforce tag immutability. The renderer's tag rules prevent update/deletion; they
   do **not** require annotated-tag signatures.
-- Move the platform promotion off `gh release create` for the publication tag. It
-  signs release blobs with Sigstore but writes a lightweight Git tag, which is not
-  signed-tag evidence.
+- Wire signing into publication after an authorized signer is nominated. Promotion
+  names the GA tag with the preserved `publication-tag` command and verifies an existing
+  remote signed tag; it cannot create a lightweight substitute and it does not sign.
 - The signature receipt for the actual candidate/native release tags must wait
   until those tags exist. That receipt alone is candidate-dependent. The signing
   producer, trust policy, and branch controls remain pre-cut implementation work.
@@ -201,3 +214,35 @@ still reproduce byte-for-byte from their snapshots.
 GitHub semantics: [ruleset API](https://docs.github.com/en/rest/repos/rules),
 [available rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets),
 [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
+
+## Promotion consumes only a verified remote tag
+
+`promote.yml` preserves the current protected-default-branch verifier and both control
+policies before checking out the older certified candidate. An old candidate therefore
+cannot restore a revoked signer or weaken current namespace policy. After finalization,
+`tag_signing.py verify-remote` fetches only the requested tag into an isolated bare repository,
+verifies its signature, requires its embedded name to match the publication ref, and checks
+that it directly targets the exact certified source commit. A local checkout tag cannot
+substitute for the published ref. Missing tags, lightweight tags, tampered signatures,
+aliased signed tags, and signatures on other candidate commits all stop promotion.
+
+The protected `release-promotion` environment supplies public SSH trust material through
+`RELEASE_TAG_ALLOWED_SIGNERS` (Git allowed-signers file contents). Every supplied key must
+match a fingerprint authorized by the committed policy. No private key enters this consumer.
+The policy still nominates no signer, so promotion remains unavailable until the nomination,
+protected signing producer, public trust material, and native tag immutability rollout exist.
+Public trust material alone does not authorize a signer. This workflow wiring currently
+supports SSH verification; OpenPGP producer rollout would also need a separately provisioned
+trusted public keyring.
+
+The verification receipt is keyless-signed alongside the release blobs and attached to the
+GitHub Release. `gh release create --verify-tag` refuses to manufacture an absent tag. Live
+tag immutability remains a required control: verification and release creation are separate
+operations, so a mutable remote tag must not be treated as safe between those operations.
+No release was published and no GitHub settings were changed by this implementation.
+
+Tests execute the actual workflow verification command against a temporary bare remote
+with a real SSH-signed tag. Expected commit and tag object IDs come directly from fixture Git
+commands, and the expected key fingerprint comes from `ssh-keygen -lf`. The negative fixtures
+also prove that a signed local-only tag cannot pass and that changing the certified commit
+refuses promotion. This is machinery evidence, not an actual-candidate signature receipt.

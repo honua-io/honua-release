@@ -30,7 +30,7 @@
         "refs/tags/honua-2026.1.*"
       ],
       "signers": [],
-      "qualification": "platform publication tags; signer not nominated. The promotion workflow currently creates this tag through gh release create, which is lightweight and unsignable; it must move to this producer before the candidate is cut."
+      "qualification": "platform publication tags; signer not nominated. publication-tag names the GA tag (honua-2026.1.0 for 2026.1-rc.N, honua-2026.1.Z for 2026.1.Z-rc.N). Promotion verifies that already published signed tag and does not create one."
     },
     "honua-sdk-dotnet": {
       "tag_refs": [
