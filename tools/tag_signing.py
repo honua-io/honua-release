@@ -28,6 +28,8 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import time
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,8 @@ RECEIPT_SCHEMA = "honua.signed-tag-receipt/v1"
 ISSUE = "honua-io/honua-release#236"
 FORMATS = ("ssh", "openpgp")
 SHA1 = re.compile(r"^[0-9a-f]{40}$")
+# Promotable labels are N.N-rc.N (initial calendar release) or N.N.N-rc.N (explicit patch).
+CANDIDATE_LABEL = re.compile(r"^(?P<version>[0-9]+\.[0-9]+(?:\.[0-9]+)?)-rc\.(?:[1-9][0-9]*)$")
 # `git verify-tag` reports an SSH signer as `... with <TYPE> key SHA256:<base64>`; GnuPG's
 # machine-readable status line carries the 40-hex OpenPGP fingerprint after VALIDSIG.
 SSH_SIGNER = re.compile(r'Good "git" signature for (?P<principal>\S+) with \S+ key (?P<fingerprint>SHA256:[A-Za-z0-9+/=]+)')
@@ -109,6 +113,22 @@ def authorized_signers(policy: dict[str, Any], repository: str) -> list[dict[str
         raise SigningError(f"{repository}: no publication signing key is nominated in the trust "
                            "policy; a signed tag cannot be produced or trusted")
     return signers
+
+
+def publication_tag(label: str) -> str:
+    """Map a promotable candidate label to the GA tag the quality contract names.
+
+    `2026.1-rc.N` is the initial calendar release and publishes `honua-2026.1.0`.
+    `2026.1.Z-rc.N` publishes `honua-2026.1.Z`. Appending `.0` to a label that
+    already carries a patch would name a different tag (`honua-2026.1.2.0`).
+    """
+    match = CANDIDATE_LABEL.fullmatch(label)
+    if not match:
+        raise SigningError(f"{label} is not a promotable N.N-rc.N or N.N.N-rc.N candidate label")
+    version = match.group("version")
+    if version.count(".") == 1:
+        version = f"{version}.0"
+    return f"honua-{version}"
 
 
 def check_namespace(policy: dict[str, Any], repository: str, tag: str) -> str:
@@ -231,6 +251,47 @@ def sign_tag(repo: Path, tag: str, target: str, message: str, policy: dict[str, 
     return verify_tag(repo, tag, policy, repository, allowed_signers, policy_path)
 
 
+def verify_remote_tag(remote: str, tag: str, target: str, policy: dict[str, Any],
+                      repository: str, allowed_signers: Path | None = None,
+                      policy_path: Path = TRUST_POLICY) -> dict[str, Any]:
+    """Verify the published ref in isolation, bound to the exact certified commit.
+
+    A checkout's local tags are not evidence about what GitHub will release. Fetch only the
+    requested remote ref into a fresh repository; missing/unsigned/wrong-target tags refuse.
+    This command cannot create, move, or push a publication tag.
+    """
+    check_namespace(policy, repository, tag)
+    authorized_signers(policy, repository)
+    if not SHA1.fullmatch(target):
+        raise SigningError("a publication tag must name an immutable 40-character target revision")
+    with tempfile.TemporaryDirectory(prefix="honua-publication-tag-") as directory:
+        repo = Path(directory)
+        git(repo, "init", "--bare", "--quiet")
+        ref = f"refs/tags/{tag}"
+        git(repo, "check-ref-format", ref)
+        for delay in (0, 10, 30, 60, 120, 60):
+            if delay:
+                time.sleep(delay)
+            fetched = git(repo, "fetch", "--no-tags", "--", remote, f"{ref}:{ref}", check=False)
+            if fetched.returncode == 0:
+                break
+            error = fetched.stderr.lower()
+            if not any(term in error for term in (
+                "error connecting", "could not resolve host", "connection reset",
+                "timeout", "timed out", "403",
+            )):
+                break
+        if fetched.returncode != 0:
+            raise SigningError("cannot fetch the published tag for verification")
+        receipt = verify_tag(repo, tag, policy, repository, allowed_signers, policy_path)
+        if receipt["target"] != target or receipt["targetType"] != "commit":
+            raise SigningError("published tag target is not the exact certified candidate commit")
+        headers = git(repo, "cat-file", "tag", ref).stdout.split("\n\n", 1)[0].splitlines()
+        if f"tag {tag}" not in headers or "type commit" not in headers:
+            raise SigningError("signed tag must name this publication tag and directly target its commit")
+        return receipt
+
+
 def qualify_receipt(repository: str, tag_refs: list[str], receipt: Any,
                     policy_path: Path = TRUST_POLICY, *, expected: Any = None,
                     source: Any = None) -> str | None:
@@ -301,8 +362,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--policy", type=Path, default=TRUST_POLICY)
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("check-policy", help="validate the trust policy against the control policy")
+    name_tag = subs.add_parser("publication-tag",
+                               help="print the GA tag for a candidate label; does not sign or publish")
+    name_tag.add_argument("repository")
+    name_tag.add_argument("label")
     for name, help_text in (("sign", "create a signed annotated publication tag"),
-                            ("verify", "verify an existing publication tag")):
+                            ("verify", "verify an existing publication tag"),
+                            ("verify-remote", "verify a published tag against the certified commit")):
         sub = subs.add_parser(name, help=help_text)
         sub.add_argument("repository")
         sub.add_argument("tag")
@@ -312,6 +378,9 @@ def main(argv: list[str] | None = None) -> int:
         if name == "sign":
             sub.add_argument("--target", required=True)
             sub.add_argument("--message", required=True)
+        if name == "verify-remote":
+            sub.add_argument("--target", required=True)
+            sub.add_argument("--remote", required=True)
     args = parser.parse_args(argv)
     try:
         policy = load_policy(args.policy)
@@ -322,9 +391,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PASS: trust policy covers {len(policy['repositories'])} protected tag "
                   f"namespace set(s); {len(policy['signers'])} signer(s) nominated")
             return 0
+        if args.command == "publication-tag":
+            errors = check_namespaces(policy)
+            if errors:
+                raise SigningError("; ".join(errors))
+            tag = publication_tag(args.label)
+            check_namespace(policy, args.repository, tag)
+            print(tag)
+            return 0
         if args.command == "sign":
             receipt = sign_tag(args.git_dir, args.tag, args.target, args.message, policy,
                                args.repository, args.allowed_signers, args.policy)
+        elif args.command == "verify-remote":
+            errors = check_namespaces(policy)
+            if errors:
+                raise SigningError("; ".join(errors))
+            receipt = verify_remote_tag(args.remote, args.tag, args.target, policy,
+                                        args.repository, args.allowed_signers, args.policy)
         else:
             receipt = verify_tag(args.git_dir, args.tag, policy, args.repository,
                                  args.allowed_signers, args.policy)

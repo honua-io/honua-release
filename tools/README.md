@@ -233,8 +233,10 @@ object; none of the three is a signed tag, and all three are refused.
 
 ```bash
 python3 tools/tag_signing.py check-policy
+python3 tools/tag_signing.py publication-tag honua-release 2026.1-rc.1
 python3 tools/tag_signing.py verify honua-release <tag> --git-dir . \
   --allowed-signers /path/to/allowed_signers
+python3 tools/release_controls.py operator-actions
 ```
 
 The trust policy carries **fingerprints only**. Public keys live in an
