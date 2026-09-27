@@ -84,6 +84,11 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert 'pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"' in workflow
     assert "ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST" in workflow
     assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
+    assert 'crane copy "$SOURCE_IMAGE" "$TARGET"' in workflow
+    assert "docker tag" not in workflow
+    assert "docker push" not in workflow
+    assert "must be x86_64 for the 2026.1 Lambda GA target" in workflow
+    assert '.lambdaGaQualification = "pending"' in workflow
     assert "HONUA_LAMBDA_IMAGE_URI: ${{ needs.candidate.outputs.lambda_image }}" in workflow
     assert "HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}" in workflow
     assert 'ecs_architecture = str(server.get("awsEcsArchitecture", ""))' in workflow
