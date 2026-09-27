@@ -16,7 +16,7 @@ def candidate():
 
 def qualify(manifest, row):
     row.update(status="supported", qualification="passed", qualificationReceipt={
-        "url": "https://example.invalid/test-only/lambda-receipt.json",
+        "url": "https://example.invalid/test-only/lambda-preview-receipt.json",
         "candidateManifestDigest": vp.qualification_candidate_digest(manifest),
     })
 
@@ -72,6 +72,49 @@ def test_supported_invalid_receipt_reference_rejected(candidate, url):
     result = vp.validate(manifest, matrix, None)
     assert not result.ok
     assert any("must reference an HTTPS receipt" in error for error in result.errors)
+
+
+def test_supported_receipt_must_name_the_lane_artifact(candidate):
+    manifest, matrix, row = candidate
+    qualify(manifest, row)
+    row["qualificationReceipt"]["url"] = "https://github.com/honua-io/honua-server/actions/runs/34415127857"
+    result = vp.validate(manifest, matrix, None)
+    assert not result.ok
+    assert any("must name lambda-preview-receipt.json" in error for error in result.errors)
+
+
+def test_pending_lambda_row_rejects_a_receipt(candidate):
+    _manifest, _matrix, row = candidate
+    row["qualificationReceipt"] = {
+        "url": "https://example.invalid/test-only/lambda-preview-receipt.json",
+        "candidateManifestDigest": "sha256:" + "a" * 64,
+    }
+    result = vp.validate(_manifest, _matrix, None)
+    assert not result.ok
+    assert any("must not carry a qualificationReceipt" in error for error in result.errors)
+
+
+def test_lambda_matrix_rejects_any_architecture_besides_x86_64(candidate):
+    manifest, matrix, _row = candidate
+    matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["arm64"] = {
+        "status": "ga-target",
+        "qualification": "pending",
+    }
+    result = vp.validate(manifest, matrix, None)
+    assert not result.ok
+    assert any("must declare exactly x86_64" in error for error in result.errors)
+
+
+def test_operating_envelope_requires_published_serverless_limits():
+    text = vp.LAMBDA_ENVELOPE_PATH.read_text(encoding="utf-8")
+    findings = vp.Findings()
+    vp.check_lambda_operating_envelope(text, findings)
+    assert findings.ok, findings.errors
+
+    stripped = text.replace("512 MB", "512 megabytes", 1)
+    findings = vp.Findings()
+    vp.check_lambda_operating_envelope(stripped, findings)
+    assert any("ephemeral storage" in error for error in findings.errors)
 
 
 def test_exact_candidate_pending_ga_target_rejected(candidate):
