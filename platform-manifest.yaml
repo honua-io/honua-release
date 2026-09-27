@@ -603,6 +603,7 @@ components:
 #   honua-mcp-server     ac29d160 = npm registry gitHead for 0.1.4-beta.0              MATCHES
 #   honua-sdk-python-wheel f7930b6e = tag python-sdk-v0.1.11 -> commit f7930b6e        MATCHES
 #   honua-sdk-dotnet     a88a7fbb = annotated tag dotnet-sdk-v1.6.0 -> commit a88a7fbb MATCHES
+#   nuget.org later published Honua.Sdk 1.6.4-1.10.0; those commits are not selected here.
 # @honua/mcp-server 0.1.8-beta.0 is also published; its separate coordinate remains release-cut work.
 # Python admin pin: PyPI /pypi/honua-admin/0.1.8/json and release
 # python-admin-v0.1.8, verified 2026-09-08. Customer pre-cut install profile:
