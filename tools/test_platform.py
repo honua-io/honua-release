@@ -551,6 +551,15 @@ def test_structure_requires_explicit_aws_runtime_architectures():
     assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
 
 
+def test_structure_rejects_lambda_architecture_other_than_x86_64():
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"]["awsLambdaArchitecture"] = "arm64"
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok
+    assert any("must be x86_64 for the 2026.1 Lambda GA" in error for error in f.errors)
+
+
 # ---- awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else --------------------
 @pytest.mark.parametrize("value", [
     "TBD-at-publish",                       # a hand-wave

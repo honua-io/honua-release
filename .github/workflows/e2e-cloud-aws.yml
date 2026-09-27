@@ -152,8 +152,11 @@ jobs:
                   "honua-server awsLambdaEcrDigest must be an exact sha256 digest or the literal "
                   f"{pending_ecr_mirror!r} sentinel (honua-release#99)"
               )
-          if lambda_architecture not in {"arm64", "x86_64"}:
-              raise SystemExit("honua-server awsLambdaArchitecture must be arm64 or x86_64")
+          if lambda_architecture != "x86_64":
+              raise SystemExit(
+                  "honua-server awsLambdaArchitecture must be x86_64 for the 2026.1 Lambda GA "
+                  f"target (release#282); got {lambda_architecture!r}"
+              )
           pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"
           pins["lambda_source_digest"] = lambda_digest
           pins["lambda_ecr_digest"] = lambda_ecr_digest
@@ -182,13 +185,73 @@ jobs:
           TARGET_TAG: ${{ steps.pins.outputs.lambda_ecr_tag }}
         run: |
           set -euo pipefail
+          # release#282: docker pull/tag/push re-encodes the image config, so ECR would store a
+          # different artifact from the pinned digest. crane copy uploads the manifest bytes.
+          # The pending-ecr-mirror sentinel still fails closed after that copy. This step prints
+          # the digest the operator must record; it does not write platform-manifest.yaml and it
+          # does not discharge the certification lane.
+          if [ "$SOURCE_ARCHITECTURE" != "x86_64" ]; then
+            echo "::error::honua-server awsLambdaArchitecture must be x86_64 for the 2026.1 Lambda GA target (release#282); got ${SOURCE_ARCHITECTURE}"
+            exit 1
+          fi
+          CRANE_VERSION="v0.22.1"
+          CRANE_SHA256="0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0"
+          case "$(uname -m)" in
+            x86_64) ;;
+            *) echo "::error::Lambda mirror runner must be x86_64 to match the GA target"; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/go-containerregistry.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors -o "$archive" \
+            "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  ${archive}" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP" crane
+          install -m 0755 "$RUNNER_TEMP/crane" "$RUNNER_TEMP/bin/crane"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           REPOSITORY="honua-server"
           TARGET="${REGISTRY}/${REPOSITORY}:${TARGET_TAG}"
 
           SOURCE_MANIFEST="$(docker buildx imagetools inspect --raw "$SOURCE_IMAGE")"
+          if [ "$(jq -r 'has("manifests")' <<<"$SOURCE_MANIFEST")" = "true" ]; then
+            echo "::error::Lambda source digest must be a single-platform manifest, not a multi-platform index"
+            exit 1
+          fi
           SOURCE_CONFIG="$(jq -er '.config.digest' <<<"$SOURCE_MANIFEST")"
+          SOURCE_LAYERS="$(jq -ce '[.layers[].digest]' <<<"$SOURCE_MANIFEST")"
+          SOURCE_PLATFORM="$(crane config "$SOURCE_IMAGE" | jq -er '.architecture')"
+          if [ "$SOURCE_PLATFORM" != "amd64" ]; then
+            echo "::error::Lambda source config architecture is ${SOURCE_PLATFORM}, expected amd64 for x86_64"
+            exit 1
+          fi
+
+          ecr_manifest_for() {
+            aws ecr batch-get-image --repository-name "$REPOSITORY" \
+              --image-ids "$1" \
+              --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
+              --query 'images[0].imageManifest' --output text
+          }
+          assert_mirror_matches_source() {
+            local digest="$1"
+            local manifest layers
+            manifest="$(ecr_manifest_for "imageDigest=${digest}")" || return 1
+            ECR_CONFIG="$(jq -er '.config.digest' <<<"$manifest")" || return 1
+            layers="$(jq -ce '[.layers[].digest]' <<<"$manifest")" || return 1
+            if [ "$ECR_CONFIG" != "$SOURCE_CONFIG" ]; then
+              echo "::error::ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG"
+              return 1
+            fi
+            if [ "$layers" != "$SOURCE_LAYERS" ]; then
+              echo "::error::ECR Lambda layer digests do not match the exact source artifact"
+              return 1
+            fi
+          }
+          mirror_exact() {
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+            crane copy "$SOURCE_IMAGE" "$TARGET"
+          }
 
           aws ecr describe-repositories --repository-names "$REPOSITORY" >/dev/null
           EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
@@ -196,26 +259,24 @@ jobs:
 
           # honua-release#99 bootstrap: on a fresh honua-server pin the post-mirror ECR digest is not
           # yet knowable, so the manifest carries the pending-ecr-mirror sentinel. Mirror anyway,
-          # verify ECR preserved the source config, then FAIL with the digest to record — the pin is
-          # not certified until the manifest declares it up front, but you only need one round trip.
+          # verify ECR preserved the source config and layers, then FAIL with the digest to record.
+          # The pin is not certified until the manifest declares that returned digest up front.
           if [ "$EXPECTED_ECR_DIGEST" = "pending-ecr-mirror" ]; then
             if [ -z "$EXISTING" ] || [ "$EXISTING" = "None" ]; then
-              aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
-              docker pull --platform "linux/${SOURCE_ARCHITECTURE/x86_64/amd64}" "$SOURCE_IMAGE"
-              docker tag "$SOURCE_IMAGE" "$TARGET"
-              docker push "$TARGET"
+              mirror_exact
+              EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
+            elif ! assert_mirror_matches_source "$EXISTING"; then
+              # A prior docker pull/tag/push stored a re-encoded manifest under this tag.
+              # ECR's digest then differs even when the tag name is the one this pin uses.
+              # Replace that copy; do not record it.
+              aws ecr batch-delete-image --repository-name "$REPOSITORY" \
+                --image-ids "imageTag=${TARGET_TAG}" >/dev/null
+              mirror_exact
               EXISTING="$(aws ecr describe-images --repository-name "$REPOSITORY" \
                 --image-ids imageTag="$TARGET_TAG" --query 'imageDetails[0].imageDigest' --output text)"
             fi
-            BOOT_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
-              --image-ids imageDigest="$EXISTING" \
-              --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
-              --query 'images[0].imageManifest' --output text)"
-            BOOT_CONFIG="$(jq -er '.config.digest' <<<"$BOOT_MANIFEST")"
-            if [ "$BOOT_CONFIG" != "$SOURCE_CONFIG" ]; then
-              echo "::error::ECR Lambda config $BOOT_CONFIG does not match source config $SOURCE_CONFIG"
-              exit 1
-            fi
+            assert_mirror_matches_source "$EXISTING" || exit 1
             echo "::error::awsLambdaEcrDigest is the pending-ecr-mirror sentinel. ECR preserved the source config; record this in platform-manifest.yaml and re-run (honua-release#99): $EXISTING"
             exit 1
           fi
@@ -225,11 +286,7 @@ jobs:
             exit 1
           fi
           if [ "$EXISTING" != "$EXPECTED_ECR_DIGEST" ]; then
-            PLATFORM_ARCH="${SOURCE_ARCHITECTURE/x86_64/amd64}"
-            aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
-            docker pull --platform "linux/${PLATFORM_ARCH}" "$SOURCE_IMAGE"
-            docker tag "$SOURCE_IMAGE" "$TARGET"
-            docker push "$TARGET"
+            mirror_exact
           fi
 
           RESOLVED="$(aws ecr describe-images --repository-name "$REPOSITORY" \
@@ -238,15 +295,7 @@ jobs:
             echo "::error::ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST"
             exit 1
           fi
-          ECR_MANIFEST="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
-            --image-ids imageDigest="$RESOLVED" \
-            --accepted-media-types application/vnd.oci.image.manifest.v1+json application/vnd.docker.distribution.manifest.v2+json \
-            --query 'images[0].imageManifest' --output text)"
-          ECR_CONFIG="$(jq -er '.config.digest' <<<"$ECR_MANIFEST")"
-          if [ "$ECR_CONFIG" != "$SOURCE_CONFIG" ]; then
-            echo "::error::ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG"
-            exit 1
-          fi
+          assert_mirror_matches_source "$RESOLVED" || exit 1
           echo "lambda_image=${REGISTRY}/${REPOSITORY}@${RESOLVED}" >> "$GITHUB_OUTPUT"
 
   parity:
@@ -556,8 +605,11 @@ jobs:
               fi
             fi
           fi
+          # cloud-parity certifying is not release#282. lambdaGaQualification stays the literal
+          # pending value; a green serverless cell must not be readable as the Lambda GA bill.
           jq --arg full "$FULL_SCOPE" --arg enf "$REQUIRE_REAL" \
-            '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' \
+            '.certifying = ($full == "true" and $enf == "true" and .status == "pass")
+             | .lambdaGaQualification = "pending"' \
             out/gate-report-cloud.json > out/gate-report-cloud.certification.json
           mv out/gate-report-cloud.certification.json out/gate-report-cloud.json
           cat out/gate-report-cloud.json
