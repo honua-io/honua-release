@@ -271,9 +271,19 @@ components:
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
     sha: "87966c3f7b6c840ffc4d4da0b451714ab717b18a"
     image: "ghcr.io/honua-io/honua-server:nightly-87966c3"   # immutable per-sha tag (NOT a floating tag)
-    # index; children linux/amd64 sha256:c47a3276609c8…, linux/arm64 sha256:3931efaa25642…
-    #   (:nightly-aot-87966c3 resolves to the same index digest)
+    # Multi-arch index. Child manifests re-read from GHCR on 2026-09-26
+    # (Accept: application/vnd.oci.image.index.v1+json); Docker-Content-Digest
+    # matched this index. Each child config is linux and labels
+    # org.opencontainers.image.revision=87966c3f7b6c840ffc4d4da0b451714ab717b18a.
+    #   linux/amd64 sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93
+    #   linux/arm64 sha256:3931efaa25642b80a3db42fc6deead63241a58e7eec93c592f803313c6253378
+    # (:nightly-aot-87966c3 resolves to the same index digest.)
+    # Rollback certification dereferences platformDigests.amd64, not this index.
     digest: "sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+    architectures: [amd64, arm64]
+    platformDigests:
+      amd64: "sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93"
+      arm64: "sha256:3931efaa25642b80a3db42fc6deead63241a58e7eec93c592f803313c6253378"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child

@@ -184,22 +184,24 @@ operator ruled is the public spec identity (2026-09-01 decision 3). The runtime 
 digests, the fixture revisions, the SBOM/provenance references and the release notes are produced
 by the candidate itself and remain AT-CUT; they now refuse against a real input path.
 
-The generator's refusal list is **41: 29 AT-CUT, 12 PUBLISH**. Declaring the
-geospatial-MCP standard content digest resolved one line; the deployment recovery inventory that
-arrived with #278 added one.
+The generator's refusal list is **41: 26 AT-CUT, 15 PUBLISH**. The honua-server
+image now declares the pinned index's linux/amd64 and linux/arm64 manifests, so
+the dry-run lock carries `platformDigests/amd64` for rollback certification.
+Console platform digests, and the server artifact version and source revision,
+remain unresolved.
 
 ```text
-[AT-CUT] $.disasterRecovery: candidate deployment durable-substrate inventory is not declared
 [AT-CUT] $.components.honua-server.migrationJournalSha256: exact declared migration set is not bound
 [AT-CUT] $.components.honua-server.artifacts[0].version: source snapshot/pre-release is not a released artifact version
-[AT-CUT] $.components.honua-server.artifacts[0].architectures: registry architecture set is not declared
-[AT-CUT] $.components.honua-server.artifacts[0].platformDigests: platform-specific image digests are not declared
 [AT-CUT] $.components.honua-server.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
 [AT-CUT] $.components.honua-console.contractVersions: not declared
 [AT-CUT] $.components.honua-console.schemaVersions: not declared
 [PUBLISH] $.components.honua-console.artifacts[0].version: source snapshot/pre-release is not a released artifact version
 [AT-CUT] $.components.honua-console.artifacts[0].platformDigests: platform-specific image digests are not declared
 [AT-CUT] $.components.honua-sdk-dotnet.schemaVersions: not declared
+[PUBLISH] $.clientArtifacts.honua-sdk-dotnet: published identity conflicts with component artifact: version
+[PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sha256: package hash is not declared
+[PUBLISH] $.components.honua-sdk-dotnet.artifacts[0].sourceRevision: registry provenance must bind the artifact to its source revision
 [PUBLISH] $.components.honua-sdk-dotnet.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
 [AT-CUT] $.components.honua-sdk-js.schemaVersions: not declared
 [PUBLISH] $.components.honua-sdk-js.serverCompatibility: unqualified: no consumed protocol/capability manifest is pinned
@@ -234,6 +236,41 @@ arrived with #278 added one.
 
 ## Current factual blockers
 
+### Component version declaration follow-up (2026-09-08 UTC)
+
+At trunk `0150f76`, the generator ignored every explicit `schemaVersions` map and
+started it as `{}`, filling only `database` from `dbSchema`. Ten schema refusals
+therefore had no usable declaration path. Candidate binding also accepted extra
+contract/schema keys in the lock and allowed absent manifest declarations to be
+filled solely in the lock. This broke the §9.2/§14 promise that the signed atomic
+identity and its customer records come from one reviewed, frozen input set.
+
+The generator now consumes both component version maps, preserves the existing
+database derivation, and rejects contradictory database declarations. The manifest
+gate and generator share exact-string validation. The signing boundary rejects
+missing or malformed version declarations and requires equality of both maps,
+including their complete key sets. Published package source revisions remain
+separate from component source heads.
+
+Evidence: a real npm tarball contains declared contract/schema metadata. Tests read
+the archive, independently compute SHA-512 from its bytes, and assert literal
+contract/schema values and the expected package hash in the derived BOM, lock,
+ledger and site record. Regression cases challenge added, removed and modified
+versions, missing declarations, malformed maps, placeholders, floating values,
+ranges, and conflicting database versions. No live artifact metadata was invented
+to resolve the current worklist.
+
+Remaining acceptance is unchanged: actual manufacture, signature verification and
+third-party retrieval of every artifact for `honua-2026.1.0-rc.1` require that exact
+candidate and its published components. Only the historical `honua-2026.1`
+prerelease exists in GitHub as checked on 2026-09-08 UTC. Release #57 and gRPC #88
+remain open. That candidate-only criterion is released for this reason; the
+remaining publication and declaration work is not released. The current generator
+still refuses 41 facts (29 AT-CUT / 12 PUBLISH). Issue #231 remains open and in its
+existing release bucket.
+
+### Earlier publication baseline
+
 At the remote trunk baseline `6774e00` (checked 2026-09-06 UTC),
 `gh release list` still listed only the historical `honua-2026.1` prerelease.
 The earlier NuGet.org HTTP 404 is not a blocker for the manifest's declared
@@ -246,4 +283,3 @@ The generator and the authoritative manifest/matrix now produce
 **41 refusals: 29 AT-CUT, 12 PUBLISH** (enumerated above). These are the generator's classifications,
 not a blanket release of every AT-CUT line: non-candidate metadata must still be resolved before
 cut. No registry value, lifecycle ruling, or source pin was invented to clear them.
-

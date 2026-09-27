@@ -64,6 +64,24 @@ def test_committed_manifest_and_matrix_are_valid():
     assert f.ok, f"committed files must pass structure+coherence, got: {f.errors}"
 
 
+@pytest.mark.parametrize("section", ["components", "experimental"])
+@pytest.mark.parametrize("group", ["contractVersions", "schemaVersions"])
+@pytest.mark.parametrize("value", [None, {}, [], {"api": "latest"}, {"api": "^1"}, {"api": 1}, {"api": "TBD"}])
+def test_manifest_rejects_malformed_version_declarations(section, group, value):
+    manifest, matrix = _real_files()
+    name = next(iter(manifest[section]))
+    manifest[section][name][group] = value
+    findings = vp.validate(manifest, matrix, None)
+    assert any(f"{section}.{name}.{group}" in error for error in findings.errors)
+
+
+def test_manifest_rejects_conflicting_database_version():
+    manifest, matrix = _real_files()
+    manifest["components"]["honua-server"]["schemaVersions"] = {"database": "999999"}
+    findings = vp.validate(manifest, matrix, None)
+    assert any("database conflicts with dbSchema" in error for error in findings.errors)
+
+
 SDK_PINS = {
     "sdk-dotnet": "1" * 40,
     "sdk-python": "2" * 40,
@@ -549,6 +567,23 @@ def test_structure_requires_explicit_aws_runtime_architectures():
     del manifest["components"]["honua-server"]["awsEcsArchitecture"]
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("awsEcsArchitecture" in e for e in f.errors)
+
+
+@pytest.mark.parametrize("apply", ["drop", "drop-amd64", "truncate", "string"])
+def test_structure_requires_server_amd64_platform_digest(apply):
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    server = manifest["components"]["honua-server"]
+    if apply == "drop":
+        del server["platformDigests"]
+    elif apply == "drop-amd64":
+        del server["platformDigests"]["amd64"]
+    elif apply == "truncate":
+        server["platformDigests"]["amd64"] = "sha256:abcd"
+    else:
+        server["platformDigests"] = "sha256:" + "a" * 64
+    f = vp.validate(manifest, matrix, None)
+    assert not f.ok and any("platformDigests.amd64" in e for e in f.errors)
 
 
 def test_structure_rejects_lambda_architecture_other_than_x86_64():
