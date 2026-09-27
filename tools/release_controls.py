@@ -109,6 +109,76 @@ def branch_rules(policy: dict) -> dict:
     }
 
 
+def codeowners_entry(owners) -> str:
+    """The exact catch-all audit accepts. Logins are stored without a leading @."""
+    if not isinstance(owners, list) or not owners or len(owners) != len(set(owners)):
+        raise ValueError('code_owners must be a nonempty unique list')
+    for owner in owners:
+        if not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', owner):
+            raise ValueError('code_owners must be GitHub logins without a leading @')
+    return '* ' + ' '.join('@' + owner for owner in owners)
+
+
+def operator_actions(policy: dict, trust: dict) -> list:
+    """Click-ops this repository must not perform. Derived from the committed policies."""
+    repositories = policy['repositories']
+    release_owner = policy.get('owner', 'mikemcdougall')
+    missing = sorted(name for name, row in repositories.items() if not row.get('required_checks'))
+    tagged = sorted(name for name, row in repositories.items() if row.get('tag_refs'))
+    lacking_independent = sorted(
+        name for name, row in repositories.items()
+        if not any(owner != release_owner for owner in row.get('code_owners') or []))
+    signer_ids = {signer.get('id') for signer in trust.get('signers') or [] if isinstance(signer, dict)}
+    unsigned = sorted(
+        name for name in tagged
+        if not any(sid in signer_ids
+                   for sid in (trust.get('repositories') or {}).get(name, {}).get('signers') or []))
+
+    def row(action_id, status, summary, steps, names):
+        return {'id': action_id, 'status': status, 'performs_github_writes': False,
+                'summary': summary, 'repositories': names, 'steps': steps}
+
+    return [
+        row('independent-code-owner', 'open' if lacking_independent else 'satisfied',
+            'The author of a pull request cannot satisfy CODEOWNERS review of that change.',
+            ['Nominate one existing human who is not the release owner. Do not invent a login.',
+             'Grant that human write access on every repository in policy.json.',
+             'Add the login to each code_owners list and to the catch-all CODEOWNERS line, '
+             'including the file already in honua-release.',
+             'Land CODEOWNERS in every other repository. This repository cannot open those pulls.'],
+            lacking_independent),
+        row('missing-check-denominators', 'open' if missing else 'satisfied',
+            'A ruleset with an empty required_checks list is refused and must not be installed.',
+            ['Implement a nonempty fail-closed aggregate in each listed repository.',
+             'Qualify that the aggregate fails closed, then record its exact contexts in policy.json.',
+             'Do not render or install a release-line ruleset for a repository until that denominator exists.'],
+            missing),
+        row('apply-repository-rulesets', 'operator',
+            'Live branch and tag rules are applied by an operator and read back. This command does not call GitHub.',
+            ['Review `release_controls.py render <repo>` for each repository with a nonempty check denominator, '
+             'and `render <repo> --tags` where tag_refs is nonempty.',
+             'Create those repository rulesets with bypass_actors empty. Do not delete or weaken existing rulesets.',
+             'Target only refs/heads/release/* and the declared tag namespaces. Leave default-branch protection '
+             'unchanged, including honua-server trunk strict=false.',
+             'Read each ruleset back and compare it with the rendered payload.',
+             'Prove one denied unreviewed release-line change and one change approved by the independent code owner.',
+             'Do not use an organization ruleset for this rollout: required checks differ by repository, and '
+             'organization rulesets need admin:org. Repository rulesets do not.'],
+            sorted(name for name, row in repositories.items() if row.get('required_checks'))),
+        row('nominate-signing-key', 'open' if unsigned else 'satisfied',
+            'The trust policy stores fingerprints only. Publication still fails closed with no nominated signer.',
+            ['Add the authorized key fingerprint under signers and reference that id from each native-tag repository.',
+             'Store the public allowed-signers file in the release-promotion variable RELEASE_TAG_ALLOWED_SIGNERS. '
+             'Do not put a private key in the promotion workflow or in git.',
+             'Apply the rendered tag rules (update and deletion, no bypass). Immutability is not a signature, and '
+             'required_signatures checks commits rather than tag objects.',
+             'Sign and push the tag printed by `tag_signing.py publication-tag` at the certified commit. '
+             'Promotion verifies that remote tag and does not create one.',
+             'Record the actual-candidate signature receipt only after that tag exists.'],
+            unsigned),
+    ]
+
+
 def tag_rules(policy: dict) -> dict:
     if not policy['tag_refs']:
         raise ValueError('no native publication tags declared')
@@ -170,7 +240,12 @@ def audit_repository(policy: dict, snapshot: dict, signing=None, repository: str
     content = owners.get('content', '') if isinstance(owners, dict) else ''
     entries = [line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith('#')]
     designated = policy['code_owners']
-    if entries != ['* ' + ' '.join('@' + owner for owner in designated)]:
+    try:
+        expected_entry = codeowners_entry(designated)
+    except ValueError as exc:
+        errors.append(str(exc))
+        expected_entry = None
+    if expected_entry is None or entries != [expected_entry]:
         errors.append('catch-all human CODEOWNERS not verified')
     elif owners.get('source_sha') != snapshot.get('source_sha') or not re.fullmatch('[0-9a-f]{40}', owners.get('source_sha', '')):
         errors.append('CODEOWNERS source SHA differs')
@@ -232,6 +307,7 @@ def main() -> int:
     render = subs.add_parser('render')
     render.add_argument('repository')
     render.add_argument('--tags', action='store_true')
+    subs.add_parser('operator-actions', help='list click-ops this tool will not perform')
     check = subs.add_parser('audit')
     check.add_argument('snapshot', type=Path)
     check.add_argument('--output', type=Path, required=True)
@@ -253,6 +329,10 @@ def main() -> int:
         row = policy['repositories'][args.repository]
         print(json.dumps(tag_rules(row) if args.tags else branch_rules(row), indent=2))
         return 0
+    if args.command == 'operator-actions':
+        rows = operator_actions(policy, tag_signing.load_policy())
+        print(json.dumps(rows, indent=2))
+        return 1 if any(row['status'] == 'open' for row in rows) else 0
     raw = args.snapshot.read_bytes()
     receipts = json.loads(args.signing_receipts.read_text()) if args.signing_receipts else None
     identity = json.loads(args.release_identity.read_text()) if args.release_identity else None
