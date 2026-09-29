@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-09-29-complete.14",
+  "revision": "2026-09-29-complete.15",
   "receipt_schema_min": "v2",
   "complete": true,
   "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, exact operation-to-test contracts for the server protocol integration harness, and one governed test ID per bounded 2026.1 external-client cell. The gRPC scope ruling (grpc-2026.1-implemented-rpcs, geospatial-grpc#88, honua-release#376) keeps 14 RPCs the default honua-server image implements, for 42 generated-client cells. It excludes 66 RPCs (198 cells) as Preview or Experimental, each listed with its rationale and owner issue in sources/geospatial-grpc/operations.v1.json. 5 bounded cells on Preview surfaces are excluded by the preview-surfaces roster ruling and 2 cells no released client can exercise remain non-addressable rows (release#351, release#359). The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
@@ -28123,7 +28123,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28135,9 +28135,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28147,7 +28147,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28159,9 +28159,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28171,7 +28171,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28183,9 +28183,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28195,7 +28195,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28207,9 +28207,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28219,7 +28219,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28231,9 +28231,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28243,7 +28243,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28255,9 +28255,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28267,7 +28267,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28279,9 +28279,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28291,7 +28291,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28303,9 +28303,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28315,7 +28315,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28327,9 +28327,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28339,7 +28339,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28351,9 +28351,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28363,7 +28363,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28375,9 +28375,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28387,7 +28387,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28399,9 +28399,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28411,7 +28411,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28423,9 +28423,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28435,7 +28435,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28447,9 +28447,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28459,7 +28459,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28471,9 +28471,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28483,7 +28483,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28495,9 +28495,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28507,7 +28507,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28519,9 +28519,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28531,7 +28531,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28543,9 +28543,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28555,7 +28555,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28567,9 +28567,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28579,7 +28579,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28591,9 +28591,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28603,7 +28603,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28615,9 +28615,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28627,7 +28627,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28639,9 +28639,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28651,7 +28651,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28663,9 +28663,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28675,7 +28675,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28687,9 +28687,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28699,7 +28699,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28711,9 +28711,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28723,7 +28723,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28735,9 +28735,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28747,7 +28747,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28759,9 +28759,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28771,7 +28771,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28783,9 +28783,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28795,7 +28795,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28807,9 +28807,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28819,7 +28819,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28831,9 +28831,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28843,7 +28843,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28855,9 +28855,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28867,7 +28867,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28879,9 +28879,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28891,7 +28891,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28903,9 +28903,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28915,7 +28915,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28927,9 +28927,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28939,7 +28939,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28951,9 +28951,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28963,7 +28963,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28975,9 +28975,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -28987,7 +28987,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -28999,9 +28999,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -29011,7 +29011,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29023,9 +29023,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -29035,7 +29035,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29047,9 +29047,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -29059,7 +29059,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC .NET client",
       "client_lane": "grpc-dotnet",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29071,9 +29071,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -29083,7 +29083,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC Python client",
       "client_lane": "grpc-python",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29095,9 +29095,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {
@@ -29107,7 +29107,7 @@
       "maturity": "supported",
       "canonical_client": "Generated gRPC TypeScript client",
       "client_lane": "grpc-typescript",
-      "client_version": "source@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "client_version": "1.0.3",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29119,9 +29119,9 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "geospatial-grpc@73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "geospatial-grpc-conformance@0.2.0-alpha.1+73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
+      "fixture_revision": "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c",
       "budget_expectations": null
     },
     {

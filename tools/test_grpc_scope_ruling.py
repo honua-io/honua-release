@@ -89,3 +89,28 @@ def test_missing_ruling_fails_generation():
 def test_ruling_must_be_verified_against_the_pinned_server():
     with pytest.raises(ValueError, match="not verified against the pinned server commit"):
         generator.grpc_scope(INVENTORY, "0" * 40)
+
+
+def test_grpc_lanes_are_bound_to_the_published_packages():
+    rows = [
+        row for row in REQUIREMENTS["requirements"]
+        if row["surface"] == "grpc" and row["client_lane"] in {"grpc-dotnet", "grpc-python", "grpc-typescript"}
+    ]
+    assert {row["client_version"] for row in rows} == {"1.0.3"}
+    assert {row["contract_revision"] for row in rows} == {"geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6"}
+    assert {row["fixture_revision"] for row in rows} == {
+        "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c"
+    }
+
+
+@pytest.mark.parametrize("mutation, message", [
+    (lambda clients: clients.pop("grpc-python"), "no entry for grpc-python"),
+    (lambda clients: clients["grpc-dotnet"].update(version="source@abc"), "released version"),
+    (lambda clients: clients["grpc-typescript"].pop("integrity"), "published artifact digest"),
+])
+def test_an_unpublished_client_identity_fails_generation(mutation, message):
+    clients = copy.deepcopy(INVENTORY["published_clients"])
+    mutation(clients)
+    with pytest.raises(ValueError, match=message):
+        for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
+            generator.grpc_client_version(clients, lane)
