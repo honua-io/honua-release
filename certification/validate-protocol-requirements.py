@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import jsonschema
+import yaml
 
 ROOT = Path(__file__).parent
 SUPPORTED = {"implemented", "partial", "covered"}
@@ -663,6 +664,25 @@ def validate_grpc_scope(catalog: dict) -> None:
     incomplete = sorted(operation for operation, found in generated.items() if found != lanes)
     if incomplete:
         raise ValueError(f"In-scope gRPC operations lack a client lane: {incomplete}")
+    # The certified gRPC clients must be the ones the platform manifest ships.
+    manifest = yaml.safe_load((ROOT.parent / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    shipped = manifest["components"]["geospatial-grpc"]
+    published = grpc.get("published_clients") or {}
+    for lane in sorted(lanes):
+        version = (published.get(lane) or {}).get("version")
+        if version != shipped["version"]:
+            raise ValueError(
+                f"gRPC lane {lane} certifies {version!r}, but platform-manifest ships "
+                f"geospatial-grpc {shipped['version']!r}"
+            )
+    if (published.get("grpc-dotnet") or {}).get("digest") != shipped.get("artifactSha256"):
+        raise ValueError("gRPC .NET lane digest differs from components.geospatial-grpc.artifactSha256")
+    if grpc.get("source_sha") != shipped.get("artifactSourceRevision"):
+        raise ValueError("gRPC contract revision differs from components.geospatial-grpc.artifactSourceRevision")
+    lane_versions = {row["client_version"] for row in catalog["requirements"]
+                     if row["surface"] == "grpc" and row["client_lane"] in lanes}
+    if lane_versions != {shipped["version"]}:
+        raise ValueError(f"Generated gRPC client versions {sorted(lane_versions)} differ from the shipped version")
 
 
 if __name__ == "__main__":

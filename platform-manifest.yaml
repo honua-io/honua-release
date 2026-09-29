@@ -521,25 +521,25 @@ components:
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"
     lifecycleStatus: GA
-    artifactSourceRevision: "0f701ecc6b0c41a5ea43e2dff3c46ce654312576"
-    artifactSha256: "sha256:69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f"
-    # NuGet publishes Geospatial.Grpc 1.0.0 from this exact v1.0.0 commit. This records the current
-    # released artifact identity; the server remains pinned independently and is re-pinned AT-CUT.
-    version: "1.0.0"
-    sha: "863b9b9e4fd1c5de929b3f937dc5f0bdb2a08c2a"   # trunk, newest green; release tag v1.0.0 is 0f701ecc
+    artifactSourceRevision: "00fca4de0334c6e2304354df7b367faeec5780d6"
+    artifactSha256: "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
+    # REBOUND 2026-09-29 (operator ruling, geospatial-grpc#88): the shipped generated clients are the
+    # published v1.0.3 packages -- Geospatial.Grpc on nuget.org (digest above is the downloaded,
+    # repository-signed nupkg), geospatial-grpc on PyPI and @honua/geospatial-grpc on npm, all from tag
+    # v1.0.3 (00fca4de). certification/sources/geospatial-grpc/operations.v1.json binds the gRPC
+    # certification lanes to the same three packages; validate-protocol-requirements.py fails if they
+    # diverge from this version. Geospatial.Grpc 1.0.0 (0f701ecc, sha256:69ab1ae0...) remains the
+    # recorded first publication (certification/first-publication/grpc-1.0.0, honua-release#57).
+    version: "1.0.3"
+    sha: "00fca4de0334c6e2304354df7b367faeec5780d6"   # tag v1.0.3
     artifact: "nuget:Geospatial.Grpc"
     contractVersions:
       grpc: v1                         # stable proto package geospatial.v1
-    pendingPublishedClients:
-      python: "https://github.com/honua-io/geospatial-grpc/issues/88"
-      typescript: "https://github.com/honua-io/geospatial-grpc/issues/88"
     # The pinned server still consumes the prior 0.2.0-alpha.1 package:
     #   $ git grep -n Geospatial.Grpc 6b6d3b89... -- Directory.Packages.props
     #   Directory.Packages.props:42: <PackageVersion Include="Geospatial.Grpc" Version="0.2.0-alpha.1" />
-    # honua-sdk-dotnet also remains on 0.1.0-alpha.2 at its independent pin:
-    #   $ git grep -n Geospatial.Grpc a5fb6f54a... -- Directory.Packages.props
-    #   Directory.Packages.props:8:  <PackageVersion Include="Geospatial.Grpc" Version="0.1.0-alpha.2" />
-    # Neither pin moves here; both consumer re-pins and their certification belong to the release cut.
+    # honua-sdk-dotnet pins Geospatial.Grpc through its own conformance pin (honua-sdk-dotnet#398).
+    # Neither consumer pin moves here; both consumer re-pins and their certification belong to the release cut.
 
   geospatial-mcp:
     repository: "https://github.com/honua-io/geospatial-mcp"

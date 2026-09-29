@@ -99,7 +99,7 @@ def test_grpc_lanes_are_bound_to_the_published_packages():
     assert {row["client_version"] for row in rows} == {"1.0.3"}
     assert {row["contract_revision"] for row in rows} == {"geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6"}
     assert {row["fixture_revision"] for row in rows} == {
-        "geospatial-grpc-conformance@1.0.4+2fd78a0a03a9c5259ef95eab1733046b06bccb7c"
+        "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95"
     }
 
 
