@@ -237,14 +237,19 @@ def check_ogc_service_capabilities(fetch: Fetcher, base: str, service_id: str | 
 
 
 EDR_CAPABILITY_ID = "serve.ogc-api-edr"
+# Only reason codes that mean "switched off on purpose" can excuse a 404. A broken dependency, an
+# authorization/policy state, or no reason at all could be hiding a real route regression.
+_DISABLED_BY_CHOICE_REASONS = frozenset({"experimental-disabled", "disabled-by-configuration"})
 
 
 def _disabled_preview_capability(fetch: Fetcher, base: str, capability_id: str) -> dict | None:
     """Return the server's own manifest entry for `capability_id` when it declares that surface a
-    non-GA (preview/experimental), opt-in capability that is switched OFF on this deployment; else None.
+    non-GA (preview/experimental), opt-in capability that is switched OFF on this deployment by an
+    explicit disabled reasonCode; else None.
 
     Only the server's self-description can make a 404 legitimate: an entry that is missing, GA
-    (`lifecycle: implemented`), available, or not opt-in returns None and the caller keeps failing.
+    (`lifecycle: implemented`), available, not opt-in, or unavailable for any other reason (or none)
+    returns None and the caller keeps failing.
     """
     r = fetch(base.rstrip("/") + "/api/v1/capabilities/manifest")
     if r.status != 200:
@@ -258,7 +263,8 @@ def _disabled_preview_capability(fetch: Fetcher, base: str, capability_id: str) 
     for c in caps:
         if isinstance(c, dict) and c.get("id") == capability_id:
             if (c.get("lifecycle") in ("preview", "experimental") and c.get("optInRequired") is True
-                    and c.get("supported") is True and c.get("available") is False):
+                    and c.get("supported") is True and c.get("available") is False
+                    and c.get("reasonCode") in _DISABLED_BY_CHOICE_REASONS):
                 return c
             return None
     return None

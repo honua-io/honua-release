@@ -51,7 +51,7 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-09-16"             # honua-server re-pin to imaged trunk 87966c3 (release#348 ruling A, third re-pin); other components unchanged
+snapshotDate: "2026-09-29"             # honua-iac re-pin to the v0.2.0 tag (28fee58) for the aws-ecs cloud cell's licensing contract; honua-server unchanged since the 2026-09-16 re-pin to imaged trunk 87966c3 (release#348 ruling A, third re-pin); other components unchanged
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from

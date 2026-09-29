@@ -372,6 +372,13 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
         if unavailable:
             return CheckResult("capability-manifest", "fail",
                                f"expected-GA ids not available=true when authenticated: {unavailable}", evidence)
+        # The authenticated manifest must not contradict the public one: every checked id, gated or
+        # not, must still be present and supported=true there. Gating relaxes only available=true.
+        auth_unsupported = sorted(i for i in checked if aby_id.get(i, {}).get("supported") is not True)
+        if auth_unsupported:
+            return CheckResult("capability-manifest", "fail",
+                               f"expected-GA ids missing or not supported=true when authenticated: "
+                               f"{auth_unsupported}", evidence)
         return CheckResult("capability-manifest", "pass",
                            f"{len(checked)} expected-GA ids supported; "
                            f"{avail_auth}/{len(availability_checked)} availability-asserted ids available "

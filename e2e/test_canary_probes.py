@@ -207,6 +207,10 @@ def test_edr_404_still_fails_when_the_manifest_does_not_excuse_it():
         [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(optInRequired=False))],
         [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(supported=False))],
         [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(id="serve.other"))],       # absent
+        # Unavailable for a reason other than an explicit switch-off, or for no stated reason.
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(reasonCode="dependency-unavailable"))],
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(reasonCode="insufficient-policy"))],
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(reasonCode=None))],
     ]
     for routes in cases:
         assert canary.check_edr_collections(_fetcher(routes), "http://x").status == "fail", routes

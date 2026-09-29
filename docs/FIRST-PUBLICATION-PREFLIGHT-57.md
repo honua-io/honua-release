@@ -1,7 +1,7 @@
 # First-publication wave: anonymous preflight for #57
 
-Observed 2026-09-26 UTC; receipt refreshed 2026-09-29 UTC after the npm version endpoint for
-`@honua/sdk-js@0.1.10-beta.0` began returning HTTP 200 (no other channel changed). **BLOCKED; #57 remains open.** This supersedes the 2026-09-06
+Observed 2026-09-26 UTC; receipt last refreshed 2026-09-29T10:54Z UTC, when the manifest re-pinned
+honua-iac to v0.2.0 and the probe observed `create-honua-app@0.1.5` and `honua-migrate` 0.8.0. **BLOCKED; #57 remains open.** This supersedes the 2026-09-06
 checkpoint for registry availability. The files under
 `certification/first-publication/` from that date stay as historical evidence. The
 machine receipt is
@@ -23,9 +23,9 @@ blocker, not a fabricated digest, chart, or plugin ZIP.
 | nuget.org `Geospatial.Grpc` 1.0.0 | Downloaded nupkg sha256 `69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f` (matches the retained receipt). |
 | `buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754` | Downloaded archive sha256 `7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef`. |
 | PyPI `honua-sdk` 0.1.11 and `honua-admin` 0.1.8 | Downloaded wheel and sdist sha256 match `clientArtifacts`. |
-| PyPI `honua-migrate` 0.7.1 | Downloaded `honua_migrate-0.7.1-py3-none-any.whl` sha256 `533002e5a080b7f0bb81033658d066baf41cfda43af67cfdcda20f29928a1f14` and sdist sha256 `bea15914e8b292d69d4f53f1a69a6c2a85950d5137d840d640acf6b8399db43a`. Not a `clientArtifacts` pin. |
+| PyPI `honua-migrate` 0.8.0 | Downloaded `honua_migrate-0.8.0-py3-none-any.whl` sha256 `6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9` and sdist sha256 `9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44`. Not a `clientArtifacts` pin. |
 | npm `@honua/sdk-js` 0.1.9-beta.0 | Version metadata integrity matches `clientArtifacts`. Byte install stays on `verify_client_artifacts.py`. |
-| honua-iac v0.1.0 | `registry.terraform.io/v1/modules/honua-io` is HTTP 404. The supported coordinate is the manifest Git archive; the downloaded tag tarball matches `artifactSha256`. Git-URL sourcing is the path this repo already publishes. |
+| honua-iac v0.2.0 | `registry.terraform.io/v1/modules/honua-io` is HTTP 404. The supported coordinate is the manifest Git archive; the downloaded tag tarball (sha256 `c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89`) matches `artifactSha256`. Git-URL sourcing is the path this repo already publishes. |
 | PyPI `honua-esri-assess` | Still HTTP 404. The retired name is not the migrate coordinate. GitHub still has the old `honua-esri-assess-*` releases; `honua-migrate-v0.7.1` also exists. |
 
 nuget.org lists all 16 `Honua.Sdk*` IDs, including `Honua.Sdk.Studio`, at `1.6.4`, `1.7.0`,
@@ -45,7 +45,7 @@ not the manifest pin.
 | npmjs `@honua-io/embed` | `blocked-on-operator` | honua-mobile `publish-npm-embed.yml` publishes only to `https://npm.pkg.github.com` with `NODE_AUTH_TOKEN` from `secrets.GITHUB_TOKEN`. It has no npmjs publish. |
 | `oci://ghcr.io/honua-io/charts/honua` | `blocked-on-candidate` | Anonymous GHCR pull token was denied (HTTP 403). honua-helm `release.yml` refuses `appVersion` `0.0.0` and requires a published `ghcr.io/honua-io/honua-server:v<semver>-aot` image. This repo does not invent that SemVer. |
 | QGIS plugin `honua` | `blocked-on-operator` | Unauthenticated GitHub API for `honua-io/honua-qgis-plugin` returned 404, and `https://plugins.qgis.org/plugins/honua/` returned 404. CI builds a ZIP only. Visibility, signing review, the release ZIP, and OSGeo submission remain honua-qgis-plugin#29. No signing secret is recorded here. |
-| `create-honua-app@0.1.4` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `7ac1f61cd61ac5b7ccb94c9bca099ca5081983dcf7a824e53bb64a8ecf9bf35a`). Both templates pin `@honua/sdk-js@0.1.10-beta.0` (npm version metadata now HTTP 200 on 2026-09-29; this probe records status only, not package bytes, and the platform manifest pins 0.1.9-beta.0, so the template SDK pin is still off-train) and `maplibre-gl@6.1.0` (GHSA-jrc7-96c5-q579, fixed in 6.9.0). A replacement release has to come from honua-sdk-js. |
+| `create-honua-app@0.1.5` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `a8aa82304bb1797150772540e62e2f90a41ba9e81a69746727881d5f2646d601`). Both templates pin `@honua/sdk-js@0.1.11-beta.0`, whose npm version metadata is HTTP 404 (not published; the platform manifest pins 0.1.9-beta.0, so the template SDK pin is off-train and uninstallable), and `maplibre-gl@6.4.1`, still below the GHSA-jrc7-96c5-q579 fix in 6.9.0. A replacement release has to come from honua-sdk-js. |
 
 Do not close #57 until the blocked publications above have their own anonymous receipts.
 The Helm receipt still waits on the immutable server image.

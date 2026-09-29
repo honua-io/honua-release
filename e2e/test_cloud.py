@@ -302,6 +302,13 @@ def test_capability_manifest_availability_gated_ids_still_assert_supported():
     assert run(body(gated_supported=False)).status == "fail"
     missing = run(body(gated_present=False))
     assert missing.status == "fail" and "a.gated" in missing.why
+    # The authenticated manifest must not contradict the public one for a gated id.
+    public = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body()))])
+    for contradicting in (body(gated_supported=False), body(gated_present=False)):
+        auth = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, contradicting))])
+        r = cc.check_capability_manifest("http://x", public, expected=expected, authenticated_fetch=auth,
+                                         frozen_server_sha=TEST_SERVER_SHA)
+        assert r.status == "fail" and "a.gated" in r.why and "when authenticated" in r.why
     # A non-gated id that is unavailable when authenticated still fails.
     expected["availabilityGated"] = []
     assert run(body()).status == "fail"
