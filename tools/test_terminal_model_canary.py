@@ -6,6 +6,8 @@ import base64
 import hashlib
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -446,7 +448,7 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
             return self
         def __exit__(self, *_):
             return False
-        def read(self):
+        def read(self, _limit):
             return self.payload
 
     event_names = {"MessageStart": "message_start", "TextDelta": "text_delta", "MessageStop": "message_stop"}
@@ -457,7 +459,7 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
     if mutation == "event-name":
         sse = sse.replace(b"event: text_delta", b"event: message_start")
     responses = iter([Response(json.dumps({"transcriptSigning": manifest}).encode()), Response(sse)])
-    monkeypatch.setattr(canary.urllib.request, "urlopen", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *args, **kwargs: next(responses)))
 
     if mutation:
         with pytest.raises(canary.CanaryError):
@@ -754,3 +756,94 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     assert "untrustedActionResult" in json.dumps(recovery_prompt)
     assert "test fault: inspect state before retry" not in json.dumps(receipt)
     assert all(s["modelActionSequences"] for s in receipt["stages"])
+
+
+def test_real_http_signed_studio_stream_and_replay_refusal():
+    """Local signer fixture, not a Bedrock call or candidate qualification."""
+    key = Ed25519PrivateKey.generate()
+    public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    manifest = {"requiredForCertification": True, "keys": [{
+        "keyId": "loopback-fixture", "algorithm": "Ed25519",
+        "publicKey": base64.b64encode(public).decode(),
+        "fingerprint": "sha256:" + hashlib.sha256(public).hexdigest()}]}
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    requests = []
+    response_cache = []
+    expected_action = '{"kind":"tool_call","tool":"read","arguments":{"name":"<μ>"}}'
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def reply(self, raw, content_type):
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            requests.append((self.path, None))
+            self.reply(canonical({"transcriptSigning": manifest}), "application/json")
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, body))
+            if not response_cache:
+                events = [{"type": "MessageStart", "model": body["model"]},
+                          {"type": "TextDelta", "text": expected_action},
+                          {"type": "MessageStop", "promptTokens": 13, "completionTokens": 17}]
+                # Encode HTML-sensitive characters the way the server does.
+                event_bytes = canonical(events).replace(b"<", b"\\u003C").replace(b">", b"\\u003E")
+                transcript = {**body["certification"], "provider": "bedrock", "model": body["model"],
+                              "issuedAt": (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(),
+                              "expiresAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+                              "request": base64.b64encode(canonical(body)).decode(),
+                              "providerEvents": base64.b64encode(event_bytes).decode(),
+                              "terminalResultDigest": base64.b64encode(hashlib.sha256(event_bytes).digest()).decode()}
+                raw = canonical(transcript)
+                signed = {"keyId": "loopback-fixture", "canonicalTranscript": base64.b64encode(raw).decode(),
+                          "transcriptDigest": hashlib.sha256(raw).hexdigest(),
+                          "signature": base64.b64encode(key.sign(raw)).decode()}
+                names = ["message_start", "text_delta", "message_stop", "transcript_provenance"]
+                events.append({"type": "TranscriptProvenance", "provenance": signed})
+                response_cache.append(b"\n\n".join(
+                    b"event: " + name.encode() + b"\ndata: " + canonical(event)
+                    for name, event in zip(names, events, strict=True)) + b"\n\n")
+            self.reply(response_cache[0], "text/event-stream")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        endpoint = replace(_endpoint(), base_url=f"http://127.0.0.1:{server.server_port}/v1/studio/ai/chat",
+                           model="us.anthropic.claude-sonnet-4-6", runtime="bedrock",
+                           signing_manifest_sha256=hashlib.sha256(canonical(manifest)).hexdigest())
+        client = canary.CandidateProxyClient(endpoint)
+        binding = {"candidateId": "fixture-candidate", "releaseId": "fixture-release",
+                   "endpointIdentity": endpoint.base_url, "actionId": "fixture-action", "runNonce": "fixture-nonce"}
+        content, usage, _, evidence = client.complete([{"role": "user", "content": "inspect"}], binding)
+        assert content == expected_action
+        assert usage == {"prompt_tokens": 13, "completion_tokens": 17, "total_tokens": 30}
+        assert evidence["bindings"] == binding
+        assert [path for path, _ in requests] == ["/v1/studio/ai/capabilities", "/v1/studio/ai/chat"]
+        assert requests[1][1]["messages"] == [{"role": "user", "content": "inspect"}]
+        assert "toolChoice" not in requests[1][1] and "tool_choice" not in requests[1][1]
+        with pytest.raises(canary.CanaryError, match="replay"):
+            client.complete([{"role": "user", "content": "inspect"}], binding)
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join()
+
+
+@pytest.mark.parametrize("url", ["https://bedrock-runtime.us-east-1.amazonaws.com",
+                                "https://api.anthropic.com", "https://api.openai.com",
+                                "https://other.test/v1"])
+def test_direct_provider_rejected_before_manifest_request(monkeypatch, url):
+    def forbidden_network(*_args, **_kwargs):
+        pytest.fail("direct provider must be refused before sending credentials")
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(forbidden_network))
+    endpoint = replace(_endpoint(key="test-secret"), base_url=url)
+    with pytest.raises(canary.CanaryError, match="direct-provider"):
+        canary.CandidateProxyClient(endpoint).complete([], {})

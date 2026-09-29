@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -294,11 +295,20 @@ class EndpointConfig:
             raise CanaryError("model endpoint must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise CanaryError("model endpoint URL must not contain credentials, query parameters, or fragments")
+        try:
+            loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
+        except ValueError:
+            loopback = parsed.hostname == "localhost"
+        if parsed.scheme == "http" and not loopback:
+            raise CanaryError("candidate HTTP endpoint must use loopback")
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
     def proxy_chat_url(self) -> str:
         base = self.validated_base_url()
-        if "/chat/completions" in base or base.rstrip("/").endswith("/v1"):
+        host = (urllib.parse.urlsplit(base).hostname or "").lower()
+        if ("/chat/completions" in base or base.rstrip("/").endswith("/v1")
+                or any(host == domain or host.endswith("." + domain)
+                       for domain in ("amazonaws.com", "anthropic.com", "openai.com"))):
             raise CanaryError("direct-provider and OpenAI-compatible URLs are non-certifying")
         return base if base.endswith("/v1/studio/ai/chat") else f"{base}/v1/studio/ai/chat"
 
@@ -661,6 +671,11 @@ class ReceiptBuilder:
         return self.receipt
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
 class CandidateProxyClient:
     """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
@@ -671,12 +686,23 @@ class CandidateProxyClient:
         self.timeout_seconds = timeout_seconds
         self._consumed_digests: set[str] = set()
 
+    @staticmethod
+    def _open(request, *, timeout):
+        return urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout)
+
+    @staticmethod
+    def _read(response) -> bytes:
+        raw = response.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise CanaryError("candidate model response exceeds the byte bound")
+        return raw
+
     def _manifest(self, headers: dict[str, str]) -> dict[str, Any]:
-        base = self.config.validated_base_url()
-        url = base if base.endswith("/v1/studio/ai/capabilities") else f"{base}/v1/studio/ai/capabilities"
+        # Validate the route before sending any credentials, including discovery.
+        url = self.config.proxy_chat_url().removesuffix("/chat") + "/capabilities"
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=self.timeout_seconds) as response:
-                payload = strict_json(response.read().decode("utf-8"))
+            with self._open(urllib.request.Request(url, headers=headers), timeout=self.timeout_seconds) as response:
+                payload = strict_json(self._read(response).decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise CanaryError(f"candidate signing manifest request failed: {exc}") from exc
         if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
@@ -736,9 +762,10 @@ class CandidateProxyClient:
         # the server's canonical byte format.
         signed_request = base64.b64decode(transcript.get("request", ""), validate=True)
         signed_events = base64.b64decode(transcript.get("providerEvents", ""), validate=True)
-        if strict_json(signed_request) != request_body:
+        normalize = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if normalize(strict_json(signed_request)) != normalize(request_body):
             raise CanaryError("signed request bytes do not match the candidate request")
-        if strict_json(signed_events) != provider_events:
+        if normalize(strict_json(signed_events)) != normalize(provider_events):
             raise CanaryError("signed provider events do not match the terminal SSE events")
         if base64.b64decode(transcript.get("terminalResultDigest", ""), validate=True) != hashlib.sha256(signed_events).digest():
             raise CanaryError("signed terminal-event digest verification failed")
@@ -766,8 +793,8 @@ class CandidateProxyClient:
         )
         started = time.monotonic()
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                body = response.read().decode("utf-8")
+            with self._open(request, timeout=self.timeout_seconds) as response:
+                body = self._read(response).decode("utf-8")
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
             raise CanaryError(f"candidate Studio proxy request failed: {exc}") from exc
         elapsed_ms = round((time.monotonic() - started) * 1000)
@@ -943,7 +970,7 @@ def unavailable_receipt(
 ) -> dict[str, Any]:
     if not endpoint.configured:
         builder.mark_skipped(
-            "OpenAI-compatible endpoint configuration is absent "
+            "Candidate StudioAi endpoint configuration is absent "
             f"(missing {', '.join(endpoint.missing)}); canary execution was skipped, never passed"
         )
     elif endpoint.require_api_key and not endpoint.api_key:
@@ -1217,8 +1244,9 @@ def execute_live(
             raise CanaryError("one or more required final assertions failed")
         receipt["status"] = "pass"
         receipt["scope"]["executionToGreen"] = "pass"
-    except (CanaryError, subprocess.TimeoutExpired) as exc:
-        builder.mark_failed(str(exc))
+    except (CanaryError, subprocess.TimeoutExpired, OSError, ValueError, TypeError, KeyError) as exc:
+        builder.mark_failed(str(exc) if isinstance(exc, CanaryError)
+                            else f"candidate/driver evidence validation failed ({type(exc).__name__})")
     finally:
         if workspace_id:
             try:
