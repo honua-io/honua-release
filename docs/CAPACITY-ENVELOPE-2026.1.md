@@ -92,10 +92,74 @@ also retains an injected/detected/recovered timeline, while saturation retains w
 Redis populations separately and gates on their maximum.
 
 Before extraction, the workflow verifies SLSA provenance for the complete ZIP, pins the signer to
-`honua-io/honua-server/.github/workflows/load-soak-nightly.yml`, pins the source digest to the manifest
-candidate, and denies self-hosted attestations. The receipt, raw hashes, producer identity, and workflow
-run are therefore one signed subject. This is single-tenant GA evidence only: it creates neither a
-per-tenant SLO nor a demo-environment SLA. No skipped or numeric-only outcome maps to green.
+`honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml`, pins the source digest to the
+manifest candidate, and denies self-hosted attestations. The checker then binds that verification output
+to the evidence: every verified statement must name exactly the ZIP's SHA-256 as its subject, and its
+certificate's signer workflow ref, run invocation (run id and attempt), GitHub-hosted runner and source
+commit must equal the receipt's `producer` block and the candidate revision. The receipt, raw hashes,
+producer identity, and workflow run are therefore one signed subject; a self-declared run id or workflow
+ref that the signing certificate does not carry fails. This is single-tenant GA evidence only: it creates
+neither a per-tenant SLO nor a demo-environment SLA. No skipped or numeric-only outcome maps to green.
+
+## Approved producer (release#258 amendment, 2026-09-29)
+
+The approved producer is honua-server's `capacity-soak-candidate.yml`: the only server workflow that
+boots an immutable candidate image under the Production policy, seeds the locked envelope, drives the
+soak, runs the recovery drill and attests its output. `load-soak-nightly.yml` is not a producer. It
+builds the current checkout, has no attestation permission or step, and emits load reports rather than a
+receipt, so evidence it signs, or claims to come from it, fails the gate. The amendment moves
+`receiptContract.approvedProducer` and `receiptContract.frozenAt`. Thresholds, envelope and queries are
+unchanged, and a qualifying soak must start after the amended freeze and bind the amended lock digest.
+
+The attested source commit must be the candidate. The producer is therefore dispatched on a branch or tag
+whose head is the manifest-pinned `honua-server` SHA, with `candidate_sha` set to that same SHA, so the
+certificate's source digest, `producer.sourceRevision`, `candidateIdentity.serverRevision` and
+`observedRevision` name one commit. A trunk dispatch that soaks an older candidate attests the producer's
+commit rather than the candidate's and is refused. Run 35126254288 (trunk `fc278112`, candidate
+`87966c3f`) has that shape. It also predates the observation schema and published a bare receipt JSON
+instead of the evidence ZIP.
+
+No qualifying producer exists yet. For its output to pass, the candidate's `capacity-soak-candidate.yml`
+must:
+
+1. Package one ZIP of root-level files, at most 64 members, 64 MiB per file and 256 MiB in total, holding
+   `capacity-soak-receipt.json` and every raw artifact that receipt cites. Attest that ZIP with
+   `actions/attest-build-provenance` (SLSA v1) on a GitHub-hosted runner and publish it at an immutable
+   HTTPS URL. That URL is the train's `capacity_receipt_url`.
+2. Emit a receipt with `schemaVersion: 2`, `status: completed`, `evidenceScope: single-tenant-ga`,
+   `profile: soak`, `lockSha256` of the committed lock, `candidateIdentity {serverRevision, imageDigest}`
+   plus `observedRevision` read back from the running server, an exact UTC `window` of at least 3,600
+   seconds that starts after the freeze and equals `steadyStateSeconds`, `topology` (replicas with id,
+   failure domain and image digest; database and Redis kind and failure domain; `gpWorkers`),
+   `signingIdentity` and `signature`, and
+   `producer {repository: honua-io/honua-server, workflowPath: .github/workflows/capacity-soak-candidate.yml,
+   workflowRef: <github.workflow_ref>, sourceRevision: <candidate SHA>, runId: <int>, runAttempt: <int>,
+   predicateType: https://slsa.dev/provenance/v1}`. The run id and attempt are integers.
+3. Emit exactly one `rawArtifacts` entry of kind `capacity-observations`: a
+   `honua.capacity-observations/v1` document with `candidateIdentity`, `window`, `topology`, `producer`
+   and `lockSha256` identical to the receipt; `samplingFailures: []`;
+   `populationMode: complete-disjoint-intervals`; `samplePeriodSeconds` no greater than 60; `requestCount`;
+   `requests` as gap-free, non-overlapping per-replica interval deltas that cover the window, each with
+   `replica`, `incarnation` and `buckets` of `{count, durationMs, httpStatus, inBandError, protocol}`;
+   `metrics` rows `{at, worker, database, redis, queueAgeSeconds}` and `workloads` rows
+   `{at, dimensions (all eight GA dimensions at their locked values), executionMode: candidate-topology,
+   proxy: false}`, both starting at the window start, ending at the window end and never further apart than
+   the sample period; and `recoveries` with in-window `{dependency, failure, probe, injectedAt, detectedAt,
+   recoveredAt}` events for `worker`, `database` and `redis`.
+4. Give every raw artifact an `id`, `kind`, bundle `path`, `sha256` of its bytes, a positive
+   `observationCount`, and a `uri` of the form
+   `https://github.com/honua-io/honua-server/actions/runs/<producer runId>/artifacts/<id>`.
+5. Provide all eight `workloads`, each with `status: exercised`, `target` and `observed` at the locked
+   value, `executionMode: candidate-topology`, `proxy: false`, the lock's `workloadQueries` entry, the
+   receipt's candidate identity and window, and a sample population equal to the observation document's
+   workload rows. Provide all eight `signals`, each with `status: observed`, the frozen lock query, owner,
+   immutable HTTPS alert and runbook references, window, candidate identity, topology and threshold
+   verdict. Each value and population must equal what the checker recomputes from the observation
+   document. Saturation carries separate worker, database and Redis components, and recovery carries the
+   observation document's event timeline.
+
+The workflow must still publish a negative receipt when the soak misses the lock and let the gate refuse
+it. It must never omit a failed dimension or signal.
 
 
 ## Recomputed observations and remaining qualification
