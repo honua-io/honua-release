@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maui — agent-composed map</title>
+  </head>
+  <body>
+    <main class="app">
+      <div id="map" class="map" role="application" aria-label="Agent-composed map">
+        <div id="widgets" class="widgets" aria-label="Map widgets"></div>
+      </div>
+      <aside class="panel" aria-label="Agent activity">
+        <header>
+          <p class="eyebrow">@honua/sdk-js · agent-tools · demo.honua.io</p>
+          <h1>Maui, composed live by an agent</h1>
+          <p id="status" class="status" role="status" aria-live="polite">Loading basemap…</p>
+        </header>
+        <section class="chat">
+          <h2>Ask the agent</h2>
+          <ol id="chat" class="messages"></ol>
+          <form id="chat-form" class="chat-form" autocomplete="off">
+            <textarea id="chat-input" rows="2" placeholder="e.g. Show FEMA flood zones around Kahului and highlight the high-risk ones" aria-label="Prompt"></textarea>
+            <button id="chat-send" type="submit">Send</button>
+          </form>
+        </section>
+        <section>
+          <h2>Layers <span id="layer-count" class="pill">0</span></h2>
+          <ul id="layers" class="layers"></ul>
+        </section>
+        <section class="grow">
+          <h2>Tool calls</h2>
+          <ol id="activity" class="activity"></ol>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

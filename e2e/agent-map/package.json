@@ -1,0 +1,13 @@
+{
+  "name": "honua-agent-map",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm --prefix app install",
+    "start": "HONUA_AGENT_MODEL=${HONUA_AGENT_MODEL:-us.anthropic.claude-sonnet-4-6} node agent-drive.mjs",
+    "mcp": "node mcp-call.mjs https://demo.honua.io honua_list_sources '{}'"
+  },
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.33.5"
+  }
+}

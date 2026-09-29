@@ -1,0 +1,66 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1412;
+  --panel: #161d1a;
+  --line: #2a3530;
+  --text: #e6ede9;
+  --muted: #9fb0a8;
+  --accent: #5cd6a8;
+  --warn: #f0b562;
+  --bad: #f07a7a;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+
+.app { display: grid; grid-template-columns: 1fr 400px; height: 100vh; }
+.map { position: relative; min-width: 0; }
+
+.panel {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px; border-left: 1px solid var(--line); background: var(--panel);
+  overflow: hidden;
+}
+.panel header h1 { margin: 2px 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+.eyebrow { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.status { margin: 0; font-size: 13px; color: var(--muted); }
+.panel h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.pill { background: var(--line); color: var(--text); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+section.grow { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.layers li { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.layers li[data-visible="false"] { opacity: 0.5; }
+.layers li span { color: var(--muted); }
+
+.activity { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; display: grid; gap: 6px; align-content: start; }
+.activity li { padding: 8px 10px; border-left: 3px solid var(--accent); background: #101614; border-radius: 6px; font-size: 12px; }
+.activity li[data-status="denied"], .activity li[data-status="error"] { border-left-color: var(--bad); }
+.activity li[data-status="dry-run"] { border-left-color: var(--warn); }
+.entry-head { display: flex; gap: 8px; align-items: baseline; }
+.entry-head .seq { color: var(--muted); }
+.entry-head code { font-weight: 600; }
+.entry-head .status { margin-left: auto; color: var(--accent); }
+.activity li[data-status="error"] .status, .activity li[data-status="denied"] .status { color: var(--bad); }
+.entry-head .ms { color: var(--muted); font-variant-numeric: tabular-nums; }
+.activity pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-all; color: var(--muted); font-size: 11px; }
+.activity .detail { margin: 4px 0 0; color: var(--bad); font-size: 11px; }
+
+.maplibregl-popup-content { color: #111; font-size: 12px; }
+
+.chat { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; }
+.messages { list-style: none; margin: 0; padding: 0; overflow: auto; display: grid; gap: 6px; align-content: start; min-height: 40px; }
+.messages li { padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+.messages li[data-role="user"] { background: #1f2a26; border: 1px solid var(--line); }
+.messages li[data-role="assistant"] { background: #11201a; border-left: 3px solid var(--accent); }
+.messages li[data-role="system"] { color: var(--muted); font-size: 12px; }
+.messages li[data-role="error"] { color: var(--bad); border-left: 3px solid var(--bad); background: #211313; }
+.chat-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.chat-form textarea { resize: vertical; background: #0d1210; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 13px; }
+.chat-form button { background: var(--accent); color: #062018; border: 0; border-radius: 8px; padding: 0 16px; font-weight: 600; cursor: pointer; }
+.chat-form button:disabled { opacity: 0.5; cursor: wait; }
+
+.widgets { position: absolute; top: 12px; right: 12px; z-index: 5; display: grid; gap: 10px; width: 260px; max-height: calc(100% - 24px); overflow: auto; pointer-events: none; }
+.widget-card { pointer-events: auto; background: rgba(22, 29, 26, 0.94); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(6px); --honua-ui-bg: transparent; --honua-ui-fg: var(--text); --honua-ui-border: var(--line); --honua-ui-accent: var(--accent); --honua-ui-muted: var(--muted); }
+.widget-card h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
