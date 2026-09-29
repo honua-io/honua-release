@@ -16,8 +16,7 @@ This adapter is deliberately honest about what the candidate can do:
   `pass` from mocked, replayed or assumed state, which is the protocol's fourth
   prohibition.
 * `execute` refuses any action outside the server-authored bounded tool view.
-  Because that bounded view does not exist on the candidate yet, `execute` is
-  blocked for every action rather than silently falling back to the full catalog.
+  Verified discovery does not implement action execution or grant call authority.
 * Credential values never enter a response. Only environment-variable references
   are returned, per the protocol's first prohibition.
 """
@@ -57,7 +56,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _state_path(workspace_id: str) -> Path:
-    if not workspace_id or "/" in workspace_id or ".." in workspace_id:
+    if not workspace_id or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in workspace_id):
         raise DriverError("invalid workspaceId")
     return STATE_ROOT / f"{workspace_id}.json"
 
@@ -144,6 +143,13 @@ def _stage_status(journey: dict[str, Any], observation: stagelib.Observation, wo
             return [workspace.reason or "pinned client artifacts were not consumed"]
         return workspace.missing_for_stage(number)
 
+    if isinstance(stage_ref, dict):
+        # Accept the imported descriptor only if every binding matches. Never
+        # substitute an arbitrary command supplied by a model or caller.
+        matched = next((s for s in journey["stages"] if s["id"] == stage_ref.get("id")), None)
+        if matched is None or any(stage_ref.get(k) != matched[k] for k in ("id", "number", "command")):
+            raise DriverError("stage descriptor does not match the journey contract")
+        stage_ref = matched["id"]
     results = stagelib.run_stages(journey, observation, workspace_blockers)
     selected = None
     for result in results:
@@ -322,15 +328,13 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
 
 def op_inject_error(request: dict[str, Any]) -> dict[str, Any]:
     state = _read_state(str(request.get("workspaceId", "")))
-    error_id = f"err-{uuid.uuid4().hex[:12]}"
-    state["armedError"] = error_id
-    _write_state(state["workspaceId"], state)
+    error_id = request.get("errorId")
     return {
         "status": "blocked",
         "errorId": error_id,
         "recoverable": True,
         "detail": (
-            "an error identity is reserved, but it cannot be armed against a real "
+            "the requested error cannot be armed against a real "
             "action while execute is blocked; arming it against a mocked action "
             "would make the recovery evidence fictional"
         ),
