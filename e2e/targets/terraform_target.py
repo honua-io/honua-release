@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -83,6 +84,31 @@ class TerraformTarget(DeployTarget):
         root = Path(base) / self.spec.root
         return root if root.is_dir() else None
 
+    def _root_declares(self, variable: str) -> bool:
+        """True when the pinned honua-iac root declares `variable`. Passing an undeclared -var is a
+        hard terraform error, and the example roots set module-only inputs (such as additional_env)
+        internally rather than exposing them."""
+        root = self._iac_root()
+        if root is None:
+            return False
+        # Anchored like AwsEksTarget._root_declares: a comment that merely mentions the variable
+        # must not count as a declaration.
+        pattern = re.compile(r'^\s*variable\s+"' + re.escape(variable) + r'"\s*\{', re.MULTILINE)
+        for tf_file in sorted(root.glob("*.tf")):
+            try:
+                body = tf_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if pattern.search(body):
+                return True
+        return False
+
+    def _licensing_vars(self) -> list[str]:
+        # 2026.1 ships licensing disabled (honua-release#338). Roots that expose licensing_mode get it
+        # explicitly; older roots with no licensing input get nothing. Either way the cell's runtime
+        # licensing assertion (GET /api/v1/admin/license reports disabled) decides pass or fail.
+        return ["-var=licensing_mode=Disabled"] if self._root_declares("licensing_mode") else []
+
     @staticmethod
     def _has_aws_creds() -> bool:
         return bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_ROLE_ARN")
@@ -134,7 +160,7 @@ class TerraformTarget(DeployTarget):
             "-var=environment=it",
             f"-var={self.spec.image_var}={os.environ[self.spec.image_env]}",
             f"-var=honua_admin_password={admin_pw}",
-            '-var=additional_env={"Licensing__Mode":"Disabled"}',
+            *self._licensing_vars(),
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
         ]

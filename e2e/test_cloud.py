@@ -1050,6 +1050,30 @@ def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
     assert "passed" not in report["why"] and "geoprocessing" in report["why"]
 
 
+def test_licensing_var_is_only_passed_to_roots_that_declare_it(monkeypatch):
+    # The first live aws-ecs cell failed on `-var=additional_env=...`, a module input the example
+    # roots set internally and never declare. Only a root that declares licensing_mode receives it,
+    # and a comment that merely mentions the variable is not a declaration.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as base:
+        root = Path(base) / "infrastructure" / "terraform" / "examples" / "aws"
+        root.mkdir(parents=True)
+        variables = root / "variables.tf"
+        variables.write_text('variable "region" {}\n# variable "licensing_mode" arrives later\n', encoding="utf-8")
+        monkeypatch.setenv("HONUA_IAC_DIR", base)
+        monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+        monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+        monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+        monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+        target = ecs(run_id="r1")
+        assert target._licensing_vars() == []
+        assert not any(a.startswith("-var=additional_env") for a in target._vars(False))
+        variables.write_text('variable "region" {}\nvariable "licensing_mode" {\n  default = "Disabled"\n}\n', encoding="utf-8")
+        assert target._licensing_vars() == ["-var=licensing_mode=Disabled"]
+        assert "-var=licensing_mode=Disabled" in target._vars(False)
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -1077,3 +1101,4 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
