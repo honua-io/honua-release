@@ -1008,7 +1008,7 @@ def observed_stage_status(observed: dict[str, Any], stage: dict[str, Any]) -> st
     """Interpret the driver's stage evidence without treating discovery as execution."""
     status = observed.get("stageStatus")
     if isinstance(status, dict):
-        if any(status.get(key) != stage[expected] for key, expected in
+        if type(status.get("number")) is not int or any(status.get(key) != stage[expected] for key, expected in
                (("id", "id"), ("number", "number"), ("command", "command"))):
             raise CanaryError(f"driver returned evidence for a different stage than {stage['id']}")
         outcome = status.get("status")
@@ -1030,6 +1030,16 @@ def observed_stage_status(observed: dict[str, Any], stage: dict[str, Any]) -> st
     raise CanaryError(f"driver omitted stage evidence for {stage['id']}")
 
 
+def fault_evidence(execution: dict[str, Any], name: str) -> Any:
+    result = execution.get("result")
+    if result is not None and not isinstance(result, dict):
+        raise CanaryError("driver action result must be an object")
+    nested = (result or {}).get(name)
+    if name in execution and nested is not None and execution[name] != nested:
+        raise CanaryError("driver returned contradictory fault evidence")
+    return execution.get(name, nested)
+
+
 def execute_live(
     builder: ReceiptBuilder,
     *,
@@ -1048,6 +1058,7 @@ def execute_live(
     last_stage = builder.journey["stages"][-1]["id"]
     workspace_id: str | None = None
     approved_proposals: set[str] = set()
+    active_stage: dict[str, Any] | None = None
     try:
         setup_request = {
             "candidate": receipt["candidate"],
@@ -1075,6 +1086,7 @@ def execute_live(
         builder.capture_transcript("driver", setup, stage_id=first_stage)
 
         for stage in builder.journey["stages"]:
+            active_stage = stage
             stage_id = stage["id"]
             builder.mark_stage(stage_id, "running")
             if stage_id == receipt["errorInjection"]["stageId"]:
@@ -1121,6 +1133,8 @@ def execute_live(
                         or approval.get("proposerSelfApproval") != "denied"
                     ):
                         raise CanaryError("separate-principal approval or proposer denial was not proved")
+                    if approval.get("proposalId") != proposal_id or not approval.get("approvalId"):
+                        raise CanaryError("approval did not bind the requested proposal and approval identity")
                     builder.record_action(
                         stage_id=stage_id,
                         attribution=HARNESS_DRIVEN,
@@ -1129,8 +1143,6 @@ def execute_live(
                         request=approval_request,
                         result=approval,
                     )
-                    if approval.get("proposalId") != proposal_id or not approval.get("approvalId"):
-                        raise CanaryError("approval did not bind the requested proposal and approval identity")
                     approved_proposals.add(proposal_id)
                     continue
                 if stage_status == "complete":
@@ -1194,13 +1206,13 @@ def execute_live(
                     result=execution,
                     transcript_sequence=assistant_sequence,
                 )
-                injected = execution.get("injectedError", (execution.get("result") or {}).get("injectedError"))
+                injected = fault_evidence(execution, "injectedError")
                 if isinstance(injected, dict) and injected.get("id") == receipt["errorInjection"]["id"]:
                     if injected.get("recoverable") is not True:
                         raise CanaryError("driver reported the injected error as non-recoverable")
                     builder.observe_injected_error(action_sequence)
                 elif receipt["errorInjection"]["status"] == "observed" and action_status == "pass":
-                    recovered = execution.get("recoveredError", (execution.get("result") or {}).get("recoveredError"))
+                    recovered = fault_evidence(execution, "recoveredError")
                     if (
                         not isinstance(recovered, dict)
                         or recovered.get("id") != receipt["errorInjection"]["id"]
@@ -1245,8 +1257,11 @@ def execute_live(
         receipt["status"] = "pass"
         receipt["scope"]["executionToGreen"] = "pass"
     except (CanaryError, subprocess.TimeoutExpired, OSError, ValueError, TypeError, KeyError) as exc:
-        builder.mark_failed(str(exc) if isinstance(exc, CanaryError)
-                            else f"candidate/driver evidence validation failed ({type(exc).__name__})")
+        detail = (str(exc) if isinstance(exc, CanaryError)
+                  else f"candidate/driver evidence validation failed ({type(exc).__name__})")
+        if active_stage:
+            detail = f"stage {active_stage['id']} ({active_stage['command']}): {detail}"
+        builder.mark_failed(detail)
     finally:
         if workspace_id:
             try:

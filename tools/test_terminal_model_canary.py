@@ -369,7 +369,7 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
     assert "top-secret-key" not in json.dumps(hosted.evidence())
 
 
-@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop"])
+@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding"])
 def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation):
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(
@@ -434,12 +434,16 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
         "terminalResultDigest": base64.b64encode(hashlib.sha256(b"wrong" if mutation == "event-digest" else canonical_events).digest()).decode(),
     }
     transcript_bytes = json.dumps(transcript, sort_keys=True, separators=(",", ":")).encode()
+    if mutation == "binding":
+        transcript_bytes = transcript_bytes.replace(b"random-run-nonce", b"different-nonce")
     signed = {
         "keyId": "candidate-1",
         "canonicalTranscript": base64.b64encode(transcript_bytes).decode(),
         "transcriptDigest": hashlib.sha256(transcript_bytes).hexdigest(),
         "signature": base64.b64encode(key.sign(transcript_bytes)).decode(),
     }
+    if mutation == "signature":
+        signed["signature"] = base64.b64encode(bytes(64)).decode()
 
     class Response:
         def __init__(self, payload):
@@ -646,7 +650,7 @@ def test_stage_evidence_binding_rejects_contradiction_and_wrong_stage():
     evidence = {"id": stage["id"], "number": stage["number"], "command": stage["command"],
                 "status": "pass", "blockedBy": [], "checks": [{"status": "pass"}]}
     assert canary.observed_stage_status({"status": "pass", "stageStatus": evidence}, stage) == "complete"
-    for patch in ({"id": "another-stage"}, {"number": 2}, {"command": "fake"},
+    for patch in ({"id": "another-stage"}, {"number": 2}, {"number": True}, {"command": "fake"},
                   {"checks": []}, {"checks": [{"status": "blocked"}]}, {"blockedBy": ["dependency"]}):
         with pytest.raises(canary.CanaryError):
             canary.observed_stage_status({"status": "pass", "stageStatus": {**evidence, **patch}}, stage)
@@ -654,6 +658,17 @@ def test_stage_evidence_binding_rejects_contradiction_and_wrong_stage():
         canary.observed_stage_status({"status": "blocked", "stageStatus": "complete"}, stage)
     assert canary.observed_stage_status({"status": "blocked", "stageStatus": {
         **evidence, "status": "blocked", "checks": []}}, stage) == "blocked"
+
+
+def test_fault_evidence_cannot_be_ambiguous_or_untyped():
+    evidence = {"id": "fault", "recovered": True}
+    assert canary.fault_evidence({"result": {"recoveredError": evidence}}, "recoveredError") == evidence
+    assert canary.fault_evidence({"recoveredError": evidence}, "recoveredError") == evidence
+    with pytest.raises(canary.CanaryError, match="contradictory"):
+        canary.fault_evidence({"recoveredError": evidence, "result": {"recoveredError": {
+            **evidence, "id": "another-fault"}}}, "recoveredError")
+    with pytest.raises(canary.CanaryError, match="object"):
+        canary.fault_evidence({"result": "untyped"}, "recoveredError")
 
 
 def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):

@@ -159,3 +159,53 @@ source tests do not replace a published package or update this repository's
 frozen pins. Later execution, distinct-principal approval, model/error recovery
 and saved-map stages remain blocked until their actual driver implementation and
 candidate receipts exist. Discovery never grants call authority.
+
+## Promise journey handoff and remaining acceptance (#377)
+
+The model canary now passes canonical stage IDs to this driver and also accepts its
+structured stage evidence, binding the ID, number, command and checks before
+recognizing completion. A blocked stage stays blocked. Descriptor-form requests
+are accepted only when they match the imported journey contract. Failed setup still
+triggers teardown, and an unexecutable fault does not persist fictional armed state.
+
+The canary retains action results in its in-memory conversation so a subsequent
+model turn can inspect a failure. Each distinct approval proposal has its own
+boundary; repeated approval of the same proposal fails. These are harness handoff
+changes, not implementations of the remaining stage executors.
+
+The StudioAi verifier consumes the server's signed event bodies and checks the SSE
+event names against their enum types. It verifies the signature and exact signed
+terminal digest, then compares parsed request/event values without reconstructing
+System.Text.Json bytes in Python. Signed provenance must identify Claude on Bedrock.
+Direct provider endpoints are refused before even the capabilities request.
+
+Receipt action requests, results and transcript entries retain only a redacted
+payload's SHA-256, UTF-8 byte count and `digest-only` retention marker. Their schema
+rejects arbitrary nested content, including DSNs, presigned URLs and unknown secret
+fields. Signed provenance, action attribution and sequence links remain separate.
+The in-memory conversation is never restored from receipt digests or checkpoints.
+
+The [2026-09-29 Docker observation](../../artifacts/terminal-journey-377-local-docker-20260929.md)
+records failed frozen-proxy discovery and credential preflight against the unchanged
+candidate snapshot. The signed loopback fixture and state-machine tests are unit and
+transport evidence only; they are not genuine-model, GP, geometry or deployment
+qualification.
+
+Remaining acceptance is explicit:
+
+- Build stages 3–8 still need authenticated execution and independent content,
+  geometry, render, cross-replica and approval assertions. `execute`, `approve`,
+  `verify` and actual fault injection retain their fail-closed guards.
+- Update, rollback and operate still need reviewed stage implementations, the
+  operator-supplied signed prior/target locks and incompatible target, and the
+  exactly-once/schema-boundary assertions. The current journey contract has eight
+  stages; this change does not pretend the three additional stages executed.
+- Self-approval, seeded layer/support-comment injection, and incompatible-target
+  refusals need live security receipts. A prompt instruction alone is not proof.
+- A complete deterministic run requires a re-pinned, co-installable published
+  client set. A genuine-model run additionally requires candidate StudioAi Bedrock
+  configuration and the platform-controlled signing-manifest digest, neither of
+  which was configured in this lane.
+
+Issue #377 stays open in the must-fix-before-cut bucket. Candidate-bound acceptance
+cannot be claimed from this harness slice or the red local observation.
