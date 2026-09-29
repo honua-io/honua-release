@@ -86,6 +86,7 @@ class Observation:
     expected_revision: str | None = None
     setup_view_present: bool = False
     credential_probe: CredentialProbe | None = None
+    setup_discovery: dict[str, Any] | None = None
 
 
 @dataclass
@@ -298,7 +299,8 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "mcp-tool",
                 "server-authored bounded setup/profile tool view",
                 "pass",
-                "the candidate negotiates a bounded server-authored setup view",
+                "verified initialize-bound HTTP/proxy setup parity; "
+                + str((observation.setup_discovery or {}).get("http", {}).get("measured", {})),
             )
         )
     else:
@@ -307,8 +309,8 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "1.6-bounded-setup-view",
                 "mcp-tool",
                 "server-authored bounded setup/profile tool view",
-                "the candidate exposes no named server-authored setup view, so the "
-                "bounded profile/tool view required by stage 1 cannot be verified",
+                (observation.setup_discovery or {}).get("error") or
+                "initialize-bound setup discovery has not been verified through both HTTP and the installed proxy",
                 [SETUP_VIEW],
             )
         )

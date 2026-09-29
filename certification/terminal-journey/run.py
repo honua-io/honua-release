@@ -184,26 +184,17 @@ def observe(
             )
         finally:
             shutil.rmtree(probe_dir, ignore_errors=True)
+    import discovery
 
     proxy = bindir / "honua-mcp-proxy" if bindir else None
-    if proxy is None or not proxy.exists():
-        observation.proxy_detail = (
-            "the pinned honua-mcp-proxy executable was not installable from the verified bytes"
-        )
-        observation.tools_error = observation.proxy_detail
-        return observation
-
-    observation.proxy_available = True
-    names, error, note = probes.enumerate_tools(proxy, base_url + endpoints["mcp"])
-    observation.proxy_note = note
-    if error is not None:
-        observation.tools_error = error
-        return observation
-    observation.tool_names = names
-
-    # A bounded server-authored setup view is a named discovery view, not merely a
-    # short tool list. Absent a negotiated view identity we must not claim one.
-    observation.setup_view_present = False
+    observation.proxy_available = proxy is not None and proxy.is_file()
+    observation.setup_discovery = discovery.capture_setup_view(proxy, base_url + endpoints["mcp"],
+        probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"]["default"]))
+    observation.setup_view_present = observation.setup_discovery["status"] == "pass"
+    if observation.setup_view_present:
+        observation.tool_names = tuple(observation.setup_discovery["catalogToolNames"])
+    else:
+        observation.tools_error = observation.setup_discovery.get("error", "setup discovery was not verified")
     return observation
 
 
@@ -420,6 +411,11 @@ def run_live(
             notices.append(f"using an externally managed stack at {base_url_override}")
 
         observation = observe(target, base_url, workspace, bindir, running_image, server["sha"])
+        if observation.setup_discovery is not None:
+            discovery_path = workdir / "setup-discovery.json"
+            discovery_path.parent.mkdir(parents=True, exist_ok=True)
+            discovery_path.write_text(json.dumps(observation.setup_discovery, indent=2) + "\n", encoding="utf-8")
+            notices.append(f"Setup discovery sidecar: {discovery_path}; SHA-256: {_sha256_file(discovery_path)}")
         if observation.proxy_note:
             notices.append(observation.proxy_note)
         results = stagelib.run_stages(journey, observation, workspace_blockers)
