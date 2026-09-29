@@ -60,6 +60,21 @@ class CanaryError(RuntimeError):
     """Raised when the harness cannot produce trustworthy canary evidence."""
 
 
+def strict_json(raw: str | bytes) -> Any:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise CanaryError("duplicate JSON key in candidate evidence")
+            result[key] = value
+        return result
+
+    def invalid(_value):
+        raise CanaryError("nonstandard JSON number in candidate evidence")
+
+    return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -661,7 +676,7 @@ class CandidateProxyClient:
         url = base if base.endswith("/v1/studio/ai/capabilities") else f"{base}/v1/studio/ai/capabilities"
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = strict_json(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise CanaryError(f"candidate signing manifest request failed: {exc}") from exc
         if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
@@ -715,13 +730,17 @@ class CandidateProxyClient:
             Ed25519PublicKey.from_public_bytes(public_key).verify(signature, transcript_bytes)
         except (ValueError, InvalidSignature) as exc:
             raise CanaryError("candidate transcript signature verification failed") from exc
-        canonical_request = json.dumps(request_body, sort_keys=True, separators=(",", ":")).encode()
-        canonical_events = json.dumps(provider_events, sort_keys=True, separators=(",", ":")).encode()
-        if base64.b64decode(transcript.get("request", ""), validate=True) != canonical_request:
+        # The server signs System.Text.Json bytes (including HTML escaping).
+        # Verify those exact signed bytes, then compare parsed values with the
+        # independently received request/events; Python reserialization is not
+        # the server's canonical byte format.
+        signed_request = base64.b64decode(transcript.get("request", ""), validate=True)
+        signed_events = base64.b64decode(transcript.get("providerEvents", ""), validate=True)
+        if strict_json(signed_request) != request_body:
             raise CanaryError("signed request bytes do not match the candidate request")
-        if base64.b64decode(transcript.get("providerEvents", ""), validate=True) != canonical_events:
+        if strict_json(signed_events) != provider_events:
             raise CanaryError("signed provider events do not match the terminal SSE events")
-        if base64.b64decode(transcript.get("terminalResultDigest", ""), validate=True) != hashlib.sha256(canonical_events).digest():
+        if base64.b64decode(transcript.get("terminalResultDigest", ""), validate=True) != hashlib.sha256(signed_events).digest():
             raise CanaryError("signed terminal-event digest verification failed")
         self._consumed_digests.add(digest)
         return digest
@@ -752,6 +771,10 @@ class CandidateProxyClient:
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
             raise CanaryError(f"candidate Studio proxy request failed: {exc}") from exc
         elapsed_ms = round((time.monotonic() - started) * 1000)
+        event_types = {"message_start": "MessageStart", "text_delta": "TextDelta",
+                       "tool_call_start": "ToolCallStart", "tool_call_delta": "ToolCallDelta",
+                       "tool_call_stop": "ToolCallStop", "message_stop": "MessageStop",
+                       "error": "Error", "transcript_provenance": "TranscriptProvenance"}
         events: list[tuple[str, dict[str, Any]]] = []
         event_name = ""
         data_lines: list[str] = []
@@ -762,16 +785,19 @@ class CandidateProxyClient:
                 data_lines.append(line[5:].strip())
             elif not line and event_name:
                 try:
-                    event = json.loads("\n".join(data_lines))
+                    event = strict_json("\n".join(data_lines))
                 except json.JSONDecodeError as exc:
                     raise CanaryError("candidate proxy emitted malformed SSE JSON") from exc
                 if not isinstance(event, dict):
                     raise CanaryError("candidate proxy SSE data must be an object")
+                if event_name not in event_types or event.get("type") != event_types[event_name]:
+                    raise CanaryError("candidate proxy SSE event name/type disagree")
                 events.append((event_name, event))
                 event_name, data_lines = "", []
         provenance = [event for name, event in events if name == "transcript_provenance"]
         terminals = [name for name, _ in events if name in {"message_stop", "error"}]
-        if len(provenance) != 1 or len(terminals) != 1 or events[-1][0] != "transcript_provenance":
+        if (len(provenance) != 1 or len(terminals) != 1 or events[-1][0] != "transcript_provenance"
+                or len(events) < 3 or events[0][0] != "message_start" or events[-2][0] != "message_stop"):
             raise CanaryError("candidate proxy omitted the unique terminal signed provenance event")
         if terminals[0] != "message_stop":
             raise CanaryError("candidate proxy ended the certified call with an error")
@@ -779,18 +805,18 @@ class CandidateProxyClient:
         if not isinstance(signed, dict) or not signed.get("signature") or not signed.get("canonicalTranscript"):
             raise CanaryError("candidate proxy provenance envelope is incomplete")
         try:
-            transcript = json.loads(base64.b64decode(signed["canonicalTranscript"], validate=True))
+            transcript = strict_json(base64.b64decode(signed["canonicalTranscript"], validate=True))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             raise CanaryError("candidate proxy provenance envelope is malformed") from exc
+        if not isinstance(transcript, dict):
+            raise CanaryError("candidate signed transcript must be an object")
         if any(transcript.get(key) != value for key, value in certification.items()):
             raise CanaryError("candidate proxy provenance binding does not match the requested candidate action")
+        if transcript.get("provider") != "bedrock" or "claude" not in str(transcript.get("model", "")).lower():
+            raise CanaryError("promise journey requires signed Claude on Bedrock provenance")
         if transcript.get("model") != self.config.model:
             raise CanaryError("candidate proxy reported a model other than the requested model")
-        provider_events = [
-            {"event": name, "data": event}
-            for name, event in events
-            if name != "transcript_provenance"
-        ]
+        provider_events = [event for name, event in events if name != "transcript_provenance"]
         verified_digest = self._verify_provenance(signed, transcript, manifest, request_body, provider_events)
         content = "".join(event.get("text", "") for name, event in events if name == "text_delta")
         if not isinstance(content, str) or not content.strip():
@@ -994,7 +1020,7 @@ def execute_live(
     first_stage = builder.journey["stages"][0]["id"]
     last_stage = builder.journey["stages"][-1]["id"]
     workspace_id: str | None = None
-    approval_done = False
+    approved_proposals: set[str] = set()
     try:
         setup_request = {
             "candidate": receipt["candidate"],
@@ -1053,8 +1079,9 @@ def execute_live(
                 builder.capture_transcript("driver", observed, stage_id=stage_id)
                 stage_status = observed_stage_status(observed, stage)
                 if stage_status == "awaiting_approval":
-                    if approval_done:
-                        raise CanaryError("driver requested more than one approval boundary")
+                    proposal_id = observed.get("proposalId")
+                    if not isinstance(proposal_id, str) or not proposal_id or proposal_id in approved_proposals:
+                        raise CanaryError("driver requested a missing or repeated approval proposal")
                     approval_request = {
                         "workspaceId": workspace_id,
                         "stage": stage_id,
@@ -1075,7 +1102,9 @@ def execute_live(
                         request=approval_request,
                         result=approval,
                     )
-                    approval_done = True
+                    if approval.get("proposalId") != proposal_id or not approval.get("approvalId"):
+                        raise CanaryError("approval did not bind the requested proposal and approval identity")
+                    approved_proposals.add(proposal_id)
                     continue
                 if stage_status == "complete":
                     if not builder._stage_record(stage_id)["modelActionSequences"]:
@@ -1090,7 +1119,7 @@ def execute_live(
                     {
                         "task": "advance exactly this imported #123 stage from observed state",
                         "candidateRelease": receipt["candidate"]["platformRelease"],
-                        "stage": stage_id,
+                        "stage": stage,
                         "observation": observed.get("observation"),
                         "serverAuthoredToolView": observed.get("toolView"),
                     },
@@ -1159,7 +1188,7 @@ def execute_live(
                     f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
                 )
 
-        if not approval_done:
+        if not approved_proposals:
             raise CanaryError("journey never reached the separate-principal approval boundary")
         if receipt["errorInjection"]["status"] != "recovered":
             raise CanaryError("model did not observe and recover from the injected error")
