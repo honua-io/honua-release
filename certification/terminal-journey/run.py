@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,8 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT / "e2e"))
+from licensing import assert_disabled
 sys.path.insert(0, str(HERE))
 
 import pins  # noqa: E402
@@ -135,6 +139,14 @@ def observe(
     if not ready:
         return observation
 
+    try:
+        assert_disabled(base_url, probes.resolve_env_default(
+            target["adminPassword"]["env"], target["adminPassword"]["default"]))
+        observation.licensing_disabled = True
+        observation.licensing_detail = "admin license mode: disabled"
+    except Exception as exc:
+        observation.licensing_detail = str(exc)
+
     manifest_response = probes.http_get(base_url + endpoints["capabilityManifest"])
     if manifest_response.status == 200:
         try:
@@ -147,6 +159,31 @@ def observe(
     observation.anonymous_admin_status = admin_response.status
     api_keys_response = probes.http_get(base_url + endpoints["adminApiKeys"])
     observation.anonymous_api_keys_status = api_keys_response.status
+
+    honua = bindir / "honua" if bindir else None
+    admin_password = target.get("adminPassword") or {}
+    if honua is None or not honua.exists():
+        observation.credential_probe = probes.CredentialProbe(
+            status="blocked",
+            detail="the pinned honua executable was not installed, so credentialed admin calls were not sent",
+            blocked_by=[stagelib.INSTALLED_CLIENTS],
+        )
+    else:
+        probe_dir = Path(tempfile.mkdtemp(prefix="honua-credential-preflight-"))
+        try:
+            observation.credential_probe = probes.run_credential_preflight(
+                honua=honua,
+                base_url=base_url,
+                admin_key=probes.resolve_env_default(admin_password.get("env", ""), admin_password.get("default", "")),
+                workdir=probe_dir,
+            )
+        except Exception:
+            observation.credential_probe = probes.CredentialProbe(
+                status="fail",
+                detail="credential preflight failed closed before producing an observation",
+            )
+        finally:
+            shutil.rmtree(probe_dir, ignore_errors=True)
 
     proxy = bindir / "honua-mcp-proxy" if bindir else None
     if proxy is None or not proxy.exists():

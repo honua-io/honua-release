@@ -24,6 +24,14 @@ on:
   pull_request:
     paths:
       - "docs/capabilities.yaml"
+      - "docs/2026.1-operating-envelope.md"
+      - "docs/2026.1-release-decision-record.md"
+      - "docs/INSTALL-2026.1.md"
+      - "docs/SDK-SERVER-COMPATIBILITY.md"
+      - "e2e/licensing.py"
+      - "e2e/test_licensing.py"
+      - "tools/platform_lock_bundle.py"
+      - "tools/test_platform_lock_bundle.py"
       - "tools/check_capabilities.py"
       - "tools/check_ga_surface.py"
       - "tools/test_check_capabilities.py"
@@ -59,6 +67,32 @@ env:
   HONUA_EVIDENCE_REF: ${{ vars.HONUA_EVIDENCE_REF || 'trunk' }}
 
 jobs:
+  licensing-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml pytest jsonschema
+      - name: Verify disabled licensing in install and site publication records
+        id: check
+        run: |
+          python -m pytest e2e/test_licensing.py tools/test_platform_lock_bundle.py -q
+          python tools/release_decision_record.py --check
+          python tools/generate_compatibility_table.py docs/platform-lock.v1.draft.yaml --check-output
+          echo "status=pass" >> "$GITHUB_OUTPUT"
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: licensing-policy
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: local
+          why: "2026.1 deployment settings, runtime rejection checks and customer publication records"
+          enforcement: ${{ inputs.enforcement || 'bootstrap' }}
+          prefix: docs-
+
   # ── fetch honua-evidence's capability-matrix.v1.json ONCE; both checks below consume it ───────────
   fetch-matrix:
     runs-on: ubuntu-latest
@@ -245,7 +279,7 @@ jobs:
           prefix: docs-
 
   report:
-    needs: [advertised-vs-actual, ga-surface, evidence-map]
+    needs: [advertised-vs-actual, ga-surface, evidence-map, licensing-policy]
     if: always()
     runs-on: ubuntu-latest
     outputs:

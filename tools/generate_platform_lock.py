@@ -15,7 +15,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sdk_baselines import SDK_COMPONENTS, check_component
+from component_versions import version_map
+
+from release_facts import (
+    CONTENT_DIGEST_FACTS,
+    content_digest,
+    content_digest_conflicts,
+    evidence_reference,
+    fixture_reference,
+    notes_reference,
+)
+from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
 
 try:
     import yaml
@@ -24,6 +34,9 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)?$")
+PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+PLATFORM_DIGEST_ARCHITECTURES = {"amd64", "arm64"}
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -45,6 +58,36 @@ def _file_identity(path: Path) -> dict[str, str]:
     return {"path": path.name, "sha256": f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"}
 
 
+def image_platform_digests(declared: Any, *, index_digest: Any = None, architectures: Any = None) -> dict[str, str]:
+    """Exact amd64/arm64 image digests the rollback certifier can dereference.
+
+    ``platformDigests/amd64`` is the serving identity. A missing, malformed, or
+    non-architecture entry must not be copied into the lock, and neither may a
+    multi-arch index digest repeated as one of its own children.
+    """
+    if not isinstance(declared, dict) or not declared:
+        raise ValueError("platform-specific image digests are not declared")
+    accepted: dict[str, str] = {}
+    errors: list[str] = []
+    for architecture, digest in declared.items():
+        exact = isinstance(digest, str) and DIGEST_RE.fullmatch(digest) is not None
+        if architecture not in PLATFORM_DIGEST_ARCHITECTURES or not exact:
+            errors.append(f"{architecture}: image requires an exact platform-specific digest")
+            continue
+        accepted[architecture] = digest
+    if "amd64" not in accepted and not any(item.startswith("amd64:") for item in errors):
+        errors.append("amd64: image requires an exact platform-specific digest")
+    if len(accepted) > 1 and isinstance(index_digest, str) and index_digest in accepted.values():
+        errors.append("platform digest repeats the multi-arch index digest")
+    if architectures not in (None, []) and (
+        not isinstance(architectures, list) or set(architectures) != set(accepted)
+    ):
+        errors.append("architectures do not match platformDigests")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return dict(accepted)
+
+
 def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     coordinate = component.get("artifact")
     image = component.get("image")
@@ -64,7 +107,6 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
-    release_notes = manifest.get("artifacts", {}).get("releaseNotes") if isinstance(manifest.get("artifacts"), dict) else None
     lock: dict[str, Any] = {
         "lockVersion": "platform-lock.v1",
         "platform": {"id": platform_id, "status": manifest.get("status"), "supportTier": "ga"},
@@ -75,11 +117,9 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         "components": {},
         "contentDigests": {},
         "fixtures": [],
-        "sbom": list((manifest.get("platformLockEvidence") or {}).get("sbom") or []),
-        "provenance": list((manifest.get("platformLockEvidence") or {}).get("provenance") or []),
+        "sbom": [],
+        "provenance": [],
     }
-    if isinstance(release_notes, str) and "tbd" not in release_notes.lower():
-        lock["notes"] = release_notes
     unresolved: list[str] = []
     deferred: list[str] = []
 
@@ -88,23 +128,83 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         unresolved.append(rendered)
         if resolution == "AT-CUT":
             deferred.append(rendered)
+    if "disasterRecovery" in manifest:
+        # Preserve the deployment-owned denominator in the signed lock. Never copy it from evidence.
+        lock["disasterRecovery"] = manifest["disasterRecovery"]
+    else:
+        refuse("$.disasterRecovery: candidate deployment durable-substrate inventory is not declared", "AT-CUT")
     if not platform_id:
         unresolved.append(
             "$.platform.id: platformManifest.platformRelease is absent or not strict "
             "YYYY.N[.P][-rc.N]; refusing to infer the missing identity"
         )
     combined = list((manifest.get("components") or {}).items()) + list((manifest.get("experimental") or {}).items())
+    # Join by package coordinate, not the manifest's arbitrary client row name.
+    # A repository may publish several packages at different source revisions.
+    published_by_component: dict[str, list[dict[str, Any]]] = {name: [] for name, _ in combined}
+    # A registry coordinate has exactly one owner across the whole platform. Scoping this to a
+    # single component would let two rows claim the same coordinate for two repositories at
+    # different versions/hashes, and every such row resolves to one owner on its own.
+    coordinate_owner: dict[tuple[str, str], str] = {}
+    for client, published in (manifest.get("clientArtifacts") or {}).items():
+        path = f"$.clientArtifacts.{client}"
+        if not isinstance(published, dict):
+            refuse(f"{path}: published identity must be a mapping", "PUBLISH")
+            continue
+        kind = {"npm": "npm", "pypi": "wheel", "nuget": "nuget"}.get(published.get("ecosystem"))
+        identity = {"kind": kind, "coordinate": published.get("package"),
+                    "version": published.get("version"), "sourceRevision": published.get("sourceSha")}
+        identity["integrity" if kind == "npm" else "sha256"] = published.get(
+            "integrity" if kind == "npm" else "digest")
+        if not all(identity.values()):
+            refuse(f"{path}: incomplete published identity", "PUBLISH")
+            continue
+        owners = [name for name, component in combined
+                  if _artifact_seed(component) == {"kind": kind, "coordinate": identity["coordinate"]}]
+        repository = published.get("repository")
+        if repository:
+            repository = repository.removeprefix("https://github.com/")
+            repository_owners = [name for name, component in combined
+                                 if component.get("repository") == f"https://github.com/{repository}"]
+            owners = [name for name in owners if name in repository_owners] if owners else repository_owners
+        if len(owners) != 1:
+            refuse(f"{path}: published package must resolve to exactly one component repository", "PUBLISH")
+            continue
+        name = owners[0]
+        coordinate_key = (kind, identity["coordinate"])
+        claimed = coordinate_owner.get(coordinate_key)
+        if claimed is not None:
+            owner = f" already owned by $.components.{claimed}" if claimed != name else ""
+            refuse(f"{path}: duplicate published package coordinate{owner}", "PUBLISH")
+            continue
+        coordinate_owner[coordinate_key] = name
+        published_by_component[name].append(identity)
+    # Read the publisher's first-release facts from the manifest, not from a partially
+    # built lock: component order must never decide whether a floor resolves.
+    publisher_source = dict(combined).get(PUBLISHER) or {}
+    release_ctx = release_context({"components": {PUBLISHER: publisher_source}})
     for name, component in combined:
         cpath = f"$.components.{name}"
         entry: dict[str, Any] = {
             "source": {"repository": component.get("repository"), "revision": component.get("sha")},
-            "contractVersions": component.get("contractVersions") or {},
+            "contractVersions": {},
             "schemaVersions": {},
             "artifacts": [],
             "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
         }
+        for group in ("contractVersions", "schemaVersions"):
+            if group in component:
+                try:
+                    entry[group] = version_map(component[group])
+                except ValueError as exc:
+                    refuse(f"{cpath}.{group}: {exc}", "MECHANICAL")
         if component.get("dbSchema") is not None:
-            entry["schemaVersions"]["database"] = str(component["dbSchema"])
+            database = str(component["dbSchema"])
+            declared_database = entry["schemaVersions"].get("database")
+            if declared_database is not None and declared_database != database:
+                refuse(f"{cpath}.schemaVersions.database: conflicts with dbSchema", "MECHANICAL")
+            else:
+                entry["schemaVersions"]["database"] = database
             if component.get("migrationJournalSha256"):
                 entry["migrationJournalSha256"] = component["migrationJournalSha256"]
             else:
@@ -113,6 +213,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
         if seed:
             entry["artifacts"].append(seed)
         lock["components"][name] = entry
+        if name == PUBLISHER:
+            for field in ("releaseVersion", "publicationHistory"):
+                if component.get(field):
+                    entry[field] = component[field]
         if name in SDK_COMPONENTS:
             if component.get("serverCompatibility"):
                 entry["serverCompatibility"] = component["serverCompatibility"]
@@ -126,12 +230,12 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             entry["supportTier"] = lifecycle_status.lower()
         else:
             refuse(f"{cpath}.lifecycleStatus: exact GA/Preview/Experimental/Excluded status is not declared", "DECISION")
-        if not component.get("contractVersions"):
+        if not entry["contractVersions"]:
             resolution = "PUBLISH" if name in {"honua-sdk-dotnet", "honua-sdk-js", "honua-sdk-python"} else "AT-CUT"
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"]:
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed and not component.get("sourcePinnedOnly"):
+        if not seed and not component.get("sourcePinnedOnly") and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
         elif seed:
             apath = f"{cpath}.artifacts[0]"
@@ -144,23 +248,29 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             artifact_revision = component.get("artifactSourceRevision")
             if artifact_revision:
                 seed["sourceRevision"] = artifact_revision
+            published = next((item for item in published_by_component[name]
+                              if item["kind"] == seed["kind"] and item["coordinate"] == seed["coordinate"]), {})
+            conflicts = [key for key, value in published.items() if key in seed and seed[key] != value]
+            component_hash = component.get("artifactSha256")
+            if component_hash and published.get("sha256") and component_hash != published["sha256"]:
+                conflicts.append("sha256")
+            if conflicts:
+                refuse(f"$.clientArtifacts.{name}: published identity conflicts with component artifact: "
+                       + ", ".join(conflicts), "PUBLISH")
+                published = {}
             if seed["kind"] == "npm":
-                published = (manifest.get("clientArtifacts") or {}).get(name) or {}
                 if published.get("integrity"):
                     seed["integrity"] = published["integrity"]
-                    seed["sourceRevision"] = published.get("sourceSha")
+                    seed["sourceRevision"] = published["sourceRevision"]
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
             elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive"):
-                published_name = "honua-sdk-python-wheel" if name == "honua-sdk-python" else name
-                published = {} if name == "honua-sdk-dotnet" else (manifest.get("clientArtifacts") or {}).get(published_name) or {}
-                digest = component.get("artifactSha256") or published.get("digest")
-                if digest and (component.get("artifactSourceRevision") or published.get("sourceSha")):
+                digest = component_hash or published.get("sha256")
+                if digest and (component.get("artifactSourceRevision") or published.get("sourceRevision")):
                     seed["sha256"] = digest
-                    seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceSha")
+                    seed["sourceRevision"] = component.get("artifactSourceRevision") or published.get("sourceRevision")
                 else:
-                    blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
-                    refuse(f"{apath}.sha256: package hash is not declared{blocker}", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
+                    refuse(f"{apath}.sha256: package hash is not declared", "PUBLISH" if name == "honua-sdk-dotnet" else "MECHANICAL")
             elif seed["kind"] in ("image", "oci-chart"):
                 digest = component.get("digest")
                 if isinstance(digest, str) and digest.startswith("sha256:"):
@@ -172,11 +282,14 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                 else:
                     refuse(f"{apath}.architectures: registry architecture set is not declared", "AT-CUT" if name == "honua-server" else "PUBLISH")
                 if seed["kind"] == "image":
-                    platform_digests = component.get("platformDigests")
-                    if isinstance(platform_digests, dict) and platform_digests:
-                        seed["platformDigests"] = platform_digests
-                    else:
-                        refuse(f"{apath}.platformDigests: platform-specific image digests are not declared", "AT-CUT")
+                    try:
+                        seed["platformDigests"] = image_platform_digests(
+                            component.get("platformDigests"),
+                            index_digest=component.get("digest"),
+                            architectures=component.get("architectures"),
+                        )
+                    except (TypeError, ValueError) as exc:
+                        refuse(f"{apath}.platformDigests: {exc}", "AT-CUT")
                 else:
                     package_sha = component.get("artifactSha256")
                     if isinstance(package_sha, str) and package_sha.startswith("sha256:"):
@@ -191,12 +304,14 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                     resolution = "PUBLISH"
                 else:
                     resolution = "MECHANICAL"
-                blocker = " (blocked on https://github.com/honua-io/honua-sdk-dotnet/issues/263 for Honua.Sdk 1.6.1 publication)" if name == "honua-sdk-dotnet" else ""
-                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision{blocker}", resolution)
+                refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision", resolution)
 
+        for published in published_by_component[name]:
+            if not seed or (published["kind"], published["coordinate"]) != (seed["kind"], seed["coordinate"]):
+                entry["artifacts"].append(published)
         if name in SDK_COMPONENTS:
             try:
-                check_component(entry)
+                check_component(entry, release_ctx)
             except (ValueError, TypeError, KeyError, AttributeError) as exc:
                 refuse(f"{cpath}.serverCompatibility: {exc}", "PUBLISH")
 
@@ -211,23 +326,106 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
             for component in lock["components"].values()
         ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
-    for message in [
-        "$.contentDigests.geospatialMcp: certified content digest is not declared",
-        "$.contentDigests.catalog: catalog digest is not declared",
-        "$.contentDigests.okf: OKF digest is not declared",
-        "$.fixtures: fixture repository revisions are not declared",
-        "$.notes: immutable release-notes content/reference is not declared",
-    ]:
-        refuse(message, "AT-CUT")
-    if lock["sbom"]:
-        refuse("$.sbom: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
-    else:
-        refuse("$.sbom: immutable SBOM references and hashes are not declared", "AT-CUT")
-    if lock["provenance"]:
-        refuse("$.provenance: evidence references are not mechanically bound to the current candidate artifacts", "AT-CUT")
-    else:
-        refuse("$.provenance: immutable provenance references and hashes are not declared", "AT-CUT")
+    _release_facts(manifest, lock, refuse)
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
+
+
+def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) -> None:
+    """Consume the declared release-level facts; refuse every fact that is absent or mutable.
+
+    These are the parts of the candidate identity that no component owns. They are declared by
+    `platformLockEvidence` in the frozen platform manifest so that a reviewer, the generator and
+    candidate binding all read the same bytes; nothing here is inferred from the release label.
+    """
+    evidence = manifest.get("platformLockEvidence")
+    if evidence is not None and not isinstance(evidence, dict):
+        refuse("$.platformLockEvidence: release-level declarations must be a mapping", "AT-CUT")
+        evidence = {}
+    evidence = evidence or {}
+
+    declared_digests = evidence.get("contentDigests") or {}
+    if not isinstance(declared_digests, dict):
+        refuse("$.contentDigests: declarations must be a mapping of content digests", "AT-CUT")
+        declared_digests = {}
+    for name, description in CONTENT_DIGEST_FACTS:
+        if name not in declared_digests:
+            refuse(f"$.contentDigests.{name}: {description} is not declared", "AT-CUT")
+            continue
+        try:
+            digest, _ = content_digest(declared_digests[name])
+        except (ValueError, TypeError) as exc:
+            refuse(f"$.contentDigests.{name}: {exc}", "AT-CUT")
+            continue
+        lock["contentDigests"][name] = digest
+    for name in sorted(set(declared_digests) - {key for key, _ in CONTENT_DIGEST_FACTS}):
+        refuse(f"$.contentDigests.{name}: the lock schema declares no such content digest", "AT-CUT")
+    # One standard, one identity: the lock copies component artifacts and content digests from
+    # independent manifest fields, so a disagreement would sign two identities for the same bytes.
+    for name, message in content_digest_conflicts(manifest):
+        refuse(message, "MECHANICAL")
+        lock["contentDigests"].pop(name, None)
+
+    declared_fixtures = evidence.get("fixtures") or []
+    if not isinstance(declared_fixtures, list):
+        refuse("$.fixtures: fixture declarations must be a list", "AT-CUT")
+        declared_fixtures = []
+    seen: set[tuple[str, str]] = set()
+    for index, declaration in enumerate(declared_fixtures):
+        try:
+            reference = fixture_reference(declaration)
+        except (ValueError, TypeError) as exc:
+            refuse(f"$.fixtures[{index}]: {exc}", "AT-CUT")
+            continue
+        key = (reference["repository"], reference.get("path", ""))
+        if key in seen:
+            refuse(f"$.fixtures[{index}]: duplicate fixture source declaration", "AT-CUT")
+            continue
+        seen.add(key)
+        lock["fixtures"].append(reference)
+    if not lock["fixtures"]:
+        refuse("$.fixtures: fixture repository revisions are not declared", "AT-CUT")
+
+    # Mechanical binding: every reference names a locked component, and every component whose
+    # artifacts the candidate publishes is covered. This is what can be checked from the frozen
+    # inputs alone; it does not assert that the referenced document describes those exact bytes.
+    published = {name for name, entry in lock["components"].items() if entry["artifacts"]}
+    for field, description in (("sbom", "SBOM"), ("provenance", "provenance")):
+        declarations = evidence.get(field) or []
+        if not isinstance(declarations, list):
+            refuse(f"$.{field}: {description} declarations must be a list", "AT-CUT")
+            declarations = []
+        for index, declaration in enumerate(declarations):
+            try:
+                reference = evidence_reference(declaration)
+            except (ValueError, TypeError) as exc:
+                refuse(f"$.{field}[{index}]: {exc}", "AT-CUT")
+                continue
+            if reference["component"] not in lock["components"]:
+                refuse(f"$.{field}[{index}]: names {reference['component']!r}, which is not a "
+                       "component of this candidate", "MECHANICAL")
+                continue
+            lock[field].append(reference)
+        if not lock[field]:
+            refuse(f"$.{field}: immutable {description} references and hashes are not declared", "AT-CUT")
+            continue
+        uncovered = sorted(published - {reference["component"] for reference in lock[field]})
+        if uncovered:
+            refuse(f"$.{field}: no {description} reference covers the candidate artifacts of "
+                   + ", ".join(uncovered), "AT-CUT")
+
+    declared_notes = evidence.get("notes")
+    if declared_notes is None:
+        artifacts = manifest.get("artifacts")
+        declared_notes = artifacts.get("releaseNotes") if isinstance(artifacts, dict) else None
+    if isinstance(declared_notes, str) and PLACEHOLDER_RE.fullmatch(declared_notes.strip()):
+        declared_notes = None  # a placeholder is an absent declaration, never a reference
+    if declared_notes is None:
+        refuse("$.notes: immutable release-notes content/reference is not declared", "AT-CUT")
+        return
+    try:
+        lock["notes"] = notes_reference(declared_notes)
+    except (ValueError, TypeError) as exc:
+        refuse(f"$.notes: {exc}", "AT-CUT")
 
 
 def main(argv: list[str] | None = None) -> int:

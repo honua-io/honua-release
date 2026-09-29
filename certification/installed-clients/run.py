@@ -24,6 +24,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
+_IMPORT_FIDELITY = None
 
 
 class CertificationError(RuntimeError):
@@ -64,6 +65,9 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
             raise CertificationError(f"{cell_id}: artifact lacks immutable byte integrity")
     if not seen:
         raise CertificationError("matrix has no cells")
+    missing = set(artifacts) - {cell["artifact"] for cell in matrix["cells"]}
+    if missing:
+        raise CertificationError(f"matrix omits required client artifacts: {sorted(missing)}")
 
 
 def server_image_ref(manifest: dict[str, Any]) -> str:
@@ -198,9 +202,19 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
                 archive.extractall(target)
         except zipfile.BadZipFile:
             return False, "pinned PyPI bytes are not a valid wheel"
-    if not (target / "honua_sdk" / "__init__.py").is_file():
-        return False, "installed wheel does not expose honua_sdk"
-    if os.environ.get("HONUA_SERVER_URL"):
+    module = {"honua-sdk": "honua_sdk", "honua-admin": "honua_admin"}[pin["package"]]
+    if not (target / module / "__init__.py").is_file():
+        return False, f"installed wheel does not expose {module}"
+    if module == "honua_admin":
+        if pip.returncode:
+            return False, "admin certification requires pip for declared dependencies"
+        probe = _run([sys.executable, "-I", "-c",
+                      "import sys; sys.path.insert(0, sys.argv[1]); "
+                      "from honua_admin import HonuaAdminClient, AsyncHonuaAdminClient",
+                      str(target)], cwd=work)
+        if probe.returncode:
+            return False, f"installed admin import failed: {probe.stderr[-2000:]}"
+    elif os.environ.get("HONUA_SERVER_URL"):
         if pip.returncode:
             return False, "live PyPI certification requires pip for declared dependencies"
         env = os.environ.copy()
@@ -210,6 +224,28 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
         if proc.returncode:
             return False, (proc.stdout + proc.stderr)[-2000:]
     return True, "exact PyPI wheel installed in an isolated target and sha256 matched"
+
+
+def _import_fidelity():
+    global _IMPORT_FIDELITY
+    if _IMPORT_FIDELITY is None:
+        path = Path(__file__).with_name("dotnet_import_fidelity.py")
+        spec = importlib.util.spec_from_file_location("dotnet_import_fidelity", path)
+        if spec is None or spec.loader is None:
+            raise CertificationError("could not load the .NET import-fidelity gate")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _IMPORT_FIDELITY = module
+    return _IMPORT_FIDELITY
+
+
+def evaluate_import_fidelity(manifest: dict[str, Any], receipt: dict[str, Any] | None) -> tuple[str, str]:
+    """Consume a published-SDK receipt. Missing evidence stays a fail; nothing is synthesized."""
+    try:
+        verdict = _import_fidelity().evaluate(manifest, receipt)
+    except Exception as exc:
+        return "fail", f"import fidelity gate could not evaluate the receipt: {exc}"
+    return verdict["status"], verdict["reason"]
 
 
 def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list[dict[str, Any]], evidence_uri: str) -> dict[str, Any]:
@@ -228,7 +264,12 @@ def make_receipt(manifest: dict[str, Any], matrix: dict[str, Any], results: list
     }
 
 
-def execute(manifest: dict[str, Any], matrix: dict[str, Any], evidence_uri: str) -> dict[str, Any]:
+def execute(
+    manifest: dict[str, Any],
+    matrix: dict[str, Any],
+    evidence_uri: str,
+    import_fidelity_receipt: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     pins = manifest["clientArtifacts"]
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="honua-installed-client-") as tmp:
@@ -249,10 +290,12 @@ def execute(manifest: dict[str, Any], matrix: dict[str, Any], evidence_uri: str)
                     companion_pin=pins["honua-sdk-js"],
                 )
                 status = "pass" if ok else "fail"
-            elif cell["driver"] == "pypi":
+            elif cell["driver"] in {"pypi", "pypi-admin"}:
                 work = base / cell["id"]
                 ok, detail = install_pypi(pin, work)
                 status = "pass" if ok else "fail"
+            elif cell["driver"] == "nuget-import-fidelity":
+                status, detail = evaluate_import_fidelity(manifest, import_fidelity_receipt)
             results.append({
                 "cell": cell["id"], "operationId": cell["scenario"], "target": cell["driver"],
                 "package": pin["package"], "version": pin["version"],
@@ -270,12 +313,25 @@ def main() -> int:
     parser.add_argument("--evidence-uri", required=True, help="durable CI artifact/run URI")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
+    parser.add_argument(
+        "--import-fidelity-receipt",
+        type=Path,
+        help="receipt from a clean published .NET SDK consumer; omitted evidence fails that cell",
+    )
     args = parser.parse_args()
     try:
         manifest, matrix = load_inputs(args.manifest, args.matrix)
         validate_release_inputs(manifest, matrix)
         if args.validate_only:
             return 0
+        import_fidelity_receipt = None
+        if args.import_fidelity_receipt:
+            try:
+                import_fidelity_receipt = json.loads(args.import_fidelity_receipt.read_text())
+            except (OSError, json.JSONDecodeError) as exc:
+                raise CertificationError(f"import fidelity receipt is not readable JSON: {exc}") from exc
+            if not isinstance(import_fidelity_receipt, dict):
+                raise CertificationError("import fidelity receipt must be a JSON object")
         if args.live:
             os.environ["HONUA_SERVER_URL"] = os.environ.get("HONUA_SERVER_URL", "http://localhost:8080")
             # boot.sh normally reads the repository-root manifest. Bind it to the already
@@ -288,11 +344,15 @@ def main() -> int:
                 seed = subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT)
                 if seed.returncode:
                     raise CertificationError("the immutable fixture could not be seeded")
-                receipt = execute(manifest, matrix, args.evidence_uri)
+                receipt = execute(
+                    manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
+                )
             finally:
                 subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "down"], cwd=ROOT)
         else:
-            receipt = execute(manifest, matrix, args.evidence_uri)
+            receipt = execute(
+                manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
+            )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps(receipt, indent=2))

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from sdk_baselines import SDK_COMPONENTS, content_digest
+
+import yaml
 
 import generate_platform_lock as generator
 import validate_platform_lock as validator
@@ -10,6 +14,38 @@ import validate_platform_lock as validator
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+NOTES = f"https://github.com/honua-io/honua-release@{REVISION}:release-notes/2026.1.md#{DIGEST}"
+
+
+def evidence_manifest(**overrides):
+    """A manifest whose release-level facts are all declared, as the cut must declare them."""
+    declared = {
+        "contentDigests": {
+            name: {"repository": "https://github.com/honua-io/honua-server",
+                   "revision": REVISION, "path": f"content/{name}.json", "sha256": DIGEST}
+            for name, _ in generator.CONTENT_DIGEST_FACTS
+        },
+        "fixtures": [{"repository": "https://github.com/honua-io/fixtures", "revision": REVISION}],
+        "sbom": [{"component": "sdk", "uri": f"oci://example.test/sdk/sbom@{DIGEST}", "sha256": DIGEST}],
+        "provenance": [{"component": "sdk", "uri": f"oci://example.test/sdk/provenance@{DIGEST}",
+                        "sha256": DIGEST}],
+        "notes": {"repository": "https://github.com/honua-io/honua-release", "revision": REVISION,
+                  "path": "release-notes/2026.1.md", "sha256": DIGEST},
+    }
+    declared.update(overrides)
+    component = {"repository": "https://github.com/honua-io/sdk", "sha": REVISION,
+                 "lifecycleStatus": "GA", "sourcePinnedOnly": True,
+                 "contractVersions": {"sdk": "1"}, "dbSchema": "1",
+                 "migrationJournalSha256": DIGEST}
+    return {"platformRelease": "2026.1", "components": {"sdk": component},
+            "platformLockEvidence": declared}
+
+
+def draft_of(tmp_path, manifest):
+    manifest_path, matrix_path = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    matrix_path.write_text("contracts: {}\n", encoding="utf-8")
+    return generator.generate(manifest_path, matrix_path)
 
 
 def component():
@@ -44,9 +80,9 @@ def valid_lock():
         },
         "contentDigests": {"geospatialMcp": DIGEST, "catalog": DIGEST, "okf": DIGEST},
         "fixtures": [{"repository": "https://github.com/honua-io/fixtures", "revision": REVISION}],
-        "sbom": [{"component": "sdk", "uri": "https://example.test/sbom", "sha256": DIGEST}],
-        "provenance": [{"component": "sdk", "uri": "https://example.test/provenance", "sha256": DIGEST}],
-        "notes": "notes/v1",
+        "sbom": [],
+        "provenance": [],
+        "notes": NOTES,
         "components": {
             "sdk": {
                 "source": {"repository": "https://github.com/honua-io/honua-sdk", "revision": REVISION},
@@ -62,6 +98,10 @@ def valid_lock():
             "source": {"repository": f"https://github.com/honua-io/{name}", "revision": REVISION},
             "artifactIdentityModel": "source-pinned",
         }
+    # Evidence is bound when every candidate component is covered by an immutable reference.
+    for field in ("sbom", "provenance"):
+        lock[field] = [{"component": name, "uri": f"oci://example.test/{name}/{field}@{DIGEST}",
+                        "sha256": DIGEST} for name in sorted(lock["components"])]
     return lock
 
 
@@ -69,6 +109,27 @@ def assert_refused(lock, text):
     findings = validator.validate(lock)
     assert not findings.ok
     assert any(text in error for error in findings.errors), findings.errors
+
+
+def test_generator_preserves_declared_schema_versions_and_legacy_database(tmp_path):
+    manifest = evidence_manifest()
+    manifest["components"]["sdk"]["schemaVersions"] = {"metadata": "2.0.0-alpha.1", "database": "1"}
+    manifest_path, matrix_path = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest))
+    matrix_path.write_text("contracts: {}\n")
+    draft = generator.generate(manifest_path, matrix_path)
+    assert draft.lock["components"]["sdk"]["schemaVersions"] == {"metadata": "2.0.0-alpha.1", "database": "1"}
+    assert not any("schemaVersions" in refusal for refusal in draft.unresolved)
+
+
+def test_generator_refuses_conflicting_database_declarations(tmp_path):
+    manifest = evidence_manifest()
+    manifest["components"]["sdk"]["schemaVersions"] = {"database": "2"}
+    manifest_path, matrix_path = tmp_path / "manifest.yaml", tmp_path / "matrix.yaml"
+    manifest_path.write_text(yaml.safe_dump(manifest))
+    matrix_path.write_text("contracts: {}\n")
+    draft = generator.generate(manifest_path, matrix_path)
+    assert any("schemaVersions.database: conflicts with dbSchema" in refusal for refusal in draft.unresolved)
 
 
 def test_refuses_tbd_anywhere():
@@ -174,26 +235,48 @@ def test_generator_reports_terraform_sha256(tmp_path):
 
 
 def test_generator_does_not_accept_unbound_evidence_references(tmp_path):
-    manifest = tmp_path / "manifest.yaml"
-    manifest.write_text(
-        "platformRelease: 2026.1\ncomponents: {}\nplatformLockEvidence:\n"
-        "  sbom:\n    - {component: sdk, uri: 'https://example.test/sbom', sha256: '" + DIGEST + "'}\n"
-        "  provenance:\n    - {component: sdk, uri: 'oci://example.test/provenance', sha256: '" + DIGEST + "'}\n",
-        encoding="utf-8",
-    )
-    matrix = tmp_path / "matrix.yaml"
-    matrix.write_text("contracts: {}\n", encoding="utf-8")
-    draft = generator.generate(manifest, matrix)
-    assert sum("not mechanically bound" in item for item in draft.deferred_until_cut) == 2
+    """Evidence must name this candidate's own components, not an arbitrary label."""
+    sbom = [{"component": "some-other-product", "uri": f"oci://example.test/x/sbom@{DIGEST}",
+             "sha256": DIGEST}]
+    draft = draft_of(tmp_path, evidence_manifest(sbom=sbom))
+    assert any("$.sbom[0]: names 'some-other-product', which is not a component of this candidate"
+               in item for item in draft.unresolved)
+    assert draft.lock["sbom"] == []
+    assert any("$.sbom: immutable SBOM references and hashes are not declared" in item
+               for item in draft.unresolved)
+
+
+def test_generator_requires_evidence_to_cover_every_published_component(tmp_path):
+    """A candidate whose artifacts have no SBOM/provenance receipt is not bound evidence."""
+    manifest = evidence_manifest()
+    manifest["components"]["sdk"].pop("sourcePinnedOnly")
+    manifest["components"]["sdk"].update(artifact="npm:@honua/sdk", version="1.2.3",
+                                         artifactSourceRevision=REVISION)
+    manifest["components"]["server"] = {
+        "repository": "https://github.com/honua-io/honua-server", "sha": REVISION,
+        "lifecycleStatus": "GA", "sourcePinnedOnly": True, "contractVersions": {"admin": "v1"},
+        "dbSchema": "1", "migrationJournalSha256": DIGEST,
+        "artifact": "npm:@honua/server", "version": "1.2.3", "artifactSourceRevision": REVISION}
+    draft = draft_of(tmp_path, manifest)
+    for field in ("sbom", "provenance"):
+        assert any(f"$.{field}: no " in item and "reference covers the candidate artifacts of server"
+                   in item for item in draft.unresolved), field
 
 
 def test_generator_reports_all_current_unresolved_release_work():
     draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
     joined = "\n".join(draft.unresolved)
-    assert "contentDigests.geospatialMcp" in joined
+    # The MCP standard content digest is declared and verified against its pinned source bytes
+    # by tools/verify_content_digests.py; the runtime catalog/OKF digests need the candidate.
+    assert "contentDigests.geospatialMcp" not in joined
+    assert draft.lock["contentDigests"] == {
+        "geospatialMcp": "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
+    }
     assert "contentDigests.catalog" in joined
     assert "contentDigests.okf" in joined
     assert "fixtures" in joined and "$.sbom:" in joined and "$.provenance:" in joined
+    assert "$.notes: immutable release-notes content/reference is not declared" in joined
+    assert "notes" not in draft.lock
     assert "[DECISION]" not in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
@@ -204,12 +287,95 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
+    assert "honua-server.artifacts[0].platformDigests" not in joined
+    assert "honua-server.artifacts[0].architectures" not in joined
     assert all(
         component["supportTier"] == component["lifecycleStatus"].lower()
         for component in draft.lock["components"].values()
     )
     assert draft.lock["sbom"] == []
     assert draft.lock["provenance"] == []
+
+
+def _server_image_manifest(platform_digests, architectures=None):
+    server = {
+        "repository": "https://github.com/honua-io/honua-server",
+        "sha": REVISION,
+        "lifecycleStatus": "GA",
+        "image": "ghcr.io/honua-io/honua-server:candidate",
+        "digest": DIGEST,
+        "contractVersions": {"admin": "v1"},
+        "dbSchema": "1",
+    }
+    if platform_digests is not None:
+        server["platformDigests"] = platform_digests
+    if architectures is not None:
+        server["architectures"] = architectures
+    return {"platformRelease": "2026.1", "components": {"honua-server": server}}
+
+
+def _server_artifact(draft):
+    return draft.lock["components"]["honua-server"]["artifacts"][0]
+
+
+def test_committed_server_image_exposes_amd64_digest_to_rollback_certifier():
+    """The dry-run lock must carry the child the certifier dereferences, not the index."""
+    import sys
+    sys.path.insert(0, str(ROOT / "mcp"))
+    import release_rollback as rollback
+    import certify_release_rollback as certification
+
+    draft = generator.generate(ROOT / "platform-manifest.yaml", ROOT / "compatibility-matrix.yaml")
+    path = certification.artifact_path(draft.lock, "honua-server", "image", "platformDigests/amd64")
+    amd64 = "sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93"
+    arm64 = "sha256:3931efaa25642b80a3db42fc6deead63241a58e7eec93c592f803313c6253378"
+    artifact = _server_artifact(draft)
+    assert artifact["digest"] == "sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+    assert artifact["digest"] not in (amd64, arm64)
+    assert artifact["platformDigests"] == {"amd64": amd64, "arm64": arm64}
+    assert artifact["architectures"] == ["amd64", "arm64"]
+    assert rollback.pointer(draft.lock, path) == amd64
+    assert not any("honua-server.artifacts[0].platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_copies_exact_amd64_platform_digest(tmp_path):
+    amd64, arm64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": amd64, "arm64": arm64}, ["amd64", "arm64"]))
+    assert _server_artifact(draft)["platformDigests"] == {"amd64": amd64, "arm64": arm64}
+    assert not any("platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_allows_single_arch_digest_to_equal_the_image_digest(tmp_path):
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": DIGEST}, ["amd64"]))
+    assert _server_artifact(draft)["platformDigests"] == {"amd64": DIGEST}
+    assert not any("platformDigests" in item for item in draft.unresolved)
+
+
+@pytest.mark.parametrize("declared", [
+    None,
+    {},
+    {"arm64": DIGEST},
+    {"amd64": "sha256:abcd"},
+    {"linux/amd64": DIGEST},
+    {"amd64": DIGEST, "ppc64le": DIGEST},
+])
+def test_generator_does_not_copy_platform_digests_the_certifier_cannot_read(tmp_path, declared):
+    draft = draft_of(tmp_path, _server_image_manifest(declared, ["amd64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any(item.startswith("[AT-CUT]") and "platformDigests" in item for item in draft.unresolved)
+
+
+def test_generator_refuses_platform_digest_that_repeats_the_multi_arch_index(tmp_path):
+    declared = {"amd64": DIGEST, "arm64": "sha256:" + "c" * 64}
+    draft = draft_of(tmp_path, _server_image_manifest(declared, ["amd64", "arm64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any("multi-arch index" in item for item in draft.unresolved)
+
+
+def test_generator_refuses_platform_digests_that_disagree_with_architectures(tmp_path):
+    draft = draft_of(tmp_path, _server_image_manifest({"amd64": "sha256:" + "c" * 64}, ["amd64", "arm64"]))
+    assert "platformDigests" not in _server_artifact(draft)
+    assert any("architectures do not match platformDigests" in item for item in draft.unresolved)
 
 
 def test_generator_derives_support_tier_from_lifecycle_status(tmp_path):
@@ -247,3 +413,209 @@ def test_generator_tracks_deferred_until_cut_as_signing_blockers(tmp_path):
     assert draft.deferred_until_cut
     assert all(item in draft.unresolved for item in draft.deferred_until_cut)
     assert any("artifacts[0].sourceRevision" in item for item in draft.deferred_until_cut)
+
+
+def test_generator_preserves_deployment_owned_dr_inventory(tmp_path):
+    import yaml
+    from validate_dr_receipt import expected_substrates
+
+    manifest = yaml.safe_load((ROOT / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    inventory = {
+        "topology": "single-tenant-test",
+        "substrates": {"postgresql": True, "redis": True, "object-storage": True,
+                       "job-queue": True, "transactional-outbox": False, "workflow-cursors": False},
+    }
+    manifest["disasterRecovery"] = inventory
+    path = tmp_path / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    draft = generator.generate(path, ROOT / "compatibility-matrix.yaml")
+    assert draft.lock["disasterRecovery"] == inventory
+    assert expected_substrates(draft.lock) == ("single-tenant-test", {"postgresql", "redis", "object-storage", "job-queue"})
+
+
+def test_lock_schema_checks_dr_enablement():
+    lock = valid_lock()
+    lock["disasterRecovery"] = {"topology": "test", "substrates": {"postgresql": True}}
+    assert_refused(lock, "redis")
+
+
+def _dr_inventory():
+    return {
+        "topology": "test",
+        "objectives": {"rpoMs": 60000, "rtoMs": 300000},
+        "substrates": {name: True for name in
+                       ("postgresql", "redis", "object-storage", "job-queue",
+                        "transactional-outbox", "workflow-cursors")},
+    }
+
+
+def test_lock_schema_requires_deployment_recovery_objectives():
+    lock = valid_lock()
+    lock["disasterRecovery"] = _dr_inventory()
+    assert validator.validate(lock).ok
+    del lock["disasterRecovery"]["objectives"]
+    assert_refused(lock, "objectives")
+
+
+@pytest.mark.parametrize("objectives", [
+    {"rpoMs": 60000},
+    {"rtoMs": 300000},
+    {"rpoMs": 60000, "rtoMs": 0},
+    {"rpoMs": -1, "rtoMs": 300000},
+    {"rpoMs": 60000, "rtoMs": 300000, "extra": 1},
+])
+def test_lock_schema_refuses_incomplete_objectives(objectives):
+    lock = valid_lock()
+    lock["disasterRecovery"] = {**_dr_inventory(), "objectives": objectives}
+    assert not validator.validate(lock).ok
+
+
+# --- Release-level candidate facts (release#231) ------------------------------------------
+# Everything the lock carries outside `components` must be declared by the frozen manifest and
+# must name immutable bytes. Before these rules the generator could not emit these fields at
+# all: contentDigests/fixtures were hard-coded empty and the notes refusal ignored its input.
+
+
+def test_generator_emits_every_declared_release_fact(tmp_path):
+    draft = draft_of(tmp_path, evidence_manifest())
+    assert draft.lock["contentDigests"] == {name: DIGEST for name, _ in generator.CONTENT_DIGEST_FACTS}
+    assert draft.lock["fixtures"] == [
+        {"repository": "https://github.com/honua-io/fixtures", "revision": REVISION}]
+    assert draft.lock["sbom"] == [
+        {"component": "sdk", "uri": f"oci://example.test/sdk/sbom@{DIGEST}", "sha256": DIGEST}]
+    assert draft.lock["notes"] == NOTES
+    # Nothing release-level is left unresolved once every fact is declared and bound.
+    assert not [item for item in draft.unresolved
+                if item.partition("] ")[2].startswith(
+                    ("$.contentDigests", "$.fixtures", "$.sbom", "$.provenance", "$.notes"))]
+
+
+def test_generator_refuses_content_digest_at_a_moving_revision(tmp_path):
+    declared = evidence_manifest()["platformLockEvidence"]["contentDigests"]
+    declared["catalog"] = {**declared["catalog"], "revision": "trunk"}
+    draft = draft_of(tmp_path, evidence_manifest(contentDigests=declared))
+    assert any("$.contentDigests.catalog: source revision must be an immutable" in item
+               for item in draft.unresolved)
+    assert "catalog" not in draft.lock["contentDigests"]
+
+
+def test_generator_refuses_a_content_digest_the_lock_cannot_carry(tmp_path):
+    declared = evidence_manifest()["platformLockEvidence"]["contentDigests"]
+    declared["studio"] = declared["catalog"]
+    draft = draft_of(tmp_path, evidence_manifest(contentDigests=declared))
+    assert any("$.contentDigests.studio: the lock schema declares no such content digest" in item
+               for item in draft.unresolved)
+    assert "studio" not in draft.lock["contentDigests"]
+
+
+def test_generator_refuses_two_revisions_of_one_fixture_source(tmp_path):
+    fixtures = [{"repository": "https://github.com/honua-io/fixtures", "revision": REVISION},
+                {"repository": "https://github.com/honua-io/fixtures", "revision": "c" * 40}]
+    draft = draft_of(tmp_path, evidence_manifest(fixtures=fixtures))
+    assert any("$.fixtures[1]: duplicate fixture source declaration" in item
+               for item in draft.unresolved)
+    assert draft.lock["fixtures"] == [fixtures[0]]
+
+
+def test_generator_refuses_release_notes_that_are_not_an_immutable_reference(tmp_path):
+    for notes in ("see the 2026.1 announcement",
+                  "https://github.com/honua-io/honua-release/blob/trunk/release-notes/2026.1.md#" + DIGEST,
+                  {"repository": "https://github.com/honua-io/honua-release", "revision": REVISION,
+                   "path": "release-notes/2026.1.md"}):
+        draft = draft_of(tmp_path, evidence_manifest(notes=notes))
+        assert any(item.startswith("[AT-CUT] $.notes:") for item in draft.unresolved), notes
+        assert "notes" not in draft.lock
+
+
+def test_generator_refuses_evidence_published_under_a_moving_reference(tmp_path):
+    sbom = [{"component": "server", "uri": "oci://ghcr.io/honua-io/honua-server:latest", "sha256": DIGEST}]
+    draft = draft_of(tmp_path, evidence_manifest(sbom=sbom))
+    assert any("$.sbom[0]: oci reference must be pinned" in item for item in draft.unresolved)
+    assert draft.lock["sbom"] == []
+    assert any("$.sbom: immutable SBOM references and hashes are not declared" in item
+               for item in draft.unresolved)
+
+
+def test_generator_keeps_every_undeclared_release_fact_refused(tmp_path):
+    draft = draft_of(tmp_path, {"platformRelease": "2026.1", "components": {}})
+    for message in ("$.contentDigests.geospatialMcp: certified content digest is not declared",
+                    "$.contentDigests.catalog: catalog digest is not declared",
+                    "$.contentDigests.okf: OKF digest is not declared",
+                    "$.fixtures: fixture repository revisions are not declared",
+                    "$.sbom: immutable SBOM references and hashes are not declared",
+                    "$.provenance: immutable provenance references and hashes are not declared",
+                    "$.notes: immutable release-notes content/reference is not declared"):
+        assert f"[AT-CUT] {message}" in draft.unresolved
+
+
+def test_validator_refuses_release_notes_bound_to_a_branch():
+    lock = valid_lock()
+    lock["notes"] = ("https://github.com/honua-io/honua-release/blob/release-2026.1/"
+                     "release-notes/2026.1.md#" + DIGEST)
+    assert_refused(lock, "git references must name a 40-character revision")
+    lock["notes"] = "https://github.com/honua-io/honua-release/blob/trunk/NOTES.md#" + DIGEST
+    assert_refused(lock, "floating tag references are forbidden")
+
+
+def test_validator_refuses_evidence_hosted_at_a_moving_release_url():
+    """A declared sha256 nobody fetches cannot make a moving URL immutable."""
+    lock = valid_lock()
+    lock["sbom"] = [{"component": "sdk", "uri": "https://host.test/releases/download/sbom.json",
+                     "sha256": DIGEST}]
+    assert_refused(lock, "must be content-addressed")
+    lock["notes"] = "https://host.test/releases/latest/download/notes.md#" + DIGEST
+    assert_refused(lock, "floating tag references are forbidden")
+
+
+def test_validator_refuses_evidence_under_a_floating_tag():
+    lock = valid_lock()
+    lock["sbom"] = [{"component": "server", "uri": "https://artifacts.test/honua/latest", "sha256": DIGEST}]
+    assert_refused(lock, "floating tag references are forbidden")
+
+
+def test_validator_refuses_an_unpinned_oci_evidence_reference():
+    lock = valid_lock()
+    lock["provenance"] = [{"component": "server", "uri": "oci://ghcr.io/honua-io/honua-server", "sha256": DIGEST}]
+    assert_refused(lock, "oci reference must be pinned")
+
+
+def test_validator_refuses_two_revisions_of_one_fixture_source():
+    lock = valid_lock()
+    lock["fixtures"] = [{"repository": "https://github.com/honua-io/fixtures", "revision": REVISION},
+                        {"repository": "https://github.com/honua-io/fixtures", "revision": "c" * 40}]
+    assert_refused(lock, "one revision per fixture repository path")
+
+
+def test_validator_refuses_a_fixture_pinned_to_a_branch():
+    lock = valid_lock()
+    lock["fixtures"] = [{"repository": "https://github.com/honua-io/fixtures", "revision": "trunk"}]
+    assert_refused(lock, "immutable 40-character git revision")
+
+
+def test_generator_refuses_two_identities_for_one_standard(tmp_path):
+    """A content digest may not contradict the component artifact naming the same bytes."""
+    manifest = evidence_manifest()
+    manifest["components"]["geospatial-mcp"] = {
+        "repository": "https://github.com/honua-io/geospatial-mcp", "sha": REVISION,
+        "lifecycleStatus": "Experimental", "contractVersions": {"mcp": "1"}, "dbSchema": "1",
+        "migrationJournalSha256": DIGEST,
+        "artifact": f"spec:https://github.com/honua-io/geospatial-mcp/blob/{REVISION}/spec/schemas/index.json",
+        "artifactVersion": "1.0.0", "artifactSourceRevision": REVISION, "artifactSha256": DIGEST,
+    }
+    digests = manifest["platformLockEvidence"]["contentDigests"]
+    digests["geospatialMcp"] = {"repository": "https://github.com/honua-io/geospatial-mcp",
+                                "revision": REVISION, "path": "spec/schemas/README.md",
+                                "sha256": "sha256:" + "e" * 64}
+    draft = draft_of(tmp_path, manifest)
+    assert any("$.contentDigests.geospatialMcp: disagrees with "
+               "$.components.geospatial-mcp.artifact on path, sha256" in item
+               for item in draft.unresolved)
+    # The contradicted digest never reaches the lock.
+    assert "geospatialMcp" not in draft.lock["contentDigests"]
+    # The agreeing declaration is accepted.
+    digests["geospatialMcp"] = {"repository": "https://github.com/honua-io/geospatial-mcp",
+                                "revision": REVISION, "path": "spec/schemas/index.json",
+                                "sha256": DIGEST}
+    agreed = draft_of(tmp_path, manifest)
+    assert agreed.lock["contentDigests"]["geospatialMcp"] == DIGEST
+    assert not any("disagrees with" in item for item in agreed.unresolved)

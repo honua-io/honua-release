@@ -7,6 +7,8 @@
     {"id": "npm-node-geoservices-error", "artifact": "honua-sdk-js", "driver": "npm", "scenario": "geoservices-error-surfacing", "status": "active"},
     {"id": "npm-mcp-tools-list", "artifact": "honua-mcp-server", "driver": "npm-mcp", "scenario": "mcp-tools-list", "status": "active"},
     {"id": "pypi-python-geoservices-error", "artifact": "honua-sdk-python-wheel", "driver": "pypi", "scenario": "geoservices-error-surfacing", "status": "active"},
-    {"id": "nuget-net8-geoservices-error", "artifact": "honua-sdk-dotnet", "driver": "nuget", "scenario": "geoservices-error-surfacing", "status": "blocked", "blockedBy": "https://github.com/honua-io/honua-release/issues/57"}
+    {"id": "pypi-admin-clean-install", "artifact": "honua-admin-python-wheel", "driver": "pypi-admin", "scenario": "clean-install-import", "status": "active"},
+    {"id": "nuget-net8-geoservices-error", "artifact": "honua-sdk-dotnet", "driver": "nuget", "scenario": "geoservices-error-surfacing", "status": "blocked", "blockedBy": "https://github.com/honua-io/honua-release/issues/57"},
+    {"id": "nuget-service-layer-import-fidelity", "artifact": "honua-sdk-dotnet", "driver": "nuget-import-fidelity", "scenario": "service-layer-import-fidelity", "status": "active", "requirements": "dotnet-import-fidelity.requirements.v1.json"}
   ]
 }

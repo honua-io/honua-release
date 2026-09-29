@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["lockVersion", "platform", "sourceInputs", "components", "contentDigests", "fixtures", "sbom", "provenance", "notes"],
   "properties": {
+    "disasterRecovery": {"$ref": "#/$defs/disasterRecovery"},
     "lockVersion": {"const": "platform-lock.v1"},
     "platform": {
       "type": "object", "additionalProperties": false,
@@ -43,6 +44,56 @@
     "notes": {"type": "string", "minLength": 1}
   },
   "$defs": {
+    "disasterRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topology",
+        "objectives",
+        "substrates"
+      ],
+      "properties": {
+        "topology": {
+          "type": "string",
+          "minLength": 1
+        },
+        "objectives": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rpoMs",
+            "rtoMs"
+          ],
+          "properties": {
+            "rpoMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "rtoMs": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "substrates": {
+          "type": "object",
+          "required": [
+            "postgresql",
+            "redis",
+            "object-storage",
+            "job-queue",
+            "transactional-outbox",
+            "workflow-cursors"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "gitRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "digest": {"$ref": "#/$defs/sha256"},
@@ -74,6 +125,21 @@
       "required": ["source", "lifecycleStatus", "supportTier", "artifactIdentityModel", "contractVersions", "schemaVersions", "artifacts"],
       "properties": {
         "source": {"$ref": "#/$defs/sourceRef"},
+        "releaseVersion": {
+          "$comment": "The publisher's released SemVer identity; only honua-server declares it, and it must equal the version of a locked artifact.",
+          "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "publicationHistory": {
+          "$comment": "Pin of the committed receipt enumerating the publisher's complete (empty) tag/release namespaces, which is what lets a capability resolve to the first release. maxAgeDays bounds how stale that enumeration may be at the cut.",
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "uri", "sha256", "maxAgeDays"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "uri": {"type": "string", "pattern": "^https://"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "maxAgeDays": {"type": "integer", "minimum": 1}
+          }
+        },
         "serverCompatibility": {
           "type": "object", "additionalProperties": false,
           "required": ["minimumServerVersion", "manifests", "declarations"],

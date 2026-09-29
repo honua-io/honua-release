@@ -2,11 +2,16 @@
 # Runs the canonical scenarios against a REAL composed honua-server + DB (no mocks at the seam) and
 # uploads the machine-readable gate-report.json that the release train's gate_e2e consumes.
 #
-# Honesty (AGENTS.md): the static gates (compose validity + scenario compile) ALWAYS run and can FAIL
-# on a broken edit even before real images exist. Server-dependent scenarios report BLOCKED (not PASS)
-# until platform-manifest.yaml carries real pins. A manual `require_real=true` run (or the release
-# train) promotes BLOCKED/SKIPPED to FAIL so the gate can genuinely fail. AI proposes; the pipeline
-# disposes.
+# Honesty (AGENTS.md): the static gates (compose validity + scenario compile + the verdict-logic
+# fixtures) ALWAYS run and can FAIL on a broken edit even before real images exist. Server-dependent
+# scenarios report BLOCKED (not PASS) until platform-manifest.yaml carries real pins. A manual
+# `require_real=true` run (or the release train) promotes BLOCKED/SKIPPED to FAIL so the gate can
+# genuinely fail. AI proposes; the pipeline disposes.
+#
+# One thing require_real does NOT govern (honua-release#303): if the candidate stack never boots -
+# unpullable image, or a container that exits before binding a port - Slice-1 FAILS on every
+# trigger, PR included. A green check on a stack that never served a request is not an honest
+# BLOCKED, it is a lie: there is no evidence to be green about.
 
 name: e2e-local-docker
 
@@ -70,7 +75,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-python
-          ref: f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4   # python-sdk-v0.1.11; mirrors components.honua-sdk-python.sha
+          ref: 40ecf7318573214fb6c702b12ebd56b3ad47ba60   # 2026-09-12 re-pin; mirrors components.honua-sdk-python.sha
           path: _e2e-sdk-python
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -78,7 +83,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-dotnet
-          ref: 8e4dd3d9d23f86b7f07d946ef0736d4529d332b6   # 2026-08-27 refresh; mirrors components.honua-sdk-dotnet.sha
+          ref: 6ba49ec32ea846c64bc2094807761d4884dbc4bf   # 2026-09-12 re-pin; mirrors components.honua-sdk-dotnet.sha
           path: _e2e-sdk-dotnet
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -96,9 +101,9 @@ jobs:
           # These literals mirror the immutable manifest pins so the seam probes consume the same
           # published client candidate. The .NET/Python package coordinates remain unchanged.
           expected = {
-              "honua-sdk-js": ("c99e71197dd940ed952aecb024c6de273456f2ae", "0.1.9-beta.0"),
-              "honua-sdk-python": ("f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4", "0.1.11"),
-              "honua-sdk-dotnet": ("8e4dd3d9d23f86b7f07d946ef0736d4529d332b6", "1.6.0"),
+              "honua-sdk-js": ("d7cec2d510e053fc86252b125bde21313a7e6e7c", "0.1.9-beta.0"),
+              "honua-sdk-python": ("40ecf7318573214fb6c702b12ebd56b3ad47ba60", "0.1.11"),
+              "honua-sdk-dotnet": ("6ba49ec32ea846c64bc2094807761d4884dbc4bf", "1.6.2"),
           }
           for name, (sha, version) in expected.items():
               actual = components[name]
@@ -113,7 +118,7 @@ jobs:
             --store-password-in-clear-text --configfile _e2e-sdk-dotnet/NuGet.config
           dotnet pack _e2e-sdk-dotnet -c Release -o "$WORK/feed"
           dotnet add e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.csproj \
-            package Honua.Sdk.GeoServices --version 1.6.0 --source "$WORK/feed"
+            package Honua.Sdk.GeoServices --version 1.6.2 --source "$WORK/feed"
 
       # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)
@@ -157,8 +162,9 @@ jobs:
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
 
-      # Pull the pinned server image from ghcr (packages:read). If this can't authenticate, boot.sh
-      # degrades to BLOCKED (honest) rather than failing the cheap PR tier.
+      # Pull the pinned server image from ghcr (packages:read). If this can't authenticate the image
+      # never boots, and per honua-release#303 that FAILS the job rather than reporting a green
+      # check over 13 identical BLOCKED rows.
       - name: Log in to ghcr
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -194,7 +200,7 @@ jobs:
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f"
+          TRUSTED_SHA="dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -216,7 +222,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          ref: dcb9eb2b39ed4d0626462ce1bcd762e4717e0071
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -272,14 +278,16 @@ jobs:
             --nologo
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
-          # nightly (schedule) hardens the gate; PRs run honest (blocked tolerated).
+          # nightly (schedule) hardens the gate by promoting SCENARIO-level BLOCKED to FAIL; PRs run
+          # honest (a scenario blocked on a missing dep is tolerated). A stack that never boots
+          # fails on every trigger regardless of this input - see lib/report.sh.
           E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
           # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
           # instead of pointing at a directory that is not a console checkout.
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: 2cd3a73a6b103f1d66d79fcddecd455b6f19ee7f
+          E2E_CONSOLE_SHA: dcb9eb2b39ed4d0626462ce1bcd762e4717e0071
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
@@ -295,6 +303,10 @@ jobs:
           [ -f "$f" ] || { echo "no gate-report"; exit 0; }
           {
             echo "## e2e Slice-1 â€” $(jq -r .status "$f")";
+            if [ "$(jq -r '.boot.failed' "$f")" = "true" ]; then
+              echo "";
+              echo "**the candidate stack did not boot** â€” reason \`$(jq -r '.boot.reason' "$f")\`, container exit code \`$(jq -r '.boot.exitCode // "unknown"' "$f")\`. This fails the gate on every trigger; \`require_real\` only governs scenario-level BLOCKED.";
+            fi
             echo ""; echo "### scenarios"; echo "| scenario | status |"; echo "|---|---|";
             jq -r '.scenarios[] | "| \(.scenario) | \(.status) |"' "$f";
             echo ""; echo "### formatCoverage[]"; echo "| format | read | write | roundtrip | notes |"; echo "|---|---|---|---|---|";

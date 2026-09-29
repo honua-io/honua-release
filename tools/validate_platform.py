@@ -52,10 +52,12 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
+from component_versions import version_map  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
+REQUIREMENTS_PATH = REPO_ROOT / "certification" / "protocol-certification-requirements.v1.json"
 
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
@@ -66,6 +68,21 @@ SHA_PREFIX = "sha:"
 # a stock `registry:2`, which preserves the source digest) — it is only knowable after a real mirror.
 # honua-release#99 tracks replacing it; e2e-cloud-aws.yml rejects it once HONUA_AWS_ROLE_ARN is set.
 PENDING_ECR_MIRROR = "pending-ecr-mirror"
+# 2026.1 ruling A certifies Lambda x86_64 only. arm64 remains outside the GA target.
+LAMBDA_GA_ARCHITECTURE = "x86_64"
+# A run page is not the receipt. The supported reference has to name the lane artifact.
+LAMBDA_RECEIPT_NAME = "lambda-preview-receipt.json"
+LAMBDA_ENVELOPE_PATH = REPO_ROOT / "docs" / "2026.1-operating-envelope.md"
+LAMBDA_ENVELOPE_HEADING = "## 5. AWS Lambda (serverless): supported target and limits"
+# Bill item 5's pre-cut half: the published limits, not a Supported flip.
+LAMBDA_ENVELOPE_REQUIREMENTS = (
+    ("invocation cap", "30 seconds"),
+    ("in-function GP exclusion", "No long-running jobs or GP workers in the serving function"),
+    ("ephemeral storage", "512 MB"),
+    ("cold start", "Cold starts"),
+    ("concurrency", "Reserved concurrency"),
+    ("pending qualification", "qualification pending"),
+)
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 NPM_INTEGRITY_RE = re.compile(r"sha512-[A-Za-z0-9+/]+={0,2}")
@@ -97,6 +114,10 @@ def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _load_yaml_at_ref(ref: str, rel_path: str) -> dict | None:
     """Load a YAML file as it existed at a git ref. Returns None if the ref/path is unavailable
     (e.g. the file is brand new on this branch) — drift is then skipped for it, not failed."""
@@ -125,6 +146,19 @@ def _component_version_kind(comp: dict) -> str:
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
+    for section in ("components", "experimental"):
+        for name, component in (manifest.get(section) or {}).items():
+            if not isinstance(component, dict):
+                continue
+            for group in ("contractVersions", "schemaVersions"):
+                if group in component:
+                    try:
+                        versions = version_map(component[group])
+                        if group == "schemaVersions" and "database" in versions and component.get("dbSchema") is not None:
+                            if versions["database"] != str(component["dbSchema"]):
+                                raise ValueError("database conflicts with dbSchema")
+                    except ValueError as exc:
+                        f.error(f"manifest: {section}.{name}.{group}: {exc}")
     for key in ("platformRelease", "status", "components", "protocolCertification"):
         if key not in manifest:
             f.error(f"manifest: missing required top-level key {key!r}")
@@ -201,13 +235,18 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             f.error(f"manifest: component {name!r} is {PRERELEASE_SENTINEL} but has no sha")
 
     server = components.get("honua-server") or {}
-    for field_name in ("awsEcsArchitecture", "awsLambdaArchitecture"):
-        architecture = str(server.get(field_name, "")).strip()
-        if architecture not in {"arm64", "x86_64"}:
-            f.error(
-                f"manifest: honua-server.{field_name} must explicitly select arm64 or x86_64, "
-                f"got {architecture!r}"
-            )
+    ecs_architecture = str(server.get("awsEcsArchitecture", "")).strip()
+    if ecs_architecture not in {"arm64", "x86_64"}:
+        f.error(
+            "manifest: honua-server.awsEcsArchitecture must explicitly select arm64 or x86_64, "
+            f"got {ecs_architecture!r}"
+        )
+    lambda_architecture = str(server.get("awsLambdaArchitecture", "")).strip()
+    if lambda_architecture != LAMBDA_GA_ARCHITECTURE:
+        f.error(
+            "manifest: honua-server.awsLambdaArchitecture must be x86_64 for the 2026.1 Lambda GA "
+            f"target (release#282); got {lambda_architecture!r}"
+        )
 
     # awsLambdaEcrDigest is the digest ECR assigns AFTER the OCI->schema-2 conversion, so it can only
     # be learned by actually pushing to ECR. Exactly two values are legal: a real digest, or the one
@@ -219,6 +258,11 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             f"manifest: honua-server.awsLambdaEcrDigest must be an exact sha256:<64hex> digest or "
             f"the literal {PENDING_ECR_MIRROR!r} sentinel, got {ecr_digest!r}"
         )
+
+    # Rollback certification dereferences this exact child, not the multi-arch index in `digest`.
+    platform_digests = server.get("platformDigests") if isinstance(server.get("platformDigests"), dict) else {}
+    if not DIGEST_RE.fullmatch(str(platform_digests.get("amd64", ""))):
+        f.error("manifest: honua-server.platformDigests.amd64 must be the exact linux/amd64 image digest")
 
     # Matrix ranges must parse, and every named client/component must exist in the manifest.
     for contract, body in (matrix.get("contracts") or {}).items():
@@ -237,6 +281,42 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
 
     _check_client_artifacts(manifest.get("clientArtifacts"), f)
     _check_evidence_sources(manifest.get("evidenceSources"), f)
+
+
+def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Findings) -> None:
+    """A bound ledger may only certify the SDK producers frozen by the manifest."""
+    ledger = ((manifest.get("protocolCertification") or {}).get("ledger") or {})
+    if ledger.get("status") != "bound":
+        return
+
+    components = manifest.get("components") or {}
+    source_revisions = requirements.get("source_revisions")
+    if not isinstance(source_revisions, dict):
+        f.error("manifest: bound protocol certification ledger requires catalog source_revisions")
+        return
+    artifacts = manifest.get("clientArtifacts") or {}
+    for source, component, artifact in (
+        ("sdk-dotnet", "honua-sdk-dotnet", "honua-sdk-dotnet"),
+        ("sdk-python", "honua-sdk-python", "honua-sdk-python-wheel"),
+        ("sdk-js", "honua-sdk-js", "honua-sdk-js"),
+    ):
+        manifest_sha = (components.get(component) or {}).get("sha")
+        producer = source_revisions.get(source)
+        catalog_sha = producer.get("commit") if isinstance(producer, dict) else None
+        if not _full_sha(catalog_sha) or catalog_sha != manifest_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal components.{component}.sha "
+                f"(catalog={catalog_sha or 'missing'}, manifest={manifest_sha or 'missing'})"
+            )
+        published = artifacts.get(artifact)
+        published_sha = published.get("sourceSha") if isinstance(published, dict) else None
+        if not _full_sha(published_sha) or catalog_sha != published_sha:
+            f.error(
+                "manifest: bound protocol certification ledger requires catalog source_revisions."
+                f"{source}.commit to equal clientArtifacts.{artifact}.sourceSha "
+                f"(catalog={catalog_sha or 'missing'}, published={published_sha or 'missing'})"
+            )
 
 
 def _mapping(value: object, path: str, f: Findings) -> dict:
@@ -334,6 +414,9 @@ def check_exact_candidate(
     manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
 ) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
+    if ledger.get("status") != "bound":
+        f.error("exact-candidate: protocol certification ledger must be bound before certification")
     candidate = manifest.get("candidate") or {}
     ref_source = candidate.get("refSource")
     if ref_source != "trunk":
@@ -389,6 +472,29 @@ def qualification_candidate_digest(manifest: dict) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def check_lambda_operating_envelope(text: str, f: Findings) -> None:
+    """Item 5's published limits have to stay in the envelope. This is not qualification."""
+    start = text.find(LAMBDA_ENVELOPE_HEADING)
+    if start < 0:
+        f.error(
+            "lambda-ga: operating envelope is missing the serverless limits section (release#282 item 5)"
+        )
+        return
+    rest = text[start + len(LAMBDA_ENVELOPE_HEADING):]
+    next_heading = rest.find("\n## ")
+    section = rest if next_heading < 0 else rest[:next_heading]
+    for label, needle in LAMBDA_ENVELOPE_REQUIREMENTS:
+        if needle not in section:
+            f.error(f"lambda-ga: operating envelope section 5 is missing the {label} limit ({needle!r})")
+    if "lambda-preview-receipt.json" not in section:
+        f.error(
+            "lambda-ga: operating envelope must require qualificationReceipt.url to name "
+            "lambda-preview-receipt.json"
+        )
+    if "No receipt reference is declared until that proof exists." not in section:
+        f.error("lambda-ga: operating envelope must not declare a Lambda qualification receipt")
+
+
 def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool) -> None:
     """A GA scope ruling is not qualification (quality contract §4.2)."""
     for component, deployments in (matrix.get("deploy") or {}).items():
@@ -399,6 +505,11 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
             if not isinstance(architectures, dict):
                 f.error(f"matrix: deploy.{component}.{target}.architectures must be a mapping")
                 continue
+            if component == "honua-server" and target == "awsLambda" and set(architectures) != {LAMBDA_GA_ARCHITECTURE}:
+                f.error(
+                    "matrix: deploy.honua-server.awsLambda.architectures must declare exactly x86_64 "
+                    "(release#282)"
+                )
             for architecture, row in architectures.items():
                 path = f"deploy.{component}.{target}.architectures.{architecture}"
                 if not isinstance(row, dict):
@@ -407,6 +518,10 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                 status, qualification = row.get("status"), row.get("qualification")
                 if status == "ga-target" and qualification != "pending":
                     f.error(f"matrix: {path}: ga-target requires qualification: pending; promote only with a passed receipt")
+                if target == "awsLambda" and status == "ga-target" and "qualificationReceipt" in row:
+                    f.error(
+                        f"matrix: {path}: pending Lambda GA target must not carry a qualificationReceipt"
+                    )
                 if exact_candidate and (status == "ga-target" or row.get("releaseScope") == "ga-target") and status != "supported":
                     f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
                 if status != "supported":
@@ -425,6 +540,11 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                     valid_url = False
                 if not valid_url:
                     f.error(f"matrix: {path}.qualificationReceipt.url must reference an HTTPS receipt")
+                elif target == "awsLambda" and parsed.path.rsplit("/", 1)[-1] != LAMBDA_RECEIPT_NAME:
+                    f.error(
+                        f"matrix: {path}.qualificationReceipt.url must name {LAMBDA_RECEIPT_NAME}; "
+                        "a run page or other HTTPS URL is not the receipt"
+                    )
                 if receipt.get("candidateManifestDigest") != qualification_candidate_digest(manifest):
                     f.error(f"matrix: {path}.qualificationReceipt.candidateManifestDigest must match the exact candidate manifest; missing or wrong-candidate receipt")
 
@@ -544,12 +664,20 @@ def validate(
     baseline_matrix: dict | None,
     exact_candidate: bool = False,
     reachability_client: tr.APIClient | None = None,
+    requirements: dict | None = None,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
+    if LAMBDA_ENVELOPE_PATH.is_file():
+        check_lambda_operating_envelope(LAMBDA_ENVELOPE_PATH.read_text(encoding="utf-8"), f)
+    else:
+        f.error("lambda-ga: operating envelope is missing (release#282 item 5)")
+    if requirements is None:
+        requirements = _load_json(REQUIREMENTS_PATH)
+    check_bound_catalog_pin_coherence(manifest, requirements, f)
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
@@ -564,12 +692,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drift", action="store_true", help="skip drift even if --baseline is given")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
     ap.add_argument("--matrix", default=str(MATRIX_PATH))
+    ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
     matrix = _load_yaml(Path(args.matrix))
+    requirements = _load_json(Path(args.requirements))
 
     baseline_matrix: dict | None = None
     if args.baseline and not args.no_drift:
@@ -592,6 +722,7 @@ def main(argv: list[str] | None = None) -> int:
         baseline_matrix,
         exact_candidate=args.exact_candidate,
         reachability_client=reachability_client,
+        requirements=requirements,
     )
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():

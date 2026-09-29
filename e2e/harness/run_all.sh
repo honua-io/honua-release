@@ -3,9 +3,12 @@
 #
 #   boot candidate stack -> seed deterministic contracts -> run every driver -> assemble gate-report.json
 #
-# Honesty (AGENTS.md): if the candidate server can't boot (unpullable/placeholder image), the drivers
-# self-report BLOCKED rather than fabricating a green; E2E_REQUIRE_REAL promotes BLOCKED/SKIPPED to a
-# hard FAIL (nightly / real release cut). Static checks in `check` always run and can fail with no image.
+# Honesty (AGENTS.md): if the candidate server can't boot (unpullable image, or a container that
+# exits before binding a port), that is a hard FAIL of this gate on EVERY trigger - a green check on
+# a stack that never served a request is a lie, not an honest BLOCKED (honua-release#303).
+# E2E_REQUIRE_REAL keeps its own, narrower meaning: it promotes SCENARIO-level BLOCKED/SKIPPED on a
+# live stack to FAIL (nightly / real release cut). Static checks in `check` always run and can fail
+# with no image.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 E2E_DIR="$(cd "$HERE/.." && pwd)"
@@ -56,6 +59,9 @@ cmd_check() {
   python3 -m py_compile "$E2E_DIR/drivers/formats/formats.py"
   command -v node >/dev/null && node --check "$E2E_DIR/drivers/demos/drive.mjs" && echo "demos driver: parses"
   jq -e . "$E2E_DIR/drivers/mcp/expected-tools.json" >/dev/null && echo "mcp snapshot: valid"
+  # The verdict logic is the gate. Fixture-test it here, in the static tier, so a regression that
+  # would let a non-booting candidate go green fails on the PR that introduces it - with no images.
+  bash "$HERE/test_report.sh"
   echo "static checks: OK"
 }
 
@@ -67,7 +73,7 @@ cmd_run() {
     echo "== seeding =="
     bash "$HERE/seed/seed.sh" || echo "::warning:: seed failed — data-dependent drivers will block/fail"
   else
-    echo "::warning:: candidate server did not boot — drivers will report BLOCKED"
+    echo "::error:: candidate server did not boot — drivers will report BLOCKED and this gate FAILS (see boot.json)"
   fi
 
   for d in "${DRIVERS[@]}"; do

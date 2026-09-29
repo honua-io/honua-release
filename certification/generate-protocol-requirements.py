@@ -14,6 +14,8 @@ SOURCES = ROOT / "sources"
 SUPPORTED = {"implemented", "partial", "covered"}
 FIXTURE = "docker/cng/seed.sql@{source_sha}"
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
+# release#346 ruling: the exact version string the digest-pinned honua-server desktop-qgis lane records.
+QGIS_VERSION = "3.44.13-Solothurn"
 PR_SDK_SMOKE_OPERATIONS = {
     "sdk-js": {
         ("featureserver", "metadata"),
@@ -44,6 +46,83 @@ def slug(value: str) -> str:
 
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
+    bounded_roster = load(SOURCES / "bounded-client-roster.v1.json")
+    bounded_cells = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell
+        for cell in bounded_roster["cells"]
+    }
+    preview_ruling = next(
+        ruling for ruling in bounded_roster["rulings"] if ruling["id"] == "preview-surfaces"
+    )
+    preview_capabilities = set(preview_ruling["preview_capability_keys"])
+    preview_cells = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell
+        for cell in bounded_roster["preview_cells"]
+    }
+    not_addressable_cells = {
+        (cell["canonical_client"], cell["surface"], cell["operation"]): cell
+        for cell in bounded_roster["not_addressable_cells"]
+    }
+    for key, cell in preview_cells.items():
+        if cell["capability_key"] not in preview_capabilities:
+            raise ValueError(
+                f"bounded-roster preview cell {key} names {cell['capability_key']!r}, "
+                "which the preview-surfaces ruling does not make Preview"
+            )
+    for key, cell in not_addressable_cells.items():
+        if not any(governed["test_id"] == cell["governed_by_test_id"] for governed in bounded_roster["cells"]):
+            raise ValueError(
+                f"bounded-roster non-addressable cell {key} names ungoverned "
+                f"{cell['governed_by_test_id']!r}"
+            )
+    overlap = (set(bounded_cells) & set(preview_cells)) | (set(bounded_cells) & set(not_addressable_cells)) \
+        | (set(preview_cells) & set(not_addressable_cells))
+    if overlap:
+        raise ValueError(f"bounded-roster cell has more than one disposition: {sorted(overlap)}")
+    bound_cells: set[tuple[str, str, str]] = set()
+
+    def bind_bounded_cell(row: dict[str, Any]) -> dict[str, Any] | None:
+        """Give a bounded-roster row its ruled lane and single governed test ID.
+
+        A Preview cell (release#351) yields no supported requirement; a cell no
+        released client can exercise (release#359) stays as a non-addressable row.
+        """
+        client = bounded_roster["clients"].get(row["canonical_client"])
+        if client is None:
+            return row
+        key = (row["canonical_client"], row["surface"], row["operation"])
+        if key in bound_cells:
+            raise ValueError(f"bounded-roster cell is generated more than once: {key}")
+        if key in preview_cells:
+            bound_cells.add(key)
+            return None
+        if key in not_addressable_cells:
+            cell = not_addressable_cells[key]
+            bound_cells.add(key)
+            row = {
+                **row,
+                "client_lane": cell["client_lane"],
+                "addressable_by_client": False,
+                "addressability_reason": cell["addressability_reason"],
+            }
+            row.pop("test_ids", None)
+            return row
+        cell = bounded_cells.get(key)
+        if cell is None:
+            raise ValueError(f"bounded-roster requirement has no governed test ID: {key}")
+        if row["capability_key"] in preview_capabilities:
+            raise ValueError(
+                f"bounded-roster cell {key} governs Preview capability {row['capability_key']!r}; "
+                "move it to preview_cells"
+            )
+        if client["client_version"] is not None and row["client_version"] != client["client_version"]:
+            raise ValueError(
+                f"bounded-roster requirement {key} pins {row['client_version']!r}, "
+                f"but the roster rules {client['client_version']!r}"
+            )
+        bound_cells.add(key)
+        return {**row, "client_lane": cell["client_lane"], "test_ids": [cell["test_id"]]}
+
     format_source = json.loads(
         (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
     )
@@ -51,12 +130,13 @@ def main() -> None:
         (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
     )["fixtures"]
     requirements = [
-        {
+        bound
+        for row in format_source["requirements"]
+        if (bound := bind_bounded_cell({
             **row,
             "budget_expectations": row.get("budget_expectations"),
             "entitlement_policy_revision": row.get("entitlement_policy_revision"),
-        }
-        for row in format_source["requirements"]
+        })) is not None
     ]
     seen = {tuple(row[field] for field in IDENTITY_FIELDS) for row in requirements}
 
@@ -94,7 +174,9 @@ def main() -> None:
         }
         if test_ids is not None:
             row["test_ids"] = test_ids
-        requirements.append(row)
+        bound = bind_bounded_cell(row)
+        if bound is not None:
+            requirements.append(bound)
 
     sdk_sources = [
         ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
@@ -247,9 +329,9 @@ def main() -> None:
 
     server = load(SOURCES / "server" / "capability-matrix.v1.json")
     lane_clients = {
-        "desktop-qgis": ("QGIS", "3.40"),
+        "desktop-qgis": ("QGIS", QGIS_VERSION),
         "desktop-arcgis": ("ArcGIS Pro", "3.5"),
-        "ci-desktop": ("QGIS", "3.40"),
+        "ci-desktop": ("QGIS", QGIS_VERSION),
         "js": ("Honua SDK JavaScript", "0.1.9-beta.0"),
         "js-cesium": ("CesiumJS", "1.132.0"),
         "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
@@ -440,9 +522,9 @@ def main() -> None:
             continue
         name = case["name"].lower()
         if "features" in name or "wfs" in name:
-            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", "3.40", "qgis")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL/OGR", "3.8.4", "gdal"), ("QGIS", QGIS_VERSION, "qgis")]
         elif "tiles" in name or "wmts" in name or "wms" in name:
-            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("QGIS", "3.40", "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
+            clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("QGIS", QGIS_VERSION, "qgis"), ("MapLibre GL JS", "5.7", "maplibre")]
         elif "wcs" in name or "coverage" in name:
             clients = [("OGC CITE", f"ets-selection@{revisions['server']['commit']}", "cite"), ("GDAL", "3.8.4", "gdal"), ("OWSLib", "0.36.0", "owslib")]
         else:
@@ -456,12 +538,16 @@ def main() -> None:
                 facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
             )
 
+    unbound_cells = sorted((set(bounded_cells) | set(not_addressable_cells)) - bound_cells)
+    if unbound_cells:
+        raise ValueError(f"bounded-roster cells match no generated requirement: {unbound_cells}")
+
     requirements.sort(key=lambda row: (
         row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"]
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-08-29-complete.11",
+        "revision": "2026-09-16-complete.13",
         "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (
@@ -472,7 +558,11 @@ def main() -> None:
             "and every Honua-specific application capability, executable operation contracts for all three Honua "
             "SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, "
             "pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, "
-            "and exact operation-to-test contracts for the server protocol integration harness. "
+            "exact operation-to-test contracts for the server protocol integration harness, "
+            "and one governed test ID per bounded 2026.1 external-client cell. "
+            f"{len(preview_cells)} bounded cells on Preview surfaces are excluded by the preview-surfaces "
+            f"roster ruling and {len(not_addressable_cells)} cells no released client can exercise remain "
+            "non-addressable rows (release#351, release#359). "
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "

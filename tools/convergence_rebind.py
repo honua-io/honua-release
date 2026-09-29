@@ -5,6 +5,11 @@ PLAN is the default and does not modify tracked files. APPLY stages regenerated
 sources and the catalog. FINALIZE binds a verified evidence ledger and advances
 all reusable-workflow pins in the same review branch. Repository variables are
 activated only from the merged manifest by convergence-rebind-activate.yml.
+
+PLAN, APPLY, and FINALIZE refuse while a .NET, Python, or JavaScript component
+SHA is not the published clientArtifacts sourceSha. That refusal leaves
+protocolCertification.ledger pending; it does not invent an evidence commit
+or digest. The cut selects certifiable published SDKs before a rebind exists.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
 CATALOG = Path("certification/protocol-certification-requirements.v1.json")
@@ -38,6 +45,15 @@ REBIND_COMMENT = "pin to the staged catalog commit in the reviewed rebind PR"
 
 # Only files that are literal upstream snapshots belong here.  The other files
 # under certification/sources are release-owned governance inputs.
+# Catalog producer, manifest component, and the clientArtifacts key whose
+# sourceSha is the published package. A rebind may target only a SHA that is
+# already both the component pin and the shipping bytes.
+SDK_PRODUCERS = (
+    ("sdk-dotnet", "honua-sdk-dotnet", "honua-sdk-dotnet"),
+    ("sdk-python", "honua-sdk-python", "honua-sdk-python-wheel"),
+    ("sdk-js", "honua-sdk-js", "honua-sdk-js"),
+)
+
 VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
     "server": (("docs/gis/data/capability-matrix.v1.json", "certification/sources/server/capability-matrix.v1.json"),),
     "server-certification": (("docs/gis/data/protocol-harness-assignments.v1.json", "certification/sources/server/protocol-harness-assignments.v1.json"),),
@@ -84,6 +100,60 @@ def checked_sha(value: str, label: str) -> str:
     if not isinstance(value, str) or not SHA_RE.fullmatch(value):
         raise Finding(f"{label} is not a full lowercase commit SHA: {value!r}")
     return value
+
+
+def load_manifest(root: Path) -> dict[str, Any]:
+    return yaml.safe_load((root / MANIFEST).read_text(encoding="utf-8"))
+
+
+def sdk_pin_divergence(manifest: dict[str, Any]) -> list[str]:
+    components = manifest.get("components") or {}
+    artifacts = manifest.get("clientArtifacts") or {}
+    findings: list[str] = []
+    for source, component, artifact in SDK_PRODUCERS:
+        component_body = components.get(component) if isinstance(components.get(component), dict) else {}
+        published = artifacts.get(artifact) if isinstance(artifacts.get(artifact), dict) else {}
+        component_sha = str((component_body or {}).get("sha") or "")
+        published_sha = str((published or {}).get("sourceSha") or "")
+        if SHA_RE.fullmatch(component_sha) and component_sha == published_sha:
+            continue
+        package = (published or {}).get("package") or artifact
+        version = (published or {}).get("version") or "missing"
+        findings.append(
+            f"{source}: components.{component}.sha={component_sha or 'missing'} "
+            f"clientArtifacts.{artifact}.sourceSha={published_sha or 'missing'} "
+            f"({package} {version})"
+        )
+    return findings
+
+
+def require_published_sdk_pins(manifest: dict[str, Any]) -> None:
+    findings = sdk_pin_divergence(manifest)
+    if not findings:
+        return
+    raise Finding(
+        "SDK producer pins are not the published artifacts; "
+        "protocolCertification.ledger stays pending until the cut selects "
+        "certifiable published SDKs and rebinds. "
+        + " | ".join(findings)
+    )
+
+
+def require_plan_targets_published(manifest: dict[str, Any], plan: dict[str, Any]) -> None:
+    require_published_sdk_pins(manifest)
+    artifacts = manifest.get("clientArtifacts") or {}
+    by_source = {source: artifact for source, _component, artifact in SDK_PRODUCERS}
+    for row in plan.get("sources") or []:
+        artifact_name = by_source.get(row.get("source"))
+        if artifact_name is None:
+            continue
+        published = artifacts.get(artifact_name) if isinstance(artifacts.get(artifact_name), dict) else {}
+        published_sha = (published or {}).get("sourceSha")
+        if row.get("target") != published_sha:
+            raise Finding(
+                f"rebind plan target for {row.get('source')} is {row.get('target')}, "
+                f"not published clientArtifacts.{artifact_name}.sourceSha {published_sha}"
+            )
 
 
 def load_json(root: Path, path: Path) -> Any:
@@ -167,6 +237,9 @@ def run_catalog(root: Path, receipt_min: str) -> None:
 
 
 def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any], dict[str, bytes], str]:
+    # Refuse before any upstream fetch. A catalog staged from a non-shipping
+    # component SHA cannot be bound to the bytes customers install.
+    require_published_sdk_pins(load_manifest(root))
     source_doc = load_json(root, REVISIONS)
     pins, rules = targets(root, gh)
     snapshots = fetch_snapshots(root, gh, source_doc["sources"], pins)
@@ -233,6 +306,7 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
 
 
 def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
+    require_plan_targets_published(load_manifest(root), plan)
     before = subprocess.run(["git", "status", "--porcelain"], cwd=root, check=True, capture_output=True, text=True).stdout
     dirty = [line for line in before.splitlines() if not line.endswith(" rebind-plan.json")]
     if dirty:
@@ -246,6 +320,9 @@ def apply(root: Path, plan: dict[str, Any], payloads: dict[str, bytes]) -> None:
 
 
 def finalize(root: Path, plan: dict[str, Any], requirements_revision: str, evidence_commit: str, ledger_sha256: str) -> None:
+    # Check the published-pin convergence before accepting an evidence digest,
+    # so a divergent snapshot cannot be marked bound.
+    require_plan_targets_published(load_manifest(root), plan)
     requirements_revision = checked_sha(requirements_revision, "requirements revision")
     evidence_commit = checked_sha(evidence_commit, "evidence commit")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", ledger_sha256):
@@ -256,6 +333,13 @@ def finalize(root: Path, plan: dict[str, Any], requirements_revision: str, evide
     manifest = replace_scalar(manifest, "commit", bindings["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"], evidence_commit)
     manifest = replace_scalar(manifest, "requirementsSourceRevision", bindings["PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION"]["current"], requirements_revision)
     manifest = replace_scalar(manifest, "sha256", bindings["PROTOCOL_CERTIFICATION_MATRIX_SHA256"]["current"], ledger_sha256)
+    # A working snapshot can explicitly invalidate its old ledger while awaiting
+    # candidate evidence. Only FINALIZE restores bound alongside all three pins.
+    ledger_status = yaml.safe_load(manifest)["protocolCertification"]["ledger"]["status"]
+    if ledger_status not in {"pending", "bound"}:
+        raise Finding(f"invalid ledger status: {ledger_status!r}")
+    if ledger_status == "pending":
+        manifest = replace_scalar(manifest, "status", "pending", "bound")
     manifest_path.write_text(manifest, encoding="utf-8")
     for path in CALLERS:
         text = (root / path).read_text(encoding="utf-8")

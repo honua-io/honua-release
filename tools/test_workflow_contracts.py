@@ -39,7 +39,14 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     commands = "\n".join(_step_text(step) for step in job["steps"])
     assert "capacity-envelope.v1.json" in commands
     assert "check_capacity_soak.py" in commands
-    assert 'gh attestation verify "$RUNNER_TEMP/soak-receipt.json" --repo honua-io/honua-server' in commands
+    assert "extract_capacity_evidence.py" in commands
+    assert "--artifact-root" in commands
+    assert "--expected-image-digest" in commands
+    assert 'gh attestation verify "$RUNNER_TEMP/capacity-evidence.zip"' in commands
+    assert "--signer-workflow github.com/honua-io/honua-server/.github/workflows/load-soak-nightly.yml" in commands
+    assert "--source-digest" in commands
+    assert "--deny-self-hosted-runners" in commands
+    assert "--predicate-type https://slsa.dev/provenance/v1" in commands
     assert "continue-on-error" not in str(job)
 
 
@@ -128,6 +135,18 @@ def test_manifest_validate_binds_server_and_dotnet_snapshots_to_pinned_sources()
     assert "honua-sdk-dotnet/contents/contracts/sdk-certification.v1.json?ref=$sdk_dotnet_sha" in text
     assert "cmp certification/sources/sdk-dotnet/sdk-coverage.v1.json" in text
     assert "cmp certification/sources/sdk-dotnet/sdk-certification.v1.json" in text
+
+
+def test_manifest_validate_gates_the_published_customer_install_manifest():
+    steps = _workflow("manifest-validate.yml")["jobs"]["validate"]["steps"]
+    gate = [step for step in steps
+            if "tools/validate_customer_install_manifest.py customer-install-manifest.json" in _step_text(step)]
+    drift = [step for step in steps
+             if "tools/fixtures/customer-install-manifest-drifted-pin.json" in _step_text(step)]
+    assert len(gate) == 1 and len(drift) == 1
+    for step in gate + drift:
+        assert "if" not in step and not step.get("continue-on-error")
+    assert "exit 1" in drift[0]["run"] and "$.clients.honua-sdk.digest:" in drift[0]["run"]
 
 
 def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha():
@@ -408,6 +427,34 @@ def test_promotion_requires_committed_burn_evidence_and_retags_the_freeze_rc():
     assert "npm pack" not in commands
 
 
+def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
+    steps = _workflow("promote.yml")["jobs"]["promote"]["steps"]
+    preserve = next(i for i, s in enumerate(steps)
+                    if s.get("name") == "Preserve current publication trust policy and verifier")
+    candidate_checkout = next(i for i, s in enumerate(steps)
+                              if (s.get("with") or {}).get("ref") == "${{ steps.train.outputs.source_sha }}")
+    finalize = next(i for i, s in enumerate(steps) if s.get("id") == "finalize")
+    guard = next(i for i, s in enumerate(steps) if "verify-remote" in s.get("run", ""))
+    publish = next(i for i, s in enumerate(steps) if "gh release create" in s.get("run", ""))
+    assert preserve < candidate_checkout < finalize < guard < publish
+    assert 'cp tools/tag_signing.py' in steps[preserve]['run']
+    assert '{policy,tag-signing-policy}.json' in steps[preserve]['run']
+    assert 'publication-tag honua-release' in steps[finalize]['run']
+    assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py' in steps[finalize]['run']
+    assert 'honua-${BASE}.0' not in steps[finalize]['run']
+    assert '$RUNNER_TEMP/publication-trust/tools/tag_signing.py' in steps[guard]['run']
+    assert steps[guard]['env']['CERTIFIED_SHA'] == '${{ steps.train.outputs.source_sha }}'
+    assert steps[guard]['env']['PUBLICATION_TAG'] == '${{ steps.finalize.outputs.tag }}'
+    assert not _neutralised(steps[guard])
+    assert 'if' not in steps[guard]
+    command = steps[publish]['run']
+    assert '--verify-tag' in command
+    assert '--target' not in command
+    assert 'signed-tag-receipt.json.bundle' in command
+    signing = next(s['run'] for s in steps if 'cosign sign-blob' in s.get('run', ''))
+    assert 'signed-tag-receipt.json' in signing
+
+
 def test_promotion_request_uses_the_scoped_claude_app_identity():
     workflow = _workflow("request-promotion.yml")
     triggers = _triggers(workflow)
@@ -538,6 +585,32 @@ def test_rollback_certification_signs_success_and_mixed_state_receipts():
     assert rendered.count("actions/attest-build-provenance@") == 2
 
 
+def test_upgrade_gate_runs_the_fast_policy_layer_on_every_relevant_pr_but_not_the_kind_smoke():
+    """release#321: fast, decidable-now upgrade-compat checks must run per PR; the expensive real
+    kind cluster seed/upgrade/rollback smoke stays release-train/nightly/dispatch-only."""
+    workflow = _workflow("gate-upgrade.yml")
+    triggers = _triggers(workflow)
+    pull_request = triggers.get("pull_request")
+    assert pull_request is not None, "gate-upgrade must run on pull_request (fast policy layer)"
+    paths = set(pull_request.get("paths") or [])
+    for must_watch in (
+        "platform-manifest.yaml",
+        "compatibility-matrix.yaml",
+        "tools/check_upgrade.py",
+        "tools/semver.py",
+        ".github/workflows/gate-upgrade.yml",
+    ):
+        assert must_watch in paths, f"{must_watch} changes must trigger the fast upgrade-compat check"
+
+    static_compat = workflow["jobs"]["static-compat"]
+    assert "if" not in static_compat, "the fast static-compat layer must run on every trigger, including PRs"
+
+    kind_upgrade = workflow["jobs"]["kind-upgrade"]
+    assert kind_upgrade.get("if") == "github.event_name != 'pull_request'", (
+        "the expensive kind cluster smoke must be excluded from pull_request runs"
+    )
+
+
 def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicensed_write_probe():
     workflow = _workflow("gate-upgrade.yml")
     kind_commands = "\n".join(_step_text(step) for step in workflow["jobs"]["kind-upgrade"]["steps"])
@@ -545,6 +618,31 @@ def test_upgrade_failure_game_day_aggregates_every_matrix_cell_and_uses_unlicens
     assert "/api/v1/admin/services/e2e/access-policy" in kind_commands
     assert "FeatureServer/$SRC_ID/applyEdits" not in kind_commands
     assert "rollback-failure" in kind_commands and "migration-boundary" in kind_commands
+
+
+def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
+    """release#321 AC: 'failed rollback' is one of the mandatory injected fault classes -- it must be
+    exercised in the targeted nightly lane, not merely reachable via a manual workflow_dispatch game
+    day that an operator has to remember to run."""
+    workflow = _workflow("gate-upgrade.yml")
+    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["scenario"]
+    assert "'schedule'" in matrix_scenario
+    assert '"rollback-failure"' in matrix_scenario
+    for scenario in ("normal", "post-migration-readiness", "bad-config", "migration-boundary"):
+        assert f'"{scenario}"' in matrix_scenario
+
+
+def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():
+    """A deliberately injected unrecoverable rollback must PASS the gate when the system correctly
+    classifies it rollback-failed with candidate-bound evidence and operator recovery instructions --
+    the same negative-transcript proof rollback-certification's mixed-state-receipt already treats as
+    passing -- so scheduling it nightly does not permanently redden that lane. An unexpected mis-
+    classification (or this branch being hit by a scenario that was supposed to recover) still fails."""
+    kind_commands = "\n".join(
+        _step_text(step) for step in _workflow("gate-upgrade.yml")["jobs"]["kind-upgrade"]["steps"]
+    )
+    assert '[ "$FAILURE_SCENARIO" = rollback-failure ] && [ "$CLASS" = rollback-failed ]' in kind_commands
+    assert "STATUS=pass; WHY=\"deterministic rollback-failure correctly classified rollback-failed" in kind_commands
 
 
 def test_upgrade_gate_consumes_verified_candidate_and_fails_closed_on_receipt_verification():
@@ -731,3 +829,27 @@ def test_manifest_validate_gates_committed_compatibility_ledger():
     assert "if" not in step
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_manifest_validate_verifies_declared_lock_content_digests():
+    """release#231: a declared content digest is only a fact if its pinned bytes still hash to it."""
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    step = next(step for step in job["steps"]
+                if "verify_content_digests.py platform-manifest.yaml" in step.get("run", ""))
+    assert "if" not in step
+    assert not _neutralised(job)
+    assert not _neutralised(step)
+
+
+def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
+    import json
+    from pathlib import Path
+    lock = json.loads((Path(__file__).resolve().parents[1] / "certification/capacity-envelope.v1.json").read_text())
+    assert set(lock["supportedEnvelope"]) == {
+        "tenants", "services", "layersPerService", "featuresPerLayer",
+        "maximumFeaturePayloadBytes", "concurrentVirtualUsers", "gpWorkers", "gpQueueDepth",
+    }
+    assert set(lock["soak"]["requiredSignals"]) == set(lock["thresholds"]) == {
+        "availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps",
+        "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds",
+    }
