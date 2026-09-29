@@ -169,7 +169,7 @@ jobs:
 
       - name: Configure AWS credentials for the candidate Lambda mirror
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
@@ -372,7 +372,7 @@ jobs:
       # require_real cell fails closed.
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
           aws-region: us-east-1
