@@ -48,16 +48,24 @@ GRPC_SCOPE_RULING = "grpc-2026.1-implemented-rpcs"
 GRPC_EXCLUDED_MATURITIES = {"preview", "experimental"}
 
 
-def grpc_scope(grpc: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def grpc_scope(
+    grpc: dict[str, Any], server_commit: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split the gRPC inventory into in-scope RPCs and ruled exclusions.
 
-    An excluded RPC must be in the inventory, name the scope ruling, and carry
-    its maturity, rationale, decision, owner issue and target release. It gets
-    no generated requirement, so it can neither pass nor block as GA.
+    The ruling must have been checked against the pinned server commit. An
+    excluded RPC must be in the inventory, name the scope ruling, and carry its
+    maturity, rationale, decision, owner issue and target release. It gets no
+    generated requirement, so it can neither pass nor block as GA.
     """
     rulings = {ruling["id"]: ruling for ruling in grpc.get("rulings", [])}
     if GRPC_SCOPE_RULING not in rulings:
         raise ValueError(f"geospatial-grpc inventory has no {GRPC_SCOPE_RULING!r} ruling")
+    if server_commit not in rulings[GRPC_SCOPE_RULING].get("verified_server_commits", []):
+        raise ValueError(
+            f"the {GRPC_SCOPE_RULING!r} ruling was not verified against the pinned server commit "
+            f"{server_commit}; re-check which RPCs that revision implements and record it"
+        )
     inventory = {(rpc["service"], rpc["operation"]) for rpc in grpc["operations"]}
     if len(inventory) != len(grpc["operations"]):
         raise ValueError("geospatial-grpc inventory lists an RPC more than once")
@@ -345,7 +353,7 @@ def main() -> None:
         ("Generated gRPC Python client", "grpc-python"),
         ("Generated gRPC TypeScript client", "grpc-typescript"),
     )
-    grpc_in_scope, grpc_excluded = grpc_scope(grpc)
+    grpc_in_scope, grpc_excluded = grpc_scope(grpc, revisions["server"]["commit"])
     for rpc in grpc_in_scope:
         operation = f"{rpc['service']}/{rpc['operation']}"
         for client, lane in grpc_clients:

@@ -17,6 +17,9 @@ SPEC.loader.exec_module(generator)
 INVENTORY = json.loads(
     (ROOT / "certification" / "sources" / "geospatial-grpc" / "operations.v1.json").read_text(encoding="utf-8")
 )
+SERVER_COMMIT = json.loads(
+    (ROOT / "certification" / "sources" / "source-revisions.v1.json").read_text(encoding="utf-8")
+)["sources"]["server"]["commit"]
 REQUIREMENTS = json.loads(
     (ROOT / "certification" / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8")
 )
@@ -30,13 +33,13 @@ IN_SCOPE = {
 
 
 def test_ruling_keeps_exactly_the_implemented_rpcs():
-    in_scope, excluded = generator.grpc_scope(INVENTORY)
+    in_scope, excluded = generator.grpc_scope(INVENTORY, SERVER_COMMIT)
     assert {f"{rpc['service']}/{rpc['operation']}" for rpc in in_scope} == IN_SCOPE
     assert len(in_scope) + len(excluded) == len(INVENTORY["operations"])
 
 
 def test_every_exclusion_names_its_owner_and_release():
-    _, excluded = generator.grpc_scope(INVENTORY)
+    _, excluded = generator.grpc_scope(INVENTORY, SERVER_COMMIT)
     by_operation = {f"{entry['service']}/{entry['operation']}": entry for entry in excluded}
     assert by_operation["ProcessService/ExecutePlan"]["owner_issue"].endswith("/honua-server/issues/4632")
     assert by_operation["SceneService/GetScene"]["maturity"] == "experimental"
@@ -66,18 +69,23 @@ def test_an_incomplete_exclusion_fails_generation(mutation, message):
     inventory = copy.deepcopy(INVENTORY)
     mutation(inventory["excluded_operations"][0])
     with pytest.raises(ValueError, match=message):
-        generator.grpc_scope(inventory)
+        generator.grpc_scope(inventory, SERVER_COMMIT)
 
 
 def test_a_duplicate_exclusion_fails_generation():
     inventory = copy.deepcopy(INVENTORY)
     inventory["excluded_operations"].append(copy.deepcopy(inventory["excluded_operations"][0]))
     with pytest.raises(ValueError, match="more than once"):
-        generator.grpc_scope(inventory)
+        generator.grpc_scope(inventory, SERVER_COMMIT)
 
 
 def test_missing_ruling_fails_generation():
     inventory = copy.deepcopy(INVENTORY)
     inventory["rulings"] = []
     with pytest.raises(ValueError, match="ruling"):
-        generator.grpc_scope(inventory)
+        generator.grpc_scope(inventory, SERVER_COMMIT)
+
+
+def test_ruling_must_be_verified_against_the_pinned_server():
+    with pytest.raises(ValueError, match="not verified against the pinned server commit"):
+        generator.grpc_scope(INVENTORY, "0" * 40)

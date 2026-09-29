@@ -328,8 +328,12 @@
         {
             "id": "grpc-2026.1-implemented-rpcs",
             "decision": "2026.1 gRPC certification covers only the geospatial.v1 RPCs that the default honua-server GA image implements. Every other RPC in this inventory moves to excluded_operations with its maturity, the rationale, the owner issue and the release in which it is reconsidered. The generated denominator carries no requirement for an excluded RPC, so it can neither count as a GA pass nor block the cut.",
-            "evidence": "Operator ruling of 2026-09-29, posted on geospatial-grpc#88 and linked from honua-release#376. geospatial-grpc protocol-certification run 36609727697 against honua-server 2db24e6 (sha256:80d66658...) returned UNIMPLEMENTED from FormService, WorkspaceService and synchronous ExecutePlan in all three client lanes. honua-server Program.cs at 2db24e6 maps FeatureService, ProcessService, SpecService and ElevationService unconditionally, and SceneService and TileService only behind experimental capability flags. No other geospatial.v1 service is registered.",
-            "consequence": "In scope for 2026.1: FeatureService (QueryFeatures, QueryFeaturesStream, ApplyEdits), ProcessService asynchronous and planning RPCs (ValidatePlan, DryRunPlan, SubmitJob, GetJob, GetJobResult, CancelJob), SpecService (PlanSpec, ApplySpec, CancelApply) and ElevationService (GetElevation, GetElevationProfile). Excluded RPCs are Preview or Experimental rows, not silent removals: the geospatial-grpc producer still executes their fixtures and reports the results as excluded, never as GA passes."
+            "evidence": "Operator ruling of 2026-09-29, posted on geospatial-grpc#88 and linked from honua-release#376. Checked at every commit in verified_server_commits: honua-server implements geospatial.v1 service bases only for FeatureService, ProcessService, SpecService, ElevationService, SceneService and TileService, and HonuaProcessService returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream. At ac30266 (the pinned server revision) Program.cs maps all six services unconditionally. At 2db24e6 SceneService and TileService are mapped only behind the experimental scene.catalog and serve.3d-tiles-scene capability flags. geospatial-grpc protocol-certification run 36609727697 against 2db24e6 (sha256:80d66658...) returned UNIMPLEMENTED from FormService, WorkspaceService and synchronous ExecutePlan in all three client lanes. Generation fails unless the pinned server commit is one of verified_server_commits, so moving the server pin forces the ruling to be re-checked.",
+            "consequence": "In scope for 2026.1: FeatureService (QueryFeatures, QueryFeaturesStream, ApplyEdits), ProcessService asynchronous and planning RPCs (ValidatePlan, DryRunPlan, SubmitJob, GetJob, GetJobResult, CancelJob), SpecService (PlanSpec, ApplySpec, CancelApply) and ElevationService (GetElevation, GetElevationProfile). Excluded RPCs are Preview or Experimental rows, not silent removals: the geospatial-grpc producer still executes their fixtures and reports the results as excluded, never as GA passes.",
+            "verified_server_commits": [
+                "ac30266fbd153363bebdbed13130accc8ab0c94a",
+                "2db24e648350927c3dada3eb00638bcec1e5cc3e"
+            ]
         }
     ],
     "excluded_operations":  [
@@ -848,7 +852,7 @@
             "operation": "ListScenes",
             "maturity": "experimental",
             "ruling": "grpc-2026.1-implemented-rpcs",
-            "rationale": "honua-server maps SceneService only when the experimental scene.catalog capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "rationale": "3D (I3S, scene and 3D tiles) stays Experimental and opt-in in 2026.1 (docs/2026.1-release-decision-record.md, 'Excluded from GA'). honua-server implements SceneService at every verified commit, but it is not a GA surface; from 2db24e6 it is also mapped only behind the experimental scene.catalog capability flag.",
             "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
             "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
             "target_release": "2026.2"
@@ -858,7 +862,7 @@
             "operation": "GetScene",
             "maturity": "experimental",
             "ruling": "grpc-2026.1-implemented-rpcs",
-            "rationale": "honua-server maps SceneService only when the experimental scene.catalog capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "rationale": "3D (I3S, scene and 3D tiles) stays Experimental and opt-in in 2026.1 (docs/2026.1-release-decision-record.md, 'Excluded from GA'). honua-server implements SceneService at every verified commit, but it is not a GA surface; from 2db24e6 it is also mapped only behind the experimental scene.catalog capability flag.",
             "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
             "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
             "target_release": "2026.2"
@@ -888,7 +892,7 @@
             "operation": "GetTile",
             "maturity": "experimental",
             "ruling": "grpc-2026.1-implemented-rpcs",
-            "rationale": "honua-server maps TileService only when the experimental serve.3d-tiles-scene capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "rationale": "3D (I3S, scene and 3D tiles) stays Experimental and opt-in in 2026.1 (docs/2026.1-release-decision-record.md, 'Excluded from GA'). honua-server implements TileService at every verified commit, but it is not a GA surface; from 2db24e6 it is also mapped only behind the experimental serve.3d-tiles-scene capability flag.",
             "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
             "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
             "target_release": "2026.2"
@@ -898,7 +902,7 @@
             "operation": "StreamTiles",
             "maturity": "experimental",
             "ruling": "grpc-2026.1-implemented-rpcs",
-            "rationale": "honua-server maps TileService only when the experimental serve.3d-tiles-scene capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "rationale": "3D (I3S, scene and 3D tiles) stays Experimental and opt-in in 2026.1 (docs/2026.1-release-decision-record.md, 'Excluded from GA'). honua-server implements TileService at every verified commit, but it is not a GA surface; from 2db24e6 it is also mapped only behind the experimental serve.3d-tiles-scene capability flag.",
             "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
             "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
             "target_release": "2026.2"
