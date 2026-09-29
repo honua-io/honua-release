@@ -44,7 +44,7 @@ not the manifest pin.
 | npmjs `@honua-io/embed` | `blocked-on-operator` | honua-mobile `publish-npm-embed.yml` publishes only to `https://npm.pkg.github.com` with `NODE_AUTH_TOKEN` from `secrets.GITHUB_TOKEN`. It has no npmjs publish. |
 | `oci://ghcr.io/honua-io/charts/honua` | `blocked-on-candidate` | Anonymous GHCR pull token was denied (HTTP 403). honua-helm `release.yml` refuses `appVersion` `0.0.0` and requires a published `ghcr.io/honua-io/honua-server:v<semver>-aot` image. This repo does not invent that SemVer. |
 | QGIS plugin `honua` | `blocked-on-operator` | Unauthenticated GitHub API for `honua-io/honua-qgis-plugin` returned 404, and `https://plugins.qgis.org/plugins/honua/` returned 404. CI builds a ZIP only. Visibility, signing review, the release ZIP, and OSGeo submission remain honua-qgis-plugin#29. No signing secret is recorded here. |
-| `create-honua-app@0.1.4` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `7ac1f61cd61ac5b7ccb94c9bca099ca5081983dcf7a824e53bb64a8ecf9bf35a`). Both templates pin `@honua/sdk-js@0.1.10-beta.0` (npm HTTP 404) and `maplibre-gl@6.1.0` (GHSA-jrc7-96c5-q579, fixed in 6.9.0). A replacement release has to come from honua-sdk-js. |
+| `create-honua-app@0.1.4` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `7ac1f61cd61ac5b7ccb94c9bca099ca5081983dcf7a824e53bb64a8ecf9bf35a`). Both templates pin `@honua/sdk-js@0.1.10-beta.0` (now published, npm HTTP 200) and `maplibre-gl@6.1.0` (GHSA-jrc7-96c5-q579, fixed in 6.9.0). A replacement release has to come from honua-sdk-js. |
 
 Do not close #57 until the blocked publications above have their own anonymous receipts.
 The Helm receipt still waits on the immutable server image.

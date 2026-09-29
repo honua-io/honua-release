@@ -9,7 +9,7 @@
       "publication": "QGIS plugin honua"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0. npm version status for those @honua/sdk-js pins is {'0.1.10-beta.0': 404}. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0. npm version status for those @honua/sdk-js pins is {'0.1.10-beta.0': 200}. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
@@ -135,7 +135,7 @@
       ],
       "publication": "npm create-honua-app@0.1.4",
       "sdk_pin_statuses": {
-        "0.1.10-beta.0": 404
+        "0.1.10-beta.0": 200
       },
       "templates": [
         {
@@ -627,6 +627,6 @@
   ],
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes.",
-  "observed_at": "2026-09-26T23:05:00Z",
+  "observed_at": "2026-09-29T01:25:23Z",
   "schema": "honua.first-publication-preflight/v1"
 }
