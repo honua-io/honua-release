@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import io
 import json
 import tarfile
@@ -27,7 +28,9 @@ def _sha(data: bytes) -> str:
 def _tarball(dependencies: dict) -> bytes:
     output = io.BytesIO()
     document = json.dumps({"dependencies": dependencies}).encode()
-    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+    # Pin the gzip header mtime: "w:gz" stamps the current time, so two builds that straddle a
+    # second boundary produced different bytes and the tarball-digest assertions flaked.
+    with gzip.GzipFile(fileobj=output, mode="wb", mtime=0) as compressed,             tarfile.open(fileobj=compressed, mode="w") as archive:
         for path in (
             "package/templates/react-ts/package.json",
             "package/templates/vanilla-ts/package.json",
