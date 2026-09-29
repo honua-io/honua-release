@@ -1,6 +1,6 @@
 # First-publication wave: anonymous preflight for #57
 
-Observed 2026-09-26 UTC; receipt last refreshed 2026-09-29T19:34Z UTC (the probe observed `@honua/sdk-js@0.1.11-beta.0` published and nuget.org `Geospatial.Grpc` 1.0.2; earlier refresh 2026-09-29T10:54Z, when the manifest re-pinned
+Observed 2026-09-26 UTC; receipt last refreshed 2026-09-29T22:36Z UTC (operator ruling 2026-09-29: mobile is Experimental and its public publication is deferred out of 2026.1, so the mobile channels are now `deferred-experimental`; the probe also observed nuget.org `Geospatial.Grpc` 1.0.3; earlier refresh 2026-09-29T19:34Z, when the probe observed `@honua/sdk-js@0.1.11-beta.0` published and nuget.org `Geospatial.Grpc` 1.0.2; earlier refresh 2026-09-29T10:54Z, when the manifest re-pinned
 honua-iac to v0.2.0 and the probe observed `create-honua-app@0.1.5` and `honua-migrate` 0.8.0). **BLOCKED; #57 remains open.** This supersedes the 2026-09-06
 checkpoint for registry availability. The files under
 `certification/first-publication/` from that date stay as historical evidence. The
@@ -14,13 +14,15 @@ python3 tools/first_publication_preflight.py --check
 The probe sends no `Authorization` header. `manifest-validate` runs it. A `published`
 row is the sha256 of bytes the probe downloaded. A `listed` row is an index only.
 Drift from the committed receipt fails the check. A missing coordinate is a named
-blocker, not a fabricated digest, chart, or plugin ZIP.
+blocker, not a fabricated digest, chart, or plugin ZIP. A `deferred-experimental` row is a
+channel whose component `platform-manifest.yaml` lists under `experimental:` (status
+`experimental`); see [Deferred: experimental components](#deferred-experimental-components).
 
 ## Satisfied on this probe
 
 | Publication | Evidence |
 |---|---|
-| nuget.org `Geospatial.Grpc` 1.0.0 | Downloaded nupkg sha256 `69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f` (matches the retained receipt). The index now also lists 1.0.2 (geospatial-grpc v1.0.2); the manifest pin is unchanged. |
+| nuget.org `Geospatial.Grpc` 1.0.0 | Downloaded nupkg sha256 `69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f` (matches the retained receipt). The index now also lists 1.0.2 and 1.0.3; the manifest pin is unchanged. |
 | `buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754` | Downloaded archive sha256 `7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef`. |
 | PyPI `honua-sdk` 0.1.11 and `honua-admin` 0.1.8 | Downloaded wheel and sdist sha256 match `clientArtifacts`. |
 | PyPI `honua-migrate` 0.8.0 | Downloaded `honua_migrate-0.8.0-py3-none-any.whl` sha256 `6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9` and sdist sha256 `9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44`. Not a `clientArtifacts` pin. |
@@ -41,11 +43,38 @@ not the manifest pin.
 | Publication | Kind | Boundary |
 |---|---|---|
 | nuget.org `Honua.Sdk` **1.6.0** (and `Honua.Sdk.Studio` 1.6.0) | `blocked-on-train-binding` | `clientArtifacts.honua-sdk-dotnet` pins `1.6.0` on `github-packages`. Both pinned nupkg URLs returned 404. `components.honua-sdk-dotnet.version` is `1.6.2`, which nuget.org also does not serve. Later public versions are not recorded as the train. honua-console#356 cannot anonymously restore this pin. Rebinding is an operator decision. No nuget.org credential is required to see the gap. |
-| nuget.org `Honua.Mobile.Sdk`, `Honua.Mobile.Offline`, `Honua.Mobile.Maui` | `blocked-on-operator` | honua-mobile `publish-dotnet-mobile.yml` pushes only to `https://nuget.pkg.github.com/honua-io/index.json` with `secrets.GITHUB_TOKEN`. It has no nuget.org Trusted Publishing step. This repo has no credential that can publish those IDs. |
-| npmjs `@honua-io/embed` | `blocked-on-operator` | honua-mobile `publish-npm-embed.yml` publishes only to `https://npm.pkg.github.com` with `NODE_AUTH_TOKEN` from `secrets.GITHUB_TOKEN`. It has no npmjs publish. |
 | `oci://ghcr.io/honua-io/charts/honua` | `blocked-on-candidate` | Anonymous GHCR pull token was denied (HTTP 403). honua-helm `release.yml` refuses `appVersion` `0.0.0` and requires a published `ghcr.io/honua-io/honua-server:v<semver>-aot` image. This repo does not invent that SemVer. |
 | QGIS plugin `honua` | `blocked-on-operator` | Unauthenticated GitHub API for `honua-io/honua-qgis-plugin` returned 404, and `https://plugins.qgis.org/plugins/honua/` returned 404. CI builds a ZIP only. Visibility, signing review, the release ZIP, and OSGeo submission remain honua-qgis-plugin#29. No signing secret is recorded here. |
 | `create-honua-app@0.1.5` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `a8aa82304bb1797150772540e62e2f90a41ba9e81a69746727881d5f2646d601`). Both templates pin `@honua/sdk-js@0.1.11-beta.0`, whose npm version metadata is now HTTP 200 (published, but the platform manifest pins 0.1.9-beta.0, so the template SDK pin is still off-train), and `maplibre-gl@6.4.1`, still below the GHSA-jrc7-96c5-q579 fix in 6.9.0. A replacement release has to come from honua-sdk-js. |
+
+## Deferred: experimental components
+
+Operator ruling (2026-09-29): Honua mobile is Experimental and its public publication is
+deferred out of 2026.1. The preflight derives this from the manifest, not from a hard-coded
+exception. Every channel whose component is listed under the top-level `experimental:` block
+with `status: experimental` is recorded as `deferred-experimental` with the component and
+the manifest reason (`experimental.<name>.reason` when present, otherwise a reason naming
+the block). Those rows stay in the receipt so the deferral is visible, are not in the
+required channel set, and produce no blocker. The receipt's
+`deferred_experimental_components` must match the manifest; `--check` fails otherwise.
+
+| Publication | Component | Probe |
+|---|---|---|
+| nuget.org `Honua.Mobile.Sdk`, `Honua.Mobile.Offline`, `Honua.Mobile.Maui` | `honua-mobile` | Flat-container index HTTP 404. |
+| npmjs `@honua-io/embed` | `honua-mobile` | Registry HTTP 404. |
+
+A `deferred-experimental` row never carries package bytes or an `evidence_class`, and an
+experimental component's channel cannot be recorded as `published`; the audit fails on
+either. If the registry starts listing one of these packages, the listing is recorded as
+`registry_versions` (drift), not as GA evidence. The honua-mobile publishing workflow
+(honua-mobile#361) stays merged for later; no nuget.org Trusted Publisher or npm scope
+decision is needed for 2026.1.
+
+When `honua-mobile` moves out of `experimental:`, these channels become required again with
+no code change: a missing registry coordinate is `blocked-on-operator` (honua-mobile
+`publish-dotnet-mobile.yml` pushes only to GitHub Packages and has no nuget.org Trusted
+Publishing step; `publish-npm-embed.yml` has no npmjs publish), and a listed package must be
+downloaded before it is recorded.
 
 Do not close #57 until the blocked publications above have their own anonymous receipts.
 The Helm receipt still waits on the immutable server image.
