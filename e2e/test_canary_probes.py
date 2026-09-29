@@ -182,6 +182,41 @@ def test_ogc_service_capabilities():
     assert canary.check_ogc_service_capabilities(bad, "http://x", "maui-roads", "wcs").status == "fail"
 
 
+def _edr_manifest(**entry):
+    cap = {"id": "serve.ogc-api-edr", "lifecycle": "preview", "optInRequired": True,
+           "supported": True, "available": False, "reasonCode": "experimental-disabled"}
+    cap.update(entry)
+    return cc.HttpResponse(200, json.dumps({"schemaVersion": "honua.capability_manifest.v1",
+                                            "capabilities": [cap]}))
+
+
+def test_edr_404_is_blocked_only_when_the_server_declares_a_disabled_preview_surface():
+    r = canary.check_edr_collections(_fetcher([("/edr/collections", cc.HttpResponse(404, "")),
+                                               ("/api/v1/capabilities/manifest", _edr_manifest())]),
+                                     "http://x")
+    assert r.status == "blocked" and "serve.ogc-api-edr" in r.why and "experimental-disabled" in r.why
+
+
+def test_edr_404_still_fails_when_the_manifest_does_not_excuse_it():
+    not_found = ("/edr/collections", cc.HttpResponse(404, ""))
+    cases = [
+        [not_found],                                                              # no manifest
+        [not_found, ("/api/v1/capabilities/manifest", cc.HttpResponse(500, ""))],  # manifest broken
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(available=True))],        # enabled
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(lifecycle="implemented"))],  # GA
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(optInRequired=False))],
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(supported=False))],
+        [not_found, ("/api/v1/capabilities/manifest", _edr_manifest(id="serve.other"))],       # absent
+    ]
+    for routes in cases:
+        assert canary.check_edr_collections(_fetcher(routes), "http://x").status == "fail", routes
+    # Only a 404 can be the disabled-surface answer; a 500 is a defect even for a disabled Preview.
+    err = canary.check_edr_collections(_fetcher([("/edr/collections", cc.HttpResponse(500, "")),
+                                                 ("/api/v1/capabilities/manifest", _edr_manifest())]),
+                                       "http://x")
+    assert err.status == "fail"
+
+
 def test_edr_odata_ogc_features():
     assert canary.check_edr_collections(
         _fetcher([("/edr/collections", cc.HttpResponse(200, "{}"))]), "http://x").status == "pass"

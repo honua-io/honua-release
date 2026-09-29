@@ -236,12 +236,55 @@ def check_ogc_service_capabilities(fetch: Fetcher, base: str, service_id: str | 
     return CheckResult(name, "pass", f"{service_id}/{kind} GetCapabilities -> 200")
 
 
+EDR_CAPABILITY_ID = "serve.ogc-api-edr"
+
+
+def _disabled_preview_capability(fetch: Fetcher, base: str, capability_id: str) -> dict | None:
+    """Return the server's own manifest entry for `capability_id` when it declares that surface a
+    non-GA (preview/experimental), opt-in capability that is switched OFF on this deployment; else None.
+
+    Only the server's self-description can make a 404 legitimate: an entry that is missing, GA
+    (`lifecycle: implemented`), available, or not opt-in returns None and the caller keeps failing.
+    """
+    r = fetch(base.rstrip("/") + "/api/v1/capabilities/manifest")
+    if r.status != 200:
+        return None
+    try:
+        caps = json.loads(r.body).get("capabilities")
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(caps, list):
+        return None
+    for c in caps:
+        if isinstance(c, dict) and c.get("id") == capability_id:
+            if (c.get("lifecycle") in ("preview", "experimental") and c.get("optInRequired") is True
+                    and c.get("supported") is True and c.get("available") is False):
+                return c
+            return None
+    return None
+
+
 def check_edr_collections(fetch: Fetcher, base: str) -> CheckResult:
-    """GET /edr/collections -> 200 + JSON (reachability; EDR collections may legitimately be empty)."""
+    """GET /edr/collections -> 200 + JSON (reachability; EDR collections may legitimately be empty).
+
+    OGC API EDR is a Preview surface in 2026.1 (docs/2026.1-release-decision-record.md), opt-in and
+    off by default. A 404 is therefore reported BLOCKED — not asserted either way — only when the
+    deployment's own capability manifest says `serve.ogc-api-edr` is a preview, opt-in capability that
+    is unavailable there. Any other non-200 still FAILs, and an enabled EDR must still answer 200.
+    """
     r = fetch(base.rstrip("/") + "/edr/collections")
     if r.status == 0:
         return unreachable("edr-collections")
     if r.status != 200:
+        gated = _disabled_preview_capability(fetch, base, EDR_CAPABILITY_ID) if r.status == 404 else None
+        if gated is not None:
+            return CheckResult(
+                "edr-collections", "blocked",
+                f"-> 404; the server advertises {EDR_CAPABILITY_ID} as lifecycle={gated.get('lifecycle')}, "
+                f"opt-in, available=false ({gated.get('reasonCode') or 'no reasonCode'}); a Preview surface "
+                "that is off on this deployment, so EDR reachability is not asserted here",
+                {"status": r.status, "capability": EDR_CAPABILITY_ID,
+                 "lifecycle": gated.get("lifecycle"), "reasonCode": gated.get("reasonCode")})
         return CheckResult("edr-collections", "fail", f"-> {r.status} (want 200)")
     try:
         json.loads(r.body)

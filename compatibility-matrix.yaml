@@ -73,8 +73,9 @@ contracts:
       # is reconciled.
       honua-sdk-python: ">=0.1.9"
 
-# Deploy/runtime coupling. honua-iac and honua-helm have no releases yet (pinned by sha in the
-# manifest); ranges below bound the SERVER artifact they are allowed to deploy. honua-server is
+# Deploy/runtime coupling. honua-iac ships Git-tag releases (manifest pins the tag's sha and archive
+# digest); honua-helm has no releases yet (pinned by sha). Ranges below bound the SERVER artifact
+# they are allowed to deploy. honua-server is
 # itself pre-release (pinned by sha), so these couplings are sha-pinned, not semver-ranged.
 deploy:
   honua-server:
