@@ -44,6 +44,7 @@ BASELINE_DUMP="$OUT/baseline.sql"
 SEED_DIR="$OUT/seed"
 EXPECTED_JOURNAL="$OUT/expected-journal.txt"
 EXPECTED_CHECKSUMS="$OUT/expected-checksums.txt"
+EXPECTED_SCHEMA="$OUT/expected-schema.sql"
 RESULTS="$OUT/scenario-matrix.json"
 LOCK_HOLDER_PID=""
 PARTIAL_JOB_PID=""
@@ -65,6 +66,12 @@ require_tools() {
   done
   [ -n "$PRIOR_IMAGE" ] || die "HONUA_PRIOR_SERVER_IMAGE is required"
   [ -n "$CANDIDATE_IMAGE" ] || die "HONUA_CANDIDATE_SERVER_IMAGE is required"
+  local image
+  for image in "$PRIOR_IMAGE" "$CANDIDATE_IMAGE"; do
+    [[ "$image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || die "server images must use repository@sha256:<64 lowercase hex digits>: $image"
+  done
+  jq -n --arg prior "$PRIOR_IMAGE" --arg candidate "$CANDIDATE_IMAGE" \
+    '{priorImage:$prior,candidateImage:$candidate}' > "$OUT/images.json"
   [ -f "$COMPOSE_FILE" ] || die "compose file not found: $COMPOSE_FILE"
 }
 
@@ -137,13 +144,20 @@ start_image() {
   # transient connection failure and remains unready forever.
   compose up -d --wait db redis >/dev/null
   wait_db || die "PostGIS did not become reachable"
-  compose up -d server >/dev/null
+  compose up -d --force-recreate server >/dev/null
 }
 
 restart_image() {
   local image="$1"
   stop_server
   start_image "$image"
+}
+
+capture_schema() {
+  # pg_dump covers tables, columns, indexes, constraints, functions and other schema objects.
+  # Recent pg_dump releases emit a random psql restriction token; only that token is noise.
+  compose exec -T db pg_dump -U honua -d honua --schema-only --no-owner --no-privileges |
+    sed -E '/^\\(un)?restrict /d' > "$1"
 }
 
 capture_state() {
@@ -155,7 +169,14 @@ capture_state() {
 assert_state() {
   local label="$1"
   local journal="$OUT/$label-journal.txt" checksums="$OUT/$label-checksums.txt"
-  capture_state "$journal" "$checksums"
+  if ! capture_state "$journal" "$checksums" || ! capture_schema "$OUT/$label-schema.sql"; then
+    record "$label" fail "could not capture recovered database state"
+    return 1
+  fi
+  if ! cmp -s "$EXPECTED_SCHEMA" "$OUT/$label-schema.sql"; then
+    record "$label" fail "migrated schema diverged after restart; see $OUT/$label-schema.sql"
+    return 1
+  fi
   if ! cmp -s "$EXPECTED_JOURNAL" "$journal"; then
     record "$label" fail "migration journal diverged after restart; see $journal"
     return 1
@@ -164,7 +185,7 @@ assert_state() {
     record "$label" fail "seeded data checksum/count changed; see $checksums"
     return 1
   fi
-  record "$label" pass "journal and seeded data converged"
+  record "$label" pass "schema, journal and seeded data converged"
 }
 
 restore_baseline() {
@@ -189,6 +210,10 @@ seed_prior() {
   E2E_DB_HOST=db \
   E2E_PSQL="${COMPOSE[*]} exec -T db psql -U honua -d honua" \
     bash "$HERE/seed/seed.sh" > "$OUT/seed.log" 2>&1
+  load_seed_layer
+}
+
+load_seed_layer() {
   SRC_LAYER_ID="$(jq -r '.slice1.e2e_src_fs.layerId // empty' "$SEED_DIR/seed-manifest.json")"
   [[ "$SRC_LAYER_ID" =~ ^[0-9]+$ ]] || die "existing seed did not publish a numeric e2e_src_fs layer id"
 }
@@ -207,6 +232,7 @@ prepare_fixture() {
   restart_image "$CANDIDATE_IMAGE"
   wait_ready || { compose logs server > "$OUT/candidate-start.log" 2>&1 || true; die "candidate image did not become ready"; }
   capture_state "$EXPECTED_JOURNAL" "$EXPECTED_CHECKSUMS"
+  capture_schema "$EXPECTED_SCHEMA"
   diff -u "$OUT/baseline-journal.txt" "$EXPECTED_JOURNAL" > "$OUT/journal-advance.diff" || true
   if cmp -s "$OUT/baseline-journal.txt" "$EXPECTED_JOURNAL"; then
     die "candidate did not advance public.schema_versions"
@@ -244,7 +270,7 @@ kill_at_boundary() {
   local migration="$1" name="migration-kill-boundary:$1" found=0 i
   restore_baseline
   export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
-  compose up -d server >/dev/null
+  compose up -d --force-recreate server >/dev/null
   for i in $(seq 1 "${CHAOS_BOUNDARY_ATTEMPTS:-120}"); do
     if compose logs server 2>&1 | grep -F -- "$BOUNDARY_LOG_PATTERN" | grep -F -- "$migration" >/dev/null; then
       found=1
@@ -258,7 +284,7 @@ kill_at_boundary() {
     record "$name" fail "never observed migration boundary '$migration' using log pattern '$BOUNDARY_LOG_PATTERN'"
     return 1
   fi
-  compose up -d server >/dev/null
+  compose up -d --force-recreate server >/dev/null
   if wait_ready && assert_state "$name"; then return 0; fi
   return 1
 }
@@ -273,21 +299,28 @@ run_boundary_kills() {
   [ "$failures" = 0 ] || return 1
 }
 
-run_concurrent_start() {
-  local holder_log="$OUT/advisory-lock.log" a b i ready=0
+run_concurrent_start() (
+  # Subshell EXIT cleanup covers every return, including failed container creation/assertions.
+  local holder_log="$OUT/advisory-lock.log" a b i ready=0 failed=0
+  a="${PROJECT}_chaos_app_a"
+  b="${PROJECT}_chaos_app_b"
+  trap 'docker rm -f "$a" "$b" >/dev/null 2>&1 || true; [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true' EXIT
   restore_baseline
   export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
   db_exec "SELECT pg_advisory_lock($LOCK_KEY); SELECT pg_sleep(90);" > "$holder_log" 2>&1 &
   LOCK_HOLDER_PID=$!
   sleep 2
-  a="${PROJECT}_chaos_app_a"
-  b="${PROJECT}_chaos_app_b"
   docker rm -f "$a" "$b" >/dev/null 2>&1 || true
-  compose run -d --no-deps --name "$a" server >/dev/null
-  compose run -d --no-deps --name "$b" server >/dev/null
-  for i in $(seq 1 60); do
-    if docker logs "$a" 2>&1 | grep -Eiq 'ready|migration failed|migration complete' ||
-       docker logs "$b" 2>&1 | grep -Eiq 'ready|migration failed|migration complete'; then
+  compose run -d --no-deps --name "$a" server >/dev/null || return 1
+  compose run -d --no-deps --name "$b" server >/dev/null || return 1
+  for i in $(seq 1 "${CHAOS_READY_ATTEMPTS:-90}"); do
+    docker logs "$a" > "$OUT/concurrent-a.log" 2>&1 || return 1
+    docker logs "$b" > "$OUT/concurrent-b.log" 2>&1 || return 1
+    if grep -Eiq 'migration failed' "$OUT/concurrent-a.log" "$OUT/concurrent-b.log"; then
+      failed=1
+      break
+    fi
+    if container_ready "$a" && container_ready "$b"; then
       ready=1
       break
     fi
@@ -296,16 +329,18 @@ run_concurrent_start() {
   kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
   wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
   LOCK_HOLDER_PID=""
-  if [ "$ready" = 1 ] && wait_for_journal; then
+  if [ "$failed" = 0 ] && [ "$ready" = 1 ] && wait_for_journal; then
     if ! assert_state concurrent-app-start; then
-      docker rm -f "$a" "$b" >/dev/null 2>&1 || true
       return 1
     fi
   else
-    record concurrent-app-start fail "concurrent starters did not produce a ready, converged database"
+    record concurrent-app-start fail "both concurrent starters must be healthy without migration failures and converge"
     return 1
   fi
-  docker rm -f "$a" "$b" >/dev/null 2>&1 || true
+)
+
+container_ready() {
+  [ "$(docker inspect --format '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$1")" = 'true healthy' ]
 }
 
 wait_for_journal() {
@@ -358,15 +393,15 @@ run_partial_failure() {
 run_divergence() {
   restore_baseline
   export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
-  compose up -d server >/dev/null
+  compose up -d --force-recreate server >/dev/null
   if ! wait_ready; then
     record journal-schema-divergence fail "baseline candidate could not become ready before divergence probe"
     return 1
   fi
   stop_server
   db_exec 'DROP TABLE honua.layers CASCADE;' >/dev/null
-  compose up -d server >/dev/null
-  if wait_ready_attempts "${CHAOS_DIVERGENCE_ATTEMPTS:-12}"; then
+  compose up -d --force-recreate server >/dev/null
+  if wait_ready; then
     compose logs server > "$OUT/divergence-server.log" 2>&1 || true
     record journal-schema-divergence fail "server became ready after journaled layers schema was deleted"
     return 1
@@ -405,7 +440,9 @@ run_idempotency() {
 cleanup() {
   [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
   [ -z "$PARTIAL_JOB_PID" ] || kill "$PARTIAL_JOB_PID" >/dev/null 2>&1 || true
-  [ -z "$PARTIAL_BACKEND_PID" ] || kill "$PARTIAL_BACKEND_PID" >/dev/null 2>&1 || true
+  if [[ "$PARTIAL_BACKEND_PID" =~ ^[0-9]+$ ]]; then
+    db_exec "SELECT pg_terminate_backend($PARTIAL_BACKEND_PID);" >/dev/null 2>&1 || true
+  fi
   if [ "$KEEP_STACK" != true ]; then stack_down; fi
 }
 trap cleanup EXIT
@@ -415,6 +452,8 @@ if [ "$SKIP_PREPARE" = true ]; then
   [ -s "$BASELINE_DUMP" ] || die "CHAOS_SKIP_PREPARE=true requires an existing baseline dump at $BASELINE_DUMP"
   [ -s "$EXPECTED_JOURNAL" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected journal at $EXPECTED_JOURNAL"
   [ -s "$EXPECTED_CHECKSUMS" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected checksum file at $EXPECTED_CHECKSUMS"
+  [ -s "$EXPECTED_SCHEMA" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected schema at $EXPECTED_SCHEMA"
+  load_seed_layer
   compose up -d --wait db redis >/dev/null
   wait_db || die "PostGIS did not become reachable"
 else

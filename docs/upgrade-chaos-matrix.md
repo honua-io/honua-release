@@ -26,3 +26,23 @@ That issue is [honua-server#4001](https://github.com/honua-io/honua-server/issue
 the fix to record a new observation.
 
 This branch contains hunt coverage only: no production server code or migration was changed.
+
+## Review corrections (2026-09-28)
+
+The historical PASS rows above are observations from the original harness, not certification with
+these corrected checks. Boundary polling reused old container logs, concurrent startup accepted one
+starter (including failure text), and convergence omitted physical schema. Those observations need
+fresh runs. The historical tagged image coordinates were not digest-bound; their original bytes
+cannot be established by resolving those tags today.
+
+New runs require `repository@sha256:<64 lowercase hex digits>` for both images and record them in
+`images.json`. Startup recreates the server container to isolate logs. Concurrent startup requires
+both container health checks and removes both one-off containers on every exit. Divergence uses the
+same readiness horizon as normal startup. Recovery compares a schema-only dump as well as journal
+and seeded data. Skip-prepare reruns require the new expected schema dump and a valid saved seed
+layer ID; old evidence directories must be prepared again.
+
+The partial-migration finding remains open: the current hand-written SQL transaction does not invoke
+the candidate migration runner. Replacing it requires a candidate-owned multi-statement fixture, a
+deterministic interruption point after a statement, and rollback/journal/schema assertions through
+that runner. Its existing probe must not be used as application migration-atomicity evidence.
