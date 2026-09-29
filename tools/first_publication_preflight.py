@@ -608,9 +608,12 @@ def build_receipt(
         for item in templates
         if item["dependencies"].get("maplibre-gl")
     })
+    # A template SDK pin that resolves on npm is still off-train unless it is the
+    # manifest's @honua/sdk-js version; HTTP 200 alone does not clear the blocker.
     template_blocked = (
         MAPLIBRE_ADVISORY_PIN in maplibre_pins
         or any(status != 200 for status in sdk_pin_statuses.values())
+        or any(sdk_pin != view["js_version"] for sdk_pin in sdk_pins)
         or not sdk_pins
     )
     create_channel = _channel(
@@ -620,6 +623,7 @@ def build_receipt(
         evidence_class="downloaded-bytes",
         files=[_file_record(f"create-honua-app-{latest}.tgz", tarball.url, tarball.body, registry_shasum=shasum)],
         http_status=200,
+        manifest_sdk_pin=view["js_version"],
         maplibre_pins=maplibre_pins,
         sdk_pin_statuses=sdk_pin_statuses,
         templates=templates,
@@ -791,7 +795,8 @@ def _blockers(channels: list[dict]) -> list[dict]:
             f"npm create-honua-app@{create['version']} template pins",
             (
                 f"The published tarball was downloaded, but its templates pin {templates}. "
-                f"npm version status for those @honua/sdk-js pins is {create['sdk_pin_statuses']}. "
+                f"npm version status for those @honua/sdk-js pins is {create['sdk_pin_statuses']}; "
+                f"the platform manifest pins @honua/sdk-js {create['manifest_sdk_pin']}. "
                 f"maplibre-gl {MAPLIBRE_ADVISORY_PIN} is the GHSA-jrc7-96c5-q579 pin named by "
                 "honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to "
                 "come from honua-sdk-js. This repo cannot publish that tarball."
