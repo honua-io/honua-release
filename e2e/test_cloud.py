@@ -1107,6 +1107,36 @@ def test_licensing_var_is_only_passed_to_roots_that_declare_it(monkeypatch):
         assert "-var=licensing_mode=Disabled" in target._vars(False)
 
 
+
+def test_ecs_cell_disables_rds_deletion_protection_and_enables_postgis_when_declared(monkeypatch):
+    # honua-iac v0.2.0 defaults rds_deletion_protection=true (destroy strands the RDS instance) and
+    # enable_postgis=false (the server's PostGIS preflight exits, ALB 503) - e2e-cloud-aws run
+    # 36560629698. The ephemeral cell overrides both, but only on a root that declares them.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as base:
+        root = Path(base) / "infrastructure" / "terraform" / "examples" / "aws"
+        root.mkdir(parents=True)
+        variables = root / "variables.tf"
+        variables.write_text('variable "region" {}\n# variable "rds_deletion_protection" later\n',
+                             encoding="utf-8")
+        monkeypatch.setenv("HONUA_IAC_DIR", base)
+        monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+        monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+        monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+        monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+        target = ecs(run_id="r1")
+        tf = _tf_vars(target._vars(False))
+        assert "rds_deletion_protection" not in tf and "enable_postgis" not in tf
+        variables.write_text('variable "region" {}\nvariable "rds_deletion_protection" {}\n'
+                             'variable "enable_postgis" {}\n', encoding="utf-8")
+        tf = _tf_vars(target._vars(False))
+        assert tf["rds_deletion_protection"] == "false"
+        assert tf["enable_postgis"] == "true"
+        # The PostGIS bootstrap is local-exec psql from the runner: the cell must also open RDS to it.
+        assert tf["db_publicly_accessible"] == "true"
+
+
 if __name__ == "__main__":
     import traceback
 

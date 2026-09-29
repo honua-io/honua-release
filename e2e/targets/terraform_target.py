@@ -35,6 +35,16 @@ class TfTargetSpec:
     # does the same via TF_VAR_alb_deletion_protection=false). Serverless has no ALB, so it stays empty
     # there — the serverless root doesn't declare the var, and passing it would be a terraform error.
     ephemeral_vars: tuple[str, ...] = ()
+    # `name=value` vars passed ONLY when the pinned root declares `name` (Terraform rejects an
+    # undeclared -var), so one spec works across iac pins that added the input later. honua-iac
+    # v0.2.0's examples/aws flipped two defaults that an ephemeral cell cannot live with:
+    #   * rds_deletion_protection defaults true, so `terraform destroy` cannot delete the RDS
+    #     instance and strands it with the VPC (e2e-cloud-aws run 36560629698);
+    #   * enable_postgis defaults false (private-RDS production shape), so the server's PostGIS
+    #     preflight exits at startup and the ALB answers 503. The cell's RDS is publicly accessible
+    #     to the runner's /32 (needs_runner_db_access), which is exactly the reachability the
+    #     local-exec PostGIS bootstrap requires, as on v0.1.0 where it defaulted true.
+    declared_ephemeral_vars: tuple[str, ...] = ()
     # JSON var files preserve typed values that cannot be represented faithfully
     # by Terraform's string-constrained `-var=name=value` coercion (notably null).
     # Paths are relative to the honua-release repository root.
@@ -163,6 +173,8 @@ class TerraformTarget(DeployTarget):
             *self._licensing_vars(),
             f"-var={self.spec.redis_var}={'true' if redis_enabled else 'false'}",
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
+            *(f"-var={v}" for v in self.spec.declared_ephemeral_vars
+              if self._root_declares(v.split("=", 1)[0])),
         ]
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
@@ -277,6 +289,7 @@ ECS_SPEC = TfTargetSpec(
     # key instead, but the release harness never adopts an existing ECS database.
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
+    declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true"),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,
