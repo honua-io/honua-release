@@ -1,0 +1,27 @@
+{
+  "name": "honua-live-map",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.13.0",
+    "@connectrpc/connect": "2.1.2",
+    "@connectrpc/connect-web": "2.1.2",
+    "@honua/sdk-js": "^0.1.9-beta.0",
+    "maplibre-gl": "6.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3",
+    "vite": "8.2.0"
+  }
+}

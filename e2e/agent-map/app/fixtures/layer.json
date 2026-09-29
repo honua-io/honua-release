@@ -1,0 +1,34 @@
+{
+  "currentVersion": 11.3,
+  "id": 0,
+  "name": "Honolulu operations areas",
+  "type": "Feature Layer",
+  "description": "The same three synthetic First Map polygons exposed by the OGC API Features projection.",
+  "copyrightText": "Copyright Honua contributors; synthetic demonstration data.",
+  "provenance": {
+    "source": "honua-sdk-js test/fixtures/honua-quickstart-demo",
+    "retrievedAt": "2026-07-13T00:00:00.000Z"
+  },
+  "geometryType": "esriGeometryPolygon",
+  "objectIdField": "OBJECTID",
+  "maxRecordCount": 25,
+  "advancedQueryCapabilities": {
+    "supportsPagination": true,
+    "supportsReturningQueryExtent": false,
+    "supportsStatistics": false
+  },
+  "extent": {
+    "xmin": -157.891,
+    "ymin": 21.286,
+    "xmax": -157.856,
+    "ymax": 21.311,
+    "spatialReference": { "wkid": 4326 }
+  },
+  "fields": [
+    { "name": "OBJECTID", "type": "esriFieldTypeOID", "alias": "OBJECTID" },
+    { "name": "NAME", "type": "esriFieldTypeString", "alias": "Name" },
+    { "name": "STATUS", "type": "esriFieldTypeString", "alias": "Status" },
+    { "name": "CATEGORY", "type": "esriFieldTypeString", "alias": "Category" }
+  ],
+  "capabilities": "Query"
+}

@@ -1,0 +1,46 @@
+{
+  "objectIdFieldName": "OBJECTID",
+  "geometryType": "esriGeometryPolygon",
+  "spatialReference": { "wkid": 4326 },
+  "fields": [
+    { "name": "OBJECTID", "type": "esriFieldTypeOID", "alias": "OBJECTID" },
+    { "name": "NAME", "type": "esriFieldTypeString", "alias": "Name" },
+    { "name": "STATUS", "type": "esriFieldTypeString", "alias": "Status" },
+    { "name": "CATEGORY", "type": "esriFieldTypeString", "alias": "Category" }
+  ],
+  "features": [
+    {
+      "attributes": {
+        "OBJECTID": 1,
+        "NAME": "Civic center service zone",
+        "STATUS": "Monitoring",
+        "CATEGORY": "Operations"
+      },
+      "geometry": {
+        "rings": [[[-157.866, 21.311], [-157.856, 21.311], [-157.856, 21.302], [-157.866, 21.302], [-157.866, 21.311]]]
+      }
+    },
+    {
+      "attributes": {
+        "OBJECTID": 2,
+        "NAME": "Harbor response district",
+        "STATUS": "Field review",
+        "CATEGORY": "Maritime"
+      },
+      "geometry": {
+        "rings": [[[-157.891, 21.304], [-157.879, 21.304], [-157.879, 21.294], [-157.891, 21.294], [-157.891, 21.304]]]
+      }
+    },
+    {
+      "attributes": {
+        "OBJECTID": 3,
+        "NAME": "Kakaako utility corridor",
+        "STATUS": "Ready",
+        "CATEGORY": "Infrastructure"
+      },
+      "geometry": {
+        "rings": [[[-157.87, 21.296], [-157.856, 21.296], [-157.856, 21.286], [-157.87, 21.286], [-157.87, 21.296]]]
+      }
+    }
+  ]
+}
