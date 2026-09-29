@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -90,8 +91,17 @@ class TerraformTarget(DeployTarget):
         root = self._iac_root()
         if root is None:
             return False
-        needle = f'variable "{variable}"'
-        return any(needle in tf.read_text(encoding="utf-8") for tf in root.glob("*.tf"))
+        # Anchored like AwsEksTarget._root_declares: a comment that merely mentions the variable
+        # must not count as a declaration.
+        pattern = re.compile(r'^\s*variable\s+"' + re.escape(variable) + r'"\s*\{', re.MULTILINE)
+        for tf_file in sorted(root.glob("*.tf")):
+            try:
+                body = tf_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if pattern.search(body):
+                return True
+        return False
 
     def _licensing_vars(self) -> list[str]:
         # 2026.1 ships licensing disabled (honua-release#338). Roots that expose licensing_mode get it
