@@ -35,7 +35,7 @@
       "publication": "nuget.org Honua.Mobile.Sdk, Honua.Mobile.Offline, Honua.Mobile.Maui"
     },
     {
-      "boundary": "clientArtifacts.honua-sdk-dotnet pins Honua.Sdk 1.6.0 on github-packages. The nuget.org flat-container nupkg for that version returned {'Honua.Sdk': 404, 'Honua.Sdk.Studio': 404}. Public Honua.Sdk index versions are 1.6.4, 1.7.0, 1.8.0, 1.9.0, 1.10.0. components.honua-sdk-dotnet.version is 1.6.2, which is not that public set. Those later versions are not recorded as the train's bytes. honua-console#356 cannot anonymously restore this pin; a public Honua.Sdk.Studio at another version does not satisfy it. Rebinding the manifest is an operator decision. No nuget.org credential is required to see this gap.",
+      "boundary": "clientArtifacts.honua-sdk-dotnet pins Honua.Sdk 1.6.0 on github-packages. The nuget.org flat-container nupkg for that version returned {'Honua.Sdk': 404, 'Honua.Sdk.Studio': 404}. Public Honua.Sdk index versions are 1.6.4, 1.7.0, 1.8.0, 1.9.0, 1.10.0, 1.10.1. components.honua-sdk-dotnet.version is 1.6.2, which is not that public set. Those later versions are not recorded as the train's bytes. honua-console#356 cannot anonymously restore this pin; a public Honua.Sdk.Studio at another version does not satisfy it. Rebinding the manifest is an operator decision. No nuget.org credential is required to see this gap.",
       "channels": [
         "train:honua-sdk-dotnet"
       ],
@@ -222,7 +222,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -230,25 +231,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.10.0.nupkg",
-          "sha256": "dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.0/honua.sdk.1.10.0.nupkg"
+          "filename": "honua.sdk.1.10.1.nupkg",
+          "sha256": "65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg"
         },
         {
-          "filename": "honua.sdk.1.10.0.snupkg",
-          "sha256": "c1e8d581611bf161942adef4858214466a83247f0c12eca452926b882f010cb2",
-          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.0.snupkg"
+          "filename": "honua.sdk.1.10.1.snupkg",
+          "sha256": "0345993ebf7049aba3f2732da40bc7d4ca59b4134c53f0dff2cc508104c5c57c",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.1.snupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 1.10.0",
+      "publication": "nuget.org Honua.Sdk 1.10.1",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.0/honua.sdk.1.10.0.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.0.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.1.snupkg"
       ],
-      "version": "1.10.0"
+      "version": "1.10.1"
     },
     {
       "disposition": "listed",
@@ -264,7 +265,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -281,7 +283,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -298,7 +301,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -315,7 +319,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -332,7 +337,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -349,7 +355,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -366,7 +373,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -383,7 +391,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -400,7 +409,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -417,7 +427,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -434,7 +445,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -451,7 +463,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -468,7 +481,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -485,7 +499,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -502,7 +517,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ]
     },
     {
@@ -544,25 +560,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_migrate-0.7.1-py3-none-any.whl",
-          "registry_sha256": "533002e5a080b7f0bb81033658d066baf41cfda43af67cfdcda20f29928a1f14",
-          "sha256": "533002e5a080b7f0bb81033658d066baf41cfda43af67cfdcda20f29928a1f14",
-          "url": "https://files.pythonhosted.org/packages/1f/63/6d3d7b1f80844e33df019457bc9d59093839fd920b8d17c1ea0b60b18009/honua_migrate-0.7.1-py3-none-any.whl"
+          "filename": "honua_migrate-0.8.0-py3-none-any.whl",
+          "registry_sha256": "6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9",
+          "sha256": "6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9",
+          "url": "https://files.pythonhosted.org/packages/dc/90/6f24d09bfdb092bc98e25aa16be04fff0cab39640ad8356f9a4e25fc9b2b/honua_migrate-0.8.0-py3-none-any.whl"
         },
         {
-          "filename": "honua_migrate-0.7.1.tar.gz",
-          "registry_sha256": "bea15914e8b292d69d4f53f1a69a6c2a85950d5137d840d640acf6b8399db43a",
-          "sha256": "bea15914e8b292d69d4f53f1a69a6c2a85950d5137d840d640acf6b8399db43a",
-          "url": "https://files.pythonhosted.org/packages/87/03/965a5022a922aa764ffb320cc173f6ea1912f78d922fa1cea57af3119963/honua_migrate-0.7.1.tar.gz"
+          "filename": "honua_migrate-0.8.0.tar.gz",
+          "registry_sha256": "9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44",
+          "sha256": "9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44",
+          "url": "https://files.pythonhosted.org/packages/f2/c6/6398c982edea0a27142dbce98037a65c8cb2515bbddeebe5c2555ebd4dd5/honua_migrate-0.8.0.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-migrate",
-      "publication": "PyPI honua-migrate 0.7.1",
+      "publication": "PyPI honua-migrate 0.8.0",
       "urls": [
         "https://pypi.org/pypi/honua-migrate/json"
       ],
-      "version": "0.7.1"
+      "version": "0.8.0"
     },
     {
       "disposition": "published",
@@ -612,7 +628,8 @@
         "1.7.0",
         "1.8.0",
         "1.9.0",
-        "1.10.0"
+        "1.10.0",
+        "1.10.1"
       ],
       "pin_package_statuses": {
         "Honua.Sdk": 404,
@@ -628,6 +645,6 @@
   ],
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes.",
-  "observed_at": "2026-09-29T01:37:09Z",
+  "observed_at": "2026-09-29T05:39:25Z",
   "schema": "honua.first-publication-preflight/v1"
 }
