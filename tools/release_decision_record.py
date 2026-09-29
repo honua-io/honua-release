@@ -324,15 +324,35 @@ def working_candidate(data):
     wc = data.get('working_candidate')
     if not wc:
         return []
-    lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · dry-run train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
-             '| Component | Pinned sha | Selection |', '|---|---|---|']
-    lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
-    lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
-    lines += [f'| {gate} | {status} | {cause} |' for gate, status, cause in wc['gates']]
+    if wc.get('train'):
+        lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · dry-run train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
+                 '| Component | Pinned sha | Selection |', '|---|---|---|']
+        lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
+    else:
+        # An approved re-pin that has not been pinned yet: targets are rules, not shas, and no
+        # train has run on them, so no pin cell may look like a sha.
+        lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · [re-pin approval]({wc["approval"]}) · Observed: {wc["observed_at"]}**', '',
+                 '| Component | Pin | Approved target |', '|---|---|---|']
+        lines += [f'| {name} | {pin} | {why} |' for name, pin, why in wc['pins']]
+    if wc.get('gates'):
+        lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
+        lines += [f'| {gate} | {status} | {cause} |' for gate, status, cause in wc['gates']]
     # An optional prose note carries what no gate row can: the shape of the train's own input
     # surface (release#338 requires the dry run to show no license input at all).
     if wc.get('note'):
         lines += ['', wc['note']]
+    return lines + ['']
+
+
+def release_plan(data):
+    # The operating plan and its milestones. It names what the cut will be; it cannot cut,
+    # qualify or promote anything, and the digest header stays `not yet cut` until a real cut.
+    plan = data.get('release_plan')
+    if not plan:
+        return []
+    lines = [f'**Release plan: {link(plan["epic"])} ([Specifica]({plan["specifica"]}) · [plan rulings]({plan["ruling"]})) · versioning {link(plan["versioning"])} · {plan["status"]}**', '',
+             '| Milestone | Bar |', '|---|---|']
+    lines += [f'| {name} | {bar} |' for name, bar in plan['milestones']]
     return lines + ['']
 
 
@@ -348,13 +368,14 @@ def render(data, rows):
          + f' · Decision: HOLD · Observed: {data["observed_at"]}**'), '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
         '2026.1 ships with licensing disabled (`Licensing__Mode=Disabled`): no license file, minting, edition gating or capacity metering. All catalog entitlements are active; serving-unit bands are neither measured nor enforced. Authentication, authorization, safety limits and release maturity remain in force. Whole-catalog GP and COG/Zarr/GeoParquet/PMTiles retain their GA scope; multi-tenancy, alerting and offline sync remain Preview. Licensing hardening, bands, metering, marketplace and the Console licensing page move to 2026.2 (server#4720, iac#190, helm#78, console#384). Operator ruling 2026-09-12 ([release#338](https://github.com/honua-io/honua-release/issues/338)); supersedes the September 5 strict license failure-mode contract for this release.', '',
+        *release_plan(data),
         *working_candidate(data),
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',
         '| Supported scope | Denominator / accepted limitations | Accountable owner |', '|---|---|---|',
-        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET via GitHub Packages; focused tested Console. ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")} |',
-        f'| Preview | Studio; realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
+        f'| GA (qualification pending) | Single-tenant PostGIS core; declared OGC/GeoServices profiles; STAC/Records; whole BuiltInProcessCatalog (no per-op carve-out); COG/Zarr/GeoParquet/PMTiles; local Docker; bounded terminal Admin/SDK/MCP; registry JS/Python/.NET and gRPC .NET from their public registries; focused tested display-and-approve Console (no dashboards claimed). ECS-small x86_64 only with live receipt. AWS Lambda x86_64: GA target, qualification pending; promoted from Preview by the 2026-09-06 contract amendment (ruling A), carrying the full ECS bill — live deploy, serving smoke, upgrade, rollback, destroy on the real serverless substrate; the release cannot be cut with Lambda below that bill. Operating limits: [serverless envelope](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits). | {link("honua-release#157")}, {link("honua-server#3809")}, {link("geospatial-grpc#88")}, {link("honua-release#129")}, {link("honua-release#282")} |',
+        f'| Preview | Studio (a Preview P0 is not a cut blocker unless it is a security/isolation/integrity floor, studio#2 ruling 2026-09-29); mixed ECS + Batch (informational cells); realtime; alerting; multi-tenancy TRIAL (no production deployment); offline sync; ImageServer + WMTS; EDR/Coverages; NAServer/VersionManagement; Helm/K8s; support application (staffed-manual support required). Security/isolation/integrity floors retained. | {link("honua-release#268")}, {link("honua-server#3859")}, {link("honua-server#3865")}, {link("honua-support#5")} |',
         f'| Excluded from GA | 3D/I3S/terrain/point-cloud/BIM and warehouses remain Experimental, opt-in; this does not demote GA pcloud.translate. ARM64/Fargate, Azure, air-gap, broad deployment variants excluded; broad MCP/OKF Experimental. Branch-versioning expansion and marketplace/billing automation: 2026.2. | {link("honua-server#3249")}, {link("honua-server#3250")}, {link("honua-release#98")} |', '',
         'Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. The eight GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, `concurrentVirtualUsers`, `gpWorkers`, and `gpQueueDepth`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. See [the capacity ruling](CAPACITY-ENVELOPE-2026.1.md#scope).', '',
         '| Required evidence → consuming §14 gate | Accountable repo + issue | Implementation ticket closed | Qualified against candidate |', '|---|---|---|---|',
@@ -366,7 +387,8 @@ def render(data, rows):
         f'| Cut blocked by the first bucket; all candidate proofs remain outstanding. Closed machinery is not a receipt. | {link("honua-release#231")}, {link("honua-release#269")} |',
         f'| Whole-catalog GP and all four cloud-native formats retained; exact-candidate SIGKILL/TLS/cleanup follow cut. Explicit exceptions, including superseded P0 labels, carry reasons in the override file. | {link("honua-release#268")}, {link("honua-server#3849")}, {link("honua-devops#183")} |',
         f'| Supported sizes, limits, SLOs and recovery envelope: not qualified until receipts. Support manual; no automated marketplace dependency. Cluster C/D/E rulings not explicitly superseded remain OPEN. | {link("honua-release#235")}, {link("honua-support#5")}, {link("honua-release#268")} |',
-        f'| Three strict trains, 48–72h unchanged burn-in, seven six-hour canaries; independent product/quality/security/SRE/support/release approvals; exact-byte promotion and prior-lock rollback. Docker E2E expansion is post-cut hardening. | {link("honua-release#232")}, {link("honua-release#210")}, {link("honua-release#256")} |', '',
+        f'| Three strict trains, 48–72h unchanged burn-in, seven six-hour canaries; one human approver with App dispatch (the six-independent-approvals language is withdrawn); exact-byte promotion and prior-lock rollback (rc.3 → rc.4 → rc.3). Docker E2E expansion is post-cut hardening. | {link("honua-release#232")}, {link("honua-release#210")}, {link("honua-release#256")}, {link("honua-release#376")} |',
+        f'| Accepted limitation for a single-operator team until a second reviewer exists: separation of duties, and the two-person code-review rule (moved to 2026.2). The 2026.1 review model is required status checks verified by automation plus operator approval, with no-bypass rulesets read back. | {link("honua-release#236")}, {link("honua-support#56")} |', '',
         '[Regeneration and label application](2026.1-release-decision-maintenance.md) · [Explicit exceptions / admission reviews](2026.1-release-decision-overrides.json) · [Timestamped inputs](2026.1-release-decision-inputs.json)', '',
     ]
     return '\n'.join(content)
