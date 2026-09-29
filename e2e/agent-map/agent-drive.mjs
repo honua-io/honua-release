@@ -238,7 +238,10 @@ const server = http.createServer(async (request, response) => {
     }
     send(404, { error: "unknown route" });
   } catch (error) {
-    send(500, { error: error instanceof Error ? error.message : String(error) });
+    // Log the detail on the operator's console; return only a correlation id to the caller.
+    const incident = randomUUID();
+    console.error(`[drive] request failed (${incident}):`, error);
+    send(500, { error: "request failed", incident });
   }
 });
 
