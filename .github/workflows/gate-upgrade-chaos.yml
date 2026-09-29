@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       prior_image:
-        description: "Prior server image (must be a real immutable image)"
+        description: "Prior server image (required: repository@sha256:<64 lowercase hex digits>)"
         required: true
         type: string
       candidate_image:
-        description: "Candidate server image (must be a real immutable image)"
+        description: "Candidate server image (required: repository@sha256:<64 lowercase hex digits>)"
         required: true
         type: string
       scenario:
