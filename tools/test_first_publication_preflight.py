@@ -362,3 +362,143 @@ def test_committed_receipt_matches_the_manifest_pin_and_audits():
     grpc = _channel(receipt, "nuget:Geospatial.Grpc")
     assert grpc["files"][0]["sha256"] == preflight.GRPC_NUPKG_SHA256
     assert not any(channel.get("files") for channel in receipt["channels"] if channel["id"].startswith("nuget:Honua.Mobile"))
+    assert receipt["blockers"], "the committed receipt still names its real blockers"
+    for channel_id in preflight.COMPONENT_CHANNELS:
+        if preflight.COMPONENT_CHANNELS[channel_id] in preflight.experimental_components(manifest):
+            assert _channel(receipt, channel_id)["disposition"] == preflight.DEFERRED_EXPERIMENTAL
+    preflight.audit(receipt, manifest)
+
+
+def _experimental_manifest() -> dict:
+    manifest = _manifest()
+    manifest["experimental"] = {
+        "honua-mobile": {"status": "experimental", "sourcePinnedOnly": True},
+        "honua-collect": {"status": "experimental", "sourcePinnedOnly": True},
+    }
+    return manifest
+
+
+def _experimental_receipt(world=None) -> dict:
+    world = world or World()
+    return preflight.build_receipt(
+        world,
+        _experimental_manifest(),
+        observed_at="2026-09-29T00:00:00Z",
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+    )
+
+
+MOBILE_CHANNEL_IDS = (
+    "npm:@honua-io/embed",
+    "nuget:Honua.Mobile.Maui",
+    "nuget:Honua.Mobile.Offline",
+    "nuget:Honua.Mobile.Sdk",
+)
+
+
+def test_experimental_mobile_channels_are_deferred_not_blockers():
+    manifest = _experimental_manifest()
+    receipt = _experimental_receipt()
+    preflight.audit(receipt, manifest)
+    assert set(receipt["deferred_experimental_components"]) == {"honua-collect", "honua-mobile"}
+    for channel_id in MOBILE_CHANNEL_IDS:
+        channel = _channel(receipt, channel_id)
+        assert channel["disposition"] == "deferred-experimental"
+        assert channel["component"] == "honua-mobile"
+        assert "experimental:" in channel["deferral_reason"]
+        assert channel["http_status"] == 404
+        assert "files" not in channel and "evidence_class" not in channel
+    blocked = {channel_id for blocker in receipt["blockers"] for channel_id in blocker["channels"]}
+    assert not blocked.intersection(MOBILE_CHANNEL_IDS)
+    publications = {blocker["publication"] for blocker in receipt["blockers"]}
+    assert "npmjs @honua-io/embed" not in publications
+    assert not any(item.startswith("nuget.org Honua.Mobile") for item in publications)
+    # The rest of the gate is untouched: its real blockers remain.
+    assert "oci://ghcr.io/honua-io/charts/honua" in publications
+    assert "nuget.org Honua.Sdk 1.6.0" in publications
+
+
+def test_manifest_reason_is_carried_into_the_deferred_row():
+    manifest = _experimental_manifest()
+    manifest["experimental"]["honua-mobile"]["reason"] = "Deferred out of 2026.1 by operator ruling."
+    world = World()
+    receipt = preflight.build_receipt(
+        world,
+        manifest,
+        observed_at="2026-09-29T00:00:00Z",
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+    )
+    assert _channel(receipt, "npm:@honua-io/embed")["deferral_reason"] == "Deferred out of 2026.1 by operator ruling."
+
+
+def test_component_moved_to_ga_makes_mobile_channels_required_and_blocked_again():
+    manifest = _experimental_manifest()
+    manifest["components"]["honua-mobile"] = manifest["experimental"].pop("honua-mobile")
+    manifest["components"]["honua-mobile"]["status"] = "GA"
+    world = World()
+    receipt = preflight.build_receipt(
+        world,
+        manifest,
+        observed_at="2026-09-29T00:00:00Z",
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+    )
+    preflight.audit(receipt, manifest)
+    assert receipt["deferred_experimental_components"].keys() == {"honua-collect"}
+    for channel_id in MOBILE_CHANNEL_IDS:
+        assert _channel(receipt, channel_id)["disposition"] == "blocked-on-operator"
+    publications = {blocker["publication"] for blocker in receipt["blockers"]}
+    assert "npmjs @honua-io/embed" in publications
+    assert "nuget.org Honua.Mobile.Sdk, Honua.Mobile.Offline, Honua.Mobile.Maui" in publications
+    # A GA mobile channel is required: dropping it from the receipt fails the audit.
+    receipt["channels"] = [item for item in receipt["channels"] if item["id"] != "nuget:Honua.Mobile.Sdk"]
+    receipt["blockers"] = [
+        blocker for blocker in receipt["blockers"] if "nuget:Honua.Mobile.Sdk" not in blocker["channels"]
+    ]
+    with pytest.raises(preflight.PreflightError, match="omits"):
+        preflight.audit(receipt)
+
+
+def test_a_stale_deferral_fails_against_the_manifest():
+    receipt = _experimental_receipt()
+    manifest = _experimental_manifest()
+    manifest["components"]["honua-mobile"] = manifest["experimental"].pop("honua-mobile")
+    with pytest.raises(preflight.PreflightError, match="does not match the manifest"):
+        preflight.audit(receipt, manifest)
+
+
+def test_experimental_channel_is_never_published_ga_evidence():
+    receipt = _experimental_receipt()
+    channel = _channel(receipt, "nuget:Honua.Mobile.Sdk")
+    channel["disposition"] = "published"
+    channel["evidence_class"] = "downloaded-bytes"
+    channel["files"] = [{"filename": "x.nupkg", "sha256": "ab" * 32, "url": "https://api.nuget.org/x.nupkg"}]
+    with pytest.raises(preflight.PreflightError, match="must be deferred-experimental"):
+        preflight.audit(receipt)
+    channel["disposition"] = "deferred-experimental"
+    with pytest.raises(preflight.PreflightError, match="not GA evidence"):
+        preflight.audit(receipt)
+
+
+def test_deferred_row_needs_an_experimental_component():
+    receipt = _experimental_receipt()
+    receipt["deferred_experimental_components"] = {}
+    with pytest.raises(preflight.PreflightError, match="not an experimental component"):
+        preflight.audit(receipt)
+
+
+def test_a_listed_experimental_package_stays_deferred_and_records_the_listing():
+    world = World()
+    original = world._response
+
+    def listed(url: str):
+        if url.endswith("/honua.mobile.sdk/index.json"):
+            return 200, json.dumps({"versions": ["0.1.0"]}).encode()
+        return original(url)
+
+    world._response = listed
+    receipt = _experimental_receipt(world)
+    channel = _channel(receipt, "nuget:Honua.Mobile.Sdk")
+    assert channel["disposition"] == "deferred-experimental"
+    assert channel["registry_versions"] == ["0.1.0"]
+    assert "files" not in channel
+    preflight.audit(receipt, _experimental_manifest())
