@@ -323,5 +323,675 @@
                            "service":  "WorkspaceService",
                            "operation":  "GetQuotaUsage"
                        }
-                   ]
+                   ],
+    "rulings":  [
+        {
+            "id": "grpc-2026.1-implemented-rpcs",
+            "decision": "2026.1 gRPC certification covers only the geospatial.v1 RPCs that the default honua-server GA image implements. Every other RPC in this inventory moves to excluded_operations with its maturity, the rationale, the owner issue and the release in which it is reconsidered. The generated denominator carries no requirement for an excluded RPC, so it can neither count as a GA pass nor block the cut.",
+            "evidence": "Operator ruling of 2026-09-29, posted on geospatial-grpc#88 and linked from honua-release#376. geospatial-grpc protocol-certification run 36609727697 against honua-server 2db24e6 (sha256:80d66658...) returned UNIMPLEMENTED from FormService, WorkspaceService and synchronous ExecutePlan in all three client lanes. honua-server Program.cs at 2db24e6 maps FeatureService, ProcessService, SpecService and ElevationService unconditionally, and SceneService and TileService only behind experimental capability flags. No other geospatial.v1 service is registered.",
+            "consequence": "In scope for 2026.1: FeatureService (QueryFeatures, QueryFeaturesStream, ApplyEdits), ProcessService asynchronous and planning RPCs (ValidatePlan, DryRunPlan, SubmitJob, GetJob, GetJobResult, CancelJob), SpecService (PlanSpec, ApplySpec, CancelApply) and ElevationService (GetElevation, GetElevationProfile). Excluded RPCs are Preview or Experimental rows, not silent removals: the geospatial-grpc producer still executes their fixtures and reports the results as excluded, never as GA passes."
+        }
+    ],
+    "excluded_operations":  [
+        {
+            "service": "ArtifactService",
+            "operation": "PublishArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "ReadArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "GetArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "InspectArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "ListArtifacts",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "RetainArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "ReleaseArtifact",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "GetRetentionPolicy",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ArtifactService",
+            "operation": "ListRetentionPolicies",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no ArtifactService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "ValidateBuild",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "DryRunBuild",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "ExecuteBuild",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "ExecuteBuildStream",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "SubmitBuildJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "GetBuildJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "GetBuildJobResult",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "BuilderService",
+            "operation": "CancelBuildJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no BuilderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "ValidateDeployment",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "DryRunDeployment",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "ExecuteDeployment",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "ExecuteDeploymentStream",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "SubmitDeploymentJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "GetDeploymentJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "GetDeploymentJobResult",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "CancelDeploymentJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "RollbackDeployment",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "GetDeploymentHealth",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "DeploymentService",
+            "operation": "StreamDeploymentHealth",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no DeploymentService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "FormService",
+            "operation": "GetFormDefinition",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no FormService (the gRPC-native IFormDefinitionStore has no implementation); every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "FormService",
+            "operation": "SubmitFormData",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no FormService (the gRPC-native IFormDefinitionStore has no implementation); every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "FormService",
+            "operation": "StreamFormUpdates",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no FormService (the gRPC-native IFormDefinitionStore has no implementation); every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "FormService",
+            "operation": "ValidateFormData",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no FormService (the gRPC-native IFormDefinitionStore has no implementation); every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "FormService",
+            "operation": "GetFormMetadata",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no FormService (the gRPC-native IFormDefinitionStore has no implementation); every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "ValidatePipeline",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "DryRunPipeline",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "ExecutePipeline",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "ExecutePipelineStream",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "SubmitPipelineJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "GetPipelineJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "GetPipelineJobResult",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "PipelineService",
+            "operation": "CancelPipelineJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no PipelineService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ProcessService",
+            "operation": "ExecutePlan",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "Synchronous plan execution returns UNIMPLEMENTED ('Use SubmitJob for asynchronous execution'). honua-server#4632 schedules bounded synchronous and streamed execution for 2026.2.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/honua-server/issues/4632",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "ProcessService",
+            "operation": "ExecutePlanStream",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "Streamed plan execution returns UNIMPLEMENTED. honua-server#4632 schedules bounded synchronous and streamed execution for 2026.2.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/honua-server/issues/4632",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "ValidateRender",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "DryRunRender",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "ExecuteRender",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "ExecuteRenderStream",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "SubmitRenderJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "GetRenderJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "GetRenderJobResult",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "RenderService",
+            "operation": "CancelRenderJob",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no RenderService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "SceneService",
+            "operation": "ListScenes",
+            "maturity": "experimental",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server maps SceneService only when the experimental scene.catalog capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "SceneService",
+            "operation": "GetScene",
+            "maturity": "experimental",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server maps SceneService only when the experimental scene.catalog capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "StyleService",
+            "operation": "ListStyles",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no StyleService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "StyleService",
+            "operation": "GetStyle",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no StyleService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "TileService",
+            "operation": "GetTile",
+            "maturity": "experimental",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server maps TileService only when the experimental serve.3d-tiles-scene capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "TileService",
+            "operation": "StreamTiles",
+            "maturity": "experimental",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server maps TileService only when the experimental serve.3d-tiles-scene capability flag is on (Program.cs). 3D is Experimental and opt-in in the 2026.1 decision record, so the default GA image does not serve it.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "CreateWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "OpenWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "GetWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "ListWorkspaces",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "UpdateWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "PromoteWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "RetainWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "ReleaseWorkspace",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        },
+        {
+            "service": "WorkspaceService",
+            "operation": "GetQuotaUsage",
+            "maturity": "preview",
+            "ruling": "grpc-2026.1-implemented-rpcs",
+            "rationale": "honua-server registers no WorkspaceService; every RPC returns UNIMPLEMENTED.",
+            "decision": "honua-release#376 operator ruling on geospatial-grpc#88 (2026-09-29)",
+            "owner_issue": "https://github.com/honua-io/geospatial-grpc/issues/88",
+            "target_release": "2026.2"
+        }
+    ]
 }
