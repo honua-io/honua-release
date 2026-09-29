@@ -75,7 +75,8 @@ def _manifest() -> dict:
 
 
 class World:
-    def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR):
+    def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR, sdk_next_status=404):
+        self.sdk_next_status = sdk_next_status
         self.nuget_versions = nuget_versions or ["1.6.4", "1.10.0"]
         self.dependencies = dependencies or dict(TARBALL_DEPS)
         self.grpc_body = grpc_body
@@ -133,6 +134,8 @@ class World:
         if url == preflight.npm_version_url("@honua/sdk-js", "0.1.9-beta.0"):
             return 200, json.dumps({"dist": {"integrity": "sha512-test"}}).encode()
         if url == preflight.npm_version_url("@honua/sdk-js", "0.1.10-beta.0"):
+            if self.sdk_next_status == 200:
+                return 200, json.dumps({"dist": {"integrity": "sha512-next"}}).encode()
             return 404, b"missing"
         if url == preflight.npm_package_url("@honua-io/embed"):
             return 404, b"missing"
@@ -292,6 +295,16 @@ def test_a_fixed_template_is_not_a_republish_blocker():
     receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": "6.9.0"})
     assert _channel(receipt, "npm:create-honua-app")["disposition"] == "published"
     assert not any(item["kind"] == "blocked-on-republish" for item in receipt["blockers"])
+
+
+def test_a_resolvable_off_manifest_template_sdk_pin_still_blocks_republish():
+    # The manifest pins 0.1.9-beta.0; a template pin that merely resolves on npm is off-train.
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.10-beta.0", "maplibre-gl": "6.9.0"}, sdk_next_status=200)
+    create = _channel(receipt, "npm:create-honua-app")
+    assert create["sdk_pin_statuses"] == {"0.1.10-beta.0": 200}
+    assert create["disposition"] == "blocked-on-republish"
+    blocker = next(item for item in receipt["blockers"] if item["kind"] == "blocked-on-republish")
+    assert "manifest pins @honua/sdk-js 0.1.9-beta.0" in blocker["boundary"]
 
 
 def test_manifest_pin_appearing_on_nuget_is_not_silently_adopted():
