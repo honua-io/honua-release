@@ -20,4 +20,9 @@ the candidate advanced it to 120 by applying migration 107, `Honua.Server.Migrat
 The confirmed divergence finding is filed in `honua-io/honua-server` with `bug-hunt/2026-09-03`,
 `release/2026.1`, and `priority/P0`.
 
+That issue is [honua-server#4001](https://github.com/honua-io/honua-server/issues/4001); it was closed on
+2026-09-04. The FAIL row above is the 2026-09-03 observation and is not rewritten. Re-run
+`gate-upgrade-chaos` with `scenario=journal-schema-divergence` against a candidate image that contains
+the fix to record a new observation.
+
 This branch contains hunt coverage only: no production server code or migration was changed.
