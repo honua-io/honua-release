@@ -635,7 +635,34 @@ def main() -> None:
             f"unexpected={sorted(present_decision_cells - expected_decision_cells)})"
         )
     validate_bounded_roster(catalog, bounded_roster)
+    validate_grpc_scope(catalog)
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
+
+
+def validate_grpc_scope(catalog: dict) -> None:
+    """Every inventoried gRPC RPC is either a generated requirement or a ruled exclusion."""
+    grpc = json.loads(
+        (ROOT / "sources" / "geospatial-grpc" / "operations.v1.json").read_text(encoding="utf-8")
+    )
+    excluded = {f"{entry['service']}/{entry['operation']}" for entry in grpc.get("excluded_operations", [])}
+    inventory = {f"{rpc['service']}/{rpc['operation']}" for rpc in grpc["operations"]}
+    lanes = {"grpc-dotnet", "grpc-python", "grpc-typescript"}
+    generated: dict[str, set[str]] = {}
+    for row in catalog["requirements"]:
+        if row["surface"] == "grpc" and row["client_lane"] in lanes:
+            generated.setdefault(row["operation"], set()).add(row["client_lane"])
+    leaked = sorted(set(generated) & excluded)
+    if leaked:
+        raise ValueError(f"Excluded gRPC operations carry generated requirements: {leaked}")
+    expected = inventory - excluded
+    if set(generated) != expected:
+        raise ValueError(
+            "Generated gRPC requirements differ from the in-scope inventory "
+            f"(missing={sorted(expected - set(generated))}, unexpected={sorted(set(generated) - expected)})"
+        )
+    incomplete = sorted(operation for operation, found in generated.items() if found != lanes)
+    if incomplete:
+        raise ValueError(f"In-scope gRPC operations lack a client lane: {incomplete}")
 
 
 if __name__ == "__main__":

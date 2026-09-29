@@ -44,6 +44,57 @@ def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
+GRPC_SCOPE_RULING = "grpc-2026.1-implemented-rpcs"
+GRPC_EXCLUDED_MATURITIES = {"preview", "experimental"}
+
+
+def grpc_scope(
+    grpc: dict[str, Any], server_commit: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the gRPC inventory into in-scope RPCs and ruled exclusions.
+
+    The ruling must have been checked against the pinned server commit. An
+    excluded RPC must be in the inventory, name the scope ruling, and carry its
+    maturity, rationale, decision, owner issue and target release. It gets no
+    generated requirement, so it can neither pass nor block as GA.
+    """
+    rulings = {ruling["id"]: ruling for ruling in grpc.get("rulings", [])}
+    if GRPC_SCOPE_RULING not in rulings:
+        raise ValueError(f"geospatial-grpc inventory has no {GRPC_SCOPE_RULING!r} ruling")
+    if server_commit not in rulings[GRPC_SCOPE_RULING].get("verified_server_commits", []):
+        raise ValueError(
+            f"the {GRPC_SCOPE_RULING!r} ruling was not verified against the pinned server commit "
+            f"{server_commit}; re-check which RPCs that revision implements and record it"
+        )
+    inventory = {(rpc["service"], rpc["operation"]) for rpc in grpc["operations"]}
+    if len(inventory) != len(grpc["operations"]):
+        raise ValueError("geospatial-grpc inventory lists an RPC more than once")
+    excluded: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in grpc.get("excluded_operations", []):
+        key = (entry["service"], entry["operation"])
+        if key not in inventory:
+            raise ValueError(f"excluded gRPC operation {key} is not in the inventory")
+        if key in excluded:
+            raise ValueError(f"excluded gRPC operation {key} is listed more than once")
+        if entry.get("ruling") != GRPC_SCOPE_RULING:
+            raise ValueError(f"excluded gRPC operation {key} does not name the {GRPC_SCOPE_RULING!r} ruling")
+        if entry.get("maturity") not in GRPC_EXCLUDED_MATURITIES:
+            raise ValueError(f"excluded gRPC operation {key} must be preview or experimental")
+        missing = [
+            field for field in ("rationale", "decision", "owner_issue", "target_release")
+            if not isinstance(entry.get(field), str) or not entry[field].strip()
+        ]
+        if missing:
+            raise ValueError(f"excluded gRPC operation {key} lacks {missing}")
+        if not entry["owner_issue"].startswith("https://github.com/honua-io/"):
+            raise ValueError(f"excluded gRPC operation {key} owner_issue must be a honua-io issue URL")
+        excluded[key] = entry
+    in_scope = [rpc for rpc in grpc["operations"] if (rpc["service"], rpc["operation"]) not in excluded]
+    if not in_scope:
+        raise ValueError("the gRPC scope ruling excludes every RPC")
+    return in_scope, list(excluded.values())
+
+
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
     bounded_roster = load(SOURCES / "bounded-client-roster.v1.json")
@@ -302,7 +353,8 @@ def main() -> None:
         ("Generated gRPC Python client", "grpc-python"),
         ("Generated gRPC TypeScript client", "grpc-typescript"),
     )
-    for rpc in grpc["operations"]:
+    grpc_in_scope, grpc_excluded = grpc_scope(grpc, revisions["server"]["commit"])
+    for rpc in grpc_in_scope:
         operation = f"{rpc['service']}/{rpc['operation']}"
         for client, lane in grpc_clients:
             add(
@@ -547,7 +599,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-09-16-complete.13",
+        "revision": "2026-09-29-complete.14",
         "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (
@@ -560,6 +612,12 @@ def main() -> None:
             "pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, "
             "exact operation-to-test contracts for the server protocol integration harness, "
             "and one governed test ID per bounded 2026.1 external-client cell. "
+            f"The gRPC scope ruling ({GRPC_SCOPE_RULING}, geospatial-grpc#88, honua-release#376) keeps "
+            f"{len(grpc_in_scope)} RPCs the default honua-server image implements, for "
+            f"{len(grpc_in_scope) * len(grpc_clients)} generated-client cells. It excludes "
+            f"{len(grpc_excluded)} RPCs ({len(grpc_excluded) * len(grpc_clients)} cells) as Preview or "
+            "Experimental, each listed with its rationale and owner issue in "
+            "sources/geospatial-grpc/operations.v1.json. "
             f"{len(preview_cells)} bounded cells on Preview surfaces are excluded by the preview-surfaces "
             f"roster ruling and {len(not_addressable_cells)} cells no released client can exercise remain "
             "non-addressable rows (release#351, release#359). "
