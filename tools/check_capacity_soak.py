@@ -16,8 +16,16 @@ from capacity_observations import validate_sources
 
 
 APPROVED_PRODUCER_REPOSITORY = "honua-io/honua-server"
-APPROVED_PRODUCER_WORKFLOW = ".github/workflows/load-soak-nightly.yml"
+# The attesting producer is honua-server's capacity-soak-candidate workflow (release#258). It
+# is dispatched at a ref whose head is the manifest-pinned candidate, so its SLSA source digest,
+# the receipt's producer revision and the candidate revision are the same commit.
+APPROVED_PRODUCER_WORKFLOW = ".github/workflows/capacity-soak-candidate.yml"
 APPROVED_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+APPROVED_SOURCE_URI = f"https://github.com/{APPROVED_PRODUCER_REPOSITORY}"
+WORKFLOW_REF_PATTERN = re.compile(
+    r"^" + re.escape(f"{APPROVED_PRODUCER_REPOSITORY}/{APPROVED_PRODUCER_WORKFLOW}")
+    + r"@refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$"
+)
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -168,11 +176,12 @@ def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: lis
 
 def _validate_producer(receipt: dict[str, Any], expected_revision: str, failures: list[str]) -> None:
     producer = _mapping(receipt.get("producer"))
-    expected_ref = f"{APPROVED_PRODUCER_REPOSITORY}/{APPROVED_PRODUCER_WORKFLOW}@{expected_revision}"
+    # workflowRef is GitHub's `github.workflow_ref` (`<repo>/<path>@refs/...`). It is bound to the
+    # signing certificate by bind_attestation; here it must at least name the approved workflow.
     if (
         producer.get("repository") != APPROVED_PRODUCER_REPOSITORY
         or producer.get("workflowPath") != APPROVED_PRODUCER_WORKFLOW
-        or producer.get("workflowRef") != expected_ref
+        or not WORKFLOW_REF_PATTERN.fullmatch(str(producer.get("workflowRef", "")))
         or producer.get("sourceRevision") != expected_revision
     ):
         failures.append("receipt was not emitted by the approved soak producer at the candidate revision")
@@ -458,6 +467,64 @@ def evaluate(
     return failures
 
 
+def bind_attestation(
+    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str
+) -> list[str]:
+    """Bind `gh attestation verify --format json` output to the bundle and the receipt's producer.
+
+    The workflow's `gh attestation verify` pins the signer workflow and source digest, but the
+    receipt's own producer block (run id/attempt, workflow ref) is self-declared. Every verified
+    attestation must sign exactly this bundle, come from the approved workflow on a GitHub-hosted
+    runner at the candidate source commit, and name the same run and workflow ref as the receipt.
+    """
+    failures: list[str] = []
+    if not isinstance(verified, list) or not verified:
+        return ["no verified attestation was returned for the capacity evidence bundle"]
+    producer = _mapping(receipt.get("producer"))
+    run_id, run_attempt = producer.get("runId"), producer.get("runAttempt")
+    expected_run = f"{APPROVED_SOURCE_URI}/actions/runs/{run_id}/attempts/{run_attempt}"
+    expected_signer = f"https://github.com/{producer.get('workflowRef')}"
+    signer_prefix = f"{APPROVED_SOURCE_URI}/{APPROVED_PRODUCER_WORKFLOW}@"
+    if not HASH_PATTERN.fullmatch(str(bundle_sha256)):
+        failures.append("capacity evidence bundle digest is invalid")
+    for index, entry in enumerate(verified):
+        label = f"attestation {index}"
+        result = _mapping(_mapping(entry).get("verificationResult"))
+        statement = _mapping(result.get("statement"))
+        certificate = _mapping(_mapping(result.get("signature")).get("certificate"))
+        subjects = [
+            _mapping(subject).get("digest", {}).get("sha256")
+            for subject in statement.get("subject") or []
+            if isinstance(_mapping(subject).get("digest"), dict)
+        ]
+        if subjects != [bundle_sha256]:
+            failures.append(f"{label}: subject is not exactly the capacity evidence bundle")
+        if statement.get("predicateType") != APPROVED_PREDICATE_TYPE:
+            failures.append(f"{label}: predicate type is not approved")
+        signer = certificate.get("buildSignerURI")
+        if not isinstance(signer, str) or not signer.startswith(signer_prefix) or signer != expected_signer:
+            failures.append(f"{label}: signer workflow is not the receipt's approved producer workflow ref")
+        if certificate.get("sourceRepositoryURI") != APPROVED_SOURCE_URI:
+            failures.append(f"{label}: source repository is not the approved producer repository")
+        if certificate.get("sourceRepositoryDigest") != expected_revision:
+            failures.append(
+                f"{label}: attested source commit {certificate.get('sourceRepositoryDigest')} is not the "
+                f"candidate {expected_revision}; the producer must run at the candidate revision"
+            )
+        if certificate.get("runnerEnvironment") != "github-hosted":
+            failures.append(f"{label}: attestation was not produced on a GitHub-hosted runner")
+        if certificate.get("runInvocationURI") != expected_run:
+            failures.append(f"{label}: attested workflow run is not the receipt's producer run")
+        build = _mapping(_mapping(statement.get("predicate")).get("buildDefinition"))
+        commits = {
+            _mapping(_mapping(dependency).get("digest")).get("gitCommit")
+            for dependency in build.get("resolvedDependencies") or []
+        } - {None}
+        if commits != {expected_revision}:
+            failures.append(f"{label}: SLSA resolved source commit(s) {sorted(commits)} are not the candidate")
+    return failures
+
+
 def excluded_dimensions(lock: dict) -> set[str]:
     """Dimensions an operator ruling recorded in the lock removed from the envelope."""
     return {
@@ -491,12 +558,24 @@ def main() -> int:
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--expected-revision", required=True)
     parser.add_argument("--expected-image-digest", required=True)
+    parser.add_argument("--bundle", type=Path, required=True, help="the attested capacity evidence ZIP")
+    parser.add_argument(
+        "--attestation", type=Path, required=True, help="`gh attestation verify --format json` output for --bundle"
+    )
     args = parser.parse_args()
     try:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
         failures = evaluate(
             lock, receipt, lock_digest(args.lock), args.expected_revision, args.artifact_root, args.expected_image_digest
+        )
+        failures.extend(
+            bind_attestation(
+                json.loads(args.attestation.read_text(encoding="utf-8")),
+                hashlib.sha256(args.bundle.read_bytes()).hexdigest(),
+                receipt,
+                args.expected_revision,
+            )
         )
         for name, records in informational_dimensions(lock, receipt).items():
             print(f"Preview informational (not gated): {name} = {json.dumps(records, sort_keys=True)}")
@@ -510,7 +589,7 @@ def main() -> int:
     print(
         f"capacity-soak: PASS — {len(lock['supportedEnvelope'])}/{len(lock['supportedEnvelope'])} GA dimensions; "
         f"{len(lock['soak']['requiredSignals'])}/{len(lock['soak']['requiredSignals'])} sourced SLO signals; "
-        "bound observation provenance"
+        "bound observation provenance and producer attestation"
     )
     return 0
 

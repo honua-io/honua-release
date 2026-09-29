@@ -53,7 +53,7 @@ jobs:
         run: |
           gh attestation verify "$RUNNER_TEMP/capacity-evidence.zip" \
             --repo honua-io/honua-server \
-            --signer-workflow github.com/honua-io/honua-server/.github/workflows/load-soak-nightly.yml \
+            --signer-workflow github.com/honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml \
             --source-digest "${{ steps.candidate.outputs.revision }}" \
             --deny-self-hosted-runners \
             --predicate-type https://slsa.dev/provenance/v1 \
@@ -63,7 +63,7 @@ jobs:
           python3 tools/extract_capacity_evidence.py
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --output "$RUNNER_TEMP/capacity-evidence"
-      - name: Evaluate 8/8 GA workloads, 2 Preview exclusions and 8/8 sourced signals
+      - name: Evaluate 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced signals and the producer attestation
         run: >-
           python3 tools/check_capacity_soak.py
           --lock certification/capacity-envelope.v1.json
@@ -71,6 +71,8 @@ jobs:
           --artifact-root "$RUNNER_TEMP/capacity-evidence"
           --expected-revision "${{ steps.candidate.outputs.revision }}"
           --expected-image-digest "${{ steps.candidate.outputs.digest }}"
+          --bundle "$RUNNER_TEMP/capacity-evidence.zip"
+          --attestation "$RUNNER_TEMP/attestation-verification.json"
       - name: Preserve immutable evidence bundle and verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

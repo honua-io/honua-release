@@ -20,7 +20,10 @@ def _z(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_FREEZE = datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00"))
+_FREEZE = max(
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    for value in (LOCK["frozenAt"], LOCK["receiptContract"]["frozenAt"])
+)
 _START = _FREEZE + timedelta(days=1)
 WINDOW = {"startedAt": _z(_START), "endedAt": _z(_START + timedelta(seconds=3600))}
 INJECTED = _z(_START + timedelta(minutes=30))
@@ -153,8 +156,8 @@ def receipt(artifact_root: Path):
         },
         "producer": {
             "repository": "honua-io/honua-server",
-            "workflowPath": ".github/workflows/load-soak-nightly.yml",
-            "workflowRef": f"honua-io/honua-server/.github/workflows/load-soak-nightly.yml@{REVISION}",
+            "workflowPath": ".github/workflows/capacity-soak-candidate.yml",
+            "workflowRef": "honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml@refs/heads/trunk",
             "sourceRevision": REVISION,
             "runId": 123456,
             "runAttempt": 1,
@@ -324,6 +327,137 @@ def test_only_approved_producer_is_accepted(tmp_path):
     value = receipt(tmp_path)
     value["producer"]["workflowPath"] = ".github/workflows/anything.yml"
     assert any("approved soak producer" in failure for failure in failures(value, tmp_path))
+
+
+def test_unattested_nightly_load_lane_is_not_the_producer(tmp_path):
+    value = receipt(tmp_path)
+    value["producer"]["workflowPath"] = ".github/workflows/load-soak-nightly.yml"
+    value["producer"]["workflowRef"] = "honua-io/honua-server/.github/workflows/load-soak-nightly.yml@refs/heads/trunk"
+    assert any("approved soak producer" in failure for failure in failures(value, tmp_path))
+
+
+def test_producer_workflow_ref_must_be_a_github_workflow_ref_for_the_approved_workflow(tmp_path):
+    for ref in (
+        f"honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml@{REVISION}",
+        "honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml",
+        "honua-io/other/.github/workflows/capacity-soak-candidate.yml@refs/heads/trunk",
+        "honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml.evil@refs/heads/trunk",
+    ):
+        value = receipt(tmp_path)
+        value["producer"]["workflowRef"] = ref
+        assert any("approved soak producer" in failure for failure in failures(value, tmp_path)), ref
+
+
+def test_producer_must_run_at_the_candidate_revision(tmp_path):
+    value = receipt(tmp_path)
+    value["producer"]["sourceRevision"] = "f" * 40
+    assert any("approved soak producer" in failure for failure in failures(value, tmp_path))
+
+
+BUNDLE_SHA = "d" * 64
+SIGNER = "https://github.com/honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml@refs/heads/trunk"
+
+
+def verification(**certificate_overrides):
+    """`gh attestation verify --format json` shape (sigstore-go VerificationResult)."""
+    certificate = {
+        "buildSignerURI": SIGNER,
+        "sourceRepositoryURI": "https://github.com/honua-io/honua-server",
+        "sourceRepositoryDigest": REVISION,
+        "sourceRepositoryRef": "refs/heads/trunk",
+        "runnerEnvironment": "github-hosted",
+        "runInvocationURI": "https://github.com/honua-io/honua-server/actions/runs/123456/attempts/1",
+    }
+    certificate.update(certificate_overrides)
+    return [{
+        "attestation": {},
+        "verificationResult": {
+            "signature": {"certificate": certificate},
+            "statement": {
+                "subject": [{"name": "capacity-evidence.zip", "digest": {"sha256": BUNDLE_SHA}}],
+                "predicateType": "https://slsa.dev/provenance/v1",
+                "predicate": {"buildDefinition": {"resolvedDependencies": [
+                    {"uri": "git+https://github.com/honua-io/honua-server@refs/heads/trunk",
+                     "digest": {"gitCommit": certificate["sourceRepositoryDigest"]}}]}},
+            },
+        },
+    }]
+
+
+def bind(verified, tmp_path, bundle_sha=BUNDLE_SHA):
+    return gate.bind_attestation(verified, bundle_sha, receipt(tmp_path), REVISION)
+
+
+def test_attestation_bound_to_bundle_producer_run_and_candidate_passes(tmp_path):
+    assert bind(verification(), tmp_path) == []
+
+
+def test_missing_attestation_fails(tmp_path):
+    assert bind([], tmp_path)
+    assert bind(None, tmp_path)
+
+
+def test_attestation_for_other_bytes_fails(tmp_path):
+    assert any("subject" in item for item in bind(verification(), tmp_path, bundle_sha="e" * 64))
+
+
+def test_trunk_dispatched_producer_for_an_older_candidate_is_refused(tmp_path):
+    # Real shape of capacity-soak-candidate run 35126254288 (2026-09-16): dispatched on trunk
+    # fc278112 to soak candidate 87966c3f, so the attested source is the producer, not the candidate.
+    result = bind(verification(sourceRepositoryDigest="fc278112cc4c28431457a39e65848ce9c8c8fcaa"), tmp_path)
+    assert any("not the candidate" in item for item in result)
+
+
+def test_attestation_from_another_run_or_attempt_fails(tmp_path):
+    for uri in (
+        "https://github.com/honua-io/honua-server/actions/runs/999/attempts/1",
+        "https://github.com/honua-io/honua-server/actions/runs/123456/attempts/2",
+    ):
+        assert any("producer run" in item for item in bind(verification(runInvocationURI=uri), tmp_path))
+
+
+def test_attestation_from_other_workflow_repository_or_runner_fails(tmp_path):
+    nightly = SIGNER.replace("capacity-soak-candidate.yml", "load-soak-nightly.yml")
+    assert any("signer workflow" in item for item in bind(verification(buildSignerURI=nightly), tmp_path))
+    other_ref = SIGNER.replace("refs/heads/trunk", "refs/heads/feature")
+    assert any("signer workflow" in item for item in bind(verification(buildSignerURI=other_ref), tmp_path))
+    assert any("GitHub-hosted" in item for item in bind(verification(runnerEnvironment="self-hosted"), tmp_path))
+    fork = "https://github.com/someone/honua-server"
+    assert any("source repository" in item for item in bind(verification(sourceRepositoryURI=fork), tmp_path))
+
+
+def test_cli_requires_and_applies_the_attestation(tmp_path, monkeypatch, capsys):
+    import sys
+    import zipfile
+
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    value = receipt(evidence)
+    (evidence / "capacity-soak-receipt.json").write_text(json.dumps(value), encoding="utf-8")
+    bundle = tmp_path / "capacity-evidence.zip"
+    with zipfile.ZipFile(bundle, "w") as archive:
+        for path in sorted(evidence.iterdir()):
+            archive.write(path, path.name)
+    attested = verification()
+    attested[0]["verificationResult"]["statement"]["subject"][0]["digest"]["sha256"] = _sha(bundle.read_bytes())
+    attestation = tmp_path / "attestation.json"
+    attestation.write_text(json.dumps(attested), encoding="utf-8")
+    base = [
+        "check_capacity_soak.py", "--lock", str(LOCK_PATH),
+        "--receipt", str(evidence / "capacity-soak-receipt.json"), "--artifact-root", str(evidence),
+        "--expected-revision", REVISION, "--expected-image-digest", IMAGE_DIGEST,
+    ]
+
+    monkeypatch.setattr(sys, "argv", base)
+    with pytest.raises(SystemExit):
+        gate.main()
+
+    monkeypatch.setattr(sys, "argv", base + ["--bundle", str(bundle), "--attestation", str(attestation)])
+    assert gate.main() == 0
+
+    attestation.write_text(json.dumps(verification()), encoding="utf-8")
+    assert gate.main() == 1
+    assert "subject is not exactly the capacity evidence bundle" in capsys.readouterr().out
 
 
 def test_threshold_verdict_cannot_disagree_with_value(tmp_path):
@@ -543,10 +677,16 @@ def test_cli_echoes_preview_as_informational(tmp_path, monkeypatch, capsys):
     value["signals"]["alertEvaluationsPerSecond"] = {"status": "skipped"}
     path = tmp_path / "capacity-soak-receipt.json"
     path.write_text(json.dumps(value), encoding="utf-8")
+    bundle = tmp_path / "bundle.zip"
+    bundle.write_bytes(b"attested-bundle-bytes")
+    attested = verification()
+    attested[0]["verificationResult"]["statement"]["subject"][0]["digest"]["sha256"] = _sha(bundle.read_bytes())
+    attestation = tmp_path / "attestation.json"
+    attestation.write_text(json.dumps(attested), encoding="utf-8")
     monkeypatch.setattr("sys.argv", [
         "check_capacity_soak.py", "--lock", str(LOCK_PATH), "--receipt", str(path),
         "--artifact-root", str(tmp_path), "--expected-revision", REVISION,
-        "--expected-image-digest", IMAGE_DIGEST,
+        "--expected-image-digest", IMAGE_DIGEST, "--bundle", str(bundle), "--attestation", str(attestation),
     ])
     assert gate.main() == 0
     report = capsys.readouterr().out
