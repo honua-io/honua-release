@@ -133,14 +133,14 @@
     "bundleFormat": "zip",
     "approvedProducer": {
       "repository": "honua-io/honua-server",
-      "workflowPath": ".github/workflows/load-soak-nightly.yml",
+      "workflowPath": ".github/workflows/capacity-soak-candidate.yml",
       "predicateType": "https://slsa.dev/provenance/v1",
       "runner": "github-hosted"
     },
     "requiredRawEvidence": true,
     "requiredWorkloadStatus": "exercised",
     "previewProxyEvidenceAllowed": false,
-    "frozenAt": "2026-09-13T12:24:00Z"
+    "frozenAt": "2026-09-29T01:15:00Z"
   },
   "excludedPreviewDimensions": {
     "activeSubscriptions": {

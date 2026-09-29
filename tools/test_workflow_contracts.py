@@ -43,7 +43,10 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     assert "--artifact-root" in commands
     assert "--expected-image-digest" in commands
     assert 'gh attestation verify "$RUNNER_TEMP/capacity-evidence.zip"' in commands
-    assert "--signer-workflow github.com/honua-io/honua-server/.github/workflows/load-soak-nightly.yml" in commands
+    assert "--signer-workflow github.com/honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml" in commands
+    assert "load-soak-nightly" not in commands
+    assert '--attestation "$RUNNER_TEMP/attestation-verification.json"' in commands
+    assert '--bundle "$RUNNER_TEMP/capacity-evidence.zip"' in commands
     assert "--source-digest" in commands
     assert "--deny-self-hosted-runners" in commands
     assert "--predicate-type https://slsa.dev/provenance/v1" in commands
