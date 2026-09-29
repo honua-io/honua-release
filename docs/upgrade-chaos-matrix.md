@@ -46,3 +46,10 @@ The partial-migration finding remains open: the current hand-written SQL transac
 the candidate migration runner. Replacing it requires a candidate-owned multi-statement fixture, a
 deterministic interruption point after a statement, and rollback/journal/schema assertions through
 that runner. Its existing probe must not be used as application migration-atomicity evidence.
+
+Correction validation: 21 driver regression tests passed, including stale logs, one unhealthy
+starter, migration-failure output, cleanup on creation/journal/state failures, delayed readiness,
+saved layer validation, digest enforcement, and database-namespace cleanup. A disposable
+PostGIS 16-3.4 smoke test exercised the actual schema capture/assert functions: unchanged schema
+passed; independently dropping an index, constraint, column, or table failed while journal and
+seed rows still matched. These checks validate harness behavior, not a new prior/candidate matrix.
