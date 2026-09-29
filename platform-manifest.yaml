@@ -314,16 +314,18 @@ components:
     #   Entrypoint = ["/var/task/Honua.Server"]
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-87966c3-amd64"
     awsLambdaDigest: "sha256:99eb4c9f8e5fa0fbd8e91e7673378d076ec73432cee48bec3adc6adfb56b2746"
-    # ECR converts the OCI manifest to Docker schema 2 while preserving the exact config/rootfs, so
-    # this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
+    # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
+    # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
     # same image into sha256:f1970f2a…). It is only knowable after a real mirror, which is why a
     # re-pin sets it to the documented `pending-ecr-mirror` sentinel and lets the cloud gate perform
-    # one bootstrap round trip (honua-release#99).
-    # PENDING FOR THIS PIN: release#282 item 4 requires a real candidate mirror. The cloud gate must mirror the exact GHCR
-    # Lambda manifest into the release account and verify its config/rootfs before
-    # recording ECR's registry-specific digest. Never carry a prior pin's value forward.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # one bootstrap round trip (honua-release#99). For this pin ECR kept the manifest unchanged, so the recorded
+    # digest equals awsLambdaDigest; that is a valid mirror result, not a copied value, because it was observed.
+    # Recorded from the first live bootstrap mirror, e2e-cloud-aws run 36526082747 (2026-09-29): the cloud gate
+    # mirrored this exact GHCR Lambda manifest into the release account's us-east-1 ECR, verified its
+    # config/rootfs, and ECR returned this digest. It belongs to this pin only; a re-pin resets it to the
+    # `pending-ecr-mirror` sentinel (honua-release#99). Never carry it forward.
+    awsLambdaEcrDigest: "sha256:99eb4c9f8e5fa0fbd8e91e7673378d076ec73432cee48bec3adc6adfb56b2746"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
