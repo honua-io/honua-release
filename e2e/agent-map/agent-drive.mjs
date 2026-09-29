@@ -39,7 +39,8 @@ function startVite() {
   return new Promise((resolve, reject) => {
     const child = spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(VITE_PORT), "--strictPort"], {
       cwd: appDir,
-      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      // The page reads VITE_CONTROL_URL so a CONTROL_PORT override reaches the browser client too.
+      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0", VITE_CONTROL_URL: `http://127.0.0.1:${PORT}` },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -121,13 +122,16 @@ function enqueue(kind, payload) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
+      // Drop the expired job too, so a page that connects later never executes work the caller abandoned.
+      const index = queue.indexOf(job);
+      if (index >= 0) queue.splice(index, 1);
       reject(new Error(`job ${kind} timed out after ${JOB_TIMEOUT_MS} ms (is the page open and polling?)`));
     }, JOB_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timer });
     if (parked) {
-      const response = parked;
+      const { response, origin } = parked;
       parked = undefined;
-      response.writeHead(200, cors({ "content-type": "application/json" }));
+      response.writeHead(200, cors(origin, { "content-type": "application/json" }));
       response.end(JSON.stringify(job));
     } else {
       queue.push(job);
@@ -138,10 +142,9 @@ function enqueue(kind, payload) {
 // Only the Vite page this driver started may use the control channel. A wildcard origin would let any
 // website open in the same browser POST /chat or /call and spend the operator's model credentials.
 const ALLOWED_ORIGINS = new Set([`http://127.0.0.1:${VITE_PORT}`, `http://localhost:${VITE_PORT}`]);
-let requestOrigin;
-
-function cors(headers = {}) {
-  const allow = requestOrigin && ALLOWED_ORIGINS.has(requestOrigin) ? { "access-control-allow-origin": requestOrigin, vary: "origin" } : {};
+// The origin is per request: a parked /next response keeps the origin of the request that parked it.
+function cors(origin, headers = {}) {
+  const allow = origin && ALLOWED_ORIGINS.has(origin) ? { "access-control-allow-origin": origin, vary: "origin" } : {};
   return { ...allow, "access-control-allow-headers": "content-type", "access-control-allow-methods": "GET,POST,OPTIONS", ...headers };
 }
 
@@ -154,18 +157,18 @@ function readBody(request) {
 }
 
 const server = http.createServer(async (request, response) => {
+  const requestOrigin = request.headers.origin;
   const send = (status, payload) => {
-    response.writeHead(status, cors({ "content-type": "application/json" }));
+    response.writeHead(status, cors(requestOrigin, { "content-type": "application/json" }));
     response.end(JSON.stringify(payload, null, 2));
   };
   try {
     const url = new URL(request.url ?? "/", "http://localhost");
-    requestOrigin = request.headers.origin;
     // Browser requests carry an Origin header; refuse any that is not the harness page. Local CLI tools
     // (curl, the agent loop) send none and are allowed, since the server listens on loopback only.
     if (requestOrigin && !ALLOWED_ORIGINS.has(requestOrigin)) return send(403, { error: "origin not allowed" });
     if (request.method === "OPTIONS") {
-      response.writeHead(204, cors());
+      response.writeHead(204, cors(requestOrigin));
       return response.end();
     }
     // ---- page side ----
@@ -173,11 +176,11 @@ const server = http.createServer(async (request, response) => {
       lastSeen = Date.now();
       const job = queue.shift();
       if (job) return send(200, job);
-      parked = response;
+      parked = { response, origin: requestOrigin };
       setTimeout(() => {
-        if (parked === response) {
+        if (parked?.response === response) {
           parked = undefined;
-          response.writeHead(204, cors());
+          response.writeHead(204, cors(requestOrigin));
           response.end();
         }
       }, LONG_POLL_MS);

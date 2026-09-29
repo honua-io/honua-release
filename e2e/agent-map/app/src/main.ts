@@ -707,7 +707,7 @@ void ready.then(() => {
 // agent can drive the map in whichever browser has this page open.
 // ---------------------------------------------------------------------------
 
-const CONTROL_URL = "http://127.0.0.1:47811";
+const CONTROL_URL: string = import.meta.env["VITE_CONTROL_URL"] ?? "http://127.0.0.1:47811";
 
 function linkState(state: "connected" | "waiting", note?: string): void {
   const status = el("status");
