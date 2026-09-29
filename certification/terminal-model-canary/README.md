@@ -22,7 +22,12 @@ and requires signed Claude-on-Bedrock provenance. It never calls a provider dire
   or the complete `/v1/studio/ai/chat` URL. Plain HTTP is restricted to loopback;
   redirects and direct provider URLs are refused before credentials are sent.
 - `TERMINAL_MODEL_NAME` — exact Claude model identifier accepted by the candidate's
-  Bedrock adapter, including the inference-profile prefix when required.
+  Bedrock adapter: an AWS-controlled `anthropic.claude-*` foundation model ID or a
+  system inference profile ID prefixed with `us.`, `eu.`, `apac.`, or `global.`
+  (for example, `us.anthropic.claude-sonnet-4-6`). Operator-controlled aliases,
+  custom/imported model ARNs, and application inference profiles cannot certify the
+  model family and are rejected. Supply IDs rather than ARNs. See the
+  [AWS model ID documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/models-get-info.html).
 - `TERMINAL_MODEL_API_KEY` — optional bearer credential for hosted/key-based endpoints. Local endpoints
   select authentication `none`, so this hosted credential is neither read nor forwarded. Hosted runs
   select `bearer` and fail closed if the secret is absent. Only the environment-variable reference is

@@ -305,7 +305,7 @@ class EndpointConfig:
 
     def proxy_chat_url(self) -> str:
         base = self.validated_base_url()
-        host = (urllib.parse.urlsplit(base).hostname or "").lower()
+        host = (urllib.parse.urlsplit(base).hostname or "").lower().rstrip(".")
         if ("/chat/completions" in base or base.rstrip("/").endswith("/v1")
                 or any(host == domain or host.endswith("." + domain)
                        for domain in ("amazonaws.com", "anthropic.com", "openai.com"))):
@@ -846,7 +846,11 @@ class CandidateProxyClient:
             raise CanaryError("candidate signed transcript must be an object")
         if any(transcript.get(key) != value for key, value in certification.items()):
             raise CanaryError("candidate proxy provenance binding does not match the requested candidate action")
-        if transcript.get("provider") != "bedrock" or "claude" not in str(transcript.get("model", "")).lower():
+        # Only AWS-controlled foundation/system profile IDs identify the model family.
+        # Custom/imported models and application profiles have operator-controlled ARNs.
+        if transcript.get("provider") != "bedrock" or not re.fullmatch(
+                r"(?:(?:us|eu|apac|global)\.)?anthropic\.claude-[a-z0-9]+(?:[-:.][a-z0-9]+)*",
+                str(transcript.get("model", ""))):
             raise CanaryError("promise journey requires signed Claude on Bedrock provenance")
         if transcript.get("model") != self.config.model:
             raise CanaryError("candidate proxy reported a model other than the requested model")
@@ -1042,7 +1046,7 @@ def fault_evidence(execution: dict[str, Any], name: str) -> Any:
     if result is not None and not isinstance(result, dict):
         raise CanaryError("driver action result must be an object")
     nested = (result or {}).get(name)
-    if name in execution and nested is not None and execution[name] != nested:
+    if name in execution and name in (result or {}) and execution[name] != nested:
         raise CanaryError("driver returned contradictory fault evidence")
     return execution.get(name, nested)
 

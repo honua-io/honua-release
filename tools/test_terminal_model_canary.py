@@ -369,8 +369,11 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
     assert "top-secret-key" not in json.dumps(hosted.evidence())
 
 
-@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter"])
-def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation):
+@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter", "custom-model", "imported-model", "application-profile", "model-alias"])
+@pytest.mark.parametrize("model", ["anthropic.claude-sonnet-4-6",
+                                   "us.anthropic.claude-sonnet-4-6",
+                                   "global.anthropic.claude-sonnet-4-5-20250929-v1:0"])
+def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation, model):
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -392,8 +395,16 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
         _endpoint(),
         base_url="http://127.0.0.1:8000/api",
         signing_manifest_sha256=manifest_digest,
-        model="us.anthropic.claude-sonnet-4-6",
+        model=model,
     )
+    untrusted_models = {
+        "custom-model": "arn:aws:bedrock:us-east-1:123456789012:custom-model/claude-proxy/123456789012",
+        "imported-model": "arn:aws:bedrock:us-east-1:123456789012:imported-model/claude-proxy",
+        "application-profile": "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/claude-proxy",
+        "model-alias": "claude-proxy",
+    }
+    if mutation in untrusted_models:
+        endpoint = replace(endpoint, model=untrusted_models[mutation])
     certification = {
         "candidateId": "sha256:candidate",
         "releaseId": "2026.1",
@@ -859,7 +870,10 @@ def test_real_http_signed_studio_stream_and_replay_refusal():
 
 @pytest.mark.parametrize("url", ["https://bedrock-runtime.us-east-1.amazonaws.com",
                                 "https://api.anthropic.com", "https://api.openai.com",
-                                "https://other.test/v1"])
+                                "https://other.test/v1",
+                                "https://api.openai.com./", "https://api.anthropic.com./",
+                                "https://bedrock-runtime.us-east-1.amazonaws.com./",
+                                "https://OPENAI.COM./"])
 def test_direct_provider_rejected_before_manifest_request(monkeypatch, url):
     def forbidden_network(*_args, **_kwargs):
         pytest.fail("direct provider must be refused before sending credentials")
@@ -867,3 +881,16 @@ def test_direct_provider_rejected_before_manifest_request(monkeypatch, url):
     endpoint = replace(_endpoint(key="test-secret"), base_url=url)
     with pytest.raises(canary.CanaryError, match="direct-provider"):
         canary.CandidateProxyClient(endpoint).complete([], {})
+
+
+@pytest.mark.parametrize("name", ["injectedError", "recoveredError"])
+@pytest.mark.parametrize("top,nested", [({"id": "fault"}, None), (None, {"id": "fault"})])
+def test_fault_evidence_rejects_explicit_null_contradictions(name, top, nested):
+    with pytest.raises(canary.CanaryError, match="contradictory"):
+        canary.fault_evidence({name: top, "result": {name: nested}}, name)
+
+
+@pytest.mark.parametrize("value", [None, {"id": "fault", "recovered": True}])
+def test_fault_evidence_accepts_matching_dual_representations(value):
+    assert canary.fault_evidence({"recoveredError": value, "result": {
+        "recoveredError": value}}, "recoveredError") == value
