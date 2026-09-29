@@ -13,12 +13,16 @@ workflow does not accept an arbitrary executable path.
 
 ## Endpoint configuration
 
-The client uses the OpenAI-compatible `POST <base-url>/chat/completions` JSON shape. Configuration is
-provider-neutral:
+The client uses the candidate server's `POST <base-url>/v1/studio/ai/chat` signed SSE
+proxy. For the #377 promise journey, configure a provider named `bedrock` with
+adapter kind `bedrock`; the harness checks that capability, explicitly selects it,
+and requires signed Claude-on-Bedrock provenance. It never calls a provider directly.
 
-- `TERMINAL_MODEL_BASE_URL` — required for an attempted run; hosted or local/self-hosted URL, normally
-  ending in `/v1`.
-- `TERMINAL_MODEL_NAME` — endpoint model identifier, including local/open-weight identifiers.
+- `TERMINAL_MODEL_BASE_URL` — candidate API base URL (normally ending in `/api`),
+  or the complete `/v1/studio/ai/chat` URL. Plain HTTP is restricted to loopback;
+  redirects and direct provider URLs are refused before credentials are sent.
+- `TERMINAL_MODEL_NAME` — exact Claude model identifier accepted by the candidate's
+  Bedrock adapter, including the inference-profile prefix when required.
 - `TERMINAL_MODEL_API_KEY` — optional bearer credential for hosted/key-based endpoints. Local endpoints
   select authentication `none`, so this hosted credential is neither read nor forwarded. Hosted runs
   select `bearer` and fail closed if the secret is absent. Only the environment-variable reference is
@@ -47,8 +51,10 @@ Every action is attributed as either:
 Model actions must reference the redacted assistant transcript entry that selected them. The harness
 injects one recoverable error through the driver, records the harness action that armed it, the model
 action whose driver result reports that exact error ID, and the later model action whose driver result
-reports recovery of that ID. Prompts, responses, requests, and results are recursively redacted before
-they enter the receipt. Credential values are never included in the prompt or receipt. Each live run
+reports recovery of that ID. Prompts, responses, requests, and results are recursively redacted;
+the receipt stores only their SHA-256, UTF-8 byte count and `digest-only` marker.
+The schema rejects raw payloads and extra fields. Redacted model context stays in
+memory for subsequent turns and is never replayed from receipt digests. Each live run
 uses a cryptographically random nonce, signed provider-event bytes bind both SSE names and data, and
 the signed reported model must exactly match the requested model.
 

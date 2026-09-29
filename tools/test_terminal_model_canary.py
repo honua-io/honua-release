@@ -369,7 +369,7 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
     assert "top-secret-key" not in json.dumps(hosted.evidence())
 
 
-@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding"])
+@pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter"])
 def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation):
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(
@@ -402,6 +402,7 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
         "runNonce": "random-run-nonce",
     }
     request_body = {
+        "provider": "bedrock",
         "model": endpoint.model,
         "messages": [{"role": "user", "content": "advance"}],
         "temperature": 0,
@@ -462,7 +463,10 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
     ]).encode()
     if mutation == "event-name":
         sse = sse.replace(b"event: text_delta", b"event: message_start")
-    responses = iter([Response(json.dumps({"transcriptSigning": manifest}).encode()), Response(sse)])
+    capabilities = {"providers": [{"provider": "bedrock", "configured": True,
+                                   "kind": "anthropic" if mutation == "adapter" else "bedrock"}],
+                    "transcriptSigning": manifest}
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(sse)])
     monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *args, **kwargs: next(responses)))
 
     if mutation:
@@ -799,7 +803,8 @@ def test_real_http_signed_studio_stream_and_replay_refusal():
 
         def do_GET(self):
             requests.append((self.path, None))
-            self.reply(canonical({"transcriptSigning": manifest}), "application/json")
+            self.reply(canonical({"providers": [{"provider": "bedrock", "kind": "bedrock", "configured": True}],
+                                  "transcriptSigning": manifest}), "application/json")
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))

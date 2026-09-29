@@ -707,6 +707,12 @@ class CandidateProxyClient:
             raise CanaryError(f"candidate signing manifest request failed: {exc}") from exc
         if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
             payload = payload["data"]
+        providers = payload.get("providers") if isinstance(payload, dict) else None
+        selected = [provider for provider in providers or []
+                    if isinstance(provider, dict) and provider.get("provider") == "bedrock"]
+        if (len(selected) != 1 or selected[0].get("kind") != "bedrock"
+                or selected[0].get("configured") is not True):
+            raise CanaryError("candidate must configure provider 'bedrock' with the StudioAi Bedrock adapter")
         manifest = payload.get("transcriptSigning") if isinstance(payload, dict) else None
         if not isinstance(manifest, dict) or manifest.get("requiredForCertification") is not True:
             raise CanaryError("candidate did not publish a required transcript-signing manifest")
@@ -778,6 +784,7 @@ class CandidateProxyClient:
         certification: dict[str, str],
     ) -> tuple[str, dict[str, Any], int, dict[str, Any]]:
         request_body = {
+                "provider": "bedrock",
                 "model": self.config.model,
                 "messages": messages,
                 "temperature": 0,
