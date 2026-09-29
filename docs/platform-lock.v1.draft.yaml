@@ -138,15 +138,15 @@ components:
   honua-iac:
     source:
       repository: https://github.com/honua-io/honua-iac
-      revision: cace70f7b592a583a478ed6f002c7de17b053282
+      revision: 28fee583ca86de758e72bd4ff4a5f12927d503f0
     contractVersions: {}
     schemaVersions: {}
     artifacts:
     - kind: archive
-      coordinate: https://github.com/honua-io/honua-iac/archive/refs/tags/v0.1.0.tar.gz
-      version: 0.1.0
-      sourceRevision: cace70f7b592a583a478ed6f002c7de17b053282
-      sha256: sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed
+      coordinate: https://github.com/honua-io/honua-iac/archive/refs/tags/v0.2.0.tar.gz
+      version: 0.2.0
+      sourceRevision: 28fee583ca86de758e72bd4ff4a5f12927d503f0
+      sha256: sha256:c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga

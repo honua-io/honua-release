@@ -9,12 +9,12 @@
       "publication": "QGIS plugin honua"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.10-beta.0 maplibre-gl@6.1.0. npm version status for those @honua/sdk-js pins is {'0.1.10-beta.0': 200}; the platform manifest pins @honua/sdk-js 0.1.9-beta.0. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.11-beta.0': 404}; the platform manifest pins @honua/sdk-js 0.1.9-beta.0. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
       "kind": "blocked-on-republish",
-      "publication": "npm create-honua-app@0.1.4 template pins"
+      "publication": "npm create-honua-app@0.1.5 template pins"
     },
     {
       "boundary": "honua-mobile .github/workflows/publish-npm-embed.yml job 'Publish to GitHub Packages' runs npm publish against https://npm.pkg.github.com using NODE_AUTH_TOKEN from secrets.GITHUB_TOKEN. That workflow has no npmjs publish. honua-release has no credential that can publish @honua-io/embed.",
@@ -83,17 +83,17 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "v0.1.0.tar.gz",
-          "sha256": "58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed",
-          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/refs/tags/v0.1.0"
+          "filename": "v0.2.0.tar.gz",
+          "sha256": "c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/refs/tags/v0.2.0"
         }
       ],
       "id": "iac:git-archive",
-      "publication": "honua-iac Git archive v0.1.0",
+      "publication": "honua-iac Git archive v0.2.0",
       "registry_http_status": 404,
       "urls": [
         "https://registry.terraform.io/v1/modules/honua-io",
-        "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.1.0.tar.gz"
+        "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.2.0.tar.gz"
       ]
     },
     {
@@ -122,43 +122,43 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "create-honua-app-0.1.4.tgz",
-          "registry_shasum": "2f2333e6c587a91e509fe60fcd441537f81456ff",
-          "sha256": "7ac1f61cd61ac5b7ccb94c9bca099ca5081983dcf7a824e53bb64a8ecf9bf35a",
-          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.4.tgz"
+          "filename": "create-honua-app-0.1.5.tgz",
+          "registry_shasum": "135a0ee47659c9f0732298afbf96107fc32ed63d",
+          "sha256": "a8aa82304bb1797150772540e62e2f90a41ba9e81a69746727881d5f2646d601",
+          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.5.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
       "manifest_sdk_pin": "0.1.9-beta.0",
       "maplibre_pins": [
-        "6.1.0"
+        "6.4.1"
       ],
-      "publication": "npm create-honua-app@0.1.4",
+      "publication": "npm create-honua-app@0.1.5",
       "sdk_pin_statuses": {
-        "0.1.10-beta.0": 200
+        "0.1.11-beta.0": 404
       },
       "templates": [
         {
           "dependencies": {
-            "@honua/sdk-js": "0.1.10-beta.0",
-            "maplibre-gl": "6.1.0"
+            "@honua/sdk-js": "0.1.11-beta.0",
+            "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/react-ts/package.json"
         },
         {
           "dependencies": {
-            "@honua/sdk-js": "0.1.10-beta.0",
-            "maplibre-gl": "6.1.0"
+            "@honua/sdk-js": "0.1.11-beta.0",
+            "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/vanilla-ts/package.json"
         }
       ],
       "urls": [
         "https://registry.npmjs.org/create-honua-app",
-        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.4.tgz"
+        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.5.tgz"
       ],
-      "version": "0.1.4"
+      "version": "0.1.5"
     },
     {
       "disposition": "published",
@@ -645,6 +645,6 @@
   ],
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes.",
-  "observed_at": "2026-09-29T05:39:25Z",
+  "observed_at": "2026-09-29T10:54:03Z",
   "schema": "honua.first-publication-preflight/v1"
 }

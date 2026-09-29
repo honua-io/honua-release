@@ -264,7 +264,8 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     and assert every id in the committed expected-GA list (e2e/expected-ga-manifest.json, minus its
     `excluded` — currently `security.mtls`/`alerts.geofence`, both deliberately gated) is
     `supported=true`. When `authenticated_fetch` is supplied (an admin-X-API-Key-bearing Fetcher) the
-    SAME ids must additionally be `available=true`; unauthenticated callers get an `available` count as
+    SAME ids must additionally be `available=true` (except the file's `availabilityGated` ids, which
+    stay asserted `supported=true` only); unauthenticated callers get an `available` count as
     evidence only (never asserted — availability legitimately depends on entitlement/policy this check
     has no key to exercise).
 
@@ -321,13 +322,21 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
     expected_ids = [i for i in (expected.get("expectedGa") or []) if isinstance(i, str)]
     excluded_ids = {e.get("id") for e in (expected.get("excluded") or []) if isinstance(e, dict) and e.get("id")}
     checked = [i for i in expected_ids if i not in excluded_ids]
+    # `availabilityGated` ids stay in the supported=true assertion but are not asserted
+    # available=true: the candidate supports them yet a bare deployment leaves them off by
+    # configuration or dependency (the entry's reason says which). Unlike `excluded`, a gated id
+    # that stops being advertised or supported still fails.
+    gated_ids = {e.get("id") for e in (expected.get("availabilityGated") or [])
+                 if isinstance(e, dict) and e.get("id")}
+    availability_checked = [i for i in checked if i not in gated_ids]
 
     missing = sorted(i for i in checked if i not in by_id)
     unsupported = sorted(i for i in checked if i in by_id and by_id[i].get("supported") is not True)
     available_count = sum(1 for i in checked if by_id.get(i, {}).get("available") is True)
 
     evidence = {"schemaVersion": schema, "totalCapabilities": len(caps), "expectedGaCount": len(checked),
-               "excludedCount": len(excluded_ids), "availableCountUnauthenticated": available_count}
+               "excludedCount": len(excluded_ids), "availabilityGatedCount": len(gated_ids & set(checked)),
+               "availableCountUnauthenticated": available_count}
 
     if missing:
         return CheckResult("capability-manifest", "fail",
@@ -356,16 +365,25 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
         aby_id = {c.get("id"): c for c in acaps if isinstance(c, dict) and c.get("id")}
         # An expected-GA id entirely OMITTED from the authenticated manifest is exactly as bad as one
         # present with available != true — both must fail, not silently drop out of `unavailable`.
-        unavailable = sorted(i for i in checked if aby_id.get(i, {}).get("available") is not True)
-        avail_auth = sum(1 for i in checked if aby_id.get(i, {}).get("available") is True)
+        unavailable = sorted(i for i in availability_checked if aby_id.get(i, {}).get("available") is not True)
+        avail_auth = sum(1 for i in availability_checked if aby_id.get(i, {}).get("available") is True)
         evidence["authenticated"] = True
         evidence["availableCountAuthenticated"] = avail_auth
         if unavailable:
             return CheckResult("capability-manifest", "fail",
                                f"expected-GA ids not available=true when authenticated: {unavailable}", evidence)
+        # The authenticated manifest must not contradict the public one: every checked id, gated or
+        # not, must still be present and supported=true there. Gating relaxes only available=true.
+        auth_unsupported = sorted(i for i in checked if aby_id.get(i, {}).get("supported") is not True)
+        if auth_unsupported:
+            return CheckResult("capability-manifest", "fail",
+                               f"expected-GA ids missing or not supported=true when authenticated: "
+                               f"{auth_unsupported}", evidence)
         return CheckResult("capability-manifest", "pass",
-                           f"{len(checked)} expected-GA ids supported+available "
-                           f"({avail_auth}/{len(checked)} available, authenticated)", evidence)
+                           f"{len(checked)} expected-GA ids supported; "
+                           f"{avail_auth}/{len(availability_checked)} availability-asserted ids available "
+                           f"(authenticated; {len(checked) - len(availability_checked)} availability-gated)",
+                           evidence)
 
     return CheckResult("capability-manifest", "pass",
                        f"{len(checked)} expected-GA ids all supported=true "

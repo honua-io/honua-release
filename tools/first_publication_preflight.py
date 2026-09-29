@@ -676,7 +676,7 @@ def build_receipt(
     archive = _download_matches(transport, view["iac_url"], view["iac_sha256"], archive_name)
     channels.append(_channel(
         "iac:git-archive",
-        "honua-iac Git archive v0.1.0",
+        f"honua-iac Git archive {archive_name.removesuffix('.tar.gz')}",
         "supported-by-git-url",
         evidence_class="downloaded-bytes",
         files=[archive],

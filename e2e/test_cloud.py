@@ -281,6 +281,39 @@ def test_capability_manifest_authenticated_asserts_available():
     assert r3.status == "fail" and "a.one" in r3.why and "available=true when authenticated" in r3.why
 
 
+def test_capability_manifest_availability_gated_ids_still_assert_supported():
+    expected = _expected_ga(["a.one", "a.gated"])
+    expected["availabilityGated"] = [{"id": "a.gated", "reason": "off by configuration"}]
+
+    def body(gated_supported=True, gated_present=True):
+        caps = [{"id": "a.one", "supported": True, "available": True}]
+        if gated_present:
+            caps.append({"id": "a.gated", "supported": gated_supported, "available": False})
+        return json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": caps})
+
+    def run(b):
+        f = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, b))])
+        return cc.check_capability_manifest("http://x", f, expected=expected, authenticated_fetch=f,
+                                            frozen_server_sha=TEST_SERVER_SHA)
+
+    ok = run(body())
+    assert ok.status == "pass" and ok.evidence["availabilityGatedCount"] == 1
+    # Gating relaxes ONLY the authenticated available=true leg: unsupported or absent still fails.
+    assert run(body(gated_supported=False)).status == "fail"
+    missing = run(body(gated_present=False))
+    assert missing.status == "fail" and "a.gated" in missing.why
+    # The authenticated manifest must not contradict the public one for a gated id.
+    public = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body()))])
+    for contradicting in (body(gated_supported=False), body(gated_present=False)):
+        auth = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, contradicting))])
+        r = cc.check_capability_manifest("http://x", public, expected=expected, authenticated_fetch=auth,
+                                         frozen_server_sha=TEST_SERVER_SHA)
+        assert r.status == "fail" and "a.gated" in r.why and "when authenticated" in r.why
+    # A non-gated id that is unavailable when authenticated still fails.
+    expected["availabilityGated"] = []
+    assert run(body()).status == "fail"
+
+
 def test_run_canonical_includes_capability_manifest():
     names = {r.name for r in cc.run_canonical("http://x", _fetcher([]))}
     assert "capability-manifest" in names

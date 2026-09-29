@@ -1,12 +1,12 @@
 {
   "schemaVersion": "honua.expected-ga-manifest.v1",
-  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). `expectedGa` (minus `excluded`) is the id set every deployed candidate must advertise as supported=true; when the check runs authenticated (an admin X-API-Key) it also asserts available=true for the same set. REFRESH RULE: this file is asserted against a LIVE deployment, so it must only be refreshed from a deployment that is actually running the manifest-pinned candidate — refreshing it from a stale environment would red a live canary to green a candidate, or vice versa. This snapshot was taken from demo.honua.io while it served deploymentRevision 6b6d3b898f4abb6b34833d953b50d44f3d38c6c1, the sha pinned in platform-manifest.yaml, immediately after that redeploy. Versus the previous 2026-07-21 snapshot it removes ai.workflow-generation (retired by honua-server ADR-0076 / #3255 / #3264) and adds sync.offline and temporal.animation-api.",
+  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). Every `expectedGa` id (minus `excluded`) must be advertised supported=true; when the check runs authenticated (an admin X-API-Key) the same ids must also be available=true, except the `availabilityGated` ids, which the candidate supports but a bare deployment leaves off by configuration or dependency. REFRESH RULE (honua-release#183): refresh only from a deployment actually running the manifest-pinned candidate, and record its deploymentRevision; the check fails closed when that revision differs from components.honua-server.sha. This snapshot was taken on 2026-09-29 from a local-docker boot of the pinned image ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a (e2e/local-docker/docker-compose.yml's db + server, run with ASPNETCORE_ENVIRONMENT=Production and Licensing__Mode=Disabled like the aws-ecs cell), unauthenticated and with the admin key; both environments reported identical capabilities. demo.honua.io was not used because it serves f897700, not the pin. Selection rule: every id the previous snapshot asserted (all still supported=true) plus every newly advertised id with lifecycle=implemented and supported=true. Preview and experimental ids (EDR, Coverages, WMTS, ImageServer, SensorThings, 3D/scene, providers, versioning.branch, admin.multi-tenancy) are not GA in 2026.1 and are not added; planned ids report supported=false and are not added.",
   "sourceSnapshot": {
-    "target": "https://demo.honua.io/api/v1/capabilities/manifest",
+    "target": "local-docker ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a /api/v1/capabilities/manifest",
     "manifestSchemaVersion": "honua.capability_manifest.v1",
-    "fetchedAt": "2026-08-19T02:13:20Z",
-    "totalCapabilities": 29,
-    "deploymentRevision": "6b6d3b898f4abb6b34833d953b50d44f3d38c6c1",
+    "fetchedAt": "2026-09-29T10:03:33Z",
+    "totalCapabilities": 77,
+    "deploymentRevision": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
     "deploymentRevisionSource": "commit-sha"
   },
   "expectedGa": [
@@ -38,12 +38,58 @@
     "publication.metadata-release",
     "upload.file",
     "edit.features",
-    "operate.status"
+    "collaboration.feature-locks",
+    "operate.status",
+    "ops.findings",
+    "ops.autonomy",
+    "deploy.rollback",
+    "format.read.geojson",
+    "format.read.shapefile",
+    "format.write.shapefile",
+    "format.read.geopackage",
+    "format.write.geopackage",
+    "format.read.gpx",
+    "format.read.kml",
+    "format.read.gml",
+    "format.read.wkt",
+    "format.read.csv",
+    "format.write.csv",
+    "format.read.filegdb",
+    "format.read.flatgeobuf",
+    "format.read.geoparquet",
+    "format.read.esrijson",
+    "format.read.wkb"
+  ],
+  "availabilityGated": [
+    {
+      "id": "sync.offline",
+      "reason": "lifecycle=preview and opt-in on this candidate (available=false / experimental-disabled by default). Asserted supported=true because the previous snapshot asserted it; availability depends on opting in."
+    },
+    {
+      "id": "realtime.feature-streams",
+      "reason": "lifecycle=preview and opt-in on this candidate (available=false / experimental-disabled by default). Asserted supported=true because the previous snapshot asserted it; availability depends on opting in."
+    },
+    {
+      "id": "jobs.runner",
+      "reason": "Implemented, but available=false / dependency-unavailable on a deployment with no job backend configured (the bare cloud cells and local-docker)."
+    },
+    {
+      "id": "gitops.release-manifest",
+      "reason": "Implemented, but available=false / disabled-by-configuration until GitOps release publishing is configured."
+    },
+    {
+      "id": "collaboration.feature-locks",
+      "reason": "Implemented, but available=false / disabled-by-configuration until feature locking is enabled."
+    },
+    {
+      "id": "deploy.rollback",
+      "reason": "Implemented, but available=false / disabled-by-configuration until a rollback target is configured."
+    }
   ],
   "excluded": [
     {
       "id": "security.mtls",
-      "reason": "No longer advertised as a capability id at all on this candidate (it survives as the `mtls` TRANSPORT, reported available=false / disabled-by-configuration). Previously it was advertised supported=true but gated; honua-server#2958 tracks the reclassification. Kept here so the exclusion's history is legible if the id returns."
+      "reason": "Advertised again at this candidate as an experimental, opt-in capability (supported=true, available=false / experimental-disabled); not a GA surface, so it is not asserted. It also survives as the `mtls` transport, reported available=false / disabled-by-configuration. honua-server#2958 tracks the reclassification."
     },
     {
       "id": "alerts.geofence",

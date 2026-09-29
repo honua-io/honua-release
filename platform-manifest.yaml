@@ -51,7 +51,7 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-09-16"             # honua-server re-pin to imaged trunk 87966c3 (release#348 ruling A, third re-pin); other components unchanged
+snapshotDate: "2026-09-29"             # honua-iac re-pin to the v0.2.0 tag (28fee58) for the aws-ecs cloud cell's licensing contract; honua-server unchanged since the 2026-09-16 re-pin to imaged trunk 87966c3 (release#348 ruling A, third re-pin); other components unchanged
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
@@ -561,11 +561,15 @@ components:
   honua-iac:
     repository: "https://github.com/honua-io/honua-iac"
     lifecycleStatus: GA
-    version: "0.1.0"                   # release tag v0.1.0; Git-source distribution
-    sha: "cace70f7b592a583a478ed6f002c7de17b053282"   # branch: trunk HEAD at re-pin time (honua-iac#144: aws-eks secret-encryption toggle)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.1.0.tar.gz"
-    artifactSourceRevision: "cace70f7b592a583a478ed6f002c7de17b053282"
-    artifactSha256: "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
+    # v0.2.0 carries honua-iac#192 (licensing_mode default "Disabled" in the aws, aws-serverless and
+    # aws-cert roots), which the aws-ecs cloud cell's licensing-disabled check needs; v0.1.0 predates
+    # it (e2e-cloud-aws run 36532006583). A 0.x minor, not a patch: new optional inputs and
+    # apply-affecting default changes (honua-iac docs/module-versioning.md).
+    version: "0.2.0"                   # release tag v0.2.0 (annotated tag object 8818f08); Git-source distribution
+    sha: "28fee583ca86de758e72bd4ff4a5f12927d503f0"   # trunk HEAD = v0.2.0^{} (honua-iac#210 release notes on 8ec0737; all trunk checks green)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.2.0.tar.gz"
+    artifactSourceRevision: "28fee583ca86de758e72bd4ff4a5f12927d503f0"   # the tarball's pax comment
+    artifactSha256: "sha256:c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"

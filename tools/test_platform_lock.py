@@ -284,7 +284,7 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:58e80786f381ddd3ae835ccacc69f49c0a7d159758df3823ad9615f4da5792ed"
+        "sha256:c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
