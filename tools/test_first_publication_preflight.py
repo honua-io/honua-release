@@ -1,8 +1,8 @@
 """#57: the anonymous first-publication preflight must not invent package bytes."""
 from __future__ import annotations
 
-import hashlib
 import gzip
+import hashlib
 import io
 import json
 import tarfile
