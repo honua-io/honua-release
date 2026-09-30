@@ -95,6 +95,20 @@ def grpc_scope(
     return in_scope, list(excluded.values())
 
 
+def grpc_client_version(published: dict[str, Any], lane: str) -> str:
+    """The installed, published package version a gRPC client lane is certified against."""
+    client = published.get(lane)
+    if not isinstance(client, dict):
+        raise ValueError(f"geospatial-grpc published_clients has no entry for {lane}")
+    version = client.get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs a released version, not {version!r}")
+    if not any(isinstance(client.get(field), str) and client[field].startswith(("sha256:", "sha512-"))
+               for field in ("digest", "integrity")):
+        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the published artifact digest")
+    return version
+
+
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
     bounded_roster = load(SOURCES / "bounded-client-roster.v1.json")
@@ -347,7 +361,10 @@ def main() -> None:
         )
 
     grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
-    grpc_fixture = f"geospatial-grpc-conformance@{grpc['fixture_version']}+{grpc['source_sha']}"
+    grpc_fixture = (
+        f"geospatial-grpc-conformance@{grpc['fixture_version']}+{grpc.get('fixture_source_sha', grpc['source_sha'])}"
+    )
+    grpc_published = grpc.get("published_clients") or {}
     grpc_clients = (
         ("Generated gRPC .NET client", "grpc-dotnet"),
         ("Generated gRPC Python client", "grpc-python"),
@@ -359,7 +376,7 @@ def main() -> None:
         for client, lane in grpc_clients:
             add(
                 capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
-                client=client, lane=lane, version=f"source@{grpc['source_sha']}",
+                client=client, lane=lane, version=grpc_client_version(grpc_published, lane),
                 contract=f"geospatial-grpc@{grpc['source_sha']}", auth_policy="anonymous-public-v1",
                 fixture=grpc_fixture,
                 facets=["positive", "negative", "media-schema"],
@@ -599,7 +616,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-09-29-complete.14",
+        "revision": "2026-09-29-complete.15",
         "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (

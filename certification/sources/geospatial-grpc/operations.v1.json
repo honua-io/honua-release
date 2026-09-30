@@ -1,7 +1,29 @@
 {
     "schema":  "honua.protocol-operation-inventory/v1",
-    "source_sha":  "73fc882b1ae00d0a4a348aeadfba9f48b1a0317c",
-    "fixture_version":  "0.2.0-alpha.1",
+    "source_sha":  "00fca4de0334c6e2304354df7b367faeec5780d6",
+    "fixture_version":  "1.0.5",
+    "fixture_source_sha":  "18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
+    "client_identity_ruling":  "2026-09-29 operator ruling: certify the installed clients customers use. Each generated-client lane is bound to the published v1.0.3 package (tag v1.0.3, commit 00fca4de; the contract revision) and is executed against the v1.0.5 conformance fixtures (tag v1.0.5, commit 18e609cf): positive and negative fixtures for all 14 governed RPCs. v1.0.4 and v1.0.5 change fixtures and the certification harness only; their geospatial.v1 protos are identical to v1.0.3.",
+    "published_clients":  {
+        "grpc-dotnet":  {
+            "package":  "Geospatial.Grpc",
+            "version":  "1.0.3",
+            "registry":  "https://api.nuget.org/v3/index.json",
+            "digest":  "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
+        },
+        "grpc-python":  {
+            "package":  "geospatial-grpc",
+            "version":  "1.0.3",
+            "registry":  "https://pypi.org/pypi/geospatial-grpc/json",
+            "digest":  "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
+        },
+        "grpc-typescript":  {
+            "package":  "@honua/geospatial-grpc",
+            "version":  "1.0.3",
+            "registry":  "https://registry.npmjs.org/@honua/geospatial-grpc",
+            "integrity":  "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
+        }
+    },
     "operations":  [
                        {
                            "service":  "ArtifactService",
@@ -329,7 +351,7 @@
             "id": "grpc-2026.1-implemented-rpcs",
             "decision": "2026.1 gRPC certification covers only the geospatial.v1 RPCs that the default honua-server GA image implements. Every other RPC in this inventory moves to excluded_operations with its maturity, the rationale, the owner issue and the release in which it is reconsidered. The generated denominator carries no requirement for an excluded RPC, so it can neither count as a GA pass nor block the cut.",
             "evidence": "Operator ruling of 2026-09-29, posted on geospatial-grpc#88 and linked from honua-release#376. Checked at every commit in verified_server_commits: honua-server implements geospatial.v1 service bases only for FeatureService, ProcessService, SpecService, ElevationService, SceneService and TileService, and HonuaProcessService returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream. At ac30266 (the pinned server revision) Program.cs maps all six services unconditionally. At 87966c3 (the platform manifest's server certification pin) and 2db24e6 SceneService and TileService are mapped only behind the experimental scene.catalog and serve.3d-tiles-scene capability flags. geospatial-grpc protocol-certification run 36609727697 against 2db24e6 (sha256:80d66658...) returned UNIMPLEMENTED from FormService, WorkspaceService and synchronous ExecutePlan in all three client lanes. Generation fails unless the pinned server commit is one of verified_server_commits, so moving the server pin forces the ruling to be re-checked.",
-            "consequence": "In scope for 2026.1: FeatureService (QueryFeatures, QueryFeaturesStream, ApplyEdits), ProcessService asynchronous and planning RPCs (ValidatePlan, DryRunPlan, SubmitJob, GetJob, GetJobResult, CancelJob), SpecService (PlanSpec, ApplySpec, CancelApply) and ElevationService (GetElevation, GetElevationProfile). Excluded RPCs are Preview or Experimental rows, not silent removals: the geospatial-grpc producer still executes their fixtures and reports the results as excluded, never as GA passes.",
+            "consequence": "In scope for 2026.1: FeatureService (QueryFeatures, QueryFeaturesStream, ApplyEdits), ProcessService asynchronous and planning RPCs (ValidatePlan, DryRunPlan, SubmitJob, GetJob, GetJobResult, CancelJob), SpecService (PlanSpec, ApplySpec, CancelApply) and ElevationService (GetElevation, GetElevationProfile). Excluded RPCs are Preview or Experimental rows, not silent removals: the geospatial-grpc producer still executes their fixtures and reports the results as excluded, never as GA passes. Operator confirmation (2026-09-29): SceneService and TileService stay excluded as Experimental. 3D is Experimental and opt-in in 2026.1, and the default GA image serves these services only behind the experimental scene.catalog and serve.3d-tiles-scene capability flags.",
             "verified_server_commits": [
                 "ac30266fbd153363bebdbed13130accc8ab0c94a",
                 "2db24e648350927c3dada3eb00638bcec1e5cc3e",
