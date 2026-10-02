@@ -377,6 +377,7 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
     ("2026.1-rc.3-extra", False),
     ("prefix-2026.1-rc.3", False),
     ("2026.1-rc.3\n", False),
+    ("invalid\n2026.1-rc.3", False),
 ])
 def test_request_promotion_candidate_label_validation(tmp_path, label, accepted):
     workflow = yaml.safe_load((Path(__file__).resolve().parents[1]
