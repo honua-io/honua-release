@@ -286,6 +286,10 @@ class JourneyExecutor:
         if (final.get("proposalId") != proposal_id or final.get("status") not in {"Approved", "Applied"}
                 or not final.get("resolvedBy") or final["resolvedBy"] == final.get("requestedBy")):
             raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
+        self.evidence["approvalResolution"] = {"proposalId": proposal_id,
+                                              "requestedBy": identity(final["requestedBy"], "GET approved proposal"),
+                                              "resolvedBy": identity(final["resolvedBy"], "GET approved proposal")}
+        self._check(8, "separation", "typed CLI separate-principal approval", lambda: self.evidence["approvalResolution"])
         # The proposal ID is a resolution resource, not an invented approval ID.
         # Require a server-reported approval identity before receipt qualification.
         approval_id = final.get("approvalId")
@@ -294,15 +298,47 @@ class JourneyExecutor:
         self.evidence["approval"] = {"proposalId": proposal_id,
                                      "approvalId": identity(approval_id, "GET approved proposal"),
                                      "proposerSelfApproval": "denied"}
-        self._check(8, "separation", "typed CLI separate-principal approval", lambda: self.evidence["approval"])
         return self.evidence["approval"]
 
     def verify_final(self):
         def prove():
-            if not self.evidence.get("approval"):
+            if not self.evidence.get("approvalResolution"):
                 raise ExecutionError("GET final published map", "separate-principal approval has not completed", blocked=True)
             return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None)
         return self._check(8, "final-map", "GET final published map content", prove)
+
+    def verify_authority(self):
+        def join():
+            expected = self.evidence.get("publicationOperation", {})
+            handle_id = identity(expected.get("operationInstanceId"), "GET canonical publication handle")
+            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id)
+            observed = observed.get("data", observed)
+            if any(not expected.get(k) or observed.get(k) != expected[k]
+                   for k in ("operationId", "operationInstanceId", "proposalId", "correlationId", "auditId")):
+                raise ExecutionError("GET canonical publication handle", "canonical identity join differs")
+            return {k: observed[k] for k in ("operationId", "operationInstanceId", "proposalId", "correlationId", "auditId")}
+
+        def authority():
+            handle_id = identity(self.evidence.get("publicationOperation", {}).get("operationInstanceId"), "GET current authority")
+            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id)
+            observed = observed.get("data", observed)
+            if (observed.get("status") != "Completed" or observed.get("policyDecision") != "Allow"
+                    or str(observed.get("authorizationOutcome", "")).lower() not in {"allowed", "authorized"}):
+                raise ExecutionError("GET current authority", "completed replay does not report current allowed authority")
+            return {"status": "Completed", "policyDecision": "Allow", "authorizationOutcome": observed["authorizationOutcome"]}
+
+        def denied(path, principal):
+            if not self.transport.credentials.get(principal):
+                raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
+            _, status = self.transport.http("GET", path, principal=principal, expected=(403, 404))
+            return {"httpStatus": status}
+
+        return {"canonicalIdJoin": self._check(8, "canonical-join", "GET canonical publication handle", join),
+                "currentAuthorityRevalidation": self._check(8, "current-authority", "GET current authority", authority),
+                "tenantIsolation": self._check(8, "tenant-isolation", "GET private saved map under another tenant",
+                    lambda: denied(self.map_path(), "other-tenant")),
+                "rbacDenial": self._check(8, "rbac-denial", "GET admin API keys under viewer",
+                    lambda: denied("/api/v1/admin/api-keys/", "viewer"))}
 
     def result(self, number):
         required = {3: {"imported-content"}, 4: {"style-applied", "pixel"}, 5: {"buffer"},

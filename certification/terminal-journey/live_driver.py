@@ -430,19 +430,21 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
         final = engine.verify_final()
         evidence = engine.evidence
         proofs = evidence.get("proofs", {})
-        missing = {"status": "blocked", "detail": "live authority assertion has not executed"}
+        authority = engine.verify_authority()
         assertions = {"finalUrl": {"status": final.status, "detail": final.detail},
                       "pixelProof": {"status": "pass" if proofs.get("pixel") else "blocked",
                                      "detail": "independent pixel assertion"},
-                      "canonicalIdJoin": missing, "tenantIsolation": missing, "rbacDenial": missing,
-                      "proposerApproverSeparation": {"status": "pass" if evidence.get("approval") else "blocked",
+                      **{name: {"status": check.status, "detail": check.detail} for name, check in authority.items()},
+                      "proposerApproverSeparation": {"status": "pass" if evidence.get("approvalResolution") else "blocked",
                                                      "detail": "typed separate-principal approval"},
-                      "currentAuthorityRevalidation": missing}
+                      }
         _write_state(_state["workspaceId"], _state)
-        return {"status": "fail" if final.status == "fail" else "blocked", "assertions": assertions,
+        outcome = "fail" if any(a["status"] == "fail" for a in assertions.values()) else (
+            "pass" if all(a["status"] == "pass" for a in assertions.values()) else "blocked")
+        return {"status": outcome, "assertions": assertions,
                 "finalUrlProof": proofs.get("final-map"), "pixelProof": proofs.get("pixel"),
                 "canonicalIds": {k: evidence.get("publicationOperation", {}).get(k) for k in executor.ID_FIELDS},
-                "blockedBy": [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]}
+                "blockedBy": [] if outcome != "blocked" else [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]}
     not_run = {"status": "blocked", "detail": "the journey did not reach a published artifact"}
     return {
         "status": "blocked",
