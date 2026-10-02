@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 import release_rollback as rollback  # noqa: E402
@@ -359,3 +360,63 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
     mixed = json.loads((output / "mixed-state-receipt.json").read_text())
     assert mixed["status"] == "ManualInterventionRequired"
     assert any(c["state"] == "Failed" for c in mixed["children"])
+
+
+@pytest.mark.parametrize("label,accepted", [
+    ("2026.1-rc.3", True),
+    ("2026.1.2-rc.4", True),
+    ("1.2.3-rc.1", True),
+    ("2027.1-rc.1", False),
+    ("2026.1", False),
+    ("2026.1.2", False),
+    ("honua-2026.1-rc.3", False),
+    ("2026.1-beta.3", False),
+    ("2026.1.2.3-rc.1", False),
+    ("2026.1-rc.0", False),
+    ("2026.1-rc.01", False),
+    ("2026.1-rc.3-extra", False),
+    ("prefix-2026.1-rc.3", False),
+    ("2026.1-rc.3\n", False),
+])
+def test_request_promotion_candidate_label_validation(tmp_path, label, accepted):
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[1]
+                               / ".github/workflows/request-promotion.yml").read_text())
+    step = next(step for step in workflow["jobs"]["dispatch"]["steps"]
+                if step.get("id") == "candidate")
+    (tmp_path / "candidate").mkdir()
+    _write(tmp_path / "candidate/gate-report.json", {
+        "dry_run": False, "overallStatus": "pass", "platform_label": label,
+        "candidate": {"source": {"sha": "a" * 40},
+                      "train": {"runId": "123", "certificationMode": "live"}},
+    })
+    output = tmp_path / "output"
+    result = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path,
+                            env={**os.environ, "TRAIN_RUN_ID": "123",
+                                 "TRAIN_HEAD_SHA": "a" * 40, "GITHUB_OUTPUT": str(output)},
+                            capture_output=True, text=True)
+    assert result.returncode == (0 if accepted else 1), result.stdout + result.stderr
+    if accepted:
+        assert output.read_text() == f"platform_label={label}\n"
+    else:
+        assert "successful train did not produce a matching live, passing candidate" in result.stdout
+        assert not output.exists()
+
+
+@pytest.mark.parametrize("candidate_tag,expected_tag", [
+    ("honua-2026.1-rc.3", "honua-2026.1.0"),
+    ("honua-2026.1.2-rc.4", "honua-2026.1.2"),
+])
+def test_rollback_uses_published_ga_tag(tmp_path, candidate_tag, expected_tag):
+    assert targets.promoted_tag(candidate_tag) == expected_tag
+    # Finding the actual GA publication excludes locks published after it.
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.2-rc.1", lock=True, published_at="2026-09-13T00:00:00Z"),
+        _release(expected_tag, lock=True, published_at="2026-09-12T00:00:00Z"),
+        _release("honua-2025.1.0", lock=True, published_at="2026-09-11T00:00:00Z"),
+    ]])
+    _write(candidate, {"platform": {"id": candidate_tag}})
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["retained_release"] == "honua-2025.1.0"
+    assert report["scanned_releases"] == ["honua-2025.1.0"]
+    download = next(call for call in calls if call[:2] == ("release", "download"))
+    assert download[2] == "honua-2025.1.0"
