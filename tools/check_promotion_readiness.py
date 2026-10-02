@@ -74,6 +74,17 @@ EVIDENCE_CLASSES = {
     **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
 }
 GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
+# Policy maximum between a receipt's completion and its freshUntil. A producer may set a
+# shorter bound but never a longer one, so the promotion window always closes. A declared
+# class without a maximum here refuses.
+MAX_FRESHNESS = {
+    **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
+                     "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
+                     "deterministic-journey", "nightly-model-journey",
+                     "genuine-model-journey", "update-rollback"), timedelta(days=7)),
+    **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
+}
+CANARY_SLOT = timedelta(hours=6, minutes=30)
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
@@ -113,6 +124,23 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
         if times != sorted(times):
             return False
     return True
+
+
+def _update_rollback(receipt: dict[str, Any]) -> bool:
+    """Each GA cell appears once and passes both its update and its rollback."""
+    cells = receipt.get("cells")
+    if (not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells)
+            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"):
+        return False
+    names = [cell.get("cell") for cell in cells]
+    return (len(names) == len(set(names)) == len(GA_CELLS) and set(names) == GA_CELLS
+            and all(cell.get("updateStatus") == cell.get("rollbackStatus") == "pass" for cell in cells))
+
+
+def _canary_key(run: dict[str, Any], field: str) -> tuple[str, datetime, Any, Any]:
+    """Identity of one canary observation; the ledger may carry integer run ids and extra fields."""
+    return (_run_id(run.get("runId"), f"{field} runId"), _time(run.get("completedAt"), f"{field} completedAt"),
+            run.get("status"), run.get("lockDigest"))
 
 
 def evaluate(
@@ -220,14 +248,12 @@ def evaluate(
             else:
                 ok &= burn_start <= completed <= now
                 earliest, latest = burn_start, completed
-            if name in ("esri-bundle", "cite"):
-                ok &= expiry - completed <= timedelta(days=14)
+            ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
             if name in JOURNEYS:
                 mode, required = JOURNEYS[name]
                 ok &= _journey(receipt, required, mode, digest, earliest, latest)
             if name == "update-rollback":
-                ok &= (set(receipt.get("cells", [])) == GA_CELLS
-                       and receipt.get("updateStatus") == receipt.get("rollbackStatus") == "pass")
+                ok &= _update_rollback(receipt)
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
@@ -260,11 +286,15 @@ def evaluate(
     canary_ok &= len(set(ids)) == len(ids)
     if len(times) == 7:
         canary_ok &= times == sorted(times) and times[0] >= burn_start
-        canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= timedelta(hours=6, minutes=30)
+        canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= CANARY_SLOT
                          for a, b in zip(times, times[1:]))
-        canary_ok &= timedelta(0) <= now - times[-1] <= timedelta(hours=6, minutes=30)
+        canary_ok &= timedelta(0) <= now - times[-1] <= CANARY_SLOT
     # The fetcher supplies the complete observed canary ledger, including failed
-    # runs and their lock bindings. A record cannot omit a failure of this lock.
+    # runs and their lock bindings. A record cannot omit a failure of this lock, and
+    # it cannot move burnStartedAt past one: the scan starts at the minting train's
+    # completion, which the record does not control.
+    burn_detail = "no failed or incomplete canary of this lock, or unattributed failure, since minting"
+    start_ok = False
     try:
         sequence = _load(evidence_dir / "canary-sequence.json", "complete canary sequence")
         runs = sequence.get("runs")
@@ -275,17 +305,35 @@ def evaluate(
         for run in runs:
             if not isinstance(run, dict):
                 raise ReadinessError("malformed canary sequence")
-            completed = _time(run.get("completedAt"), "observed canary completedAt")
-            if run.get("lockDigest") == digest and burn_start <= completed <= now:
-                observed.append(run)
-                burn_ok &= run.get("status") == "pass"
-        observed.sort(key=lambda run: _time(run["completedAt"], "canary completedAt"))
-        observed_ids = [str(run.get("runId")) for run in observed]
+            key = _canary_key(run, "observed canary")
+            completed, status, bound = key[1:]
+            if completed > now:
+                continue
+            if bound == digest:
+                observed.append(key)
+                if status != "pass":
+                    burn_ok = False
+                    burn_detail = f"canary {key[0]} of this lock did not pass; the lock's burn has ended"
+            elif not (isinstance(bound, str) and SHA256_RE.fullmatch(bound)):
+                # A canary that fails before it reads its lock cannot be attributed to another
+                # lock, so it counts against every lock that was minted before it ran.
+                if status != "pass" and completed >= train_time:
+                    burn_ok = False
+                    burn_detail = f"canary {key[0]} did not pass and recorded no lock digest; it is unattributable"
+        observed.sort(key=lambda key: key[1])
+        observed_ids = [key[0] for key in observed]
         burn_ok &= len(set(observed_ids)) == len(observed_ids)
-        canary_ok &= len(observed) >= 7 and observed[-7:] == canaries
+        selected = [_canary_key(row, "canary") for row in canaries if isinstance(row, dict)]
+        canary_ok &= len(observed) >= 7 and observed[-7:] == selected
+        # The lock is deployed when burn starts, so its first canary follows within one slot.
+        # A burn start claimed earlier than that would shorten the real burn.
+        start_ok = bool(observed) and observed[0][1] - burn_start <= CANARY_SLOT
     except (ReadinessError, OSError):
         burn_ok = canary_ok = False
-    check("lock-burn-health", bool(burn_ok), "no failed or incomplete canary of this lock since burn start")
+        burn_detail = "complete lock-bound canary sequence is missing or malformed"
+    check("burn-start", start_ok,
+          "the lock's first observed canary completed no more than 6h30m after the recorded burn start")
+    check("lock-burn-health", bool(burn_ok), burn_detail)
     check("demo-canaries", bool(canary_ok),
           "seven consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
     decision = {

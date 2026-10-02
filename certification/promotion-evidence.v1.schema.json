@@ -31,8 +31,7 @@
       "required": [
         "path",
         "digest",
-        "burnStartedAt",
-        "burnStartCommit"
+        "burnStartedAt"
       ],
       "properties": {
         "path": {
@@ -43,10 +42,6 @@
         },
         "burnStartedAt": {
           "$ref": "#/$defs/time"
-        },
-        "burnStartCommit": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
         }
       }
     },
