@@ -11,15 +11,17 @@ evidence and mints a signed `2026.1-rc.N` lock. Its journey requirement is the d
 all four GA cells, plus the genuine model on ECS with Redis off. A red night mints nothing.
 
 The release captain selects one certified lock as the promotion candidate, deploys its exact artifacts
-to the demo and records its byte digest, minting run ID, burn-start commit and UTC deployment time in
+to the demo and records its byte digest, minting run ID and UTC deployment time (`burnStartedAt`) in
 `certification/promotions/<rc-label>.json`. The record follows
 [`promotion-evidence.v1.schema.json`](../certification/promotion-evidence.v1.schema.json).
 The lock bytes supplied to the checker must be the selected lock's retained artifact, even when the
 repository's current `platform-lock.json` names a newer lock.
 
 The burn belongs to that digest. New trunk commits, newer nightly locks and failures of another lock
-do not reset it. A failure of the burning lock ends that burn; diagnose it and record a new deployment
-and burn before trying again. Never hide a failed observation by selecting only passing run IDs.
+do not reset it. A failure of the burning lock ends that burn, and the lock can no longer be promoted:
+the checker counts every failure of the lock after its minting train completed, so a later
+`burnStartedAt` cannot hide one. Fix forward and select a newer certified lock. Never hide a failed
+observation by selecting only passing run IDs.
 
 ## Required evidence and journey pass rule
 
@@ -47,8 +49,9 @@ GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off`
 - `deterministic-journey`: deterministic passes on all four GA cells.
 - `nightly-model-journey`: a genuine-model pass on ECS with Redis off.
 - `genuine-model-journey`: genuine-model passes on all four GA cells during the burn.
-- `update-rollback`: passing update and rollback proof covering all four GA cells, using signed
-  rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback boundary.
+- `update-rollback`: passing update and rollback proof on each of the four GA cells, using signed
+  rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
+  boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
@@ -65,18 +68,35 @@ six-hour canaries for this lock. Each has a distinct run ID and the same lock di
 5h30m–6h30m, allowing schedule jitter without accepting a missing slot. The latest canary must be no
 more than 6h30m old. Continue canaries after hour 48 until promotion.
 
-The fetcher also supplies `canary-sequence.json`, a complete ledger of observed canary runs from burn
-start through evaluation, including failures and lock bindings. Its shape is
-`{"lockDigest":"sha256:…","runs":[…]}`; each run uses the same fields as a `demoCanaries` entry.
-The selected seven must be the final seven observations for this lock. Any failed or incomplete
-observation of this lock ends the burn, even if seven later canaries pass.
+The fetcher also supplies `canary-sequence.json`, a complete ledger of observed canary runs from the
+minting train's completion through evaluation, including failures and lock bindings. Its shape is
+`{"lockDigest":"sha256:…","runs":[…]}`; each run carries `runId`, `completedAt`, `status` and
+`lockDigest`. Runs are matched to `demoCanaries` on those four fields, so an integer `runId` (as the
+GitHub API returns it), fractional seconds and extra fields do not refuse. The selected seven must be
+the final seven observations for this lock. Any failed or incomplete observation of this lock since
+minting ends the burn, even if seven later canaries pass. A canary that fails before it reads its lock
+records a null `lockDigest`; it cannot be attributed to another lock, so it refuses every lock minted
+before it ran.
+
+`burnStartedAt` is bounded by observation too. It cannot precede the minting train's completion, and
+the lock's first observed canary must complete no more than 6h30m after it. A record cannot claim a
+burn that started before the lock was deployed.
 
 Promotion is allowed from hour 48 until any evidence passes its freshness bound. There is no
 72-hour deadline and no requirement for later strict trains against newer trunk heads. Every retained
 evidence receipt supplies a workflow-produced `freshUntil` UTC timestamp. The checker refuses missing,
-expired or invalid bounds, future receipts, and Esri/CITE bounds longer than 14 days. These bounds come
-from the producing workflow's gate policy; the promotion record cannot extend them. If evidence expires,
-obtain fresh workflow evidence for the same lock; a newer lock never substitutes for it.
+expired or invalid bounds and future receipts. It also caps each bound at a policy maximum measured
+from the receipt's completion, so no receipt can hold the promotion window open:
+
+| Classes | Maximum `freshUntil` after completion |
+| --- | --- |
+| All nightly classes, `genuine-model-journey`, `update-rollback` | 7 days |
+| `esri-bundle`, `cite` | 14 days |
+
+A producer may set a shorter bound. A declared class with no maximum in the checker refuses. Nightly
+evidence completes at minting, so a lock must start its burn within five days of minting to reach hour
+48 before its nightly evidence expires. If qualifying evidence expires, obtain fresh workflow evidence
+for the same lock; a newer lock never substitutes for it.
 
 ## Retained artifact contract and integration
 
@@ -90,8 +110,9 @@ The checker reads these paths under `--evidence-dir`:
 | `canary-sequence.json` | Complete canary ledger, including failed runs |
 
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
-add `cells` with the attempt ledger above. The update/rollback receipt adds `cells` (the four GA cell
-names), `updateStatus` and `rollbackStatus`. Successful Actions metadata must match each recorded
+add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
+`rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
+four GA cells, with no other cells. Successful Actions metadata must match each recorded
 completion time. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.
@@ -100,11 +121,13 @@ coverage before invoking the checker. Lock signature verification remains a sepa
 when any condition fails. `--lock-history` is retained for caller compatibility and does not affect the
 burn: repository lock history describes other candidates too.
 
-**Integration remaining in #386/#381:** the promotion fetcher and producers must supply the class
-receipts and complete canary ledger above, resolve the selected retained lock instead of the current
-trunk lock, and accept scheduled minting runs. The existing workflow still fetches the older evidence
-layout; until it is updated, missing evidence makes the checker refuse. This checker/docs change does
-not certify a live burn or move a channel.
+**Integration remaining in #386/#381:** `promote.yml` and `request-promotion.yml` still use the freeze
+shape. The fetcher must supply the class receipts and complete canary ledger above, pass the selected
+lock's retained bytes instead of the current trunk lock, accept scheduled minting runs, and stop
+reading the withdrawn `burnStartCommit`. Readiness must be requested on a schedule from hour 48 rather
+than when a train completes. That change is carried by a separate pull request. Until it lands, the
+workflow refuses every record, so promotion fails closed. This checker/docs change does not certify a
+live burn or move a channel.
 
 After readiness passes, `request-promotion.yml` requests protected promotion as the scoped App identity.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the

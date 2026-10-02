@@ -63,10 +63,11 @@ lifecycle coverage alone cannot replace the required two-revision application pr
   exact artifacts to the demo. Record its digest, deployment/burn-start UTC time and minting run in
   `certification/promotions/<rc-label>.json`; use the retained lock bytes for readiness.
 - [ ] Burn that lock for at least 48 hours while trunk continues moving. New commits and newer locks
-  never reset it. A failure of this lock ends the burn; diagnose and redeploy before starting another.
+  never reset it. A failure of this lock at any time after minting ends its burn and it cannot be
+  promoted; fix forward and select a newer certified lock.
 - [ ] Collect seven consecutive passing six-hour canaries bound to this digest. Retain every observed
-  run, including failures, so readiness cannot omit a failure. Continue canaries until promotion; the
-  latest seven must meet cadence and freshness bounds.
+  run since minting, including failures, so readiness cannot omit a failure. Continue canaries until
+  promotion; the latest seven must meet cadence and freshness bounds.
 - [ ] During the burn, run the genuine-model journey on all four GA cells with the same complete
   two-attempt ledger and failure attribution rule. Check the cost ceiling before teardown.
 - [ ] Prove signed rc.3 → rc.N → rc.3 application update and rollback on all four cells using the existing
@@ -93,7 +94,8 @@ artifacts fail closed. Documentation and checker tests do not substitute for liv
 
 - [ ] Run `tools/check_promotion_readiness.py` against the committed record, selected retained lock and
   verified immutable evidence. Require the minting train, 48-hour burn, seven canaries, nightly journey
-  tier, qualifying journey tier, declarations, bindings and unexpired evidence. Later strict trains
+  tier, qualifying journey tier, declarations, bindings and unexpired evidence within each class's
+  policy maximum (7 days; 14 days for Esri and CITE). Later strict trains
   certify their own locks and are not prerequisites. Promotion remains open after hour 72 while all
   evidence stays within its freshness bound.
 - [ ] Pass the GA documentation gates ([release#379](https://github.com/honua-io/honua-release/issues/379))

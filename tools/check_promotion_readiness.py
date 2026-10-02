@@ -224,7 +224,7 @@ def evaluate(
             continue
         name = row["class"]
         ok = name in declarations and bool(re.fullmatch(r"[a-z][a-z0-9-]*", name))
-        detail = "passing retained workflow receipt, bound to this lock and within its freshness bound"
+        detail = "passing retained workflow receipt, bound to this lock, fresh, and bounded by its class policy maximum"
         try:
             run_id = _run_id(row.get("runId"), f"{name} runId")
             completed = _time(row.get("completedAt"), f"{name} completedAt")
