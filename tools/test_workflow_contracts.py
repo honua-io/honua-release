@@ -63,6 +63,33 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert 'DRY_RUN" = "false' in commands
 
 
+def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
+    import os
+    import subprocess
+    found = False
+    for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
+        workflow = _workflow(path.name)
+        for job in workflow.get("jobs", {}).values():
+            for step in job.get("steps", []):
+                command = step.get("run", "")
+                if "tools/generate_platform_lock.py" not in command:
+                    continue
+                found = True
+                assert "continue-on-error" not in step and "continue-on-error" not in job
+                # Execute the actual workflow shell with a refusing generator. Relabelling a
+                # partial lock or any later command must be unreachable.
+                binary = tmp_path / "bin/python"
+                binary.parent.mkdir(exist_ok=True)
+                binary.write_text("#!/bin/sh\nexit 1\n")
+                binary.chmod(0o755)
+                marker = tmp_path / "gate-input-created"
+                result = subprocess.run(["bash", "-e", "-c", command + f"\ntouch '{marker}'"],
+                                        cwd=tmp_path, capture_output=True,
+                                        env={**os.environ, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]})
+                assert result.returncode != 0 and not marker.exists(), path.name
+    assert found
+
+
 def test_live_release_aggregate_fails_on_any_skipped_required_gate():
     report = _workflow("release-train.yml")["jobs"]["report"]
     commands = "\n".join(_step_text(step) for step in report["steps"])

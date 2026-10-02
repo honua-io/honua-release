@@ -449,6 +449,10 @@ components:
     digest: "sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619"
     artifactSourceRevision: "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"
     architectures: [amd64, arm64]
+    # Extracted from this pinned index with docker buildx imagetools inspect on 2026-10-02.
+    platformDigests:
+      amd64: sha256:78a66dd0b0959fc1b035f89255ff4616cd739dfee7c32751c4af5efa584d7b95
+      arm64: sha256:87d05274963736f2bd04a857ce27f62dc21b8d0a80736e9745b1abe0a7360a54
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"

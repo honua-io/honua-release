@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
+from image_platforms import image_platform_digests, verify_image_platform_digests  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -233,6 +234,15 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             )
         if kind == "sha" and not comp.get("sha"):
             f.error(f"manifest: component {name!r} is {PRERELEASE_SENTINEL} but has no sha")
+        if comp.get("image"):
+            try:
+                platforms = image_platform_digests(comp.get("platformDigests"),
+                                                  index_digest=comp.get("digest"),
+                                                  architectures=comp.get("architectures"))
+                if set(platforms) != {"amd64", "arm64"}:
+                    raise ValueError("2026.1 image requires both amd64 and arm64 platform digests")
+            except (TypeError, ValueError) as exc:
+                f.error(f"manifest: {name}.platformDigests: {exc}")
 
     server = components.get("honua-server") or {}
     ecs_architecture = str(server.get("awsEcsArchitecture", "")).strip()
@@ -724,6 +734,13 @@ def main(argv: list[str] | None = None) -> int:
         reachability_client=reachability_client,
         requirements=requirements,
     )
+    if args.exact_candidate:
+        for name, component in (manifest.get("components") or {}).items():
+            if component.get("image"):
+                try:
+                    verify_image_platform_digests({**component, "coordinate": component["image"].rsplit(":", 1)[0]})
+                except (OSError, TypeError, ValueError) as exc:
+                    f.error(f"manifest: {name}.platformDigests: {exc}")
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
