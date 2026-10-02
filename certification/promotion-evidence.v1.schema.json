@@ -77,6 +77,70 @@
           "nightly",
           "qualifying"
         ]
+      },
+      "required": [
+        "build-test",
+        "contract",
+        "sbom",
+        "security",
+        "upgrade",
+        "capacity-soak",
+        "dr",
+        "lambda-certification",
+        "protocol-ledger",
+        "deterministic-journey",
+        "nightly-model-journey",
+        "genuine-model-journey",
+        "update-rollback",
+        "esri-bundle",
+        "cite"
+      ],
+      "properties": {
+        "build-test": {
+          "const": "nightly"
+        },
+        "contract": {
+          "const": "nightly"
+        },
+        "sbom": {
+          "const": "nightly"
+        },
+        "security": {
+          "const": "nightly"
+        },
+        "upgrade": {
+          "const": "nightly"
+        },
+        "capacity-soak": {
+          "const": "nightly"
+        },
+        "dr": {
+          "const": "nightly"
+        },
+        "lambda-certification": {
+          "const": "nightly"
+        },
+        "protocol-ledger": {
+          "const": "nightly"
+        },
+        "deterministic-journey": {
+          "const": "nightly"
+        },
+        "nightly-model-journey": {
+          "const": "nightly"
+        },
+        "genuine-model-journey": {
+          "const": "qualifying"
+        },
+        "update-rollback": {
+          "const": "qualifying"
+        },
+        "esri-bundle": {
+          "const": "qualifying"
+        },
+        "cite": {
+          "const": "qualifying"
+        }
       }
     },
     "evidence": {

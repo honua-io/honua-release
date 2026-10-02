@@ -300,3 +300,57 @@ def test_promotion_path_schema_and_readiness_agree_on_patch_rc(tmp_path, label, 
     result = subprocess.run(["bash", "-c", condition], env={**os.environ,
                             "PROMOTION_RECORD": f"certification/promotions/{label}.json"})
     assert (result.returncode == 0) == accepted
+
+
+@pytest.mark.parametrize("name", list(readiness.EVIDENCE_CLASSES))
+def test_any_expired_evidence_closes_promotion_window(tmp_path, name):
+    fixture = _fixture(tmp_path, age=96)
+    _edit(_receipt(fixture, name), lambda receipt: receipt.update(freshUntil=_stamp(NOW - timedelta(seconds=1))))
+    _failed(fixture, f"evidence:{name}")
+
+
+def test_expiry_boundary_is_inclusive(tmp_path):
+    fixture = _fixture(tmp_path)
+    _edit(_receipt(fixture, "cite"), lambda receipt: receipt.update(freshUntil=_stamp(NOW)))
+    assert _decision(fixture)["status"] == "pass"
+
+
+@pytest.mark.parametrize("mutation", ["missing-cell", "preview-substitute", "update-failed"])
+def test_update_rollback_coverage_cannot_be_substituted(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        if mutation == "missing-cell": receipt["cells"].pop()
+        elif mutation == "preview-substitute": receipt["cells"][0] = "aws-eks/redis-off"
+        else: receipt["updateStatus"] = "fail"
+    _edit(_receipt(fixture, "update-rollback"), change)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("content", ['{"status":"fail","status":"pass"}', '{"status":NaN}', '[]'])
+def test_ambiguous_receipt_json_is_refused(tmp_path, content):
+    path = tmp_path / "receipt.json"
+    path.write_text(content)
+    with pytest.raises(readiness.ReadinessError):
+        readiness._load(path, "receipt")
+
+
+def test_cli_writes_exact_minting_run_and_digest_outputs(tmp_path):
+    record, lock, evidence, _ = _fixture(tmp_path, age=96)
+    record_path, out, github_output = tmp_path / "record.json", tmp_path / "decision.json", tmp_path / "github-output"
+    _write(record_path, record)
+    assert readiness.main(["--record", str(record_path), "--lock", str(lock), "--evidence-dir", str(evidence),
+                           "--now", _stamp(NOW), "--out", str(out), "--github-output", str(github_output)]) == 0
+    assert json.loads(out.read_text())["status"] == "pass"
+    assert github_output.read_text() == f"rc_train_run_id=101\nlock_digest={record['lock']['digest']}\n"
+
+
+def test_schema_rejects_unclassified_and_reclassified_required_classes(tmp_path):
+    record, *_ = _fixture(tmp_path)
+    schema = json.loads((Path(__file__).resolve().parents[1] / "certification/promotion-evidence.v1.schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    Draft202012Validator.check_schema(schema)
+    assert validator.is_valid(record)
+    record["evidenceClasses"]["cite"] = "nightly"
+    assert not validator.is_valid(record)
+    del record["evidenceClasses"]["cite"]
+    assert not validator.is_valid(record)
