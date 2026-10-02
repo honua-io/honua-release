@@ -20,6 +20,7 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      candidate_ref: { required: false, type: string, default: "" }
       baseline_ref:
         description: "git ref to enforce drift against (empty = skip drift)"
         required: false
@@ -227,14 +228,26 @@ jobs:
             echo "ref=" >> "$GITHUB_OUTPUT"                    # no baseline -> structure+coherence only
           fi
 
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+
       - name: Validate manifest + matrix
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
         run: |
           set -euo pipefail
           REF='${{ steps.baseline.outputs.ref }}'
+          ARGS=()
+          if [ -n "$CANDIDATE_REF" ]; then
+            ARGS+=(--exact-candidate)
+          fi
           if [ -n "$REF" ]; then
-            python tools/validate_platform.py --baseline "$REF"
+            python tools/validate_platform.py --baseline "$REF" "${ARGS[@]}"
           else
-            python tools/validate_platform.py
+            python tools/validate_platform.py "${ARGS[@]}"
           fi
 
       # release#231: the platform lock carries each content digest as a bare hash, so nothing in
@@ -244,3 +257,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python tools/verify_content_digests.py platform-manifest.yaml
+

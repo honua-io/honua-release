@@ -1,0 +1,256 @@
+# Nightly strict train on trunk head (honua-release#386, ruling R18).
+# No hand-supplied pin or receipt. A red, skipped, blocked or cancelled gate mints nothing.
+# gate-journey.yml is not on trunk: release-train's gate_journey_todo fails closed on this strict run.
+
+name: nightly-certification
+
+on:
+  schedule:
+    # 11:15 UTC, after the weekday DR drill window. The schedule supplies no inputs.
+    - cron: "15 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  id-token: write
+  attestations: write
+  packages: read
+  checks: read
+
+concurrency:
+  group: nightly-certification
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      candidate_ref: ${{ steps.snapshot.outputs.candidate_ref }}
+      server_sha: ${{ steps.snapshot.outputs.server_sha }}
+      server_image: ${{ steps.snapshot.outputs.server_image }}
+      platform_label: ${{ steps.snapshot.outputs.platform_label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - name: Resolve the newest qualifying trunk candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --out-dir resolved-candidate
+      - name: Stamp the next 2026.1-rc label and re-check the exact candidate
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p nightly-history
+          git fetch origin '+refs/nightly-locks/*:refs/nightly-locks/*' || true
+          while read -r sha name; do
+            dest="nightly-history/${name##*/}"
+            mkdir -p "$dest"
+            git archive "$sha" | tar -x -C "$dest"
+          done < <(git for-each-ref --format='%(objectname) %(refname)' refs/nightly-locks)
+          label="$(python tools/mint_nightly_lock.py --stamp resolved-candidate/platform-manifest.yaml --history nightly-history)"
+          [ -n "$label" ]
+          export LABEL="$label"
+          python tools/validate_platform.py --exact-candidate \
+            --manifest resolved-candidate/platform-manifest.yaml \
+            --matrix resolved-candidate/compatibility-matrix.yaml
+          cp resolved-candidate/platform-manifest.yaml platform-manifest.yaml
+          cp resolved-candidate/compatibility-matrix.yaml compatibility-matrix.yaml
+          git add platform-manifest.yaml compatibility-matrix.yaml
+          git -c user.name='Mike McDougall' -c user.email='mike@honua.io' \
+            commit --allow-empty -m "chore: nightly candidate snapshot ${label}"
+          sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:refs/nightly-candidates/${sha}"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, yaml
+          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          server = manifest["components"]["honua-server"]
+          image = str(server["image"])
+          if "@sha256:" not in image or ":" in image.split("@", 1)[0].split("/", 1)[-1]:
+              raise SystemExit(f"server image is not an immutable digest reference: {image}")
+          print(f"server_sha={server['sha']}")
+          print(f"server_image={image}")
+          print("platform_label=" + os.environ["LABEL"])
+          PY
+          echo "candidate_ref=${sha}" >> "$GITHUB_OUTPUT"
+
+  capacity:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      receipt_url: ${{ steps.receipt.outputs.receipt_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dispatch the candidate capacity soak and keep its immutable receipt
+        id: receipt
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
+          SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
+          CANDIDATE_REF: ${{ needs.resolve.outputs.candidate_ref }}
+        run: |
+          set -euo pipefail
+          repo=honua-io/honua-server
+          workflow=capacity-soak-candidate.yml
+          gh run list --repo "$repo" --workflow "$workflow" --limit 30 --json databaseId \
+            --jq '[.[].databaseId]' > before.json
+          gh workflow run "$workflow" --repo "$repo" --ref "$SERVER_SHA" \
+            -f "candidate_sha=${SERVER_SHA}" \
+            -f "candidate_image=${SERVER_IMAGE}" \
+            -f "lock_ref=${CANDIDATE_REF}" \
+            -f publish=true
+          run_id=
+          for _ in $(seq 1 60); do
+            gh run list --repo "$repo" --workflow "$workflow" --limit 30 \
+              --json databaseId,event,headSha > runs.json
+            set +e
+            run_id="$(python tools/nightly_receipts.py new-run-id --before before.json --runs runs.json --head-sha "$SERVER_SHA")"
+            code=$?
+            set -e
+            [ "$code" -eq 0 ] && break
+            [ "$code" -eq 2 ]
+            sleep 10
+          done
+          [ -n "${run_id:-}" ]
+          set +e
+          gh run watch "$run_id" --repo "$repo" --exit-status
+          watch_code=$?
+          set -e
+          gh api --paginate "repos/${repo}/commits?sha=soak-receipts&per_page=100" --jq '.[]' > commits.jsonl
+          python - <<'PY'
+          import json
+          rows = [json.loads(line) for line in open("commits.jsonl", encoding="utf-8") if line.strip()]
+          json.dump(rows, open("commits.json", "w", encoding="utf-8"))
+          PY
+          python tools/nightly_receipts.py capacity-url --repository "$repo" \
+            --candidate-sha "$SERVER_SHA" --run-id "$run_id" --commits commits.json > receipt-url.txt
+          echo "receipt_url=$(cat receipt-url.txt)" >> "$GITHUB_OUTPUT"
+          if [ "$watch_code" -ne 0 ]; then
+            echo "::warning::capacity producer ${run_id} failed; the strict train records that receipt"
+            exit 1
+          fi
+
+  dr:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      receipt_url: ${{ steps.receipt.outputs.receipt_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dispatch the candidate DR drill and keep its immutable receipt
+        id: receipt
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          CANDIDATE_REF: ${{ needs.resolve.outputs.candidate_ref }}
+          REVIEWED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          workflow=dr-drill-local-docker.yml
+          gh run list --repo "$repo" --workflow "$workflow" --limit 30 --json databaseId \
+            --jq '[.[].databaseId]' > before.json
+          gh workflow run "$workflow" --repo "$repo" --ref "$REVIEWED_SHA" -f "candidate_ref=${CANDIDATE_REF}"
+          run_id=
+          for _ in $(seq 1 60); do
+            gh run list --repo "$repo" --workflow "$workflow" --limit 30 \
+              --json databaseId,event,headSha > runs.json
+            set +e
+            run_id="$(python tools/nightly_receipts.py new-run-id --before before.json --runs runs.json --head-sha "$REVIEWED_SHA")"
+            code=$?
+            set -e
+            [ "$code" -eq 0 ] && break
+            [ "$code" -eq 2 ]
+            sleep 10
+          done
+          [ -n "${run_id:-}" ]
+          set +e
+          gh run watch "$run_id" --repo "$repo" --exit-status
+          watch_code=$?
+          set -e
+          attempt="$(gh run view "$run_id" --repo "$repo" --json attempt --jq .attempt)"
+          gh run download "$run_id" --repo "$repo" --name "dr-receipt-location-${run_id}-${attempt}" --dir dr-location
+          python tools/nightly_receipts.py dr-url --location dr-location/receipt-location.json > receipt-url.txt
+          echo "receipt_url=$(cat receipt-url.txt)" >> "$GITHUB_OUTPUT"
+          if [ "$watch_code" -ne 0 ]; then
+            echo "::warning::DR producer ${run_id} failed; the strict train records that receipt"
+            exit 1
+          fi
+
+  train:
+    needs: [resolve, capacity, dr]
+    if: always() && needs.resolve.result == 'success' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != ''
+    uses: ./.github/workflows/release-train.yml
+    with:
+      platform_label: ${{ needs.resolve.outputs.platform_label }}
+      dry_run: false
+      nightly: true
+      candidate_ref: ${{ needs.resolve.outputs.candidate_ref }}
+      capacity_receipt_url: ${{ needs.capacity.outputs.receipt_url }}
+      dr_receipt_url: ${{ needs.dr.outputs.receipt_url }}
+    secrets: inherit
+
+  mint:
+    needs: [resolve, train]
+    if: needs.train.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: certified-candidate
+          path: certified
+      - name: Install cosign (Sigstore)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Mint and sign the next nightly lock, or mint nothing
+        id: mint
+        env:
+          CERTIFICATE_IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p nightly-history
+          git fetch origin '+refs/nightly-locks/*:refs/nightly-locks/*' || true
+          while read -r sha name; do
+            dest="nightly-history/${name##*/}"
+            mkdir -p "$dest"
+            git archive "$sha" | tar -x -C "$dest"
+          done < <(git for-each-ref --format='%(objectname) %(refname)' refs/nightly-locks)
+          python tools/mint_nightly_lock.py \
+            --report certified/gate-report.json \
+            --manifest certified/platform-manifest.yaml \
+            --matrix certified/compatibility-matrix.yaml \
+            --history nightly-history \
+            --out-dir nightly-lock \
+            --certificate-identity "$CERTIFICATE_IDENTITY" | tee mint.txt
+          label="$(awk '/^MINTED: /{print $2}' mint.txt)"
+          [ -n "$label" ]
+          echo "label=${label}" >> "$GITHUB_OUTPUT"
+          cp -a nightly-lock "/tmp/nightly-lock-${label}"
+          git checkout --orphan "publish-${label}"
+          git rm -rf --quiet .
+          cp -a "/tmp/nightly-lock-${label}/." .
+          git add -A
+          git -c user.name='Mike McDougall' -c user.email='mike@honua.io' \
+            commit -m "chore: nightly lock ${label}"
+          git push origin "HEAD:refs/nightly-locks/${label}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-lock-${{ steps.mint.outputs.label }}
+          path: nightly-lock/
+          if-no-files-found: error

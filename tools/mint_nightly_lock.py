@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 
+import yaml
+
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
 from generate_platform_lock import generate
 from platform_lock_bundle import bind, bundle_files, canonical_bytes
@@ -33,6 +35,18 @@ def next_label(history: Path) -> str:
             if match:
                 numbers.append(int(match.group(1)))
     return f'2026.1-rc.{max(numbers) + 1}'
+
+
+CHANNEL_TAG = re.compile(r':(?:latest|stable|nightly|2026\.1)(?:["\s,]|$)')
+
+
+def stamp_release_label(manifest_path: Path, label: str) -> None:
+    """Record the next candidate label on the manifest. This creates no publication tag."""
+    publication_tag(label)
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest['platformRelease'] = label
+    manifest['status'] = 'rc'
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 def failures(report: dict) -> list[str]:
@@ -87,6 +101,8 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         signer(staging / 'platform-lock.json', staging / 'platform-lock.sigstore.json', identity, issuer)
         if not (staging / 'platform-lock.sigstore.json').is_file():
             raise ValueError('no lock minted: signer returned no signature bundle')
+        if CHANNEL_TAG.search((staging / 'platform-lock.json').read_text()):
+            raise ValueError('no lock minted: lock contains a channel tag')
         staging.rename(output)
     return label
 
@@ -95,6 +111,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--history', type=Path, default=Path('nightly-history'))
     parser.add_argument('--next-label', action='store_true')
+    parser.add_argument('--stamp', type=Path, help='write the next label onto this candidate manifest')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--manifest', type=Path)
     parser.add_argument('--matrix', type=Path)
@@ -102,7 +119,11 @@ def main(argv=None):
     parser.add_argument('--certificate-identity')
     args = parser.parse_args(argv)
     try:
-        if args.next_label:
+        if args.stamp:
+            label = next_label(args.history)
+            stamp_release_label(args.stamp, label)
+            print(label)
+        elif args.next_label:
             print(next_label(args.history))
         else:
             if not all((args.report, args.manifest, args.matrix, args.certificate_identity)):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -150,6 +151,15 @@ class Registry:
             raise ResolutionError(f'registry bytes do not match {digest}')
         return json.loads(raw)
 
+    def candidate_tags(self, repository, sha):
+        """Immutable per-SHA tags only. Channel tags (`latest`, `stable`, `nightly`, `2026.1`) never match."""
+        exact = {f'nightly-{sha[:7]}', f'nightly-aot-{sha[:7]}'}
+        prefix = f'candidate-{sha[:12]}-'
+        return sorted(
+            tag for tag in self.tags(repository)
+            if 'lambda' not in tag and (tag in exact or tag.startswith(prefix))
+        )
+
     def identity(self, repository, tag, sha, architectures):
         raw, headers = self.request(repository, 'manifests/' + tag, manifest=True)
         digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
@@ -173,21 +183,15 @@ class Registry:
             children[arch] = child_digest
         if set(children) != set(architectures):
             raise ResolutionError('published image missing architectures: ' + ', '.join(sorted(set(architectures)-children.keys())))
-        reference = f'ghcr.io/{repository}@{digest}'
-        retry(lambda: subprocess.run(['gh', 'attestation', 'verify', 'oci://' + reference,
-            '--repo', repository, '--source-ref', 'refs/heads/trunk', '--source-digest', sha],
-            capture_output=True, text=True, check=True))
-        return {'image': reference, 'digest': digest, 'platformDigests': children,
+        # Pin policy binds the image by the registry index, each architecture digest, and the
+        # config revision label. A GitHub attestation is a later gate, not a substitute for those bytes.
+        return {'image': f'ghcr.io/{repository}@{digest}', 'digest': digest, 'platformDigests': children,
                 'artifactSourceRevision': sha}
 
     def image(self, name, component, sha):
         repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
-        # Never inspect a channel tag. Console publishers use candidate-SHA-run-attempt;
-        # server publishers use nightly-SHA. The full revision is checked in every child.
-        prefixes = (f'nightly-{sha[:7]}', f'candidate-{sha[:12]}-')
-        tags = sorted(t for t in self.tags(repository) if any(t.startswith(p) for p in prefixes))
         reasons = []
-        for tag in tags:
+        for tag in self.candidate_tags(repository, sha):
             try:
                 result = self.identity(repository, tag, sha, component.get('architectures', ['amd64']))
                 if component.get('awsLambdaImage'):
@@ -196,10 +200,15 @@ class Registry:
                     digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
                     child = self.document(repository, digest, manifest=True)
                     config = self.document(repository, child['config']['digest'])
-                    if config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision') != sha:
+                    if (config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision') != sha
+                            or config.get('architecture') != 'amd64' or config.get('os') != 'linux'):
                         raise ResolutionError('Lambda image is not bound to candidate source')
+                    existing = str(component.get('awsLambdaEcrDigest') or '')
+                    # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
+                    ecr = existing if component.get('sha') == sha and (
+                        existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
                     result.update(awsLambdaImage=f'ghcr.io/{repository}@{digest}', awsLambdaDigest=digest,
-                                  awsLambdaEcrDigest='pending-ecr-mirror')
+                                  awsLambdaEcrDigest=ecr)
                 return result
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                 reasons.append(f'{tag}: {exc}')
@@ -212,6 +221,11 @@ def select_component(name, component, github, registry, limit):
     for sha in github.commits(repository, limit):
         if not SHA.fullmatch(sha):
             raise ResolutionError(f'{name}: trunk returned a non-immutable revision')
+        if component.get('image'):
+            image_repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
+            if registry is None or not registry.candidate_tags(image_repository, sha):
+                reasons.append(f'{sha}: no published SHA-bound image')
+                continue
         green, why = github.green(name, repository, sha)
         if not green:
             reasons.append(f'{sha}: CI {why}')
@@ -233,6 +247,25 @@ def select_component(name, component, github, registry, limit):
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
 
 
+def migration_floor(github, repository, sha):
+    tree = github.json(f'repos/{repository}/git/trees/{sha}?recursive=1')
+    if not isinstance(tree, dict):
+        raise ResolutionError(f'{repository}@{sha}: migration tree was not an object')
+    if tree.get('truncated'):
+        raise ResolutionError(f'{repository}@{sha}: migration tree truncated; refusing to guess dbSchema')
+    numbers = []
+    for row in tree.get('tree') or []:
+        path = str((row or {}).get('path') or '')
+        if '/Migrations/' not in path or not path.endswith('.sql'):
+            continue
+        match = re.match(r'(\d+)_', path.rsplit('/', 1)[-1])
+        if match:
+            numbers.append(int(match.group(1)))
+    if not numbers:
+        raise ResolutionError(f'{repository}@{sha}: no numbered migration; refusing to guess dbSchema')
+    return str(max(numbers))
+
+
 def resolve(manifest, matrix, github, registry, limit=100):
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
@@ -244,12 +277,27 @@ def resolve(manifest, matrix, github, registry, limit=100):
             failures.append(str(exc))
     if failures:
         raise ResolutionError('\n'.join(failures))
-    server = candidate['components']['honua-server']['sha']
+    server_component = candidate['components']['honua-server']
+    server = server_component['sha']
+    original = manifest['components']['honua-server']['sha']
     candidate['candidate'] = {'ref': server, 'refSource': 'trunk'}
-    candidate['protocolCertification']['serverCertificationProducerSha'] = server
-    if server != manifest['components']['honua-server']['sha']:
+    certification = candidate['protocolCertification']
+    certification['serverCertificationProducerSha'] = server
+    now = datetime.now(timezone.utc)
+    certification['candidateCutAt'] = now.strftime('%Y-%m-%dT%H:%M:%SZ')
+    candidate['snapshotDate'] = now.strftime('%Y-%m-%d')
+    if server != original:
         # A bound ledger for yesterday's image cannot certify tonight's image.
-        candidate['protocolCertification']['ledger']['status'] = 'pending'
+        certification['ledger']['status'] = 'pending'
+        try:
+            repository = server_component['repository'].removeprefix('https://github.com/')
+            floor = migration_floor(github, repository, server)
+            server_component['dbSchema'] = floor
+            data = candidate_matrix.setdefault('data', {}).setdefault('honua-server', {})
+            if 'requiresDbSchema' in data and not str(data['requiresDbSchema']).startswith('>'):
+                data['requiresDbSchema'] = floor
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            failures.append(str(exc))
     for name in ('honua-iac', 'honua-helm'):
         row = candidate_matrix.get('deploy', {}).get(name, {})
         for key in ('deploysServerImage', 'appVersion'):
@@ -257,12 +305,26 @@ def resolve(manifest, matrix, github, registry, limit=100):
                 row[key] = 'sha:' + server
     mcp = candidate['components'].get('geospatial-mcp', {})
     declaration = candidate.get('platformLockEvidence', {}).get('contentDigests', {}).get('geospatialMcp')
-    if declaration:
-        declaration.update(revision=mcp['sha'], sha256=mcp['artifactSha256'])
+    if declaration and mcp:
+        declaration.update(revision=mcp['sha'], sha256=mcp.get('artifactSha256'))
+    if certification['ledger'].get('status') != 'bound':
+        failures.append(
+            'protocolCertification.ledger: no bound ledger for the selected honua-server '
+            f'{server}; exact-candidate refuses an unbound ledger')
+    if failures:
+        # Local qualification still runs so the refusal names every exact-candidate error.
+        # Reachability and registry client probes are not a passing claim on this path.
+        findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True)
+        failures.extend(findings.errors)
+        raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
     # Client sourceSha describes already-published bytes; never advance it with source CI.
     verify_manifest(candidate, github_token=os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN'))
     findings = validate_platform.validate(candidate, candidate_matrix, None,
         exact_candidate=True, reachability_client=github)
+    evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
+    if evidence_path.exists():
+        validate_platform.check_legacy_evidence_pin_coherence(
+            candidate, yaml.safe_load(evidence_path.read_text()), findings)
     if findings.errors:
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(findings.errors))
     return candidate, candidate_matrix

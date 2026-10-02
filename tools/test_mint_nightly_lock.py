@@ -48,6 +48,7 @@ def test_all_green_generates_binds_and_signs_lock(inputs, tmp_path):
     assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(paths[0])
     assert (output / 'platform-lock.sigstore.json').exists()
     assert (output / 'bom.cdx.json').exists()
+    assert nightly.CHANNEL_TAG.search((output / 'platform-lock.json').read_text()) is None
 
 
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])
@@ -94,6 +95,17 @@ def test_candidate_byte_drift_cannot_be_signed(inputs, tmp_path):
     with pytest.raises(ValueError, match='not bound'):
         nightly.mint(report, *paths, tmp_path / 'history', tmp_path / 'minted', 'trusted', signer=signer)
     assert not (tmp_path / 'minted').exists()
+
+
+def test_stamp_records_the_next_label_and_creates_no_tag(inputs, tmp_path, monkeypatch):
+    _, paths = inputs
+    calls = []
+    monkeypatch.setattr(nightly.subprocess, 'run', lambda *args, **kwargs: calls.append(args))
+    nightly.stamp_release_label(paths[0], '2026.1-rc.3')
+    manifest = yaml.safe_load(paths[0].read_text())
+    assert manifest['platformRelease'] == '2026.1-rc.3'
+    assert manifest['status'] == 'rc'
+    assert calls == []
 
 
 def test_signing_failure_leaves_nothing(inputs, tmp_path):
