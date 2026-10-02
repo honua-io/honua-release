@@ -162,7 +162,7 @@ def test_failed_functional_probe_cannot_claim_success(tmp_path):
     assert next(child for child in result["children"] if child["kind"] == "worker")["state"] == "Failed"
 
 
-def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
+def test_certifier_consumes_exact_frozen_source_bytes(tmp_path, registry_docker):
     manifest = tmp_path / "platform-manifest.yaml"
     matrix = tmp_path / "compatibility-matrix.yaml"
     manifest.write_text("platformRelease: 2026.1\n", encoding="utf-8")
@@ -179,12 +179,12 @@ def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
             },
             "components": {"honua-server": {
                 "schemaVersions": {"database": schema},
-                "artifacts": [{"kind": "image", "platformDigests": {"amd64": image}}],
+                "artifacts": [image],
             }},
         }
 
-    retained = _write(tmp_path / "retained.json", exact_lock("sha256:" + "a" * 64, "107"))
-    candidate = _write(tmp_path / "candidate.json", exact_lock("sha256:" + "b" * 64, "107"))
+    retained = _write(tmp_path / "retained.json", exact_lock(registry_docker["honua-console"], "107"))
+    candidate = _write(tmp_path / "candidate.json", exact_lock(registry_docker["honua-server"], "107"))
     output = tmp_path / "certification"
     script = Path(__file__).resolve().parent / "certify_release_rollback.py"
     result = subprocess.run([
@@ -216,6 +216,31 @@ def test_certifier_consumes_exact_frozen_source_bytes(tmp_path):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import release_rollback_target as targets
 import certify_release_rollback as certification
+
+
+def test_generated_registry_lock_certifies_one_operation(tmp_path, registry_docker):
+    import generate_platform_lock as generator
+    root = Path(__file__).resolve().parents[1]
+    manifest, matrix = root / "platform-manifest.yaml", root / "compatibility-matrix.yaml"
+    draft = generator.generate(manifest, matrix, image_inspector=generator.registry_image_platform_digests)
+    for name, expected in registry_docker.items():
+        image = next(artifact for artifact in draft.lock["components"][name]["artifacts"] if artifact["kind"] == "image")
+        assert image["platformDigests"] == expected["platformDigests"]
+    # This exercises generated identities locally. Unresolved release fields still block signing.
+    candidate = _write(tmp_path / "candidate.json", draft.lock)
+    target = tmp_path / "retained/platform-lock.json"
+    report = targets.resolve(candidate, target, "honua-io/honua-release", lambda *args: "[[]]")
+    report.update(schema="honua.rollback-gate/v1", overall_status="pending")
+    report_path = _write(tmp_path / "resolution.json", report)
+    output = tmp_path / "certification"
+    assert certification.main(["--from-lock", str(target), "--to-lock", str(candidate),
+                               "--candidate-manifest", str(manifest), "--compatibility-matrix", str(matrix),
+                               "--output", str(output), "--gate-report", str(report_path)]) == 0
+    receipt = json.loads((output / "success-receipt.json").read_text())
+    serving = [child for child in receipt["children"] if child["kind"] in {"serving", "worker"}]
+    assert all(child["observed"] == registry_docker["honua-server"]["platformDigests"]["amd64"] for child in serving)
+    assert receipt["status"] == "Succeeded" and receipt["restartCount"] == 1
+    assert all(receipt["functionalSmoke"].values())
 
 
 def _release(tag, lock=False, published_at=None):
@@ -311,8 +336,8 @@ def test_release_lookup_failure_is_a_named_finding(tmp_path, monkeypatch):
     assert "first_lock_bearing_release" not in result
 
 
-@pytest.mark.parametrize("tamper", [False, True, "missing_image_digest"])
-def test_first_lock_report_and_real_operation(tmp_path, tamper):
+@pytest.mark.parametrize("tamper", [False, True, "missing_image_digest", "wrong_architecture"])
+def test_first_lock_report_and_real_operation(tmp_path, tamper, registry_docker):
     manifest = tmp_path / "platform-manifest.yaml"
     matrix = tmp_path / "compatibility-matrix.yaml"
     manifest.write_text("platformRelease: 2026.1.1-rc.1\n")
@@ -322,11 +347,16 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
         "sourceInputs": {"platformManifest": {"sha256": rollback.digest(manifest)},
                          "compatibilityMatrix": {"sha256": rollback.digest(matrix)}},
         "components": {"honua-server": {"schemaVersions": {"database": "107"},
-            "artifacts": [{"kind": "image", "platformDigests": {"amd64": "sha256:" + "b" * 64}}]}},
+            "artifacts": [registry_docker["honua-server"]]}},
     })
     if tamper == "missing_image_digest":
         value = json.loads(candidate.read_text())
         del value["components"]["honua-server"]["artifacts"][0]["platformDigests"]
+        _write(candidate, value)
+    if tamper == "wrong_architecture":
+        value = json.loads(candidate.read_text())
+        platforms = value["components"]["honua-server"]["artifacts"][0]["platformDigests"]
+        platforms["amd64"], platforms["arm64"] = platforms["arm64"], platforms["amd64"]
         _write(candidate, value)
     target = tmp_path / "retained" / "platform-lock.json"
     report = targets.resolve(candidate, target, "honua-io/honua-release", lambda *args: "[[]]")
@@ -345,8 +375,13 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper):
     if tamper:
         assert status == 1
         assert result["overall_status"] == "fail"
-        finding = "ROLLBACK_SELF_TARGET_MISMATCH" if tamper is True else "ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING"
+        finding = ("ROLLBACK_SELF_TARGET_MISMATCH" if tamper is True else
+                   "ROLLBACK_CANDIDATE_IMAGE_PLATFORM_DIGEST_INVALID" if tamper == "wrong_architecture" else
+                   "ROLLBACK_CANDIDATE_AMD64_IMAGE_DIGEST_MISSING")
         assert finding in result["finding"]
+        if tamper == "wrong_architecture":
+            assert "registry Linux architecture identities" in result["finding"]
+            assert not (output / "success-provider.json").exists()
         return
     assert status == 0
     assert result["overall_status"] == "pass"

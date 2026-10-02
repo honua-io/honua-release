@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from component_versions import version_map
+from image_platforms import image_platform_digests, registry_image_platform_digests, verify_image_platform_digests
 
 from release_facts import (
     CONTENT_DIGEST_FACTS,
@@ -36,7 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_RELEASE_RE = re.compile(r"^[0-9]{4}\.[0-9]+(?:\.[0-9]+)?(?:-rc\.[0-9]+)?$")
 PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-PLATFORM_DIGEST_ARCHITECTURES = {"amd64", "arm64"}
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 
 
@@ -58,41 +58,11 @@ def _file_identity(path: Path) -> dict[str, str]:
     return {"path": path.name, "sha256": f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"}
 
 
-def image_platform_digests(declared: Any, *, index_digest: Any = None, architectures: Any = None) -> dict[str, str]:
-    """Exact amd64/arm64 image digests the rollback certifier can dereference.
-
-    ``platformDigests/amd64`` is the serving identity. A missing, malformed, or
-    non-architecture entry must not be copied into the lock, and neither may a
-    multi-arch index digest repeated as one of its own children.
-    """
-    if not isinstance(declared, dict) or not declared:
-        raise ValueError("platform-specific image digests are not declared")
-    accepted: dict[str, str] = {}
-    errors: list[str] = []
-    for architecture, digest in declared.items():
-        exact = isinstance(digest, str) and DIGEST_RE.fullmatch(digest) is not None
-        if architecture not in PLATFORM_DIGEST_ARCHITECTURES or not exact:
-            errors.append(f"{architecture}: image requires an exact platform-specific digest")
-            continue
-        accepted[architecture] = digest
-    if "amd64" not in accepted and not any(item.startswith("amd64:") for item in errors):
-        errors.append("amd64: image requires an exact platform-specific digest")
-    if len(accepted) > 1 and isinstance(index_digest, str) and index_digest in accepted.values():
-        errors.append("platform digest repeats the multi-arch index digest")
-    if architectures not in (None, []) and (
-        not isinstance(architectures, list) or set(architectures) != set(accepted)
-    ):
-        errors.append("architectures do not match platformDigests")
-    if errors:
-        raise ValueError("; ".join(errors))
-    return dict(accepted)
-
-
 def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     coordinate = component.get("artifact")
     image = component.get("image")
     if image:
-        return {"kind": "image", "coordinate": str(image).rsplit(":", 1)[0]}
+        return {"kind": "image", "coordinate": str(image).split("@", 1)[0].rsplit(":", 1)[0]}
     if not coordinate:
         return None
     prefix, _, name = str(coordinate).partition(":")
@@ -103,7 +73,8 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     return {"kind": kinds.get(prefix, "other"), "coordinate": name or str(coordinate)}
 
 
-def generate(manifest_path: Path, matrix_path: Path) -> Draft:
+def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) -> Draft:
+    """Derive a draft; the CLI also requires live registry architecture verification."""
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
@@ -288,7 +259,10 @@ def generate(manifest_path: Path, matrix_path: Path) -> Draft:
                             index_digest=component.get("digest"),
                             architectures=component.get("architectures"),
                         )
+                        if image_inspector is not None:
+                            verify_image_platform_digests(seed, image_inspector)
                     except (TypeError, ValueError) as exc:
+                        seed.pop("platformDigests", None)
                         refuse(f"{apath}.platformDigests: {exc}", "AT-CUT")
                 else:
                     package_sha = component.get("artifactSha256")
@@ -435,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "platform-lock.v1.draft.yaml")
     args = parser.parse_args(argv)
     try:
-        draft = generate(args.manifest, args.matrix)
+        draft = generate(args.manifest, args.matrix, image_inspector=registry_image_platform_digests)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"ERROR: cannot generate lock draft: {exc}", file=sys.stderr)
         return 2

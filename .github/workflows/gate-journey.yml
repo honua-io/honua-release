@@ -1,0 +1,129 @@
+name: gate-journey
+
+on:
+  workflow_call:
+    inputs:
+      receipts_run_id:
+        description: Run containing the per-cell e2e-cloud-aws-gate-report artifacts
+        required: true
+        type: string
+      receipts_run_attempt:
+        description: Exact producer run attempt (reruns cannot reuse earlier attempts)
+        required: true
+        type: string
+      candidate_digest:
+        description: SHA-256 of the exact candidate platform-manifest.yaml bytes
+        required: true
+        type: string
+      candidate_bundle:
+        description: Consume candidate-manifest from this train run instead of the checkout
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      overall_status:
+        description: pass | fail
+        value: ${{ jobs.journey.outputs.status }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.check.outputs.status || 'fail' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install checker dependencies
+        run: python -m pip install pyyaml jsonschema pytest
+      - name: Test receipt rejection rules
+        run: python -m pytest tools/test_check_journey_receipts.py -q
+      - name: Verify the receipt producer is a trunk workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIPTS_RUN_ID: ${{ inputs.receipts_run_id }}
+          RECEIPTS_RUN_ATTEMPT: ${{ inputs.receipts_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$RECEIPTS_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RECEIPTS_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECEIPTS_RUN_ID" > producer-run.json
+          # Do not require a successful conclusion: Preview jobs cannot block GA evidence.
+          # A local reusable cloud workflow shares the enclosing release train's run identity, and a
+          # train called by the nightly shares the nightly's (#386).
+          jq -e --arg id "$RECEIPTS_RUN_ID" --arg attempt "$RECEIPTS_RUN_ATTEMPT" '
+            (.id | tostring) == $id and (.run_attempt | tostring) == $attempt and
+            .head_branch == "trunk" and (.event == "schedule" or .event == "workflow_dispatch") and
+            (.path == ".github/workflows/e2e-cloud-aws.yml" or .path == ".github/workflows/release-train.yml"
+              or .path == ".github/workflows/nightly-certification.yml")
+          ' producer-run.json
+      - name: Download candidate identity
+        if: inputs.candidate_bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: candidate-input
+      - name: Download per-cell receipts from the named run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.receipts_run_id }}
+          pattern: e2e-cloud-aws-gate-report-*
+          path: journey-receipts
+          merge-multiple: false
+      - name: Check exact candidate and every GA attempt
+        id: check
+        if: always()
+        env:
+          CANDIDATE_BUNDLE: ${{ inputs.candidate_bundle }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          RECEIPTS_RUN_ID: ${{ inputs.receipts_run_id }}
+          RECEIPTS_RUN_ATTEMPT: ${{ inputs.receipts_run_attempt }}
+        run: |
+          set -uo pipefail
+          candidate=platform-manifest.yaml
+          if [ "$CANDIDATE_BUNDLE" = true ]; then candidate=candidate-input/platform-manifest.yaml; fi
+          status=fail
+          if python tools/check_journey_receipts.py \
+            --receipts journey-receipts --candidate "$candidate" \
+            --candidate-digest "$CANDIDATE_DIGEST" \
+            --run-id "$RECEIPTS_RUN_ID" --run-attempt "$RECEIPTS_RUN_ATTEMPT" \
+            --report out/gate-report-journey.json; then status=pass; fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ -f out/gate-report-journey.json ]; then
+            {
+              echo "## Journey gate — $status"
+              echo ""
+              echo '| cell | tier | status | drivers | reason |'
+              echo '|---|---|---|---|---|'
+              jq -r '.cells[] | "| \(.cell) | \(.evidenceTier) | \(.status) | \(.drivers | join(", ")) | \(.why) |"' out/gate-report-journey.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload journey gate report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journey-gate-report
+          path: out/gate-report-journey.json
+          if-no-files-found: error
+      - name: Emit train gate fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: journey
+          status: ${{ steps.check.outputs.status || 'fail' }}
+          source: cloud-cell-receipts
+          why: See journey-gate-report for candidate identity, every GA attempt and Preview results
+          enforcement: strict
+          prefix: journey-
+      - name: Enforce journey gate
+        if: always()
+        env:
+          STATUS: ${{ steps.check.outputs.status || 'fail' }}
+        run: test "$STATUS" = pass
