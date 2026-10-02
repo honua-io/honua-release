@@ -112,8 +112,8 @@ The checker reads these paths under `--evidence-dir`:
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
 `rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
-four GA cells, with no other cells. Successful Actions metadata must match each recorded
-completion time. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
+four GA cells, with no other cells. Successful Actions metadata must match each recorded qualifying
+completion time; nightly receipt production must fall within the minting run lifetime. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.
 
@@ -127,12 +127,12 @@ Actions metadata: the minting train is a successful default-branch run of `relea
 scheduled `nightly-certification.yml`, and each recorded canary is a successful scheduled `demo-canary.yml`
 run. It downloads the minting train's `certified-candidate` artifact, which carries the selected lock's
 exact bytes, and each class receipt from the artifact `promotion-receipt-<class>` on the run the record
-names. It builds `canary-sequence.json` from every completed scheduled canary since a day before
+names. It builds `canary-sequence.json` from every completed canary (scheduled or dispatched) since a day before
 minting, reading each run's `candidateLock.digest`. A run that failed before binding a lock is recorded
 with a null digest. An earlier failed attempt of a re-run canary is kept as an unattributed failure, so a
 successful re-run cannot erase it. A missing receipt is left missing, and the checker refuses it.
 
-**Producers remaining in #386/#381:** no class producer uploads `promotion-receipt-<class>` yet, and
+**Producers remaining in #386/#381:** qualifying class producers must upload their receipts during burn, and
 `demo-canary.yml` binds its evidence to trunk's committed `platform-lock.json` rather than the deployed
 selected lock. Until they do, the checker refuses every record, so promotion fails closed. The fetcher
 and checker do not certify a live burn or move a channel.

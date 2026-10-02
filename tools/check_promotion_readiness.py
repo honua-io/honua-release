@@ -239,14 +239,16 @@ def evaluate(
                    and row.get("lockDigest") == receipt.get("lockDigest") == digest
                    and receipt.get("class") == name and receipt.get("kind") == tier
                    and str(receipt.get("runId")) == run_id
-                   and receipt.get("completedAt") == row.get("completedAt") == metadata.get("updated_at")
+                   and receipt.get("completedAt") == row.get("completedAt")
                    and metadata.get("status") == "completed" and metadata.get("conclusion") == "success"
                    and completed <= now <= expiry and expiry > completed)
             if tier == "nightly":
-                ok &= run_id == rc_run_id and completed <= train_time
+                ok &= (run_id == rc_run_id and completed <= train_time
+                       and _time(metadata.get("created_at", metadata.get("updated_at")), "run created_at")
+                       <= completed <= _time(metadata.get("updated_at"), "run updated_at"))
                 earliest, latest = train_time - timedelta(hours=24), completed
             else:
-                ok &= burn_start <= completed <= now
+                ok &= burn_start <= completed <= now and row.get("completedAt") == metadata.get("updated_at")
                 earliest, latest = burn_start, completed
             ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
             if name in JOURNEYS:

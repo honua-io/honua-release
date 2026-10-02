@@ -64,7 +64,6 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
 
 
 def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
-    import os
     import subprocess
     found = False
     for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
@@ -911,3 +910,58 @@ def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
         "availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps",
         "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds",
     }
+
+
+
+def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt():
+    from test_mint_nightly_lock import NIGHTLY_EXPECTED, QUALIFYING_EXPECTED
+
+    train = _workflow('release-train.yml')['jobs']['report']['steps']
+    binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
+    assert 'mint_nightly_lock.py --declare-evidence' in binding['run']
+    assert '--lock candidate-input/frozen-lock/platform-lock.json' in binding['run']
+    mint = _workflow('nightly-certification.yml')['jobs']['mint']['steps']
+    uploads = {step.get('with', {}).get('name'): step.get('with', {}) for step in mint}
+    for name in NIGHTLY_EXPECTED:
+        assert uploads['promotion-receipt-' + name]['path'] == f'nightly-lock/promotion-receipts/{name}/receipt.json'
+        assert uploads['promotion-receipt-' + name]['if-no-files-found'] == 'error'
+    for name in QUALIFYING_EXPECTED:
+        assert 'promotion-receipt-' + name not in uploads
+    assert uploads['certified-candidate']['path'] == 'final-certified/'
+    assert uploads['certified-candidate']['if-no-files-found'] == 'error'
+    assert any(step.get('with', {}).get('name') == 'qualified-candidate' for step in mint)
+
+
+
+def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
+    import json
+    import subprocess
+    from test_mint_nightly_lock import NIGHTLY_EXPECTED, QUALIFYING_EXPECTED
+
+    report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
+              'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
+                            'artifacts': {'platform-manifest.yaml': {'sha256': 'a' * 64}}}}
+    destination = tmp_path / 'out/certified-candidate/gate-report.json'
+    destination.parent.mkdir(parents=True)
+    destination.write_text(json.dumps(report))
+    lock = tmp_path / 'candidate-input/frozen-lock/platform-lock.json'
+    lock.parent.mkdir(parents=True)
+    lock.write_text('{"recorded":"lock"}')
+    (tmp_path / 'journey-reports').mkdir()
+    (tmp_path / 'tools').symlink_to(REPO_ROOT / 'tools', target_is_directory=True)
+    binding = next(s for s in _workflow('release-train.yml')['jobs']['report']['steps']
+                   if s.get('name') == 'Bind the report to the exact candidate and train identity')
+    command = binding['run']
+    command = command.split('if [ "${NIGHTLY:-}" = "true" ]; then\n', 1)[1].split('\nfi', 1)[0]
+    subprocess.run(['bash', '-c', command.replace('python ', sys.executable + ' ')],
+                   cwd=tmp_path, check=True, capture_output=True)
+    emitted = json.loads(destination.read_text())
+    assert set(emitted['evidenceClasses']) == set(NIGHTLY_EXPECTED)
+    for name in NIGHTLY_EXPECTED:
+        assert emitted['evidenceDeclarations'][name] == {
+            'kind': 'nightly', 'receipt': f'promotion-receipts/{name}/receipt.json',
+            'freshUntil': '2026-10-07T06:04:00Z'}
+        assert emitted['evidenceReceipts'][name]['class'] == name
+    for name in QUALIFYING_EXPECTED:
+        assert emitted['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
+        assert name not in emitted['evidenceReceipts']
