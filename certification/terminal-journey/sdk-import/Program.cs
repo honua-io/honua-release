@@ -33,15 +33,15 @@ try
     var client = new HonuaAdminClient(http);
     var supplied = input.RootElement.GetProperty("arguments").EnumerateArray().ToArray();
     var parameters = method.GetParameters();
-    var args = new object?[parameters.Length];
+    var invocationArguments = new object?[parameters.Length];
     var index = 0;
     for (var i = 0; i < parameters.Length; i++)
-        args[i] = parameters[i].ParameterType == typeof(CancellationToken)
+        invocationArguments[i] = parameters[i].ParameterType == typeof(CancellationToken)
             ? CancellationToken.None
             : JsonSerializer.Deserialize(supplied[index++], parameters[i].ParameterType, wire);
     if (index != supplied.Length)
         throw new ArgumentException("unexpected SDK arguments");
-    var task = (Task)method.Invoke(client, args)!;
+    var task = (Task)method.Invoke(client, invocationArguments)!;
     await task;
     var result = task.GetType().GetProperty("Result")!.GetValue(task);
     Console.WriteLine(JsonSerializer.Serialize(new { status = "pass", method = name, result }, wire));

@@ -142,6 +142,10 @@ class JourneyExecutor:
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
         output = structured(result, name)
+        if name == "honua_apply_style_preset":
+            if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
+                raise ExecutionError(name, "candidate did not apply the selected canonical style")
+            self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         self._record(number, name, output)
         if name == "honua_render_map":
             self.check_render(output)
@@ -299,7 +303,7 @@ class JourneyExecutor:
         return self._check(8, "final-map", "GET final published map content", prove)
 
     def result(self, number):
-        required = {3: {"imported-content"}, 4: {"pixel"}, 5: {"buffer"},
+        required = {3: {"imported-content"}, 4: {"style-applied", "pixel"}, 5: {"buffer"},
                     6: {"saved-map", "replica-map", "reopened-map"}, 7: {"durable-proposal"},
                     8: {"separation", "final-map"}}.get(number, set())
         stored = self.evidence["checks"].get(str(number), {})

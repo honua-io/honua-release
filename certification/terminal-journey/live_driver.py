@@ -287,9 +287,10 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         acted = bool(engine.evidence["actions"].get(str(number)))
         proposal_id = engine.resources.get("proposalId")
         pending = number == 8 and proposal_id and not engine.evidence.get("approval")
+        failed = result is not None and result.status == "fail"
         _write_state(state["workspaceId"], state)
-        return {"status": "pass" if completed and acted else "ready",
-                "stageStatus": "complete" if completed and acted else "awaiting_approval" if pending else "ready",
+        return {"status": "fail" if failed else "pass" if completed and acted else "ready",
+                "stageStatus": "fail" if failed else "complete" if completed and acted else "awaiting_approval" if pending else "ready",
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
@@ -519,6 +520,9 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
         response = handler(request)
     except DriverError as exc:
         return {"status": "fail", "operation": operation, "error": str(exc)}
+    except ExecutionError as exc:
+        return {"status": "blocked" if exc.blocked else "fail", "operation": operation,
+                "error": f"{exc.command}: {exc.reason}"}
     except Exception as exc:  # noqa: BLE001 - a driver crash must never read as pass
         return {"status": "fail", "operation": operation, "error": f"{type(exc).__name__}: {exc}"}
     response.setdefault("protocol", PROTOCOL)
