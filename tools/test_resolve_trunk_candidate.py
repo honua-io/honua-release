@@ -124,6 +124,23 @@ def test_registry_rejects_wrong_sha_or_incomplete_architectures(sha, architectur
         registry.identity('honua-io/server', 'nightly-aaaaaaa', NEW, architectures)
 
 
+def test_github_api_disables_color_before_parsing_json(monkeypatch):
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen['env'] = kwargs.get('env')
+        class Result:
+            stdout = json.dumps([{'sha': 'a' * 40}])
+            stderr = ''
+            returncode = 0
+        return Result()
+
+    monkeypatch.setattr(resolver.subprocess, 'run', run)
+    assert next(resolver.GitHub().commits('honua-io/server', 1)) == 'a' * 40
+    assert seen['env']['NO_COLOR'] == '1'
+    assert seen['env']['GH_FORCE_TTY'] == '0'
+
+
 def test_transient_network_retry_keeps_same_command(monkeypatch):
     calls, sleeps = [], []
     def request():
