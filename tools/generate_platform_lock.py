@@ -92,7 +92,7 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     coordinate = component.get("artifact")
     image = component.get("image")
     if image:
-        return {"kind": "image", "coordinate": str(image).rsplit(":", 1)[0]}
+        return {"kind": "image", "coordinate": str(image).split("@", 1)[0].rsplit(":", 1)[0]}
     if not coordinate:
         return None
     prefix, _, name = str(coordinate).partition(":")
