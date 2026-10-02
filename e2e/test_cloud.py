@@ -1435,6 +1435,22 @@ def test_cost_meter_rejects_stale_wrong_run_and_nonfinite_amount():
                 cj.check_cost(path, ceiling, started_at=started)
 
 
+def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch):
+    cj = run_cloud.cloud_journey
+    events = []
+    stub = _StubTarget(provision_error="apply failed")
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: events.append("teardown"))
+    monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-ecs": lambda **kwargs: stub})
+    def meter(*args, **kwargs):
+        events.append("cost")
+        return {"status": "pass"}
+    monkeypatch.setattr(cj, "check_cost", meter)
+    with mock.patch.object(cj, "attempt", side_effect=OSError("disk full")):
+        report = run_cloud.run("aws-ecs", True, None)
+    assert report["status"] == "fail" and events == ["cost", "teardown"]
+    assert "receipt evidence unavailable" in report["why"]
+
+
 if __name__ == "__main__":
     import traceback
 
