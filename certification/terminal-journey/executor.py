@@ -102,6 +102,8 @@ class JourneyExecutor:
             self.resources[key] = identity(version.get(key), command)
 
     def _check(self, number, check, command, fn):
+        # The latest attempt owns the proof, including a failed or blocked attempt.
+        self.evidence.setdefault("proofs", {}).pop(check, None)
         try:
             proof = fn()
             row = probes.Check(f"{number}.{check}", "artifact", command, "pass", "independent live assertion passed")
@@ -110,7 +112,7 @@ class JourneyExecutor:
             row = probes.Check(f"{number}.{check}", "http", exc.command,
                                "blocked" if exc.blocked else "fail", exc.reason,
                                [stages.JOURNEY_DRIVER] if exc.blocked else [])
-        except (oracles.ProofError, KeyError, ValueError, TypeError) as exc:
+        except (oracles.ProofError, KeyError, ValueError, TypeError, AttributeError, StopIteration) as exc:
             row = probes.Check(f"{number}.{check}", "artifact", command, "fail",
                                str(exc) if isinstance(exc, oracles.ProofError) else "live assertion omitted required evidence")
         self.evidence["checks"].setdefault(str(number), {})[check] = row.as_receipt()
@@ -281,6 +283,8 @@ class JourneyExecutor:
                 raise ExecutionError("GET canonical job", "job did not succeed with the submitted identity")
             results = self.transport.get_json(path + "/results")
             values = results.get("outputs", results)
+            if not isinstance(values, dict) or not values:
+                raise oracles.ProofError("canonical job returned no outputs")
             artifact = next(iter(values.values()))
             if "value" in artifact:
                 feature = artifact["value"]
@@ -324,7 +328,8 @@ class JourneyExecutor:
     def check_map(self):
         self._check(6, "saved-map", "GET saved immutable map version", lambda: self._prove_map(self.transport, self.map_path()))
         def replica():
-            endpoint = self.target.get("replicaBaseUrl")
+            import local_fixture
+            endpoint = local_fixture.replica_url(self.target)
             if not endpoint or endpoint.rstrip("/") == self.transport.base_url.rstrip("/"):
                 raise ExecutionError("cross-replica map read", "a distinct replica endpoint is required", blocked=True)
             loopback = {"localhost", "127.0.0.1", "::1"}
@@ -376,8 +381,8 @@ class JourneyExecutor:
         if code:
             raise ExecutionError("approveOperationProposal --profile approver", "typed separate-principal approval failed")
         final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal="approver"),
-                          lambda r: r.get("status") in {"Approved", "Applied", "Rejected", "Failed"})
-        if (final.get("proposalId") != proposal_id or final.get("status") not in {"Approved", "Applied"}
+                          lambda r: r.get("status") in {"Succeeded", "Approved", "Applied", "Rejected", "Failed"})
+        if (final.get("proposalId") != proposal_id or final.get("status") not in {"Succeeded", "Approved", "Applied"}
                 or not final.get("resolvedBy") or final["resolvedBy"] == final.get("requestedBy")):
             raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
         self.evidence["approvalResolution"] = {"proposalId": proposal_id,
@@ -548,7 +553,7 @@ class JourneyExecutor:
                 row = probes.Check(f"{number}.execution", "cli", exc.command,
                     "blocked" if exc.blocked else "fail", exc.reason, [stages.JOURNEY_DRIVER] if exc.blocked else [])
                 self.evidence["checks"].setdefault(str(number), {})["execution"] = row.as_receipt()
-            except (KeyError, ValueError, TypeError):
+            except (KeyError, ValueError, TypeError, AttributeError, StopIteration):
                 self.evidence["checks"].setdefault(str(number), {})["execution"] = probes.Check(
                     f"{number}.execution", "artifact", "validate target execution fixture", "fail",
                     "execution fixture or candidate response omits required fields").as_receipt()

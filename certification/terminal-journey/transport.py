@@ -44,7 +44,11 @@ class Transport:
         headers = {"Accept": "application/json", "Cache-Control": "no-cache"}
         headers.update(extra_headers or {})
         if principal is not None:
-            headers["X-API-Key"] = self.credentials[principal]
+            credential = self.credentials[principal]
+            if credential.startswith("Bearer "):
+                headers["Authorization"] = credential
+            else:
+                headers["X-API-Key"] = credential
         data = None if body is None else json.dumps(body, allow_nan=False).encode()
         if data is not None:
             headers["Content-Type"] = "application/json"

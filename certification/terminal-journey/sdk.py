@@ -78,7 +78,9 @@ def prepare(manifest, workdir):
 def invoke(binding, method, arguments, *, base_url, credential):
     if not binding or not Path(binding["dll"]).is_file():
         raise ExecutionError(method, "verified published SDK bridge is unavailable", blocked=True)
-    env = {**os.environ, "HONUA_JOURNEY_BASE_URL": base_url, "HONUA_JOURNEY_SDK_KEY": credential}
+    env = {name: os.environ[name] for name in ("PATH", "DOTNET_ROOT", "HOME", "TMPDIR", "LANG")
+           if name in os.environ}
+    env.update(HONUA_JOURNEY_BASE_URL=base_url, HONUA_JOURNEY_SDK_KEY=credential)
     try:
         result = subprocess.run(["dotnet", binding["dll"]],
                                 input=json.dumps({"method": method, "arguments": arguments}),
