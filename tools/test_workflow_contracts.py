@@ -64,6 +64,7 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
 
 
 def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
+    import os
     import subprocess
     found = False
     for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):

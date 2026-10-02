@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import shutil
 import subprocess
 from datetime import timedelta
@@ -7,6 +8,10 @@ import pytest
 
 import check_promotion_readiness as readiness
 import fetch_promotion_evidence as fetcher
+import test_check_promotion_readiness as readiness_fixtures
+import mint_nightly_lock as nightly
+from test_mint_nightly_lock import inputs, mint, signer
+from test_platform_lock_bundle import candidate
 from test_check_promotion_readiness import NOW, OTHER_LOCK, _fixture, _stamp
 
 REPO = "honua-io/honua-release"
@@ -280,3 +285,73 @@ def test_dispatched_failed_canary_ends_the_locks_burn(tmp_path):
     decision = _fetch_and_check(tmp_path, fixture, gh)
     assert decision["status"] == "refused"
     assert decision["checks"]["lock-burn-health"]["status"] == "fail"
+
+
+# The recorded layout tests the actual minter and retained producer timestamps.
+@pytest.mark.parametrize('qualifying', [False, True])
+def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_path, monkeypatch, qualifying):
+    report, paths = inputs
+    recorded = Path(__file__).parent / 'fixtures/nightly-promotion-run'
+    metadata = json.loads((recorded / 'run.json').read_text())
+    report['generatedAt'] = '2026-09-30T06:04:00Z'
+    journeys = []
+    for path in sorted(recorded.glob('*/gate-report-journey.json')):
+        journey = json.loads(path.read_text())
+        journey['candidateDigest'] = report['candidate']['artifacts']['platform-manifest.yaml']['sha256']
+        journeys.append(journey)
+    report = nightly.declare_evidence(report, tmp_path / 'qualification-lock.json', journeys)
+    validate = nightly.validate_live_report
+    monkeypatch.setattr(nightly, 'validate_live_report',
+                        lambda value: validate(value, now=fetcher._time(metadata['updated_at'])))
+    minted = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', minted, signer=signer)
+    digest = 'sha256:' + nightly._sha256(minted / 'platform-lock.json')
+
+    at = fetcher._time('2026-10-02T12:05:00Z')
+    monkeypatch.setattr(readiness_fixtures, 'NOW', at)
+    fixture = _fixture(tmp_path / 'recorded-layout')
+    record, _, evidence, _ = fixture
+    old_digest = record['lock']['digest']
+    # The burn observations/qualifying receipts below are independently handwritten
+    # checker fixtures. Replace only their test candidate binding with the real minted bytes.
+    for path in evidence.rglob('*.json'):
+        path.write_text(path.read_text().replace(old_digest, digest))
+    record = json.loads(json.dumps(record).replace(old_digest, digest))
+    gh = FakeGitHub((record, *fixture[1:]))
+    gh.runs['4242'] = metadata
+    gh.artifacts[('4242', 'certified-candidate')] = [
+        minted / 'platform-lock.json', minted / 'gate-report.json', *paths]
+    record['rcTrainRunId'] = '4242'
+    record['strictTrains'] = [{'runId': '4242', 'completedAt': '2026-09-30T06:05:00Z',
+                              'lockDigest': digest, 'status': 'pass'}]
+    for row in record['evidence']:
+        if row['class'] in ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak',
+                            'dr', 'lambda-certification', 'protocol-ledger', 'deterministic-journey',
+                            'nightly-model-journey'):
+            row.update(runId='4242', completedAt='2026-09-30T06:04:00Z')
+            gh.artifacts[('4242', 'promotion-receipt-' + row['class'])] = [
+                minted / 'promotion-receipts' / row['class'] / 'receipt.json']
+        elif not qualifying:
+            del gh.artifacts[(row['runId'], 'promotion-receipt-' + row['class'])]
+    out = tmp_path / 'fetched-recorded'
+    fetcher.fetch(record, gh, out)
+    assert (out / 'trains/4242/platform-lock.json').read_bytes() == (minted / 'platform-lock.json').read_bytes()
+    nightly_paths = {path.parent.parent.name for path in (out / 'evidence').glob('*/4242/receipt.json')}
+    assert nightly_paths == {'build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
+                             'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey'}
+    for name in nightly_paths:
+        assert (out / 'evidence' / name / '4242/receipt.json').read_bytes() == (
+            minted / 'promotion-receipts' / name / 'receipt.json').read_bytes()
+    decision = readiness.evaluate(record, lock_path=out / 'trains/4242/platform-lock.json', evidence_dir=out, now=at)[0]
+    for name in nightly_paths:
+        assert decision['checks']['evidence:' + name]['status'] == 'pass', decision['checks']
+    retry = json.loads((out / 'evidence/deterministic-journey/4242/receipt.json').read_text())['cells'][2]
+    assert retry['attemptCount'] == 2
+    assert retry['attempts'][0]['status'] == 'fail'
+    assert retry['attempts'][0]['failureAttribution'] == 'infrastructure'
+    if qualifying:
+        assert decision['status'] == 'pass', decision['checks']
+    else:
+        assert decision['status'] == 'refused'
+        for name in ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite'):
+            assert decision['checks']['evidence:' + name]['status'] == 'fail'

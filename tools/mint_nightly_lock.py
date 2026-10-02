@@ -93,7 +93,7 @@ def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
                     cells.append({'cell': row['cell'], 'mode': mode, 'attemptCount': len(attempts),
                                   'attempts': [{'attempt': a['number'], 'status': a['status'],
                                                 'failureAttribution': a.get('failureAttribution'),
-                                                'completedAt': a.get('completedAt', journey['generatedAt']),
+                                                'completedAt': a.get('completedAt'),
                                                 'lockDigest': digest} for a in attempts]})
             receipt['cells'] = cells
             if not _journey(receipt, required, mode, digest, completed - timedelta(hours=24), completed):

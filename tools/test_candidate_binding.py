@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -393,3 +395,31 @@ def test_create_bundle_copies_exact_candidate_bytes_and_binds_copies(tmp_path: P
     report = json.loads(bound_report_path.read_text(encoding="utf-8"))
     ok, why = _verify(report, bundled_manifest, bundled_matrix)
     assert ok, why
+
+
+@pytest.mark.parametrize('target,field,value', [
+    ('run', 'id', 8), ('run', 'id', '7'), ('run', 'run_attempt', 0),
+    ('run', 'html_url', 'https://github.com/fork/honua-release/actions/runs/7'),
+    ('run', 'head_sha', 'not-a-commit'), ('run', 'head_branch', 'feature/weaken-gates'),
+    ('run', 'path', '.github/workflows/unlisted.yml'), ('run', 'event', 'push'),
+    ('run', 'status', 'in_progress'), ('run', 'conclusion', 'failure'),
+    ('run', 'repository', {'full_name': 'fork/honua-release'}),
+    ('run', 'head_repository', {'full_name': 'fork/honua-release'}),
+    ('repository', 'full_name', 'fork/honua-release'), ('repository', 'default_branch', ''),
+    ('branch', 'name', 'feature/weaken-gates'), ('branch', 'protected', False),
+])
+def test_nightly_opt_in_preserves_every_other_run_identity_guard(target, field, value):
+    repository = {'full_name': 'honua-io/honua-release', 'default_branch': 'trunk'}
+    branch = {'name': 'trunk', 'protected': True}
+    run = {'id': 7, 'run_attempt': 1, 'head_sha': 'c' * 40, 'head_branch': 'trunk',
+           'html_url': 'https://github.com/honua-io/honua-release/actions/runs/7',
+           'repository': {'full_name': 'honua-io/honua-release'},
+           'head_repository': {'full_name': 'honua-io/honua-release'},
+           'path': '.github/workflows/nightly-certification.yml', 'event': 'schedule',
+           'status': 'completed', 'conclusion': 'success'}
+    {'run': run, 'repository': repository, 'branch': branch}[target][field] = value
+    ok, why, identity = cb.validate_train_run_metadata(
+        run, repository, branch, expected_repository='honua-io/honua-release',
+        expected_workflow_path=('.github/workflows/release-train.yml', '.github/workflows/nightly-certification.yml'),
+        allowed_events=('workflow_dispatch', 'schedule'), expected_run_id='7')
+    assert not ok and identity is None, why

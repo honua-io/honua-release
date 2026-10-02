@@ -4,9 +4,60 @@
   "runId": "4242",
   "runAttempt": 1,
   "cells": [
-    {"cell": "aws-ecs/redis-off", "status": "pass", "attempts": [{"number": 1, "status": "pass", "driver": "deterministic"}]},
-    {"cell": "aws-ecs/redis-on", "status": "pass", "attempts": [{"number": 1, "status": "pass", "driver": "deterministic"}]},
-    {"cell": "aws-serverless/redis-off", "status": "pass", "attempts": [{"number": 1, "status": "fail", "driver": "deterministic", "failureAttribution": "infrastructure", "completedAt": "2026-09-30T06:02:00Z"}, {"number": 2, "status": "pass", "driver": "deterministic"}]},
-    {"cell": "aws-serverless/redis-on", "status": "pass", "attempts": [{"number": 1, "status": "pass", "driver": "deterministic"}]}
+    {
+      "cell": "aws-ecs/redis-off",
+      "status": "pass",
+      "attempts": [
+        {
+          "number": 1,
+          "status": "pass",
+          "driver": "deterministic",
+          "completedAt": "2026-09-30T06:03:00Z"
+        }
+      ]
+    },
+    {
+      "cell": "aws-ecs/redis-on",
+      "status": "pass",
+      "attempts": [
+        {
+          "number": 1,
+          "status": "pass",
+          "driver": "deterministic",
+          "completedAt": "2026-09-30T06:03:00Z"
+        }
+      ]
+    },
+    {
+      "cell": "aws-serverless/redis-off",
+      "status": "pass",
+      "attempts": [
+        {
+          "number": 1,
+          "status": "fail",
+          "driver": "deterministic",
+          "failureAttribution": "infrastructure",
+          "completedAt": "2026-09-30T06:02:00Z"
+        },
+        {
+          "number": 2,
+          "status": "pass",
+          "driver": "deterministic",
+          "completedAt": "2026-09-30T06:03:00Z"
+        }
+      ]
+    },
+    {
+      "cell": "aws-serverless/redis-on",
+      "status": "pass",
+      "attempts": [
+        {
+          "number": 1,
+          "status": "pass",
+          "driver": "deterministic",
+          "completedAt": "2026-09-30T06:03:00Z"
+        }
+      ]
+    }
   ]
 }
