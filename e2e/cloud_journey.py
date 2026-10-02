@@ -218,6 +218,12 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
         row = {**report, "evidenceTier": "Preview" if preview else "GA"}
         cells.append(row)
         by_cell.setdefault(cell, []).append(row)
+        # Preview journey failures are informational. The run-wide spend ceiling remains
+        # independent of topology maturity, including a later snapshot from a Preview cell.
+        cost = report.get("cost", {})
+        if (preview and cost.get("scope") == "run" and cost.get("runId") == run_id
+                and cost.get("runAttempt") == run_attempt and cost.get("status") == "fail"):
+            failures.append(f"run cost ceiling exceeded during {cell}")
     if full_scope:
         failures.extend(f"full-scope cloud reports missing required cells: {cell}"
                         for cell in GA_CELLS if cell not in by_cell)
