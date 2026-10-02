@@ -87,6 +87,9 @@ jobs:
       - name: Test measured discovery and real loopback HTTP sessions
         run: python certification/terminal-journey/test_discovery.py -v
 
+      - name: Test driver stage binding and unarmed fault state
+        run: python certification/terminal-journey/test_live_driver.py -v
+
       - name: Build blocked receipt without claiming live success
         env:
           EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

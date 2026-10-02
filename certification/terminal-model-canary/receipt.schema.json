@@ -134,8 +134,8 @@
           "attribution": {"enum": ["MODEL_SELECTED", "HARNESS_DRIVEN"]},
           "kind": {"enum": ["terminal_command", "tool_call", "setup", "error_injection", "approval", "verification", "teardown"]},
           "status": {"enum": ["pass", "fail", "blocked", "pending"]},
-          "request": {},
-          "result": {},
+          "request": {"$ref": "#/$defs/payloadSummary"},
+          "result": {"$ref": "#/$defs/payloadSummary"},
           "selectionEvidence": {
             "oneOf": [
               {"type": "null"},
@@ -183,7 +183,7 @@
               "sequence": {"type": "integer", "minimum": 1},
               "stageId": {"type": ["string", "null"]},
               "role": {"enum": ["system", "user", "assistant", "driver"]},
-              "content": {}
+              "content": {"$ref": "#/$defs/payloadSummary"}
             }
           }
         }
@@ -299,6 +299,17 @@
     }
   },
   "$defs": {
+    "payloadSummary": {
+      "description": "Digest of the redacted payload; arbitrary model/tool content is never retained.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retention", "sha256", "bytes"],
+      "properties": {
+        "retention": {"const": "digest-only"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
     "assertionStatus": {"enum": ["not-run", "pass", "fail", "blocked"]}
   }
 }
