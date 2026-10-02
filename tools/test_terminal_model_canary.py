@@ -36,6 +36,14 @@ def test_actionable_driver_evidence_binds_stage_without_claiming_completion(stat
     with pytest.raises(canary.CanaryError):
         canary.observed_stage_status({"status": "blocked", "stageStatus": evidence}, stage)
 
+
+def test_owned_journey_execution_and_independent_proof_regressions_run_in_the_required_gate():
+    import subprocess
+    result = subprocess.run([sys.executable, "-m", "pytest", str(REPO_ROOT / "certification" /
+                             "terminal-journey" / "test_executor.py"), "-q"],
+                            cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+
 MANIFEST = REPO_ROOT / "platform-manifest.yaml"
 JOURNEY = REPO_ROOT / "certification" / "terminal-journey" / "journey.v1.json"
 PROTOCOL = REPO_ROOT / "certification" / "terminal-model-canary" / "driver-protocol.v1.json"
