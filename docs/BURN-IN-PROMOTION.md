@@ -132,6 +132,18 @@ minting, reading each run's `candidateLock.digest`. A run that failed before bin
 with a null digest. An earlier failed attempt of a re-run canary is kept as an unattributed failure, so a
 successful re-run cannot erase it. A missing receipt is left missing, and the checker refuses it.
 
+The nightly report declares the eleven nightly class names in `evidenceClasses`, and all fifteen
+classes in `evidenceDeclarations`. Each nightly declaration names its retained receipt and seven-day
+`freshUntil`; qualifying declarations have a null receipt and freshness bound. The report retains the
+nightly receipt payloads in `evidenceReceipts`. Minting checks every payload against the minted lock's
+exact byte digest before signing. Missing, wrong-lock or failed evidence mints nothing; a deterministic
+journey cannot stand in for the nightly genuine-model observation.
+
+The train retains its pre-mint inputs as `qualified-candidate`. Only a successful mint uploads the
+final `certified-candidate`, combining those exact manifest/matrix bytes with the signed minted lock
+and report, and the eleven `promotion-receipt-<class>` artifacts containing `receipt.json`. Journey
+receipts preserve the workflow's recorded attempt timestamps, driver and failure attribution.
+
 **Producers remaining in #386/#381:** qualifying class producers must upload their receipts during burn, and
 `demo-canary.yml` binds its evidence to trunk's committed `platform-lock.json` rather than the deployed
 selected lock. Until they do, the checker refuses every record, so promotion fails closed. The fetcher
