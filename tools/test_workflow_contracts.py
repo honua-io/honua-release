@@ -915,8 +915,10 @@ def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
 
 
 def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt():
-    from test_mint_nightly_lock import NIGHTLY_EXPECTED, QUALIFYING_EXPECTED
 
+    NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
     assert 'mint_nightly_lock.py --declare-evidence' in binding['run']
@@ -937,8 +939,10 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
     import json
     import subprocess
-    from test_mint_nightly_lock import NIGHTLY_EXPECTED, QUALIFYING_EXPECTED
 
+    NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+    QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
                             'artifacts': {'platform-manifest.yaml': {'sha256': 'a' * 64}}}}
@@ -949,12 +953,14 @@ def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
     lock.parent.mkdir(parents=True)
     lock.write_text('{"recorded":"lock"}')
     (tmp_path / 'journey-reports').mkdir()
-    (tmp_path / 'tools').symlink_to(REPO_ROOT / 'tools', target_is_directory=True)
     binding = next(s for s in _workflow('release-train.yml')['jobs']['report']['steps']
                    if s.get('name') == 'Bind the report to the exact candidate and train identity')
     command = binding['run']
     command = command.split('if [ "${NIGHTLY:-}" = "true" ]; then\n', 1)[1].split('\nfi', 1)[0]
-    subprocess.run(['bash', '-c', command.replace('python ', sys.executable + ' ')],
+    import shlex
+    arguments = shlex.split(command.replace('\\\n', ' '))
+    assert arguments[:2] == ['python', 'tools/mint_nightly_lock.py']
+    subprocess.run([sys.executable, str(REPO_ROOT / arguments[1]), *arguments[2:]],
                    cwd=tmp_path, check=True, capture_output=True)
     emitted = json.loads(destination.read_text())
     assert set(emitted['evidenceClasses']) == set(NIGHTLY_EXPECTED)

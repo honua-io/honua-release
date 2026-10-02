@@ -17,7 +17,6 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +26,6 @@ import yaml
 
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
 from generate_platform_lock import generate
-from platform_lock_bundle import bind, bundle_files, canonical_bytes
 from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
 
@@ -146,6 +144,19 @@ def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
         except (ValueError, KeyError, TypeError):
             errors.append(f'{name}: invalid nightly receipt')
     return errors
+
+
+
+def bind(*args, **kwargs):
+    # Declaration assembly needs only retained workflow data; schema validation belongs
+    # to the real lock-binding/signing path, which has the full minting dependencies.
+    from platform_lock_bundle import bind as bind_bundle
+    return bind_bundle(*args, **kwargs)
+
+
+def bundle_files(*args, **kwargs):
+    from platform_lock_bundle import bundle_files as files
+    return files(*args, **kwargs)
 
 
 def next_label(history: Path) -> str:
@@ -278,6 +289,8 @@ def sign_blob(lock_path: Path, bundle_path: Path, identity: str, issuer: str) ->
 def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path,
          identity: str, issuer='https://token.actions.githubusercontent.com', *, signer=sign_blob,
          rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None) -> str:
+    from platform_lock_bundle import canonical_bytes
+
     errors = failures(report, repository=repository, source_sha=source_sha, run_id=run_id)
     errors.extend(evidence_failures(report))
     if errors:
@@ -353,7 +366,7 @@ def main(argv=None):
                 raise ValueError('declaration requires report, lock and journey reports')
             journeys = [json.loads(path.read_text()) for path in args.journey_reports.rglob('gate-report-journey.json')]
             report = declare_evidence(json.loads(args.report.read_text()), args.lock, journeys)
-            args.report.write_bytes(canonical_bytes(report))
+            args.report.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
             return 0
         published = None
         if args.sync_from:
