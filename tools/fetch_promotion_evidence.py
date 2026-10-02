@@ -125,13 +125,13 @@ def _canary_lock(gh: GitHub, run_id: str) -> str | None:
 
 
 def canary_sequence(gh: GitHub, *, lock_digest: str, minted_at: datetime) -> dict[str, Any]:
-    """Every completed scheduled canary that could have observed the lock since minting.
+    """Every completed canary that could have observed the lock since minting.
 
     Earlier attempts of a re-run canary are kept as unattributed observations, so a
     successful re-run cannot erase a failure.
     """
     since = (minted_at - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    runs = gh.pages(f"actions/workflows/demo-canary.yml/runs?event=schedule&created=%3E%3D{since}&per_page=100",
+    runs = gh.pages(f"actions/workflows/demo-canary.yml/runs?created=%3E%3D{since}&per_page=100",
                     "workflow_runs")
     observed = []
     for run in sorted(runs, key=lambda run: str(run.get("updated_at"))):

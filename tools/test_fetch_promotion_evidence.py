@@ -61,7 +61,7 @@ class FakeGitHub(fetcher.GitHub):
         raise AssertionError(path)
 
     def pages(self, path, key):
-        if path.startswith("actions/workflows/demo-canary.yml/runs?event=schedule&created=%3E%3D"):
+        if path.startswith("actions/workflows/demo-canary.yml/runs?created=%3E%3D"):
             return list(self.canaries)
         if path.startswith("actions/workflows/promote.yml/runs"):
             return list(self.promote_runs)
@@ -269,3 +269,14 @@ def test_gh_calls_are_read_only_and_scoped_to_the_repository(tmp_path):
          "--dir", str(tmp_path / "download")],
         ["gh", "release", "view", "honua-2026.1.0", "--repo", REPO],
     ]
+
+
+def test_dispatched_failed_canary_ends_the_locks_burn(tmp_path):
+    fixture = _fixture(tmp_path / "source", age=50, minted=60)
+    gh = FakeGitHub(fixture)
+    gh.add_canary("199", _stamp(NOW - timedelta(hours=55)), conclusion="failure",
+                  evidence=_failed_canary_evidence(tmp_path, fixture[0]["lock"]["digest"]))
+    gh.runs["199"]["event"] = "workflow_dispatch"
+    decision = _fetch_and_check(tmp_path, fixture, gh)
+    assert decision["status"] == "refused"
+    assert decision["checks"]["lock-burn-health"]["status"] == "fail"
