@@ -1,34 +1,8 @@
 #!/usr/bin/env python3
-"""Cross-cloud parity tier entrypoint (docs/TEST-STRATEGY.md Phase B).
+"""Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-Provisions a real honua-server on a cloud deploy target, runs the canonical (slim) parity set —
-including the live capability-manifest check (honua-release#61) — against its endpoint, plus the
-canary probe set (STAC/EDR/OData/OGC-Features/tiles/per-service-WMS-WMTS-WCS reachability;
-e2e/canary_probes.py), tears it down, and — when a reference endpoint is supplied — asserts parity
-with the reference (local docker). Emits a machine-readable gate-report.json the release train
-consumes.
-
-Honesty (AGENTS.md): when the target's infra isn't wired (no OIDC creds / no deployable image / no
-IaC), the run is BLOCKED, never a fake green. `--require-real` (the train / a real nightly run)
-promotes BLOCKED to a hard FAIL so the gate can genuinely fail once infra exists.
-
-Cloud-tier unblock (honua-release#61): the canary probes run here in GENERIC mode — no service/tile
-id is configured for a bare terraform-provisioned cell (nothing is seeded there yet), so the
-data-dependent probes (render+query smoke, per-service WMS/WMTS/WCS, tile.json) honestly report
-BLOCKED rather than a fake pass/fail; the reachability-only probes (health, security headers,
-metrics-gated, STAC/EDR/OData/OGC-Features reachability) run for real. A genuine FAIL from any canary
-probe (a real break, not just "nothing seeded") reddens the run unconditionally — BLOCKED canary
-probes are reported but do not gate, since the ephemeral cloud cells have no seed-data story yet
-(distinct from the MCP/Studio/GP/demo `scenarioCoverage` scenarios below, which stay hardcoded BLOCKED
-pending the driver harness image, honua-release#35).
-
-An UNREACHABLE endpoint is not in that tolerated set (honua-release#128). "Nothing was seeded" is a
-missing input; "the deployment never answered" is a missing subject, and a cell that provisioned an
-endpoint which then never served fails outright, whatever --require-real says.
-
-  python e2e/run_cloud.py --target aws-serverless [--require-real] [--reference-endpoint URL]
-
-Exit code 0 only when the assembled status is "pass".
+GA: {aws-ecs, aws-serverless} x Redis off/on. EKS and mixed ECS + Batch are Preview.
+Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
 from __future__ import annotations
 
@@ -37,17 +11,25 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
-from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical,  # noqa: E402
-                              run_extended)
+from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical)  # noqa: E402
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
+
+import cloud_journey  # noqa: E402
+from targets.terraform_target import TerraformTarget, TfTargetSpec  # noqa: E402
+
+# The pinned IaC must provide this topology; never substitute the all-ECS root as mixed evidence.
+REGISTRY = {**REGISTRY, "aws-mixed": lambda **kw: TerraformTarget(TfTargetSpec(
+    name="aws-mixed", root="infrastructure/terraform/examples/aws-mixed",
+    image_env="HONUA_ECS_IMAGE", image_var="honua_image"), **kw)}
 
 REPORT_PATH = E2E_DIR / "gate-report-cloud.json"
 
@@ -116,7 +98,11 @@ def _wait_for_endpoint(endpoint: str, fetch, *, attempts: int = _READY_ATTEMPTS,
 
 
 def run(target_name: str, require_real: bool, reference_endpoint: str | None,
-        redis_enabled: bool = False) -> dict:
+        redis_enabled: bool = False, *, max_attempts: int = 2,
+        cost_ceiling_usd: str = "20", cost_report: Path | None = None) -> dict:
+    if max_attempts not in (1, 2):
+        raise ValueError("journey permits one or two attempts")
+    started_at = datetime.now(timezone.utc)
     cls = REGISTRY.get(target_name)
     if cls is None:
         return {"gate": "cloud-parity", "target": target_name, "status": "fail",
@@ -129,9 +115,12 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
     report: dict = {"gate": "cloud-parity", "target": target_name, "redis": redis_mode, "cell": cell,
                     "require_real": require_real,
+                    "evidenceTier": "Preview" if target_name in cloud_journey.PREVIEW_TARGETS else "GA",
+                    "journeyAttempts": [],
                     "availability": {"ok": avail.ok, "reason": avail.reason, "missing": avail.missing}}
 
     if not avail.ok:
+        report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
         # Cloud/OIDC creds unset may self-skip only on the optional bootstrap path. A required cell
         # without credentials is missing required evidence and must be red; otherwise every matrix
         # cell can exit 0 without exercising AWS (honua-release#209).
@@ -170,35 +159,56 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
+        for number in range(1, max_attempts + 1):
+            record = cloud_journey.attempt(cell, number, endpoint, target.admin_api_key)
+            report["journeyAttempts"].append(record)
+            receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
+            if cloud_journey.validate_attempt(record, receipt, cell,
+                    run_id=os.environ.get("GITHUB_RUN_ID", "local"),
+                    run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1")):
+                break
+        else:
+            report["status"] = "fail"
+            report["why"] = "journey did not pass within the recorded attempt budget"
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
+    except Exception as e:
+        report["status"] = "fail"
+        report["why"] = f"cloud checks/journey failed: {type(e).__name__}"
     finally:
-        # Teardown ALWAYS runs, including on the failure path: a cell that created real AWS
-        # infrastructure and then failed must not strand it (honua-iac#142 — orphaned VPCs/clusters
-        # bill until someone reaps them by hand). A teardown that cannot complete is itself a hard
-        # failure of the cell, because the orphan is real — it is never swallowed.
+        # Metering and receipt failures must not bypass either cleanup path.
         try:
-            target.teardown(redis_enabled=redis_enabled)
-        except ProvisionError as e:
-            prior = report.get("why")
-            report["status"] = "fail"
-            report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
+            if not report["journeyAttempts"]:
+                report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
+            report["cost"] = cloud_journey.check_cost(
+                cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT", "e2e/cloud-evidence/run-cost.json")),
+                cost_ceiling_usd, started_at=started_at)
+            if report["cost"]["status"] != "pass":
+                prior = report.get("why", "")
+                report.update(status="fail", why=f"{prior}; run cost exceeds ceiling")
+        except Exception as e:
+            prior = report.get("why", "")
+            report.update(status="fail", why=f"{prior}; cost/receipt evidence unavailable: {type(e).__name__}")
+        finally:
+            try:
+                cloud_journey.cleanup(cell)
+            except Exception as e:
+                report.update(status="fail", why=report.get("why", "") + f"; journey cleanup failed: {type(e).__name__}")
+            finally:
+                try:
+                    target.teardown(redis_enabled=redis_enabled)
+                except Exception as e:
+                    prior = report.get("why")
+                    report["status"] = "fail"
+                    report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
 
     if report.get("status") == "fail":
         return report
 
-    # Extended seam scenarios (MCP / Studio / GP-execute / top-demo). BLOCKED until the cloud harness
-    # image (honua-release#35) drives the real drivers here; require_real promotes that to FAIL so cloud
-    # MCP/Studio/GP/demo cert is genuinely gated for a per-RC cut, not assumed.
-    extended = run_extended(endpoint)
-    report["scenarioCoverage"] = _check_dicts(extended)
-
-    # Verdict from the canonical set + the canary probes' genuine failures.
     failed = [c.name for c in checks if c.status == "fail"]
     canary_failed = [c.name for c in canary_results if c.status == "fail"]
     blocked = [c.name for c in checks if c.status == "blocked"]
-    ext_blocked = [c.name for c in extended if c.status in ("blocked", "fail")]
 
     # honua-release#128: a cell whose terraform applied but whose endpoint never served is a FAILED
     # cell, and it is reported as that one fact rather than as a wall of derived probe failures. The
@@ -228,10 +238,10 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         report["status"] = "fail"
         report["why"] = f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}"
         return report
-    if require_real and (blocked or ext_blocked):
+    if require_real and blocked:
         report["status"] = "fail"
         report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
-                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
+                         "journey evidence is recorded separately")
         return report
 
     # Parity vs the reference target, when one was provided.
@@ -263,6 +273,9 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
+    ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
+    ap.add_argument("--cost-report", type=Path)
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
     ap.add_argument("--redis", choices=["on", "off"], default="off",
                     help="run the target with Redis enabled or disabled (parity must hold either way)")
@@ -272,7 +285,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
 
-    report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"))
+    report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"),
+                 max_attempts=args.max_attempts, cost_ceiling_usd=args.cost_ceiling_usd, cost_report=args.cost_report)
     report.setdefault("evidence_url", os.environ.get("HONUA_RUN_URL", ""))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
