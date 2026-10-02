@@ -108,7 +108,9 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert 'certifyingScope:($full == "true")' in workflow
     assert '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' in workflow
     assert "focused dispatch is diagnostic only" in workflow
-    assert "full-scope cloud reports missing required cells" in workflow
-    assert "full-scope cloud reports did not all pass" in workflow
+    assert "python e2e/cloud_journey.py --reports reports --output merged.json" in workflow
+    aggregator = (ROOT / "e2e/cloud_journey.py").read_text()
+    assert "full-scope cloud reports missing required cells" in aggregator
+    assert "full-scope cloud reports did not all pass" in aggregator
     assert '-f honua_server_ref="$SERVER_REF"' in workflow
     assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow

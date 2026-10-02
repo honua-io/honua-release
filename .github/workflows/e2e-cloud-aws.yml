@@ -1,28 +1,5 @@
-# Slice-2 cross-cloud CERTIFICATION tier — AWS-first (docs/TEST-STRATEGY.md Phase B).
-#
-# Two complementary layers, both AWS-first, both creds-gated so a no-cloud local cut is never reddened:
-#
-#   parity     Deploys honua-server on each AWS target (serverless / ecs / eks) x Redis on/off via the
-#              honua-iac example roots, runs the canonical (slim) HTTP parity set — now including the
-#              live capability-manifest check (honua-release#61) — plus the canary probe set
-#              (e2e/canary_probes.py, GENERIC/no-seed-id mode: reachability-only probes run for real,
-#              probes needing seeded service/tile ids honestly BLOCK on a bare cell) and the EXTENDED
-#              seam scenarios (MCP / Studio / GP-execute / top-demo), asserts parity, tears down. Only
-#              the MCP/Studio/GP/demo extended scenarios stay hardcoded BLOCKED, pending the cloud
-#              harness image (honua-release#35) to drive the real drivers against the cloud endpoint —
-#              require_real promotes that to FAIL so cloud MCP/Studio/GP/demo cert is genuinely gated,
-#              not assumed. A genuine canary-probe FAIL (not just BLOCKED) reddens the cell unconditionally.
-#   iac-live   The WRAPPER that triggers honua-iac's real cloud harness (`terraform-manual-validation.yml`)
-#              with run_live=true (AWS), polls it to completion, and folds its verdict in. This is the
-#              production plan/apply/smoke/destroy harness — we do not re-implement it here, we drive it.
-#
-# SELF-SKIP (optional bootstrap only): when the OIDC/cloud secrets are unset (no HONUA_AWS_ROLE_ARN and,
-# for the wrapper, no dispatch token) every layer emits `status: skipped, why: cloud-creds-unset` during
-# a dry run. With require_real, missing credentials are required-evidence failures and every cell exits red.
-# It is READY to enforce per-RC from manifest-derived server and Lambda images; set HONUA_AWS_ROLE_ARN
-# (+ RELEASE_GH_TOKEN for the wrapper) on the candidate and every layer runs for real. OIDC into AWS — no
-# static creds. The aggregate `cloud-report` job assembles one machine-readable gate-report the train parses.
-
+# AWS promise journeys: four required GA cells; EKS and mixed ECS + Batch are Preview evidence.
+# Every cell retains attempts, reads the run cost meter before teardown, and runs a reaper.
 name: e2e-cloud-aws
 
 on:
@@ -37,7 +14,7 @@ on:
       target:
         description: "AWS runtime target to validate"
         type: choice
-        options: [all, aws-serverless, aws-ecs, aws-eks]
+        options: [all, aws-serverless, aws-ecs, aws-eks, aws-mixed]
         default: all
       redis_mode:
         description: "Redis mode(s) to validate"
@@ -68,7 +45,7 @@ on:
         required: false
     outputs:
       overall_status:
-        description: "pass | fail | blocked | skipped — aggregate of the parity cells + the iac-live wrapper"
+        description: "pass | fail | blocked | skipped — aggregate of exactly the four GA journey cells"
         value: ${{ jobs.cloud-report.outputs.overall_status }}
 
 permissions:
@@ -306,14 +283,12 @@ jobs:
 
   parity:
     needs: candidate
-    # The deploy-target x Redis matrix: all 3 AWS targets, each with Redis on and off, so the platform
-    # is proven to behave identically everywhere and with/without its cache. Each cell is independent
-    # (fail-fast off) so one skipped/blocked/red cell doesn't hide the others.
+    # Four GA cells plus four informational Preview cells; failures never hide other attempts.
     strategy:
       fail-fast: false
       # VPC QUOTA, not throughput tuning. Every cell stands up its own VPC in AWS_REGION, and the
-      # full matrix is 3 targets x 2 redis modes = 6 cells. With the account's default VPC that needs
-      # 7 VPC slots against a default per-region quota of 5 (L-F678F1CE), so an unthrottled matrix
+      # full matrix is 4 targets x 2 redis modes = 8 cells. With the account's default VPC that needs
+      # 9 VPC slots against a default per-region quota of 5 (L-F678F1CE), so an unthrottled matrix
       # cannot pass in a stock account: the cells that lose the race die on
       #   Error: creating EC2 VPC: api error VpcLimitExceeded: The maximum number of VPCs has been reached.
       # which reads like a broken cell rather than a capacity ceiling. Observed on run 32193955519,
@@ -325,8 +300,9 @@ jobs:
       # depend on an AWS support ticket, and it stays correct afterwards.
       max-parallel: 2
       matrix:
-        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks","aws-mixed"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
+    continue-on-error: ${{ matrix.target == 'aws-eks' || matrix.target == 'aws-mixed' }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     runs-on: ubuntu-latest
     env:
@@ -367,6 +343,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
@@ -442,11 +421,16 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
-          path: e2e/gate-report-cloud.json
+          path: |
+            e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/receipt-*.json
+            e2e/cloud-evidence/**/target-*.json
           if-no-files-found: warn
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:
+    # Supplemental Preview infrastructure evidence; GA certification is the four journey cells.
+    continue-on-error: true
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
     if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
@@ -527,6 +511,11 @@ jobs:
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
       - name: Download all cloud reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -542,43 +531,18 @@ jobs:
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
           PARITY_RESULT: ${{ needs.parity.result }}
           IAC_LIVE_RESULT: ${{ needs.iac-live.result }}
-          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') && inputs.run_iac_live)) && 'true' || 'false' }}
+          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') )) && 'true' || 'false' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
           REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
         run: |
           set -euo pipefail
           mkdir -p out
-          FILES=$(find reports -name 'gate-report-cloud.json' 2>/dev/null || true)
+          python e2e/cloud_journey.py --reports reports --output merged.json
           if [ "$CANDIDATE_RESULT" != "success" ]; then
-            jq -n --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
-              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
-          elif [ "$PARITY_RESULT" != "success" ]; then
-            jq -n --arg why "parity prerequisite ended $PARITY_RESULT" \
-              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
-          elif [ "$FULL_SCOPE" = "true" ] && [ "$IAC_LIVE_RESULT" != "success" ]; then
-            jq -n --arg why "iac-live prerequisite ended $IAC_LIVE_RESULT during a full-scope run" \
-              '{gate:"cloud-parity",status:"fail",why:$why,cells:[]}' > merged.json
-          elif [ -z "$FILES" ]; then
-            echo '{"gate":"cloud-parity","status":"fail","why":"no cloud cell reports produced","cells":[]}' > merged.json
-          else
-            # Each cell/wrapper report contributes a {status,why,...}. Overall verdict:
-            #   fail    if any cell failed
-            #   blocked if any cell blocked (half-wired infra)
-            #   skipped if every cell self-skipped (no creds)
-            #   pass    otherwise (>=1 real pass, remainder skipped)
-            # shellcheck disable=SC2086
-            jq -s '
-              { gate:"cloud-parity",
-                cells: [ .[] | {gate:(.gate//"cloud-cell"), cell:(.cell//.gate//"?"), target:.target,
-                                redis:.redis, status:.status, why:.why} ],
-                scenarioCoverage: ( [ .[] | (.scenarioCoverage // [])[] ] | unique_by(.name) ),
-                canaryProbes: ( [ .[] | (.canaryProbes // [])[] ] | unique_by(.name) ),
-                status: ( [ .[].status ] as $s
-                  | if   ($s|any(.=="fail"))    then "fail"
-                    elif ($s|any(.=="blocked")) then "blocked"
-                    elif ($s|all(.=="skipped")) then "skipped"
-                    else "pass" end ) }' $FILES > merged.json
+            jq --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
+              '.status="fail" | .why=$why' merged.json > checked.json
+            mv checked.json merged.json
           fi
           jq --arg run "$RUN_URL" --arg enf "$REQUIRE_REAL" --arg full "$FULL_SCOPE" \
              --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
@@ -593,29 +557,6 @@ jobs:
                 else . end' \
              merged.json > out/gate-report-cloud.json
 
-          # A full certification requires all six target/cache cells plus the IaC live wrapper. A
-          # successful job that failed to upload one of those reports must fail closed.
-          if [ "$FULL_SCOPE" = "true" ] && [ "$(jq -r .status out/gate-report-cloud.json)" != "fail" ]; then
-            EXPECTED='["aws-serverless/redis-off","aws-serverless/redis-on","aws-ecs/redis-off","aws-ecs/redis-on","aws-eks/redis-off","aws-eks/redis-on","cloud-iac-live"]'
-            MISSING="$(jq -c --argjson expected "$EXPECTED" \
-              '$expected - [.cells[].cell]' out/gate-report-cloud.json)"
-            if [ "$MISSING" != "[]" ]; then
-              jq --arg missing "$MISSING" \
-                '.status="fail" | .why=("full-scope cloud reports missing required cells: " + $missing)' \
-                out/gate-report-cloud.json > out/gate-report-cloud.checked.json
-              mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
-            elif [ "$(jq -r .status out/gate-report-cloud.json)" = "pass" ]; then
-              NON_PASS="$(jq -c --argjson expected "$EXPECTED" \
-                '[.cells[] | select(.cell as $cell | $expected | index($cell))
-                  | select(.status != "pass") | {cell,status}]' out/gate-report-cloud.json)"
-              if [ "$NON_PASS" != "[]" ]; then
-                jq --arg nonpass "$NON_PASS" \
-                  '.status="fail" | .why=("full-scope cloud reports did not all pass: " + $nonpass)' \
-                  out/gate-report-cloud.json > out/gate-report-cloud.checked.json
-                mv out/gate-report-cloud.checked.json out/gate-report-cloud.json
-              fi
-            fi
-          fi
           # cloud-parity certifying is not release#282. lambdaGaQualification stays the literal
           # pending value; a green serverless cell must not be readable as the Lambda GA bill.
           jq --arg full "$FULL_SCOPE" --arg enf "$REQUIRE_REAL" \
@@ -629,11 +570,11 @@ jobs:
           {
             echo "## Cloud cert (AWS) — $OVERALL";
             echo "";
-            echo "| cell | status | why |"; echo "|---|---|---|";
-            jq -r '.cells[] | "| \(.cell) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
+            echo "| cell | evidence tier | status | why |"; echo "|---|---|---|---|";
+            jq -r '.cells[] | "| \(.cell) | \(.evidenceTier) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
             echo "";
-            echo "### Extended scenarios (MCP/Studio/GP/demo — blocked pending honua-release#35)";
-            jq -r '.scenarioCoverage[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
+            echo "### Promise journey attempts (manifest-pinned imported driver)";
+            jq -r '.cells[] | .cell as $cell | .journeyAttempts[]? | "- **\($cell)** attempt \(.number): \(.receipt)"' out/gate-report-cloud.json;
             echo "";
             echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";
             jq -r '.canaryProbes[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
