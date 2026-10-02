@@ -21,7 +21,7 @@ class ReadinessError(ValueError):
 
 
 def _time(value: Any, field: str) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z", value):
         raise ReadinessError(f"{field} must be an RFC3339 UTC timestamp")
     try:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00")
@@ -44,9 +44,21 @@ def _run_id(value: Any, field: str) -> str:
 
 
 def _load(path: Path, field: str) -> dict[str, Any]:
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ReadinessError(f"{field} contains duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ReadinessError(f"{field} contains a nonstandard JSON number")
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_keys,
+                           parse_constant=invalid_constant)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ReadinessError(f"{field} is unreadable: {exc}") from exc
     if not isinstance(value, dict):
         raise ReadinessError(f"{field} must be a JSON object")
@@ -61,10 +73,10 @@ EVIDENCE_CLASSES = {
                      "deterministic-journey", "nightly-model-journey"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
 }
-GA_CELLS = frozenset({"ecs-redis-off", "ecs-redis-on", "lambda-batch-redis-off", "lambda-batch-redis-on"})
+GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
-    "nightly-model-journey": ("genuine-model", frozenset({"ecs-redis-off"})),
+    "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
     "genuine-model-journey": ("genuine-model", GA_CELLS),
 }
 
@@ -175,7 +187,8 @@ def evaluate(
     declaration_ok &= (len(classes) == len(rows) and all(isinstance(key, str) for key in classes)
                        and len(set(classes)) == len(classes) and set(classes) == set(declarations)
                        and isinstance(consumed, list) and all(isinstance(key, str) for key in consumed)
-                       and set(consumed or []) == {key for key, tier in declarations.items() if tier == "nightly"})
+                       and len(set(consumed)) == len(consumed)
+                       and set(consumed) == {key for key, tier in declarations.items() if tier == "nightly"})
     check("evidence-declarations", bool(declaration_ok),
           "every consumed class is declared nightly or qualifying; all R21 classes are required")
     for row in rows:
@@ -203,7 +216,7 @@ def evaluate(
                    and completed <= now <= expiry and expiry > completed)
             if tier == "nightly":
                 ok &= run_id == rc_run_id and completed <= train_time
-                earliest, latest = _time(report.get("generatedAt"), "train generatedAt") - timedelta(hours=24), train_time
+                earliest, latest = train_time - timedelta(hours=24), completed
             else:
                 ok &= burn_start <= completed <= now
                 earliest, latest = burn_start, completed
@@ -298,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         now = _time(args.now, "now") if args.now else datetime.now(timezone.utc)
         decision, failures = evaluate(_load(args.record, "promotion record"), lock_path=args.lock,
                                       evidence_dir=args.evidence_dir, lock_history=args.lock_history, now=now)
-    except (ReadinessError, OSError) as exc:
+    except (ReadinessError, OSError, TypeError) as exc:
         decision, failures = {"schemaVersion": "promotion-readiness.v1", "status": "refused",
                               "checks": {"record": {"status": "fail", "detail": str(exc)}}}, [str(exc)]
     args.out.write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")

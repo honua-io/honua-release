@@ -229,7 +229,7 @@ def test_journey_pass_rule_has_a_negative_per_rule_and_tier(tmp_path, name, muta
         attempt = cell["attempts"][0]
         if mutation == "missing-cell": receipt["cells"].pop(0)
         elif mutation == "duplicate-cell": receipt["cells"].append(copy.deepcopy(cell))
-        elif mutation == "preview-substitute": cell["cell"] = "eks-redis-off"
+        elif mutation == "preview-substitute": cell["cell"] = "aws-eks/redis-off"
         elif mutation == "wrong-mode": cell["mode"] = "replayed"
         elif mutation == "third-attempt":
             cell["attemptCount"] = 3
@@ -254,7 +254,7 @@ def test_second_attempt_pass_and_preview_failure_are_allowed(tmp_path, attributi
             attempt = cell["attempts"][0]
             cell["attemptCount"] = 2
             cell["attempts"] = [{**attempt, "status": "fail", "failureAttribution": attribution}, {**attempt, "attempt": 2}]
-        receipt["cells"].append({"cell": "eks-redis-off", "status": "fail"})
+        receipt["cells"].append({"cell": "aws-eks/redis-off", "status": "fail"})
     for name in readiness.JOURNEYS:
         _edit(_receipt(fixture, name), change)
     assert _decision(fixture)["status"] == "pass"
@@ -300,5 +300,3 @@ def test_promotion_path_schema_and_readiness_agree_on_patch_rc(tmp_path, label, 
     result = subprocess.run(["bash", "-c", condition], env={**os.environ,
                             "PROMOTION_RECORD": f"certification/promotions/{label}.json"})
     assert (result.returncode == 0) == accepted
-
-

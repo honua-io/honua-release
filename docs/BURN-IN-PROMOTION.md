@@ -42,7 +42,7 @@ Qualifying classes are produced against the selected lock during its burn. Every
 bind the selected digest; evidence from another lock cannot be carried forward. Additional consumed
 classes require an explicit tier declaration and a retained receipt too.
 
-GA cells are `ecs-redis-off`, `ecs-redis-on`, `lambda-batch-redis-off` and `lambda-batch-redis-on`:
+GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off` and `aws-serverless/redis-on`:
 
 - `deterministic-journey`: deterministic passes on all four GA cells.
 - `nightly-model-journey`: a genuine-model pass on ECS with Redis off.
