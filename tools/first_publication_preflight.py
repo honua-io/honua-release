@@ -55,6 +55,16 @@ SDK_PACKAGE_IDS = (
 )
 MOBILE_PACKAGE_IDS = ("Honua.Mobile.Maui", "Honua.Mobile.Offline", "Honua.Mobile.Sdk")
 PINNED_NUPKG_IDS = ("Honua.Sdk", "Honua.Sdk.Studio")
+MOBILE_EMBED_PACKAGE = "@honua-io/embed"
+# Channel -> platform-manifest component that ships it. A channel whose component is listed under
+# the manifest's top-level `experimental:` block (status experimental) is reported as
+# `deferred-experimental`: visible in the receipt, never GA evidence, and never a release blocker.
+# When the component leaves `experimental:` the channel is required again with no code change.
+COMPONENT_CHANNELS = {
+    **{f"nuget:{package_id}": "honua-mobile" for package_id in MOBILE_PACKAGE_IDS},
+    f"npm:{MOBILE_EMBED_PACKAGE}": "honua-mobile",
+}
+DEFERRED_EXPERIMENTAL = "deferred-experimental"
 PYPI_RETIRED = "honua-esri-assess"
 PYPI_MIGRATE = "honua-migrate"
 
@@ -245,6 +255,44 @@ def _manifest_view(manifest: dict) -> dict:
     }
 
 
+def experimental_components(manifest: dict) -> dict[str, str]:
+    """Components the manifest lists under `experimental:` with status experimental -> reason."""
+    block = manifest.get("experimental")
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        raise PreflightError("platform manifest experimental: block is not a mapping")
+    ga = manifest.get("components") or {}
+    deferred = {}
+    for name, entry in block.items():
+        if not isinstance(entry, dict) or entry.get("status") != "experimental":
+            continue
+        if name in ga:
+            raise PreflightError(f"{name} is listed under both components: and experimental:")
+        reason = str(entry.get("reason") or "").strip()
+        deferred[str(name)] = reason or (
+            f"platform-manifest.yaml lists {name} under experimental: with status experimental "
+            "(ADR-0059 experimental+disabled). It is excluded from the certified set, so its public "
+            "publication is deferred and is not a first-publication blocker."
+        )
+    return deferred
+
+
+def _deferred_channel(channel_id: str, publication: str, component: str, reason: str, *,
+                      http_status: int, urls: list[str], versions: list[str] | None = None) -> dict:
+    fields = {
+        "component": component,
+        "deferral_reason": reason,
+        "http_status": http_status,
+        "urls": urls,
+    }
+    if versions:
+        # Recorded so a registry change is visible as drift. An index listing is not bytes, and an
+        # experimental component's package is never GA evidence.
+        fields["registry_versions"] = versions
+    return _channel(channel_id, publication, DEFERRED_EXPERIMENTAL, **fields)
+
+
 def _nuget_versions(transport, package_id: str) -> tuple[int, list[str]]:
     url = nuget_index_url(package_id)
     response = transport.get(url)
@@ -355,6 +403,7 @@ def build_receipt(
     grpc_sha256 = str(retained.get("grpc_sha256") or GRPC_NUPKG_SHA256)
     bsr_sha256 = str(retained.get("bsr_sha256") or BSR_ZIP_SHA256)
     view = _manifest_view(manifest)
+    deferred = experimental_components(manifest)
     channels: list[dict] = []
 
     sdk_versions: dict[str, list[str]] = {}
@@ -447,6 +496,18 @@ def build_receipt(
 
     for package_id in MOBILE_PACKAGE_IDS:
         status, versions = _nuget_versions(transport, package_id)
+        component = COMPONENT_CHANNELS[f"nuget:{package_id}"]
+        if component in deferred:
+            channels.append(_deferred_channel(
+                f"nuget:{package_id}",
+                f"nuget.org {package_id}",
+                component,
+                deferred[component],
+                http_status=status,
+                urls=[nuget_index_url(package_id)],
+                versions=versions,
+            ))
+            continue
         if status == 200:
             raise PreflightError(
                 f"nuget.org listed {package_id} {versions}; download the nupkg before recording it"
@@ -561,18 +622,33 @@ def build_receipt(
         version=view["js_version"],
     ))
 
-    embed_url = npm_package_url("@honua-io/embed")
+    embed_url = npm_package_url(MOBILE_EMBED_PACKAGE)
     embed = transport.get(embed_url)
     embed_status = _status_only(embed.status, embed_url, allowed={200, 404})
-    if embed_status == 200:
+    embed_component = COMPONENT_CHANNELS[f"npm:{MOBILE_EMBED_PACKAGE}"]
+    if embed_component in deferred:
+        embed_versions = []
+        if embed_status == 200:
+            embed_versions = sorted((_parse_json(embed.body, embed.url).get("versions") or {}).keys())
+        channels.append(_deferred_channel(
+            f"npm:{MOBILE_EMBED_PACKAGE}",
+            f"npmjs {MOBILE_EMBED_PACKAGE}",
+            embed_component,
+            deferred[embed_component],
+            http_status=embed_status,
+            urls=[embed_url],
+            versions=embed_versions,
+        ))
+    elif embed_status == 200:
         raise PreflightError("npmjs listed @honua-io/embed; download the tarball before recording it")
-    channels.append(_channel(
-        "npm:@honua-io/embed",
-        "npmjs @honua-io/embed",
-        "blocked-on-operator",
-        http_status=404,
-        urls=[embed_url],
-    ))
+    else:
+        channels.append(_channel(
+            "npm:@honua-io/embed",
+            "npmjs @honua-io/embed",
+            "blocked-on-operator",
+            http_status=404,
+            urls=[embed_url],
+        ))
 
     create_url = npm_package_url("create-honua-app")
     create = transport.get(create_url)
@@ -688,11 +764,14 @@ def build_receipt(
     receipt = {
         "blockers": _blockers(channels),
         "channels": channels,
+        "deferred_experimental_components": dict(sorted(deferred.items())),
         "issue": ISSUE,
         "method": (
             "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this "
             "probe downloaded. listed rows are registry indexes only. Blocked rows name the publication "
-            "and the operator boundary and do not carry package bytes."
+            "and the operator boundary and do not carry package bytes. deferred-experimental rows are "
+            "channels of a component the platform manifest lists under experimental:; they are not "
+            "GA evidence and not release blockers."
         ),
         "observed_at": observed_at,
         "schema": SCHEMA,
@@ -807,7 +886,7 @@ def _blockers(channels: list[dict]) -> list[dict]:
     return blockers
 
 
-def audit(receipt: dict) -> None:
+def audit(receipt: dict, manifest: dict | None = None) -> None:
     if receipt.get("schema") != SCHEMA or receipt.get("issue") != ISSUE:
         raise PreflightError("preflight receipt schema or issue is wrong")
     if not str(receipt.get("observed_at") or ""):
@@ -821,11 +900,17 @@ def audit(receipt: dict) -> None:
     ids = [channel.get("id") for channel in channels]
     if ids != sorted(ids) or len(ids) != len(set(ids)):
         raise PreflightError("preflight channels must be uniquely sorted by id")
+    deferred = receipt.get("deferred_experimental_components")
+    if not isinstance(deferred, dict):
+        raise PreflightError("preflight receipt has no deferred_experimental_components mapping")
+    if manifest is not None and deferred != experimental_components(manifest):
+        raise PreflightError(
+            "preflight receipt deferred_experimental_components does not match the manifest experimental: block"
+        )
     required = {
         "bsr:buf.build/honua-io/geospatial-grpc",
         "helm:oci://ghcr.io/honua-io/charts/honua",
         "iac:git-archive",
-        "npm:@honua-io/embed",
         "npm:@honua/sdk-js",
         "npm:create-honua-app",
         "nuget:Geospatial.Grpc",
@@ -837,6 +922,20 @@ def audit(receipt: dict) -> None:
         "qgis:honua-qgis-plugin",
         "train:honua-sdk-dotnet",
     }
+    by_id = {channel.get("id"): channel for channel in channels}
+    for channel_id, component in COMPONENT_CHANNELS.items():
+        channel = by_id.get(channel_id)
+        if component in deferred:
+            # Deferred channels stay visible; dropping them would hide the deferral.
+            if channel is None:
+                raise PreflightError(f"preflight receipt omits deferred-experimental channel {channel_id}")
+            if channel.get("disposition") != DEFERRED_EXPERIMENTAL:
+                raise PreflightError(
+                    f"{channel_id} belongs to experimental component {component} and must be "
+                    f"{DEFERRED_EXPERIMENTAL}, not {channel.get('disposition')}"
+                )
+        else:
+            required.add(channel_id)
     missing = required.difference(ids)
     if missing:
         raise PreflightError(f"preflight receipt omits {sorted(missing)}")
@@ -862,6 +961,17 @@ def audit(receipt: dict) -> None:
             # The tarball itself is public. The blocker is the template inside those bytes.
             if channel.get("evidence_class") != "downloaded-bytes" or not files:
                 raise PreflightError(f"{channel['id']} republish blocker must carry the downloaded tarball")
+        elif disposition == DEFERRED_EXPERIMENTAL:
+            component = channel.get("component")
+            if COMPONENT_CHANNELS.get(channel["id"]) != component or component not in deferred:
+                raise PreflightError(
+                    f"{channel['id']} is {DEFERRED_EXPERIMENTAL} but its component is not an experimental "
+                    "component of the manifest"
+                )
+            if not str(channel.get("deferral_reason") or ""):
+                raise PreflightError(f"{channel['id']} is {DEFERRED_EXPERIMENTAL} without a reason")
+            if files or channel.get("evidence_class"):
+                raise PreflightError(f"{channel['id']} is {DEFERRED_EXPERIMENTAL} and is not GA evidence")
         elif str(disposition).startswith("blocked-") or disposition == "absent-retired":
             if files:
                 raise PreflightError(f"{channel['id']} must not carry package bytes")
@@ -942,12 +1052,15 @@ def main(argv: list[str] | None = None) -> int:
     observed_at = args.observed_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         live = build_receipt(UrllibTransport(), manifest, observed_at=observed_at)
+        audit(live, manifest)
         if args.write:
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_text(dumps(live), encoding="utf-8")
             print(f"wrote {args.receipt}")
         else:
-            compare(live, load_receipt(args.receipt))
+            committed = load_receipt(args.receipt)
+            audit(committed, manifest)
+            compare(live, committed)
             print(f"OK    first-publication preflight matches {args.receipt}")
         for blocker in live["blockers"]:
             print(f"BLOCKED {blocker['kind']}: {blocker['publication']}")

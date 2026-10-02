@@ -89,6 +89,8 @@ def certification_copy(tmp_path: Path) -> Path:
             "__pycache__", "installed-clients", "terminal-journey", "first-publication", "release-controls",
         ),
     )
+    # The validator checks the certified gRPC clients against the shipped manifest.
+    shutil.copy2(ROOT / "platform-manifest.yaml", tmp_path / "platform-manifest.yaml")
     return target
 
 

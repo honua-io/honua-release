@@ -9,30 +9,12 @@
       "publication": "QGIS plugin honua"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.11-beta.0': 404}; the platform manifest pins @honua/sdk-js 0.1.9-beta.0. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.11-beta.0': 200}; the platform manifest pins @honua/sdk-js 0.1.9-beta.0. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
       "kind": "blocked-on-republish",
       "publication": "npm create-honua-app@0.1.5 template pins"
-    },
-    {
-      "boundary": "honua-mobile .github/workflows/publish-npm-embed.yml job 'Publish to GitHub Packages' runs npm publish against https://npm.pkg.github.com using NODE_AUTH_TOKEN from secrets.GITHUB_TOKEN. That workflow has no npmjs publish. honua-release has no credential that can publish @honua-io/embed.",
-      "channels": [
-        "npm:@honua-io/embed"
-      ],
-      "kind": "blocked-on-operator",
-      "publication": "npmjs @honua-io/embed"
-    },
-    {
-      "boundary": "honua-mobile .github/workflows/publish-dotnet-mobile.yml job 'Publish to GitHub Packages' pushes only to https://nuget.pkg.github.com/honua-io/index.json using secrets.GITHUB_TOKEN. That workflow has no nuget.org Trusted Publishing step. honua-release has no credential that can publish Honua.Mobile.Sdk, Honua.Mobile.Offline, or Honua.Mobile.Maui.",
-      "channels": [
-        "nuget:Honua.Mobile.Maui",
-        "nuget:Honua.Mobile.Offline",
-        "nuget:Honua.Mobile.Sdk"
-      ],
-      "kind": "blocked-on-operator",
-      "publication": "nuget.org Honua.Mobile.Sdk, Honua.Mobile.Offline, Honua.Mobile.Maui"
     },
     {
       "boundary": "clientArtifacts.honua-sdk-dotnet pins Honua.Sdk 1.6.0 on github-packages. The nuget.org flat-container nupkg for that version returned {'Honua.Sdk': 404, 'Honua.Sdk.Studio': 404}. Public Honua.Sdk index versions are 1.6.4, 1.7.0, 1.8.0, 1.9.0, 1.10.0, 1.10.1. components.honua-sdk-dotnet.version is 1.6.2, which is not that public set. Those later versions are not recorded as the train's bytes. honua-console#356 cannot anonymously restore this pin; a public Honua.Sdk.Studio at another version does not satisfy it. Rebinding the manifest is an operator decision. No nuget.org credential is required to see this gap.",
@@ -97,7 +79,9 @@
       ]
     },
     {
-      "disposition": "blocked-on-operator",
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
       "http_status": 404,
       "id": "npm:@honua-io/embed",
       "publication": "npmjs @honua-io/embed",
@@ -136,7 +120,7 @@
       ],
       "publication": "npm create-honua-app@0.1.5",
       "sdk_pin_statuses": {
-        "0.1.11-beta.0": 404
+        "0.1.11-beta.0": 200
       },
       "templates": [
         {
@@ -178,11 +162,15 @@
         "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
       ],
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.2",
+        "1.0.3"
       ]
     },
     {
-      "disposition": "blocked-on-operator",
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
       "http_status": 404,
       "id": "nuget:Honua.Mobile.Maui",
       "publication": "nuget.org Honua.Mobile.Maui",
@@ -191,7 +179,9 @@
       ]
     },
     {
-      "disposition": "blocked-on-operator",
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
       "http_status": 404,
       "id": "nuget:Honua.Mobile.Offline",
       "publication": "nuget.org Honua.Mobile.Offline",
@@ -200,7 +190,9 @@
       ]
     },
     {
-      "disposition": "blocked-on-operator",
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
       "http_status": 404,
       "id": "nuget:Honua.Mobile.Sdk",
       "publication": "nuget.org Honua.Mobile.Sdk",
@@ -643,8 +635,12 @@
       "version_lists_agree": true
     }
   ],
+  "deferred_experimental_components": {
+    "honua-collect": "platform-manifest.yaml lists honua-collect under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+    "honua-mobile": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker."
+  },
   "issue": "honua-io/honua-release#57",
-  "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes.",
-  "observed_at": "2026-09-29T10:54:03Z",
+  "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
+  "observed_at": "2026-09-29T22:36:37Z",
   "schema": "honua.first-publication-preflight/v1"
 }
