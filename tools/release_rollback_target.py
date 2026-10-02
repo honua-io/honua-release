@@ -9,6 +9,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from tag_signing import publication_tag
+
 
 class Finding(ValueError):
     pass
@@ -16,7 +18,7 @@ class Finding(ValueError):
 
 def promoted_tag(candidate_tag: str) -> str:
     """Return the GA tag that promote.yml derives from a candidate tag."""
-    return candidate_tag.split("-rc", 1)[0]
+    return publication_tag(candidate_tag.removeprefix("honua-"))
 
 
 def release_version(tag: str) -> tuple[int, int, int] | None:
