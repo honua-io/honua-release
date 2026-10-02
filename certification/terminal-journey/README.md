@@ -12,10 +12,13 @@ this roster.
 | --- | --- |
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
-| `targets/local-docker.json` | Local Docker target. Reuses `e2e/local-docker/docker-compose.yml` so the server image is injected from `platform-manifest.yaml`. |
+| `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
-| `stages.py` | The eight stage implementations and the outcome discipline. |
+| `stages.py` | Contract prerequisites and the outcome discipline. |
+| `executor.py`, `transport.py` | Authenticated stage 3–8 actions, canonical lifecycle polling, typed approval and content reads. |
+| `sdk.py`, `sdk-import/` | Digest-verified published .NET package consumption and the typed import bridge. |
+| `oracles.py` | Independent geometry, feature, PNG pixel and map-content assertions. |
 | `run.py` | The driver. `--mode build` (contract only) or `--mode live --target …`. |
 | `live_driver.py` | The `terminal-journey-driver-v1` adapter #161 calls, at the path its protocol contract fixes. |
 | `fixtures/smoke-receipt.local-docker.json` | A real receipt from a real run against the pinned candidate. Not a template. |
@@ -64,7 +67,7 @@ preflight: mint an `admin:read` key into a 0600 sink, read its effective
 permissions, list it without key material, revoke it, and delete the sink.
 The root credential and the one-time key never enter the receipt. Service
 mutation, style pixels, GP, composition, publication, and separate-principal
-approval remain blocked until their own observations exist.
+approval require their own live observations and canonical receipt identities.
 
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.
@@ -156,9 +159,9 @@ failed rehearsal even if direct HTTP measurements pass.
 The proxy negotiation prerequisite is
 [SDK PR 1783](https://github.com/honua-io/honua-sdk-js/pull/1783). Its locally packed
 source tests do not replace a published package or update this repository's
-frozen pins. Later execution, distinct-principal approval, model/error recovery
-and saved-map stages remain blocked until their actual driver implementation and
-candidate receipts exist. Discovery never grants call authority.
+frozen pins. Stage executors now invoke authenticated operations when that negotiation succeeds.
+Their candidate qualification remains blocked until the corresponding content,
+authority and canonical receipt assertions pass. Discovery never grants call authority.
 
 ## Promise journey handoff and remaining acceptance (#377)
 
@@ -191,21 +194,61 @@ candidate snapshot. The signed loopback fixture and state-machine tests are unit
 transport evidence only; they are not genuine-model, GP, geometry or deployment
 qualification.
 
+The first #377 executor slice adds fixed build-stage calls and the matching model
+action boundary. It has no shell execution. A model can select an observed MCP
+call, or stage 3's `honua-journey-sdk METHOD JSON_ARRAY` interpreter for the
+observed ingest/publication capabilities. The latter invokes the built bridge
+with stdin JSON; it never executes that command string. Arguments bind the
+authored fixture and previously returned resource identities. The model observes
+the fixture, available method names and action results, rather than a forced
+sequence. An import submission cannot be repeated within a session.
+
+The bridge verifies the manifest's published `Honua.Sdk` digest and package
+identity, requires its exact `Honua.Sdk.Admin` dependency, and restores from the
+GitHub Packages source mapping. A missing published method is `blocked`; a newer
+SDK checkout never substitutes for the pin. The standalone
+`test_sdk_bridge.py --dll PATH` exercise runs five actual published SDK HTTP calls
+against an authored loopback peer. It is serialization/transport evidence only.
+
+The local target needs environment references for `HONUA_JOURNEY_PROPOSER_KEY`,
+`HONUA_JOURNEY_APPROVER_KEY` and `HONUA_JOURNEY_DATASOURCE_PASSWORD`; approval
+requires different credentials and server-reported actor separation. Configure
+`viewer` and `other-tenant` principal environment references for the final RBAC
+and tenant probes. GitHub Packages consumption needs a read token in `GH_TOKEN`
+or `GITHUB_TOKEN`. Credentials stay in private child environments, memory and
+0600 state; receipts retain only the existing allowlisted proof fields.
+
+The assertions compare imported IDs/counts/ordinates with the authored source,
+calculate every buffer ordinate and its shoelace centroid independently, decode
+the rendered PNG and check an authored pixel, and read the saved map from both
+replicas before reopening it. The expected portable map binds its OGC source to
+the imported layer. Final verification compares the actual anonymous published
+body and the immutable item/version/hash join. A proposer approval attempt must
+leave the proposal unchanged and the authenticated candidate must actually
+return 403; CLI usage failure cannot stand in for a security denial.
+
+Missing canonical policy, actuator, verification or approval identities remain
+explicit blockers. The executor neither invents IDs nor relaxes the receipt
+schema to turn content assertions into release qualification. The render fault
+is a real read-only invalid-width request; only the candidate's structured
+refusal marks it observed, and an independently checked subsequent render marks
+recovery. No fictional armed state survives failed setup.
+
 Remaining acceptance is explicit:
 
-- Build stages 3–8 still need authenticated execution and independent content,
-  geometry, render, cross-replica and approval assertions. `execute`, `approve`,
-  `verify` and actual fault injection retain their fail-closed guards.
-- Update, rollback and operate still need reviewed stage implementations, the
-  operator-supplied signed prior/target locks and incompatible target, and the
-  exactly-once/schema-boundary assertions. The current journey contract has eight
-  stages; this change does not pretend the three additional stages executed.
-- Self-approval, seeded layer/support-comment injection, and incompatible-target
-  refusals need live security receipts. A prompt instruction alone is not proof.
-- A complete deterministic run requires a re-pinned, co-installable published
-  client set. A genuine-model run additionally requires candidate StudioAi Bedrock
-  configuration and the platform-controlled signing-manifest digest, neither of
-  which was configured in this lane.
+- Build stages 3–8, approval and verification still need a complete passing live
+  receipt against the continuously certified candidate and published clients.
+  The committed #377 observations are actual red runs, not qualification.
+- Update and rollback executors, two local image revisions, the GP exactly-once
+  and schema boundary checks, and incompatible-target refusal remain outstanding.
+  Signed prior/target lock qualification also remains outstanding; no local image
+  test is presented as a signed-lock result.
+- Operate fault diagnosis and approved remediation, seeded layer/support-comment
+  prompt-injection probes, and their per-run receipts remain outstanding.
+- A genuine-model run additionally needs candidate StudioAi Bedrock configuration
+  and the platform-controlled signing-manifest digest. Neither was configured in
+  this lane. The deterministic entry gate is preserved.
 
-Issue #377 stays open in the must-fix-before-cut bucket. Candidate-bound acceptance
-cannot be claimed from this harness slice or the red local observation.
+R18 continuous certification on trunk governs candidate selection. A nightly
+strict train must mint the signed lock and coherent published client set; this
+executor does not freeze or hand re-pin the manifest. Issue #377 stays open.
