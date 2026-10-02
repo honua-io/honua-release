@@ -63,29 +63,52 @@ class GitHub:
         env = os.environ.copy()
         env['NO_COLOR'] = '1'
         env['GH_FORCE_TTY'] = '0'
-        result = retry(lambda: subprocess.run(
-            ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
+        # A 404 (a repository or package this token cannot see), an exhausted rate limit or any
+        # other refusal stops this component; it never reads as an empty or green answer.
+        try:
+            result = retry(lambda: subprocess.run(
+                ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
+        except subprocess.CalledProcessError as exc:
+            detail = ' '.join(str(exc.stderr or exc).split())
+            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
     def pages(self, path, key=None):
+        """Every row, or a refusal. Keyed pages must add up to their declared total_count."""
         separator = '&' if '?' in path else '?'
-        page = 1
+        page, seen, total = 1, 0, None
         while True:
             result = self.json(f'{path}{separator}per_page=100&page={page}')
-            rows = result[key] if key else result
+            if key:
+                rows = result.get(key) if isinstance(result, dict) else None
+                count = result.get('total_count') if isinstance(result, dict) else None
+                if not isinstance(rows, list) or not isinstance(count, int) or isinstance(count, bool):
+                    raise ResolutionError(f'gh api {path} page {page} has no {key} list and total_count')
+                if total is not None and count != total:
+                    raise ResolutionError(f'gh api {path} total_count moved from {total} to {count} while paging')
+                total = count
+            else:
+                rows = result
+                if not isinstance(rows, list):
+                    raise ResolutionError(f'gh api {path} page {page} is not a list')
+            if not all(isinstance(row, dict) for row in rows):
+                raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+            seen += len(rows)
             yield from rows
             if len(rows) < 100:
                 break
             page += 1
+        if total is not None and seen != total:
+            raise ResolutionError(f'gh api {path} returned {seen} of {total} {key}; refusing a truncated page')
 
     def commits(self, repository, limit):
         for index, row in enumerate(self.pages(f'repos/{repository}/commits?sha=trunk')):
             if index >= limit:
                 break
-            yield row['sha']
+            yield str(row.get('sha') or '')
 
     def green(self, name, repository, sha):
         checks = list(self.pages(f'repos/{repository}/commits/{sha}/check-runs', 'check_runs'))

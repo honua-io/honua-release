@@ -257,4 +257,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python tools/verify_content_digests.py platform-manifest.yaml
-

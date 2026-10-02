@@ -1,5 +1,5 @@
 name: Immutable candidate inputs
-description: Overlay only manifest and matrix data from a generated snapshot of this reviewed commit
+description: Overlay only manifest and matrix data from a generated snapshot of reviewed trunk
 inputs:
   candidate_ref:
     description: Full snapshot commit SHA published at refs/nightly-candidates/<sha>
@@ -7,18 +7,35 @@ inputs:
 runs:
   using: composite
   steps:
+    # The snapshot's parent is the commit the nightly ran. Inside the train that is this run's
+    # commit. A producer dispatched on trunk (the DR drill) starts from trunk head, which may
+    # have moved since the nightly started: then the parent must be an ancestor of that head.
     - name: Verify snapshot lineage and adopt candidate data
       shell: bash
       env:
         CANDIDATE_REF: ${{ inputs.candidate_ref }}
-        REVIEWED_SHA: ${{ github.sha }}
+        RUN_SHA: ${{ github.sha }}
+        RUN_REF: ${{ github.ref }}
       run: |
         set -euo pipefail
         [[ "$CANDIDATE_REF" =~ ^[0-9a-f]{40}$ ]]
         git fetch --depth=2 origin "refs/nightly-candidates/${CANDIDATE_REF}:refs/nightly-candidates/${CANDIDATE_REF}"
         git worktree add --detach nightly-input "$CANDIDATE_REF"
         test "$(git -C nightly-input rev-parse HEAD)" = "$CANDIDATE_REF"
-        test "$(git -C nightly-input rev-parse HEAD^)" = "$REVIEWED_SHA"
+        parent="$(git -C nightly-input rev-parse HEAD^)"
+        if [ "$parent" != "$RUN_SHA" ]; then
+          if [ "$RUN_REF" != refs/heads/trunk ]; then
+            echo "snapshot parent $parent is not this run's commit $RUN_SHA"; exit 1
+          fi
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin "+refs/heads/trunk:refs/remotes/origin/trunk"
+          else
+            git fetch --no-tags origin "+refs/heads/trunk:refs/remotes/origin/trunk"
+          fi
+          git merge-base --is-ancestor "$parent" "$RUN_SHA" || {
+            echo "snapshot parent $parent is not reviewed trunk history of $RUN_SHA"; exit 1;
+          }
+        fi
         git -C nightly-input diff --name-only HEAD^ HEAD > "$RUNNER_TEMP/candidate-changes.txt"
         while IFS= read -r path; do
           case "$path" in platform-manifest.yaml|compatibility-matrix.yaml) ;; *) echo "unexpected candidate change: $path"; exit 1;; esac

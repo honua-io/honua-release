@@ -28,10 +28,10 @@ on:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
       capacity_receipt_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: true, type: string }
-      candidate_ref: { description: "Immutable generated candidate snapshot commit (empty uses manual pins)", required: false, type: string, default: "" }
-      nightly: { description: "Mint only after the complete strict nightly train", required: false, type: boolean, default: false }
       dr_receipt_url: { description: "HTTPS URL of the candidate full-platform DR receipt", required: true, type: string }
 
+  # `nightly` and `candidate_ref` are call-only: as dispatch inputs, nightly=true with
+  # dry_run=false would skip the signed frozen-lock binding a manual cut requires.
   workflow_call:
     inputs:
       platform_label: { required: true, type: string }
@@ -82,6 +82,7 @@ jobs:
       certification_path: ${{ steps.candidate.outputs.certification_path }}
       certification_sha256: ${{ steps.candidate.outputs.certification_sha256 }}
       candidate_cut_at: ${{ steps.candidate.outputs.candidate_cut_at }}
+      manifest_sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -108,13 +109,15 @@ jobs:
 
       - name: Generate the unsigned nightly qualification lock
         if: inputs.nightly && inputs.dry_run == false
+        env:
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
         run: |
           set -euo pipefail
           python tools/generate_platform_lock.py --manifest platform-manifest.yaml \
             --matrix compatibility-matrix.yaml --output platform-lock.json
           python tools/platform_lock_bundle.py platform-lock.json \
             --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
-            --label '${{ inputs.platform_label }}' --out-dir frozen-lock
+            --label "$PLATFORM_LABEL" --out-dir frozen-lock
 
       # A dry run still feeds certification gates. Every generator refusal stops freeze;
       # partial drafts must never be relabelled as gate inputs. Successful drafts are labelled
@@ -149,6 +152,7 @@ jobs:
         id: candidate
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
@@ -163,7 +167,7 @@ jobs:
             python tools/verify_evidence_sources.py
           fi
           python tools/generate_evidence_index.py --out release-evidence-pins.json
-          echo "candidate platform_label (input): ${{ inputs.platform_label }}"
+          echo "candidate platform_label (input): ${PLATFORM_LABEL}"
           echo "manifest platformRelease: $(python -c "import yaml;print(yaml.safe_load(open('platform-manifest.yaml')).get('platformRelease'))")"
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import yaml
@@ -190,6 +194,7 @@ jobs:
           print(f"certification_sha256={ledger['sha256']}")
           print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
+          echo "manifest_sha256=$(sha256sum platform-manifest.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       # attest-build-provenance signs whatever bytes are at this path; it does not care whether the
       # lock is a real bound candidate or the labelled dry-run draft above, so this runs for both -
       # it's how rollback-certification's `gh attestation verify` gets a real, checkable subject
@@ -401,17 +406,18 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
 
-  gate_journey_todo:
-    name: TODO required promise-journey gate (release 386)
-    needs: freeze
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fail closed until gate-journey.yml exists on trunk
-        env:
-          STRICT: ${{ !inputs.dry_run }}
-        run: |
-          echo "TODO: gate-journey.yml was absent from origin/trunk at implementation; promise-journey cells are required."
-          if [ "$STRICT" = "true" ]; then exit 1; fi
+  gate_journey:                 # promise journeys (#381): every GA cloud cell has a passing receipt
+    needs: [freeze, gate_cloud_parity]
+    # The per-cell receipts are judged even when the cloud aggregate is red: Preview cells cannot
+    # block, and a missing GA receipt fails here. A skipped freeze has no candidate to judge.
+    if: ${{ !cancelled() && needs.freeze.result == 'success' }}
+    uses: ./.github/workflows/gate-journey.yml
+    with:
+      # e2e-cloud-aws runs inside this run, so its per-cell receipts carry this run's identity.
+      receipts_run_id: ${{ github.run_id }}
+      receipts_run_attempt: ${{ github.run_attempt }}
+      candidate_digest: ${{ needs.freeze.outputs.manifest_sha256 }}
+      candidate_bundle: true
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -434,7 +440,7 @@ jobs:
       - gate_protocol_certification
       - gate_capacity_soak
       - gate_dr
-      - gate_journey_todo
+      - gate_journey
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -483,7 +489,7 @@ jobs:
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
           S_DR: ${{ needs.gate_dr.result }}
-          S_JOURNEY: ${{ needs.gate_journey_todo.result }}
+          S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -652,17 +658,19 @@ jobs:
           path: out/certified-candidate/
 
       - name: Enforce + (TODO) tag RC
+        env:
+          OVERALL: ${{ steps.assemble.outputs.overall }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -e
-          OVERALL='${{ steps.assemble.outputs.overall }}'
-          echo "overall train status: $OVERALL (dry_run=${{ inputs.dry_run }})"
+          echo "overall train status: $OVERALL (dry_run=${DRY_RUN})"
           if [ "$OVERALL" = "fail" ]; then
             echo "::error::release-train: a wired gate failed — candidate is NOT certifiable"; exit 1
           fi
           if [ "$OVERALL" = "blocked" ]; then
             echo "::warning::release-train: a wired gate is blocked (unpublished artifacts / placeholder pins). Not certifiable for a real cut."
           fi
-          if [ "$OVERALL" != "pass" ] && [ '${{ inputs.dry_run }}' = "false" ]; then
+          if [ "$OVERALL" != "pass" ] && [ "$DRY_RUN" = "false" ]; then
             echo "::error::strict train requires every gate to pass"; exit 1
           fi
           echo "Nightly signs a lock only after the complete strict train passes."
