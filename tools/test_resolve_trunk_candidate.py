@@ -263,3 +263,98 @@ def test_non_json_answer_refuses(monkeypatch):
     monkeypatch.setattr(resolver.subprocess, 'run', run)
     with pytest.raises(resolver.ResolutionError, match='non-JSON'):
         resolver.GitHub().json('repos/honua-io/server')
+
+
+# Hand-computed outside Python:
+#   printf '%s\n' '["Honua.Server.Migrations.001_CreateHonuaSchema.sql","Honua.Server.Migrations.002_AddThing.sql"]' | sha256sum
+FIXTURE_JOURNAL_SHA256 = 'sha256:7d59f866183bbaa6fcaba855f876ec6f42ff262020d23ca0fa2a8df84e1cc63b'
+ADOPTION_DECLARATION = b'''internal static class ServerCoreSchemaMigrations
+{
+    internal static readonly PostgresCoreSchemaMigrationManifest Manifest = new(
+        "Honua.Server",
+        "Honua.Server.Migrations.109_AdoptConfiguredGuardedSchema.sql");
+}
+'''
+
+
+class MigrationSource:
+    """The selected honua-server tree: two numbered roots plus files DbUp never embeds."""
+
+    def __init__(self, paths=None, declaration=ADOPTION_DECLARATION, truncated=False):
+        self.paths = paths if paths is not None else [
+            'src/Honua.Server/Migrations/002_AddThing.sql',
+            'src/Honua.Server/Migrations/001_CreateHonuaSchema.sql',
+            'src/Honua.Server/Migrations/109_AdoptConfiguredGuardedSchema.sql',
+            'src/Honua.Server/Migrations/README.md',
+            'src/Honua.Server/Migrations/Archive/000_NotEmbedded.sql',
+            'src/Honua.Db/Postgres/Migrations/001_CreateRasterTables.sql',
+            'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs',
+        ]
+        self.declaration, self.truncated, self.reads = declaration, truncated, []
+
+    def json(self, path):
+        self.reads.append(path)
+        assert path == f'repos/honua-io/honua-server/git/trees/{NEW}?recursive=1'
+        return {'truncated': self.truncated, 'tree': [{'path': path, 'type': 'blob'} for path in self.paths]}
+
+    def file(self, repository, revision, path):
+        self.reads.append(path)
+        assert (repository, revision) == ('honua-io/honua-server', NEW)
+        assert path == 'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs'
+        return self.declaration
+
+
+def test_migration_journal_of_a_fixture_tree_matches_the_hand_computed_hash():
+    source = MigrationSource()
+    paths = resolver.migration_tree(source, 'honua-io/honua-server', NEW)
+    journal = resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
+    # Raster provider, adoption, nested and non-SQL files are not the default deployment's journal.
+    assert sorted(journal) == ['Honua.Server.Migrations.001_CreateHonuaSchema.sql',
+                               'Honua.Server.Migrations.002_AddThing.sql']
+    assert resolver.upgrade_lock_binding.journal_digest(journal) == FIXTURE_JOURNAL_SHA256
+
+
+def test_migration_journal_changes_when_one_script_is_added():
+    source = MigrationSource()
+    source.paths.append('src/Honua.Server/Migrations/003_AddAnother.sql')
+    paths = resolver.migration_tree(source, 'honua-io/honua-server', NEW)
+    journal = resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
+    assert resolver.upgrade_lock_binding.journal_digest(journal) != FIXTURE_JOURNAL_SHA256
+
+
+@pytest.mark.parametrize('source,message', [
+    (MigrationSource(truncated=True), 'truncated'),
+    (MigrationSource(paths=['src/Honua.Server/Migrations/001_CreateHonuaSchema.sql']), 'is gone'),
+    (MigrationSource(declaration=b'new("Honua.Server", "Honua.Server.Migrations.150_AdoptAgain.sql")'), 'no longer names'),
+])
+def test_migration_journal_refuses_instead_of_guessing(source, message):
+    with pytest.raises(resolver.ResolutionError, match=message):
+        paths = resolver.migration_tree(source, 'honua-io/honua-server', NEW)
+        resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
+
+
+def resolve_fixture(monkeypatch, source, stale_journal):
+    server = {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1',
+              'migrationJournalSha256': stale_journal}
+    manifest = {'components': {'honua-server': server},
+                'protocolCertification': {'ledger': {'status': 'bound'}}}
+    matrix = {'data': {'honua-server': {'requiresDbSchema': '1'}}}
+    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver.validate_platform, 'validate',
+                        lambda *a, **k: type('Findings', (), {'errors': []})())
+    monkeypatch.setattr(resolver.validate_platform, 'check_legacy_evidence_pin_coherence', lambda *a: None)
+    return resolver.resolve(manifest, matrix, source, None)
+
+
+def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
+    candidate, matrix = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64)
+    server = candidate['components']['honua-server']
+    assert server['migrationJournalSha256'] == FIXTURE_JOURNAL_SHA256
+    assert server['dbSchema'] == '109'
+    assert matrix['data']['honua-server']['requiresDbSchema'] == '109'
+
+
+def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
+    with pytest.raises(resolver.ResolutionError, match='honua-server migrations: .*truncated'):
+        resolve_fixture(monkeypatch, MigrationSource(truncated=True), 'sha256:' + 'f' * 64)

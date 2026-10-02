@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,48 @@ import yaml
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 PHASES = ("install", "candidate", "rollback")
+# DbUp journals an embedded script by its manifest resource name. Restricting names to this
+# alphabet keeps the canonical bytes free of JSON escapes, so every writer emits one encoding.
+JOURNAL_SCRIPT = re.compile(r"[A-Za-z0-9_.-]+\.sql\Z")
 
 
 class BindingError(ValueError):
     pass
+
+
+def canonical_journal_bytes(scripts: Any) -> bytes:
+    """honua.migration-journal/v1: the exact bytes `migrationJournalSha256` is the SHA-256 of.
+
+    The journal is the set of `public.schema_versions.scriptname` values. Its canonical form is
+    a JSON array of those names, each matching JOURNAL_SCRIPT, without duplicates, sorted by
+    ordinal (byte) order, serialized with no whitespace (`["a.sql","b.sql"]`), ASCII, and
+    terminated by exactly one LF. Anything else (an empty set, a non-string, a duplicate entry,
+    a name that would need escaping) is refused, never normalized.
+    """
+    if not isinstance(scripts, (list, tuple)) or not scripts:
+        raise BindingError("migration journal must be a non-empty list of script names")
+    for script in scripts:
+        if not isinstance(script, str) or not JOURNAL_SCRIPT.fullmatch(script):
+            raise BindingError(f"migration journal entry {script!r} is not a canonical script name")
+    if len(set(scripts)) != len(scripts):
+        duplicates = sorted({script for script in scripts if scripts.count(script) > 1})
+        raise BindingError("migration journal repeats " + ", ".join(duplicates))
+    return (json.dumps(sorted(scripts), separators=(",", ":")) + "\n").encode("ascii")
+
+
+def journal_digest(scripts: Any) -> str:
+    return "sha256:" + hashlib.sha256(canonical_journal_bytes(scripts)).hexdigest()
+
+
+def observed_journal(text: str) -> list[str]:
+    """Parse a database's journal as JSON (e.g. psql `json_agg` output); formatting is irrelevant."""
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise BindingError(f"observed migration journal is not JSON ({exc})") from exc
+    if not isinstance(value, list):
+        raise BindingError("observed migration journal must be a JSON array (an empty table is not a journal)")
+    return value
 
 
 def bytes_digest(path: Path) -> str:
@@ -106,7 +145,12 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
         raise BindingError(f"observed schema {observed_schema!r} is not exactly candidate-declared {declared!r}")
     journal = evidence.get("schema") or {}
     declared_journal = (((candidate.get("components") or {}).get("honua-server") or {}).get("migrationJournalSha256"))
-    if journal.get("declaredJournalSha256") != declared_journal or journal.get("journalSha256") != declared_journal:
+    if not DIGEST.fullmatch(str(declared_journal)):
+        raise BindingError("candidate lock declares no exact migrationJournalSha256")
+    # The digest is recomputed from the observed script names; a reported hash alone proves nothing.
+    observed_journal_digest = journal_digest(journal.get("journal"))
+    if (journal.get("declaredJournalSha256") != declared_journal or journal.get("journalSha256") != observed_journal_digest
+            or observed_journal_digest != declared_journal):
         raise BindingError("migration journal does not match the candidate-declared migration set")
     rollback = phases["rollback"]
     if rollback.get("databaseSchema") != declared:
@@ -128,7 +172,28 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
     }
 
 
+def journal_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="upgrade_lock_binding.py journal-digest",
+        description="Write the canonical migration journal and print its sha256 digest.")
+    parser.add_argument("journal", type=Path, help="JSON array of observed schema_versions script names")
+    parser.add_argument("--canonical-output", type=Path, help="where to write the canonical journal bytes")
+    args = parser.parse_args(argv)
+    try:
+        scripts = observed_journal(args.journal.read_text(encoding="utf-8"))
+        canonical = canonical_journal_bytes(scripts)
+        if args.canonical_output:
+            args.canonical_output.write_bytes(canonical)
+    except (OSError, UnicodeDecodeError, BindingError) as exc:
+        print(f"migration journal: FAIL: {exc}", file=sys.stderr)
+        return 1
+    print("sha256:" + hashlib.sha256(canonical).hexdigest())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["journal-digest"]:
+        return journal_main(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prior-lock", required=True, type=Path)
     parser.add_argument("--candidate-lock", required=True, type=Path)
