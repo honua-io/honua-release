@@ -45,6 +45,8 @@ class Transport:
         headers.update(extra_headers or {})
         if principal is not None:
             credential = self.credentials[principal]
+            if callable(credential):
+                credential = credential()
             if credential.startswith("Bearer "):
                 headers["Authorization"] = credential
             else:

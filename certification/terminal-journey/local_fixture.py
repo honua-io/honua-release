@@ -94,7 +94,7 @@ def credentials(target, workdir, base_url, *, mint=False):
                 raise ExecutionError("mint journey principals", "candidate effective permissions differ from fixture grants")
     resolved.update(private["keys"])
     # A fresh single-use bearer avoids weakening the candidate's replay protection.
-    resolved["other-tenant"] = _other_tenant_token(private["signingKey"])
+    resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
     return resolved
 
 

@@ -30,6 +30,7 @@ services:
     environment:
       ConnectionStrings__Redis: "redis:6379"
       Oidc__Enabled: "true"
+      Studio__EndUserAuthorization__Enabled: "true"
       Oidc__Generic__Enabled: "true"
       Oidc__Generic__Authority: "https://terminal-journey.invalid"
       Oidc__Generic__ClientId: "terminal-journey"
@@ -47,6 +48,7 @@ services:
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
       ConnectionStrings__Redis: "redis:6379"
       Oidc__Enabled: "true"
+      Studio__EndUserAuthorization__Enabled: "true"
       Oidc__Generic__Enabled: "true"
       Oidc__Generic__Authority: "https://terminal-journey.invalid"
       Oidc__Generic__ClientId: "terminal-journey"

@@ -449,7 +449,8 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     assert set(keys) == {"proposer", "approver", "viewer", "other-tenant"}
     private_path = tmp_path / "private-principals.json"
     assert private_path.stat().st_mode & 0o777 == 0o600
-    token = keys["other-tenant"].split(" ")[1]
+    first_token = keys["other-tenant"]()
+    token = first_token.split(" ")[1]
     header, payload, signature = token.split(".")
     claims = json.loads(base64.urlsafe_b64decode(payload + "=="))
     assert claims["tenant_id"] == "journey-other"
@@ -458,7 +459,28 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     import hmac
     expected = hmac.new(env["HONUA_JOURNEY_SIGNING_KEY"].encode(), (header + "." + payload).encode(), hashlib.sha256).digest()
     assert base64.urlsafe_b64decode(signature + "==") == expected
-    assert keys["other-tenant"] != local_fixture.credentials(target, tmp_path, "http://127.0.0.1:8137")["other-tenant"]
+    assert first_token != keys["other-tenant"]()
     assert not any("private-" in value for value in target["principals"].values())
     local_fixture.cleanup(tmp_path)
     assert not private_path.exists()
+
+
+def test_tenant_denial_cannot_pass_from_a_blanket_studio_rbac_refusal():
+    transport = mock.Mock(credentials={"viewer": "unit-viewer", "other-tenant": "unit-other"})
+    engine = engine_for(transport)
+    engine.resources.update(itemId="item", versionId="version", contentHash="hash")
+    transport.http.side_effect = ExecutionError("GET /api/v1/studio/package-families", "HTTP 403")
+    result = engine.verify_authority()["tenantIsolation"]
+    assert result.status == "fail"
+    assert result.invocation == "GET /api/v1/studio/package-families"
+
+
+def test_http_transport_mints_each_fixture_bearer_at_request_time(live_http):
+    url, seen = live_http
+    transport = transport_for(url)
+    provider = mock.Mock(side_effect=["Bearer one", "Bearer two"])
+    transport.credentials["other-tenant"] = provider
+    transport.http("GET", "/map", principal="other-tenant")
+    transport.http("GET", "/map", principal="other-tenant")
+    assert provider.call_count == 2
+    assert seen == [("GET", "/map", None), ("GET", "/map", None)]

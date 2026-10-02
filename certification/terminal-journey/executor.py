@@ -450,6 +450,10 @@ class JourneyExecutor:
         def denied(path, principal, expected):
             if not self.transport.credentials.get(principal):
                 raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
+            if principal == "other-tenant":
+                # Reach a non-admin Studio route before testing a private resource;
+                # a blanket RBAC refusal cannot establish tenant isolation.
+                self.transport.http("GET", "/api/v1/studio/package-families", principal=principal, expected=(200,))
             _, status = self.transport.http("GET", path, principal=principal, expected=expected)
             return {"httpStatus": status}
 
