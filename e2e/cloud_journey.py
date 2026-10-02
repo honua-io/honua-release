@@ -131,6 +131,13 @@ def attempt(cell, number, endpoint, admin_key):
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
     driver, _ = drivers()
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
+    contract = driver.load(HERE / "journey.v1.json")
+    expected_stages = [(stage["number"], stage["id"], stage["command"]) for stage in contract["stages"]]
+    actual_stages = [(stage["number"], stage["stage"], stage["command"]) for stage in receipt["stages"]]
+    if actual_stages != expected_stages or receipt["evidenceKey"] != contract["evidenceKey"]:
+        raise ValueError("cell receipt does not cover the pinned journey contract")
+    if receipt["status"] == "pass" and receipt["roster"]["status"] != "pass":
+        raise ValueError("passing receipt lacks authoritative candidate roster evidence")
     pinned = manifest()
     server = pinned["components"]["honua-server"]
     if (record.get("cell") != cell or receipt["target"]["id"] != cell
@@ -179,7 +186,9 @@ def check_cost(path, ceiling, *, started_at):
     if not amount.is_finite() or amount < 0:
         raise ValueError("invalid cost amount")
     return {"status": "fail" if amount > ceiling else "pass", "amountUsd": str(amount),
-            "ceilingUsd": str(ceiling), "measuredAt": cost["measuredAt"], "scope": "run"}
+            "ceilingUsd": str(ceiling), "measuredAt": cost["measuredAt"], "scope": "run",
+            "runId": cost["runId"], "runAttempt": cost["runAttempt"],
+            "candidateDigest": candidate_digest()}
 
 
 def cleanup(cell):
@@ -237,8 +246,16 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
             if not passed or report["status"] != "pass":
                 raise ValueError("full-scope cloud reports did not all pass: journey/cell failed")
             cost = report.get("cost", {})
-            if cost.get("status") != "pass" or cost.get("scope") != "run":
+            if (cost.get("status") != "pass" or cost.get("scope") != "run"
+                    or cost.get("runId") != run_id or cost.get("runAttempt") != run_attempt
+                    or cost.get("candidateDigest") != candidate_digest()):
                 raise ValueError("missing passing run cost ceiling evidence")
+            amount, ceiling = Decimal(cost["amountUsd"]), Decimal(cost["ceilingUsd"])
+            if not amount.is_finite() or not ceiling.is_finite() or not 0 <= amount <= ceiling or ceiling <= 0:
+                raise ValueError("invalid or over-ceiling run cost evidence")
+            measured = datetime.fromisoformat(cost["measuredAt"].replace("Z", "+00:00"))
+            if not 0 <= (datetime.now(timezone.utc) - measured).total_seconds() <= 86400:
+                raise ValueError("stale run cost evidence")
         except Exception as error:
             failures.append(f"{cell}: {type(error).__name__}: {error}")
     status = "fail" if failures else "pass"
@@ -246,7 +263,8 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
         status = "blocked"
     return {"gate": "cloud-parity", "status": status, "why": "; ".join(failures) if failures else
             ("GA cloud journeys passed" if full_scope else "focused dispatch is diagnostic only"),
-            "cells": cells, "certifying": full_scope and require_real and status == "pass",
+            "cells": cells, "canaryProbes": [probe for row in cells for probe in row.get("canaryProbes", [])],
+            "certifying": full_scope and require_real and status == "pass",
             "certifyingScope": full_scope, "lambdaGaQualification": "pending", "generatedAt": now()}
 
 
