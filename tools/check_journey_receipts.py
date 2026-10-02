@@ -60,6 +60,21 @@ def require_current(value, at):
         raise ValueError("stale or future receipt evidence")
 
 
+def attempt_metadata(reports):
+    """Retain allowlisted attempt metadata even when validation cannot finish."""
+    result = []
+    for report, _ in reports:
+        attempts = report.get("journeyAttempts", [])
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if isinstance(attempt, dict):
+                result.append({"number": attempt.get("number"), "status": "unverified",
+                               "driver": attempt.get("driver", "deterministic"),
+                               "failureAttribution": attempt.get("failureAttribution")})
+    return result
+
+
 def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt, at):
     attempts = report.get("journeyAttempts")
     if (not isinstance(attempts, list) or not 1 <= len(attempts) <= 2
@@ -79,6 +94,7 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
     if set(expected_clients) != {"honua-sdk-js", "honua-mcp-server"}:
         raise ValueError("candidate lacks required client pins")
     history = []
+    recorded_paths = set()
     passed = False
     for record in attempts:
         if passed:
@@ -95,6 +111,9 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 or not path.resolve().is_relative_to(directory.resolve())):
             raise ValueError("unsafe receipt path")
         data = path.read_bytes()
+        if path.resolve() in recorded_paths:
+            raise ValueError("duplicate attempt receipt file")
+        recorded_paths.add(path.resolve())
         if hashlib.sha256(data).hexdigest() != record.get("receiptSha256"):
             raise ValueError("receipt digest mismatch")
         receipt = load_json(path)
@@ -124,6 +143,8 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
         history.append({"number": record["number"], "status": receipt["status"],
                         "driver": driver, "failureAttribution": attribution,
                         "receipt": record["receipt"]})
+    if any(path.resolve() not in recorded_paths for path in directory.rglob("receipt-*.json")):
+        raise ValueError("receipt file omitted from recorded attempt history")
     if not passed or report.get("status") != "pass":
         raise ValueError("cell missing a passing receipt within 2 attempts, or cell skipped/failed")
     return history
@@ -171,13 +192,10 @@ def evaluate(receipts: Path, candidate: Path, candidate_digest: str, run_id: str
         entries = by_cell.get(cell, [])
         row = {"cell": cell, "evidenceTier": "Preview" if preview else "GA",
                "counted": not preview, "status": "missing", "drivers": [], "attempts": []}
+        row["attempts"] = attempt_metadata(entries)
+        row["drivers"] = sorted({str(a["driver"]) for a in row["attempts"]})
         if preview:
             row["status"] = entries[0][0].get("status", "invalid") if entries else "missing"
-            row["reports"] = [report for report, _ in entries]
-            row["drivers"] = sorted({str(a.get("driver", "deterministic"))
-                                     for report, _ in entries for a in report.get("journeyAttempts", [])
-                                     if isinstance(a, dict)} if entries and all(
-                                         isinstance(r.get("journeyAttempts", []), list) for r, _ in entries) else set())
             row["why"] = "informational Preview cell; never counted or blocking"
         else:
             try:
@@ -192,7 +210,7 @@ def evaluate(receipts: Path, candidate: Path, candidate_digest: str, run_id: str
                 row.update(status="pass", why="exact candidate journey passed within 2 recorded attempts")
             except (ValueError, OSError, KeyError, TypeError) as error:
                 # Diagnostics contain no raw receipt fields or command output.
-                row.update(status="fail", why=str(error) if isinstance(error, ValueError) else
+                row.update(status="fail", why=str(error) if type(error) is ValueError else
                            "missing or malformed journey evidence")
                 errors.append(f"{cell}: {row['why']}")
         rows.append(row)

@@ -241,6 +241,23 @@ def test_attempt_after_pass_is_red(intake):
     assert_red(intake, "after passing receipt")
 
 
+def test_unrecorded_failed_receipt_cannot_be_hidden(intake):
+    cell = checker.GA_CELLS[0]
+    report = intake.write(cell, [failed_receipt(cell), receipt(cell)])
+    report["journeyAttempts"] = [{**report["journeyAttempts"][1], "number": 1}]
+    intake.save(cell, report)
+    assert_red(intake, "omitted from recorded attempt history")
+
+
+def test_failed_cell_still_reports_attempt_driver_and_attribution(intake):
+    cell = checker.GA_CELLS[0]
+    intake.write(cell, [failed_receipt(cell)], drivers=["genuine-model"], attributions=["model"])
+    result = intake.evaluate()
+    row = result["cells"][0]
+    assert row["status"] == "fail" and row["drivers"] == ["genuine-model"]
+    assert row["attempts"][0]["failureAttribution"] == "model"
+
+
 @pytest.mark.parametrize("attribution", [None, "unknown", "", False])
 def test_unattributed_failure_cannot_be_hidden_by_pass(intake, attribution):
     cell = checker.GA_CELLS[0]
@@ -343,6 +360,17 @@ def test_preview_pass_cannot_replace_ga_receipt(intake):
     for cell in checker.PREVIEW_CELLS:
         intake.write(cell)
     assert_red(intake, "missing cell receipt")
+
+
+def test_preview_report_retains_only_allowlisted_metadata(intake):
+    cell = checker.PREVIEW_CELLS[0]
+    report = intake.write(cell)
+    report["rawToolOutput"] = "sensitive-value"
+    report["endpoint"] = "https://example.invalid/?token=sensitive-value"
+    intake.save(cell, report)
+    result = intake.evaluate()
+    assert result["status"] == "pass"
+    assert "sensitive-value" not in json.dumps(result)
 
 
 def test_candidate_bytes_must_match_independent_digest(intake):
