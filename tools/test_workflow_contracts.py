@@ -441,17 +441,31 @@ def test_every_promote_step_that_can_refuse_is_allowed_to_refuse():
             assert not _neutralised(step), f"guard step is neutralised: {step.get('name')}"
 
 
-def test_promotion_requires_committed_burn_evidence_and_retags_the_freeze_rc():
+def test_promotion_requires_committed_burn_evidence_and_retags_the_minting_rc():
     workflow = _workflow("promote.yml")
     assert workflow["jobs"]["promote"]["environment"] == "release-promotion"
     assert _triggers(workflow)["workflow_dispatch"]["inputs"]["promotion_record"]["required"] is True
-    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["promote"]["steps"])
+    steps = workflow["jobs"]["promote"]["steps"]
+    commands = "\n".join(_step_text(step) for step in steps)
     for required in (
-        "certification/promotions/[0-9]+", "check_promotion_readiness.py", "burnStartCommit",
-        "git log", "platform-lock.json", "strictTrains", "demoCanaries",
+        "certification/promotions/[0-9]+", "fetch_promotion_evidence.py fetch", "check_promotion_readiness.py",
         "steps.readiness.outputs.rc_train_run_id", "candidate/platform-lock.json",
     ):
         assert required in commands
+    # Per-lock record (R19-R21): no freeze-era burn-start commit or trunk lock history, and
+    # readiness reads the selected lock's retained bytes, not trunk's current lock.
+    for withdrawn in ("burnStartCommit", "git log", "lock-history", "strictTrains[]", "--lock platform-lock.json"):
+        assert withdrawn not in commands
+    readiness = next(step for step in steps if step.get("id") == "readiness")
+    assert '--lock "promotion-evidence/trains/$RC_RUN_ID/platform-lock.json"' in readiness["run"]
+    fetch = next(index for index, step in enumerate(steps) if "fetch_promotion_evidence.py fetch" in _step_text(step))
+    assert fetch < steps.index(readiness)
+    # A scheduled nightly minting train is a certifying run.
+    train = next(step for step in steps if step.get("id") == "train")
+    for flag in ("--expected-workflow-path .github/workflows/release-train.yml",
+                 "--expected-workflow-path .github/workflows/nightly-certification.yml",
+                 "--allowed-event schedule", "--allowed-event workflow_dispatch"):
+        assert flag in train["run"]
     assert "docker build" not in commands
     assert "dotnet build" not in commands
     assert "npm pack" not in commands
@@ -488,14 +502,16 @@ def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
 def test_promotion_request_uses_the_scoped_claude_app_identity():
     workflow = _workflow("request-promotion.yml")
     triggers = _triggers(workflow)
-    assert set(triggers) == {"workflow_run"}, "the human reviewer must not have a redispatch trigger"
-    assert triggers["workflow_run"] == {"workflows": ["release-train"], "types": ["completed"]}
+    # A burn reaches hour 48 long after its minting train completes, so readiness is polled on a
+    # schedule. There is still no manual trigger the human reviewer could use to redispatch.
+    assert set(triggers) == {"schedule"}, "the human reviewer must not have a redispatch trigger"
+    assert triggers["schedule"] == [{"cron": "41 * * * *"}]
     assert workflow["permissions"] == {"actions": "read", "contents": "read"}
 
     dispatch = workflow["jobs"]["dispatch"]
-    assert "conclusion == 'success'" in dispatch["if"]
-    assert "event == 'workflow_dispatch'" in dispatch["if"]
-    assert "head_branch == github.event.repository.default_branch" in dispatch["if"]
+    assert "github.event.repository.default_branch" in dispatch["if"]
+    checkout = next(step for step in dispatch["steps"] if "actions/checkout" in str(step.get("uses", "")))
+    assert checkout["with"]["ref"] == "${{ github.event.repository.default_branch }}"
 
     steps = dispatch["steps"]
     app_token = next(step for step in steps if step.get("id") == "app-token")
@@ -512,6 +528,18 @@ def test_promotion_request_uses_the_scoped_claude_app_identity():
     assert "gh workflow run promote.yml" in commands
     promote_dispatch = next(step for step in steps if "gh workflow run promote.yml" in _step_text(step))
     assert promote_dispatch["env"]["GH_TOKEN"] == "${{ steps.app-token.outputs.token }}"
+    # Only records that pass the same per-lock readiness check, against fetched evidence and the
+    # selected lock's bytes, are dispatched; the App token is minted only when one is ready.
+    ready = next(step for step in steps if step.get("id") == "ready")
+    for required in ("fetch_promotion_evidence.py fetch", "check_promotion_readiness.py",
+                     '--lock "$dir/trains/$rc_run_id/platform-lock.json"'):
+        assert required in ready["run"]
+    order = [step.get("id") for step in steps]
+    assert order.index("candidates") < order.index("ready") < order.index("app-token")
+    assert app_token["if"] == promote_dispatch["if"] == "steps.ready.outputs.count != '0'"
+    assert "fetch_promotion_evidence.py candidates" in _step_text(steps[order.index("candidates")])
+    for step in steps[:order.index("app-token")]:
+        assert "gh workflow run" not in _step_text(step)
 
 
 def test_repo_control_drift_check_is_read_only():

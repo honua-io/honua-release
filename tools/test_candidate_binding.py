@@ -202,6 +202,62 @@ def test_non_default_branch_train_metadata_is_refused():
     assert identity is None
 
 
+def test_scheduled_nightly_minting_run_is_accepted_only_when_promotion_allows_it():
+    repository = {"full_name": "honua-io/honua-release", "default_branch": "trunk"}
+    branch = {"name": "trunk", "protected": True}
+    run = {
+        "id": 28720697361,
+        "run_attempt": 1,
+        "html_url": "https://github.com/honua-io/honua-release/actions/runs/28720697361",
+        "repository": {"full_name": "honua-io/honua-release"},
+        "head_repository": {"full_name": "honua-io/honua-release"},
+        "head_branch": "trunk",
+        "head_sha": "b" * 40,
+        "path": ".github/workflows/nightly-certification.yml",
+        "event": "schedule",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    minting = (".github/workflows/release-train.yml", ".github/workflows/nightly-certification.yml")
+
+    def validate(paths, **kwargs):
+        return cb.validate_train_run_metadata(run, repository, branch, expected_repository="honua-io/honua-release",
+                                              expected_workflow_path=paths, expected_run_id="28720697361", **kwargs)
+
+    ok, why, _ = validate(minting)
+    assert not ok and "event" in why
+    ok, why, _ = validate(".github/workflows/release-train.yml", allowed_events=("schedule", "workflow_dispatch"))
+    assert not ok and "workflow path" in why
+    ok, why, identity = validate(minting, allowed_events=("schedule", "workflow_dispatch"))
+    assert ok, why
+    assert identity["workflow_path"] == ".github/workflows/nightly-certification.yml"
+    run["event"] = "push"
+    ok, why, _ = validate(minting, allowed_events=("schedule", "workflow_dispatch"))
+    assert not ok and "event" in why
+
+
+def test_validate_run_cli_accepts_repeated_paths_and_events(tmp_path):
+    repository = {"full_name": "honua-io/honua-release", "default_branch": "trunk"}
+    run = {
+        "id": 7, "run_attempt": 1, "html_url": "https://github.com/honua-io/honua-release/actions/runs/7",
+        "repository": {"full_name": "honua-io/honua-release"},
+        "head_repository": {"full_name": "honua-io/honua-release"},
+        "head_branch": "trunk", "head_sha": "c" * 40, "path": ".github/workflows/nightly-certification.yml",
+        "event": "schedule", "status": "completed", "conclusion": "success",
+    }
+    for name, value in (("run", run), ("repo", repository), ("branch", {"name": "trunk", "protected": True})):
+        (tmp_path / f"{name}.json").write_text(json.dumps(value))
+    base = ["validate-run", "--run-metadata", str(tmp_path / "run.json"),
+            "--repository-metadata", str(tmp_path / "repo.json"), "--branch-metadata", str(tmp_path / "branch.json"),
+            "--expected-repository", "honua-io/honua-release", "--expected-run-id", "7",
+            "--github-output", str(tmp_path / "out"),
+            "--expected-workflow-path", ".github/workflows/release-train.yml",
+            "--expected-workflow-path", ".github/workflows/nightly-certification.yml"]
+    assert cb.main(base) == 1
+    assert cb.main(base + ["--allowed-event", "schedule", "--allowed-event", "workflow_dispatch"]) == 0
+    assert "workflow_path=.github/workflows/nightly-certification.yml\n" in (tmp_path / "out").read_text()
+
+
 def test_release_promotion_environment_requires_exact_human_reviewer_roster():
     environment = {
         "name": "release-promotion",

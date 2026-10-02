@@ -140,10 +140,16 @@ def validate_train_run_metadata(
     branch: dict,
     *,
     expected_repository: str,
-    expected_workflow_path: str,
+    expected_workflow_path: str | tuple[str, ...],
     expected_run_id: str,
+    allowed_events: tuple[str, ...] = ("workflow_dispatch",),
 ) -> tuple[bool, str, dict | None]:
-    """Validate a certifying run against authoritative Actions and repository metadata."""
+    """Validate a certifying run against authoritative Actions and repository metadata.
+
+    A nightly minting train (R18) runs on a schedule from its own workflow, so promotion may
+    allow more than one certifying workflow path and event; every other check is unchanged.
+    """
+    expected_paths = (expected_workflow_path,) if isinstance(expected_workflow_path, str) else tuple(expected_workflow_path)
     if not isinstance(run, dict) or not isinstance(repository, dict) or not isinstance(branch, dict):
         return False, "Actions run, repository, and branch metadata must be objects", None
     if repository.get("full_name") != expected_repository:
@@ -164,8 +170,8 @@ def validate_train_run_metadata(
         and run_repository.get("full_name") == expected_repository,
         "head repository": isinstance(head_repository, dict)
         and head_repository.get("full_name") == expected_repository,
-        "workflow path": run.get("path") == expected_workflow_path,
-        "event": run.get("event") == "workflow_dispatch",
+        "workflow path": run.get("path") in expected_paths,
+        "event": run.get("event") in allowed_events,
         "status": run.get("status") == "completed",
         "conclusion": run.get("conclusion") == "success",
     }
@@ -205,7 +211,7 @@ def validate_train_run_metadata(
         "source_sha": source_sha,
         "source_branch": source_branch,
         "default_branch": default_branch,
-        "workflow_path": expected_workflow_path,
+        "workflow_path": run["path"],
     }
     return True, f"selected run is a successful release train from default branch {default_branch!r}", identity
 
@@ -510,7 +516,10 @@ def main(argv: list[str] | None = None) -> int:
     validate_run.add_argument("--repository-metadata", required=True, type=Path)
     validate_run.add_argument("--branch-metadata", required=True, type=Path)
     validate_run.add_argument("--expected-repository", required=True)
-    validate_run.add_argument("--expected-workflow-path", required=True)
+    validate_run.add_argument("--expected-workflow-path", required=True, action="append",
+                              help="certifying workflow path; repeat to allow each minting workflow")
+    validate_run.add_argument("--allowed-event", dest="allowed_events", action="append",
+                              help="certifying run event; repeat for each (default workflow_dispatch)")
     validate_run.add_argument("--expected-run-id", required=True)
     validate_run.add_argument("--github-output", required=True, type=Path)
 
@@ -563,8 +572,9 @@ def main(argv: list[str] | None = None) -> int:
                 repository,
                 branch,
                 expected_repository=args.expected_repository,
-                expected_workflow_path=args.expected_workflow_path,
+                expected_workflow_path=tuple(args.expected_workflow_path),
                 expected_run_id=args.expected_run_id,
+                allowed_events=tuple(args.allowed_events or ("workflow_dispatch",)),
             )
             if not ok or identity is None:
                 print(f"REFUSED: {why}", file=sys.stderr)
