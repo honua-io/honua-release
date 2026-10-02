@@ -410,3 +410,24 @@ def test_reusable_workflow_downloads_named_run_and_enforces_report():
     assert steps[-1]["if"] == "always()"
     assert steps[-1]["run"] == 'test "$STATUS" = pass'
     assert not any(s.get("continue-on-error", False) for s in steps)
+
+
+@pytest.mark.parametrize("override", [{"head_branch": "feature"}, {"event": "pull_request"},
+    {"path": ".github/workflows/untrusted.yml"}, {"id": 999}, {"run_attempt": 1}])
+def test_workflow_refuses_untrusted_producer_run(tmp_path, override):
+    workflow = yaml.safe_load((checker.ROOT / ".github/workflows/gate-journey.yml").read_text())
+    step = next(s for s in workflow["jobs"]["journey"]["steps"]
+                if s.get("name") == "Verify the receipt producer is a trunk workflow run")
+    query = step["run"].split("jq -e", 1)[1].split("'", 2)[1]
+    run = {"id": int(RUN), "run_attempt": int(RUN_ATTEMPT), "head_branch": "trunk",
+           "event": "schedule", "path": ".github/workflows/e2e-cloud-aws.yml"}
+    import shutil
+    if shutil.which("jq") is None:
+        pytest.fail("jq is required to verify the workflow's producer trust predicate")
+    accepted = subprocess.run(["jq", "-e", "--arg", "id", RUN, "--arg", "attempt", RUN_ATTEMPT,
+                               query], input=json.dumps(run), text=True, capture_output=True)
+    assert accepted.returncode == 0
+    run.update(override)
+    refused = subprocess.run(["jq", "-e", "--arg", "id", RUN, "--arg", "attempt", RUN_ATTEMPT,
+                              query], input=json.dumps(run), text=True, capture_output=True)
+    assert refused.returncode != 0
