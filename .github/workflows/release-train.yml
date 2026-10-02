@@ -90,12 +90,9 @@ jobs:
           # canonical bytes attested here, not a second JSON/YAML serialization.
           cmp platform-lock.json frozen-lock/platform-lock.json
 
-      # A dry run has no committed candidate lock to bind (that draft's worklist is not fully
-      # resolvable until release#231/#313 land), but downstream gates that certify against the
-      # frozen lock (rollback certification) still need a real file to exercise their real checks
-      # against, not a missing one. This is deliberately never the bytes a real cut freezes: the id
-      # is prefixed DRY-RUN- and status is "dry-run", so it can never be confused with, or promoted
-      # as, an actual candidate identity, and nothing here ever creates or pushes a release tag.
+      # A dry run still feeds certification gates. Every generator refusal stops freeze;
+      # partial drafts must never be relabelled as gate inputs. Successful drafts are labelled
+      # DRY-RUN and cannot be promoted or signed as releases.
       - name: Produce a labelled dry-run candidate lock (never signed as a release, never tagged)
         if: inputs.dry_run == true
         run: |
@@ -103,7 +100,7 @@ jobs:
           mkdir -p frozen-lock
           python tools/generate_platform_lock.py \
             --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
-            --output /tmp/platform-lock.draft.yaml || true
+            --output /tmp/platform-lock.draft.yaml
           python - <<'PY'
           import json
           import yaml

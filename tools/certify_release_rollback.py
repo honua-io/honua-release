@@ -9,6 +9,8 @@ import re
 import sys
 from pathlib import Path
 
+from image_platforms import verify_image_platform_digests
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 import release_rollback as rollback  # noqa: E402
 
@@ -27,7 +29,8 @@ def artifact_path(lock: dict, component: str, kind: str, field: str) -> str:
     matches = [index for index, value in enumerate(artifacts) if value.get("kind") == kind]
     if len(matches) != 1:
         raise rollback.RollbackError(f"{component} must contain exactly one {kind} artifact")
-    return f"/components/{component}/artifacts/{matches[0]}/{field}"
+    path = f"/components/{component}/artifacts/{matches[0]}"
+    return f"{path}/{field}" if field else path
 
 
 def verify_frozen_sources(candidate: dict, manifest: Path, matrix: Path) -> dict[str, str]:
@@ -89,6 +92,19 @@ def certify(args, report: dict) -> int:
         raise rollback.RollbackError("ROLLBACK_RESOLVED_BYTES_CHANGED")
     report.update(candidate_lock_digest=candidate_digest, rollback_target_digest=target_digest)
     sources = verify_frozen_sources(b, args.candidate_manifest, args.compatibility_matrix)
+    # Challenge architecture labels against each lock's immutable registry index before mutation.
+    for role, lock in (("CANDIDATE", b), ("RETAINED", a)):
+        image = rollback.pointer(lock, artifact_path(lock, "honua-server", "image", ""))
+        platforms = image.get("platformDigests")
+        if not isinstance(platforms, dict) or not platforms.get("amd64"):
+            raise rollback.RollbackError(f"ROLLBACK_{role}_AMD64_IMAGE_DIGEST_MISSING")
+        for name, component in lock["components"].items():
+            for artifact in component.get("artifacts", []):
+                if artifact.get("kind") == "image":
+                    try:
+                        verify_image_platform_digests(artifact)
+                    except (OSError, TypeError, ValueError) as exc:
+                        raise rollback.RollbackError(f"ROLLBACK_{role}_IMAGE_PLATFORM_DIGEST_INVALID: {name}: {exc}") from exc
     a_path, b_path = args.output / "retained-lock.json", args.output / "candidate-lock.json"
     a_path.write_bytes(args.from_lock.read_bytes())
     b_path.write_bytes(args.to_lock.read_bytes())
