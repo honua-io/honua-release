@@ -32,3 +32,29 @@ Playwright is optional (`CDP_URL` / `POST /attach`); screenshots otherwise come 
 - The control channel listens on `127.0.0.1` only and accepts browser requests only from the Vite page it
   started, so another website open in the same browser cannot drive the agent.
 - Tool results and layer titles are rendered as text, never as HTML.
+
+## M1 dogfood recording
+
+Follow [the developer-preview dogfood runbook](../../docs/DEVELOPER-PREVIEW-DOGFOOD.md)
+for prerequisite verification, the $25 per-run ceiling, exact operator prompts,
+receipts, rollback and tagged teardown. Claims are **developer preview;
+certification in progress**. The Console is display-and-approve; no dashboards
+are claimed. Studio, mixed topology and EKS are Preview, and
+`customer-install-manifest.json` stays `pre-cut-rehearsal`.
+
+This harness calls Bedrock directly and renders hardcoded public-demo sources.
+It does not install ECS, import/publish a new layer, persist/publish a map, roll
+back or tear down. It does not prove the candidate server's StudioAi Bedrock
+adapter. Record it separately; use the runbook's discovered CLI/SDK/MCP operations
+for the AWS cell. If an operation is unavailable, mark it blocked rather than
+claiming that the public demo completed it.
+
+For credential-free checks, run `npm --prefix app run typecheck` and
+`npm --prefix app run build` after installation; use the runbook's local Docker
+rehearsal for server observations. Starting the harness without submitting a
+prompt needs no AWS credentials, but rendering needs a browser plus access to
+the public demo and basemap. A genuine-model turn requires scoped Bedrock access
+and an explicitly approved `HONUA_AGENT_MODEL` (do not assume the default matches
+that grant). Review transcripts and screenshots before attaching: no secrets,
+DSNs, presigned URLs or customer-identifying data. Record the final ordinary map
+URL before teardown, and distinguish a local browser URL from a published URL.
