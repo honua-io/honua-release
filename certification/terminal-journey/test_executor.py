@@ -311,3 +311,18 @@ def test_authored_map_source_binds_import_identity_without_reading_candidate_bod
     engine.resources["layerId"] = 7
     assert engine.expected_map_body() == {"source": "/ogc/features/collections/7/items"}
     assert engine.fixture["mapBody"]["source"].endswith("{layerId}/items")
+
+
+def test_cloud_import_cannot_send_remote_credentials_to_the_local_target_default():
+    transport = mock.Mock()
+    transport.base_url = "https://candidate.example"
+    engine = engine_for(transport, replicaBaseUrl="http://127.0.0.1:8138", execution={"mapBody": {}})
+    engine.resources.update(itemId="item", versionId="version", contentHash="hash")
+    transport.get_json.return_value = {"itemId": "item", "versionId": "version", "contentHash": "hash",
+                                      "envelope": {"family": "map", "body": {}}}
+    with mock.patch.object(executor, "Transport") as replica:
+        engine.check_map()
+    replica.assert_not_called()
+    check = engine.evidence["checks"]["6"]["replica-map"]
+    assert check["status"] == "blocked"
+    assert "remote replica endpoint" in check["detail"]

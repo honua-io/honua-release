@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-02T22:57:23.267082Z",
+  "generatedAt": "2026-10-02T23:03:56.690970Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
@@ -12,7 +12,7 @@
     "baseUrl": "http://127.0.0.1:8137",
     "composeProject": "honua-terminal-journey"
   },
-  "status": "fail",
+  "status": "blocked",
   "release": "2026.1-rc.2",
   "clientArtifacts": {
     "honua-sdk-js": {
@@ -33,7 +33,7 @@
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/tmp/377-executor-tcp/clients",
+    "root": "/tmp/377-executor-verb-first/clients",
     "reason": null,
     "resolved": [
       {
@@ -195,14 +195,14 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
       "number": 2,
       "stage": "credential-preflight",
       "command": "honua admin apiKeys list/effective-permissions",
-      "status": "fail",
+      "status": "pass",
       "blockedBy": [],
       "checks": [
         {
@@ -215,9 +215,9 @@
         {
           "id": "2.3-credential-permissions",
           "kind": "cli",
-          "invocation": "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure createAdminApiKey --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
-          "status": "fail",
-          "detail": "createAdminApiKey exited 2; createAdminApiKey did not return the private-sink receipt"
+          "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
+          "status": "pass",
+          "detail": "temporary admin:read key a8664a8f-24cd-428c-89df-d3803a9c75dd reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -236,8 +236,8 @@
         "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
-        "completeness": "partial",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "completeness": "complete",
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -311,7 +311,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -375,7 +375,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -429,7 +429,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -503,7 +503,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -557,7 +557,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     },
     {
@@ -661,21 +661,15 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:57:23.266563Z"
+        "observedAt": "2026-10-02T23:03:56.690827Z"
       }
     }
   ],
-  "failure": {
-    "number": 2,
-    "stage": "credential-preflight",
-    "command": "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure createAdminApiKey --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
-    "check": "2.3-credential-permissions",
-    "detail": "createAdminApiKey exited 2; createAdminApiKey did not return the private-sink receipt"
-  },
+  "failure": null,
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
     "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed.",
-    "Setup discovery sidecar: /tmp/377-executor-tcp/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
+    "Setup discovery sidecar: /tmp/377-executor-verb-first/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",

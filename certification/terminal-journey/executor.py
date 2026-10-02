@@ -322,6 +322,10 @@ class JourneyExecutor:
             endpoint = self.target.get("replicaBaseUrl")
             if not endpoint or endpoint.rstrip("/") == self.transport.base_url.rstrip("/"):
                 raise ExecutionError("cross-replica map read", "a distinct replica endpoint is required", blocked=True)
+            loopback = {"localhost", "127.0.0.1", "::1"}
+            if (urllib.parse.urlsplit(self.transport.base_url).hostname not in loopback
+                    and urllib.parse.urlsplit(endpoint).hostname in loopback):
+                raise ExecutionError("cross-replica map read", "remote target must declare its remote replica endpoint", blocked=True)
             other = Transport(endpoint, self.transport.proxy, self.transport.honua,
                               self.transport.workdir, self.transport.credentials)
             return self._prove_map(other, self.map_path())
