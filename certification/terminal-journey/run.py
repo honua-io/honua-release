@@ -298,7 +298,7 @@ def build_receipt(
         failure = {
             "number": broken.number,
             "stage": broken.stage,
-            "command": broken.command,
+            "command": check.invocation if check else broken.command,
             "check": check.id if check else broken.stage,
             "detail": (check.detail if check else "stage failed") or "stage failed",
         }
@@ -360,6 +360,7 @@ def run_live(
     keep_stack: bool,
 ) -> tuple[pins.ClientWorkspace, list[stagelib.StageResult], list[str], str | None]:
     notices: list[str] = []
+    workdir = workdir.resolve()
     compose_cfg = target["compose"]
     notices.append(compose_cfg["notes"])
 

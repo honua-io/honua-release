@@ -1032,6 +1032,10 @@ def observed_stage_status(observed: dict[str, Any], stage: dict[str, Any]) -> st
             return "complete"
         if outcome in {"blocked", "fail"}:
             return outcome
+        if outcome in {"ready", "awaiting_approval"}:
+            if observed.get("status") != "ready" or status.get("blockedBy"):
+                raise CanaryError(f"driver returned contradictory actionable evidence for stage {stage['id']}")
+            return outcome
         raise CanaryError(f"driver returned invalid evidence status for stage {stage['id']}")
     # v1 action-driven adapters expose these protocol states directly.
     if status in {"ready", "complete", "awaiting_approval", "blocked", "fail"}:

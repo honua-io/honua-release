@@ -69,7 +69,7 @@
       "serviceName": "journey"
     },
     "serviceId": "journey",
-    "featurePath": "/ogc/features/collections/journey:{layerId}/items",
+    "featurePath": "/ogc/features/collections/{layerId}/items",
     "features": [
       {
         "type": "Feature",
@@ -149,7 +149,7 @@
         {
           "id": "journey-layer",
           "sourceId": "journey",
-          "type": "point",
+          "type": "circle",
           "visible": true
         }
       ],

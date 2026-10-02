@@ -30,7 +30,7 @@ STAGE_TOOLS = {
     6: set(stages.STUDIO_DRAFT_TOOLS + stages.STUDIO_COMPOSITION_TOOLS) | {
         "honua_studio_save_version", "honua_studio_get_version", "honua_studio_reopen_version", "honua_studio_get_draft"},
     7: {"honua_studio_propose_publication", "honua_operation_status", "honua_get_operation_status"},
-    8: {"honua_operation_status", "honua_get_operation_status"},
+    8: {"honua_operation_status", "honua_get_operation_status", "honua_supported_operation_kinds"},
 }
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync", "StartGeoservicesImportAsync",
                "GetGeoservicesImportJobStatusAsync", "PublishLayerAsync"}
@@ -65,6 +65,8 @@ class JourneyExecutor:
         found = self.observation.setup_discovery or {}
         if not self.observation.setup_view_present:
             raise ExecutionError("initialize + tools/list", "initialize-bound discovery is not verified", blocked=True)
+        if not self.transport.credentials.get("proposer"):
+            raise ExecutionError("proposer profile", "proposer credential environment reference is unavailable", blocked=True)
         return {"tools": found["tools"], "metadata": found["metadata"]}
 
     def _record(self, number, command, result):

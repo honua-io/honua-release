@@ -289,12 +289,16 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         pending = number == 8 and proposal_id and not engine.evidence.get("approval")
         failed = result is not None and result.status == "fail"
         _write_state(state["workspaceId"], state)
+        outcome = "fail" if failed else "pass" if completed and acted else "awaiting_approval" if pending else "ready"
+        checks = [c.as_receipt() for c in result.checks] if result else status["checks"]
         return {"status": "fail" if failed else "pass" if completed and acted else "ready",
-                "stageStatus": "fail" if failed else "complete" if completed and acted else "awaiting_approval" if pending else "ready",
+                "stageStatus": {"number": number, "id": status["id"], "command": status["command"],
+                                "status": outcome, "checks": checks,
+                                "blockedBy": [] if outcome in {"ready", "awaiting_approval", "pass"} else result.blocked_by},
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
-                                "evidence": [c.as_receipt() for c in result.checks] if result else status["checks"]},
+                                "evidence": checks},
                 "toolView": _tool_view(observation), "blockedBy": []}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",

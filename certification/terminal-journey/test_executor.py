@@ -5,14 +5,15 @@ import io
 import json
 import math
 import sys
+import struct
 import tempfile
 import threading
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
 import pytest
-from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 import executor
@@ -70,12 +71,13 @@ def test_buffer_accepts_rotation_and_winding_but_verifies_every_ordinate():
 
 
 def png_fixture(colour=(239, 32, 32, 255)):
-    image = Image.new("RGBA", (20, 10), (0, 0, 0, 0))
+    rows = [bytearray(20 * 4) for _ in range(10)]
     # point (2, 3) in bbox (0, 0, 4, 4) is independently calculated as (10, 2).
-    image.putpixel((10, 2), colour)
-    out = io.BytesIO()
-    image.save(out, format="PNG")
-    return out.getvalue()
+    rows[2][40:44] = bytes(colour)
+    def chunk(tag, payload):
+        return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", zlib.crc32(tag + payload))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 20, 10, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(b"\0" + row for row in rows))) + chunk(b"IEND", b""))
 
 
 def test_pixel_proof_reads_the_authored_position_and_exact_colour():

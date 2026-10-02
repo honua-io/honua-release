@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import struct
+import zlib
 
 
 class ProofError(ValueError):
@@ -83,23 +84,86 @@ def prove_features(document, expected):
     return {"featureCount": len(expected), "contentDigest": content_digest(wanted)}
 
 
-def prove_pixel(png, *, bbox, point, size, rgba):
-    """Compute the pixel position from the authored bbox; decode only with Pillow."""
-    import io
-    from PIL import Image
+def png_pixel(png, size, position):
+    """Decode bounded, non-interlaced 8-bit RGB/RGBA PNGs using the PNG specification."""
+    if not png.startswith(b"\x89PNG\r\n\x1a\n") or len(png) > 4 * 1024 * 1024:
+        raise ProofError("render is not a bounded PNG")
+    width, height = size
+    if not 1 <= width <= 4096 or not 1 <= height <= 4096:
+        raise ProofError("render dimensions exceed the bound")
+    offset, compressed, channels, ended = 8, bytearray(), None, False
+    while offset < len(png):
+        if offset + 12 > len(png):
+            raise ProofError("PNG chunk is truncated")
+        length, = struct.unpack_from(">I", png, offset)
+        tag = png[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if end > len(png):
+            raise ProofError("PNG chunk is truncated")
+        body = png[offset + 8:offset + 8 + length]
+        checksum, = struct.unpack_from(">I", png, offset + 8 + length)
+        if zlib.crc32(tag + body) != checksum:
+            raise ProofError("PNG chunk CRC differs")
+        if tag == b"IHDR":
+            if offset != 8 or length != 13 or channels is not None:
+                raise ProofError("PNG header is invalid")
+            w, h, depth, colour, compression, filtering, interlace = struct.unpack(">IIBBBBB", body)
+            if (w, h) != (width, height) or depth != 8 or colour not in {2, 6} or any((compression, filtering, interlace)):
+                raise ProofError("PNG dimensions or encoding differ from supported render output")
+            channels = 4 if colour == 6 else 3
+        elif tag == b"IDAT":
+            if channels is None:
+                raise ProofError("PNG image precedes its header")
+            compressed.extend(body)
+        elif tag == b"IEND":
+            if body or end != len(png):
+                raise ProofError("PNG end or trailing bytes are invalid")
+            ended = True
+            break
+        offset = end
+    if channels is None or not compressed or not ended:
+        raise ProofError("PNG is incomplete")
+    stride = width * channels
+    bound = (stride + 1) * height
+    try:
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(bytes(compressed), bound + 1)
+    except zlib.error as exc:
+        raise ProofError("PNG compressed stream is invalid") from exc
+    if len(raw) != bound or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+        raise ProofError("PNG decoded byte count differs")
+    previous = bytearray(stride)
+    pixel = None
+    for y in range(height):
+        start = y * (stride + 1)
+        kind, row = raw[start], bytearray(raw[start + 1:start + stride + 1])
+        if kind > 4:
+            raise ProofError("PNG row filter is invalid")
+        for i in range(stride):
+            left = row[i - channels] if i >= channels else 0
+            above = previous[i]
+            upper_left = previous[i - channels] if i >= channels else 0
+            predicted = left + above - upper_left
+            distances = [abs(predicted - v) for v in (left, above, upper_left)]
+            paeth = (left, above, upper_left)[distances.index(min(distances))]
+            addition = (0, left, above, (left + above) // 2, paeth)[kind]
+            row[i] = (row[i] + addition) & 255
+        if y == position[1]:
+            pixel = tuple(row[position[0] * channels:(position[0] + 1) * channels])
+        previous = row
+    if pixel is None or len(pixel) != channels:
+        raise ProofError("PNG pixel lies outside its bounds")
+    return pixel if channels == 4 else pixel + (255,)
 
+
+def prove_pixel(png, *, bbox, point, size, rgba):
+    """Compute the pixel position from the authored bbox, independently of rendering."""
     width, height = size
     px = math.floor((point[0] - bbox[0]) / (bbox[2] - bbox[0]) * width)
     py = math.floor((bbox[3] - point[1]) / (bbox[3] - bbox[1]) * height)
     if not (0 <= px < width and 0 <= py < height):
         raise ProofError("fixture point lies outside the image")
-    try:
-        with Image.open(io.BytesIO(png)) as source:
-            if source.format != "PNG" or source.size != (width, height):
-                raise ProofError("render PNG dimensions differ")
-            observed = source.convert("RGBA").getpixel((px, py))
-    except OSError as exc:
-        raise ProofError("render is not a decodable PNG") from exc
+    observed = png_pixel(png, size, (px, py))
     if tuple(observed) != tuple(rgba):
         raise ProofError("render pixel differs from authored style colour")
     return {"x": px, "y": py, "rgba": list(rgba), "sha256": hashlib.sha256(png).hexdigest()}

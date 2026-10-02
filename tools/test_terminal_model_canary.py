@@ -23,6 +23,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import terminal_model_canary as canary  # noqa: E402
 
+
+@pytest.mark.parametrize("state", ["ready", "awaiting_approval"])
+def test_actionable_driver_evidence_binds_stage_without_claiming_completion(state):
+    stage = canary.load_journey(JOURNEY)["stages"][2]
+    evidence = {"number": stage["number"], "id": stage["id"], "command": stage["command"],
+                "status": state, "checks": [], "blockedBy": []}
+    assert canary.observed_stage_status({"status": "ready", "stageStatus": evidence}, stage) == state
+    for patch in ({"id": "another-stage"}, {"number": 8}, {"command": "fabricated command"}):
+        with pytest.raises(canary.CanaryError):
+            canary.observed_stage_status({"status": "ready", "stageStatus": {**evidence, **patch}}, stage)
+    with pytest.raises(canary.CanaryError):
+        canary.observed_stage_status({"status": "blocked", "stageStatus": evidence}, stage)
+
 MANIFEST = REPO_ROOT / "platform-manifest.yaml"
 JOURNEY = REPO_ROOT / "certification" / "terminal-journey" / "journey.v1.json"
 PROTOCOL = REPO_ROOT / "certification" / "terminal-model-canary" / "driver-protocol.v1.json"
