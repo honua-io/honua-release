@@ -56,11 +56,13 @@ python3 --version
 aws --version
 docker version
 npx -y -p @honua/sdk-js honua --help
-npx -y -p @honua/mcp-server honua-mcp --help
+node e2e/agent-map/mcp-call.mjs https://demo.honua.io honua_list_sources '{}'
 ```
 
 Expected: Node meets the app's >=20.19.0 requirement; Python, AWS CLI and Docker
-are available, and the published CLI/MCP binaries resolve. Record registry
+are available, the published CLI advertises its command surface, and the MCP
+call initializes and lists public-demo sources. This read-only demo discovery
+is not evidence of the AWS cell. Record registry
 versions/integrities in the operator receipt. Preview floating package discovery
 is not exact-lock certification. Supply the installed tool schemas to Claude;
 do not invent command flags from prose.
@@ -336,8 +338,9 @@ From the fresh release worktree, execute:
 
 ```bash
 docker version
-python3 certification/terminal-journey/run.py --mode live \
+npm_config_cache=/tmp/dogfood-npm-cache python3 certification/terminal-journey/run.py --mode live \
   --target certification/terminal-journey/targets/local-docker.json \
+  --workdir /tmp/dogfood-local-clients \
   --output /tmp/dogfood-local-receipt.json \
   --evidence-uri file:///tmp/dogfood-local-receipt.json
 cd e2e/agent-map
@@ -360,4 +363,4 @@ The current deterministic driver and browser harness do not implement the
 complete publish/save/approve journey; preserve any blocked outcomes. The
 recorded real-AWS run and public claims audit remain operator work.
 
-Refs #378 (released: the recorded AWS run and the claims audit need the operator).
+Refs #378 (released: the recorded AWS run and the claims audit need the operator)
