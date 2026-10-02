@@ -50,7 +50,7 @@ jobs:
             --arg head_sha "$TRAIN_HEAD_SHA" '
               .dry_run == false and
               .overallStatus == "pass" and
-              (.platform_label | test("^[0-9]+\\.[0-9]+-rc\\.[0-9]+$")) and
+              (.platform_label | test("\\A(2026\\.1|[0-9]+\\.[0-9]+\\.[0-9]+)-rc\\.[1-9][0-9]*\\z")) and
               .candidate.source.sha == $head_sha and
               .candidate.train.runId == $run_id and
               .candidate.train.certificationMode == "live"
