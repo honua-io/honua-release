@@ -472,6 +472,9 @@ class CredentialPreflightTests(unittest.TestCase):
             KEY_ID = {self.KEY_ID!r}
             NAME = "honua-terminal-journey-preflight"
             argv = sys.argv[1:]
+            if not argv or argv[0] != "admin":
+                sys.stderr.write("Unknown command: " + (argv[0] if argv else "") + "\\n")
+                raise SystemExit(2)
             config = Path(os.environ["HONUA_CONFIG_HOME"])
             config.mkdir(parents=True, exist_ok=True)
             log_path = config / "argv-log.json"

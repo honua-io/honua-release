@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-02T22:53:28.832271Z",
+  "generatedAt": "2026-10-02T22:57:23.267082Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
@@ -33,7 +33,7 @@
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/tmp/377-executor-public-pull/clients",
+    "root": "/tmp/377-executor-tcp/clients",
     "reason": null,
     "resolved": [
       {
@@ -132,12 +132,9 @@
         {
           "id": "1.1-candidate-image",
           "kind": "compose",
-          "invocation": "docker compose up -d --wait",
-          "status": "blocked",
-          "detail": "the pinned candidate stack was not brought up",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "invocation": "docker compose up -d --wait (server image pinned from platform-manifest.yaml)",
+          "status": "pass",
+          "detail": "stack running the pinned candidate image ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
         },
         {
           "id": "1.2-readiness",
@@ -198,7 +195,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -240,7 +237,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -314,7 +311,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -378,7 +375,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -432,7 +429,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -506,7 +503,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -560,7 +557,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     },
     {
@@ -664,7 +661,7 @@
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:53:28.832072Z"
+        "observedAt": "2026-10-02T22:57:23.266563Z"
       }
     }
   ],
@@ -678,8 +675,7 @@
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
     "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed.",
-    "the pinned candidate stack did not come up: container honua-terminal-journey-server-1 is unhealthy",
-    "Setup discovery sidecar: /tmp/377-executor-public-pull/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
+    "Setup discovery sidecar: /tmp/377-executor-tcp/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",

@@ -97,8 +97,8 @@ class Transport:
         if not self.honua or not self.honua.is_file():
             raise ExecutionError("approveOperationProposal", "verified installed honua CLI is unavailable", blocked=True)
         # No shell or caller-supplied flags; credentials travel only in the child environment.
-        args = [str(self.honua), "--base-url", self.base_url, "--json", "admin", "operate",
-                "approveOperationProposal", "--path", f"id={proposal_id}", "--profile", principal, "--yes"]
+        args = [str(self.honua), "admin", "operate", "approveOperationProposal",
+                "--base-url", self.base_url, "--json", "--path", f"id={proposal_id}", "--profile", principal, "--yes"]
         profiles = self.workdir / "profiles"
         profiles.mkdir(parents=True, exist_ok=True, mode=0o700)
         profiles.chmod(0o700)
