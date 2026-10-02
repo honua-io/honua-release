@@ -338,3 +338,127 @@ def test_sdk_poll_cannot_replace_the_expected_identity_with_its_own_result(metho
             engine.sdk_call(method, ["submitted-identity"])
     assert engine.resources[key] == "submitted-identity"
     assert not engine.evidence["actions"]
+
+
+def test_approval_poll_accepts_recorded_pending_executing_succeeded_sequence():
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = engine_for(transport)
+    engine.resources["proposalId"] = "proposal-1"
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer"}
+    transport.get_json.side_effect = [pending, pending, {**pending, "status": "Executing"},
+        {**pending, "status": "Succeeded", "resolvedBy": "actor-approver", "approvalId": "approval-1"}]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    with mock.patch.object(executor.time, "sleep") as sleep:
+        result = engine.approve("proposal-1")
+    assert result["approvalId"] == "approval-1"
+    assert sleep.call_count == 1
+    assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("failure", [oracles.ProofError("bad render"), ExecutionError("render", "unavailable", blocked=True),
+                                    AttributeError("shape"), StopIteration()])
+def test_latest_failed_attempt_clears_prior_proof_and_records_failure(failure):
+    engine = engine_for(mock.Mock())
+    assert engine._check(4, "pixel", "render", lambda: {"rgba": [1, 2, 3, 4]}).status == "pass"
+    def fail():
+        raise failure
+    check = engine._check(4, "pixel", "render", fail)
+    assert check.status == ("blocked" if isinstance(failure, ExecutionError) else "fail")
+    assert "pixel" not in engine.evidence["proofs"]
+
+
+def test_failed_render_transport_invalidates_previous_pixel_before_submitting():
+    transport = mock.Mock()
+    engine = engine_for(transport)
+    engine._check(4, "pixel", "render", lambda: {"rgba": [1, 2, 3, 4]})
+    transport.tool.side_effect = ExecutionError("honua_render_map", "refused")
+    with pytest.raises(ExecutionError):
+        engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map", "arguments": {}})
+    assert "pixel" not in engine.evidence["proofs"]
+    assert "pixel" not in engine.evidence["checks"]["4"]
+
+
+@pytest.mark.parametrize("outputs", [{}, [], None, {"buffer": None}, {"buffer": {"href": 42}}])
+def test_empty_or_malformed_job_outputs_are_stage_fails(outputs):
+    transport = mock.Mock()
+    engine = engine_for(transport, execution={"buffer": {"point": [0, 0], "distance": 2}})
+    engine.resources["jobId"] = "job-1"
+    transport.get_json.side_effect = [{"jobID": "job-1", "status": "successful"}, {"outputs": outputs}]
+    check = engine.check_job()
+    assert check.status == "fail"
+    assert check.invocation == "geometry.buffer canonical job lifecycle"
+
+
+@pytest.mark.parametrize("failure", [AttributeError("shape"), StopIteration()])
+def test_execution_response_errors_preserve_all_six_stage_results(monkeypatch, failure):
+    engine = sdk_engine()
+    monkeypatch.setenv("JOURNEY_TEST_PASSWORD", "private-database-key")
+    with mock.patch.object(engine, "sdk_call", side_effect=failure):
+        results = engine.run_build()
+    assert [result.number for result in results] == list(range(3, 9))
+    assert results[0].status == "fail"
+    assert results[0].first_failure.id == "3.execution"
+
+
+def test_sdk_invoke_environment_excludes_unrelated_credentials(tmp_path, monkeypatch):
+    dll = tmp_path / "bridge.dll"
+    dll.touch()
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "HONUA_JOURNEY_APPROVER_KEY", "NuGetPackageSourceCredentials_journey"):
+        monkeypatch.setenv(name, "private-unrelated-key")
+    with mock.patch.object(executor.sdk.subprocess, "run", return_value=mock.Mock(stdout='{"status":"pass","result":{}}')) as run:
+        executor.sdk.invoke({"dll": str(dll)}, "TestConnectionAsync", ["connection"],
+                            base_url="http://127.0.0.1:8137", credential="private-proposer")
+    env = run.call_args.kwargs["env"]
+    assert set(env) <= {"PATH", "DOTNET_ROOT", "HOME", "TMPDIR", "LANG", "HONUA_JOURNEY_BASE_URL", "HONUA_JOURNEY_SDK_KEY"}
+    assert "private-unrelated-key" not in env.values()
+    assert env["HONUA_JOURNEY_SDK_KEY"] == "private-proposer"
+
+
+def test_prerequisite_failures_survive_successful_executor_checks():
+    original = stages.StageResult(4, "style", "render", "fail", checks=[
+        executor.probes.Check("4.client-pins", "artifact", "consume pinned clients", "blocked", "missing client", [stages.INSTALLED_CLIENTS]),
+        executor.probes.Check("4.1-style-tools-present", "mcp-tool", "tools/list", "fail", "missing honua_render_map"),
+        executor.probes.blocked("4.3-decoded-png", "artifact", "decode PNG", "unexecuted placeholder", [stages.JOURNEY_DRIVER])])
+    executed = stages.StageResult(4, "style", "render", "pass", checks=[
+        executor.probes.Check("4.pixel", "artifact", "render", "pass", "decoded")], operation_id="operation")
+    result = stages.merge_execution(original, executed)
+    assert result.status == "fail"
+    assert result.operation_id == "operation"
+    assert {c.id for c in result.checks} == {"4.client-pins", "4.1-style-tools-present", "4.pixel"}
+    assert result.blocked_by == [stages.INSTALLED_CLIENTS]
+
+
+def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers(tmp_path, monkeypatch):
+    import local_fixture
+    target = json.loads((Path(__file__).parent / "targets" / "local-docker.json").read_text())
+    monkeypatch.setenv("HONUA_JOURNEY_REPLICA_PORT", "19138")
+    env = local_fixture.compose_env(target, tmp_path)
+    assert env["HONUA_JOURNEY_REPLICA_PORT"] == "19138"
+    assert local_fixture.replica_url(target) == "http://127.0.0.1:19138"
+    transport = mock.Mock()
+    grants = iter(local_fixture.GRANTS.items())
+    def mint(*args, **kwargs):
+        name, expected = next(grants)
+        assert kwargs["body"]["permissions"] == expected
+        assert "expiresAt" in kwargs["body"]
+        transport.get_json.return_value = {"data": {"permissions": expected, "status": "active", "canAuthenticate": True}}
+        return json.dumps({"data": {"key": "private-" + name, "apiKey": {"id": name}}}).encode(), 201
+    transport.http.side_effect = mint
+    with mock.patch.object(local_fixture, "Transport", return_value=transport):
+        keys = local_fixture.credentials(target, tmp_path, "http://127.0.0.1:8137", mint=True)
+    assert set(keys) == {"proposer", "approver", "viewer", "other-tenant"}
+    private_path = tmp_path / "private-principals.json"
+    assert private_path.stat().st_mode & 0o777 == 0o600
+    token = keys["other-tenant"].split(" ")[1]
+    header, payload, signature = token.split(".")
+    claims = json.loads(base64.urlsafe_b64decode(payload + "=="))
+    assert claims["tenant_id"] == "journey-other"
+    assert claims["exp"] - claims["iat"] == 300
+    import hashlib
+    import hmac
+    expected = hmac.new(env["HONUA_JOURNEY_SIGNING_KEY"].encode(), (header + "." + payload).encode(), hashlib.sha256).digest()
+    assert base64.urlsafe_b64decode(signature + "==") == expected
+    assert keys["other-tenant"] != local_fixture.credentials(target, tmp_path, "http://127.0.0.1:8137")["other-tenant"]
+    assert not any("private-" in value for value in target["principals"].values())
+    local_fixture.cleanup(tmp_path)
+    assert not private_path.exists()

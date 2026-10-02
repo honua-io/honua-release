@@ -31,12 +31,14 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
 import pins  # noqa: E402
 import probes  # noqa: E402
 import stages as stagelib  # noqa: E402
 import executor  # noqa: E402
+import local_fixture  # noqa: E402
 from transport import ExecutionError, Transport  # noqa: E402
 
 PROTOCOL = "terminal-journey-driver-v1"
@@ -80,7 +82,7 @@ def _write_state(workspace_id: str, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2) + "\n")
 
 
-def _compose_for(target: dict[str, Any], manifest: dict[str, Any]) -> tuple[probes.Compose, str, str]:
+def _compose_for(target: dict[str, Any], manifest: dict[str, Any], workdir: Path) -> tuple[probes.Compose, str, str]:
     compose_cfg = target["compose"]
     server = manifest["components"]["honua-server"]
     image_ref = f"{server['image']}@{server['digest']}"
@@ -90,6 +92,7 @@ def _compose_for(target: dict[str, Any], manifest: dict[str, Any]) -> tuple[prob
         compose_file=str(ROOT / compose_cfg["file"]),
         project=compose_cfg["project"],
         env={
+            **local_fixture.compose_env(target, workdir),
             compose_cfg["imageEnv"]: image_ref,
             compose_cfg["portEnv"]: str(port),
             target["adminPassword"]["env"]: probes.resolve_env_default(
@@ -192,7 +195,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         bindir, _detail, install_notes = pins.install_executables(workspace, workdir / "install")
         workspace.install_notes = install_notes
 
-    compose, base_url, image_ref = _compose_for(target, manifest)
+    compose, base_url, image_ref = _compose_for(target, manifest, workdir)
     up = compose.up()
     stack_up = up.returncode == 0
 
@@ -226,6 +229,11 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         blockers.append(stagelib.INSTALLED_CLIENTS)
     if not observation.setup_view_present:
         blockers.append(stagelib.SETUP_VIEW)
+    if stack_up and observation.ready:
+        try:
+            local_fixture.credentials(target, workdir, base_url, mint=True)
+        except (ExecutionError, KeyError, ValueError, TypeError, AttributeError):
+            blockers.append(stagelib.JOURNEY_DRIVER)
 
     if blockers and stack_up:
         compose.down()
@@ -246,7 +254,9 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
                 "principal": "installer-provisioned admin",
                 "note": "resolved from the environment at call time; never serialized",
             }
-        ],
+        ] + [{"id": name, "envVar": ref, "principal": name,
+              "note": "short-lived fixture principal; resolved privately at call time"}
+             for name, ref in (target.get("principals") or {}).items()],
         "blockedBy": list(dict.fromkeys(blockers)),
         "clientWorkspace": workspace.as_receipt(),
         "notices": install_notes,
@@ -288,21 +298,35 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         acted = bool(engine.evidence["actions"].get(str(number)))
         proposal_id = engine.resources.get("proposalId")
         pending = number == 8 and proposal_id and not engine.evidence.get("approval")
-        failed = result is not None and result.status == "fail"
+        prerequisites = stagelib.prerequisites([
+            probes.Check(c["id"], c["kind"], c["invocation"], c["status"], c["detail"], c.get("blockedBy", []))
+            for c in status["checks"]])
+        recorded = engine.evidence["checks"].get(str(number), {})
+        # Missing, unexecuted assertions are pending work. Persisted blockers and
+        # completed work lacking canonical evidence are actual stopping conditions.
+        concrete = prerequisites + ([c for c in result.checks if c.id in {r["id"] for r in recorded.values()}]
+                                    if result else [])
+        unfinished = result and any(c.detail == "required live assertion has not executed" for c in result.checks)
+        if result and not unfinished:
+            concrete = prerequisites + result.checks
+        failed = any(c.status == "fail" for c in concrete)
+        blocked = any(c.status == "blocked" for c in concrete)
+        blockers = list(dict.fromkeys(b for c in concrete if c.status == "blocked" for b in c.blocked_by))
         _write_state(state["workspaceId"], state)
-        outcome = "fail" if failed else "pass" if completed and acted else "awaiting_approval" if pending else "ready"
-        checks = [c.as_receipt() for c in result.checks] if result else status["checks"]
-        return {"status": "fail" if failed else "pass" if completed and acted else "ready",
+        outcome = ("fail" if failed else "blocked" if blocked else "pass" if completed and acted
+                   else "awaiting_approval" if pending else "ready")
+        checks = [c.as_receipt() for c in concrete] if result else status["checks"]
+        return {"status": outcome if outcome in {"fail", "blocked", "pass"} else "ready",
                 "stageStatus": {"number": number, "id": status["id"], "command": status["command"],
                                 "status": outcome, "checks": checks,
-                                "blockedBy": [] if outcome in {"ready", "awaiting_approval", "pass"} else result.blocked_by},
+                                "blockedBy": blockers},
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
                                 "terminalSurface": {"sdkCommand": "honua-journey-sdk",
                                                     "sdkMethods": sorted(executor.SDK_METHODS)} if number == 3 else {},
                                 "evidence": checks},
-                "toolView": _tool_view(observation), "blockedBy": []}
+                "toolView": _tool_view(observation), "blockedBy": blockers}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
@@ -395,8 +419,14 @@ def op_inject_error(request: dict[str, Any]) -> dict[str, Any]:
 def op_approve(request: dict[str, Any]) -> dict[str, Any]:
     _state, target, _manifest, _observation, _workspace = _rehydrate(request)
     if _state.get("execution") and _state.get("stackUp"):
+        engine = _executor(_state, target, _observation)
         try:
-            result = _executor(_state, target, _observation).approve(request.get("proposalId"))
+            try:
+                result = engine.approve(request.get("proposalId"))
+            finally:
+                if engine.evidence.get("approvalResolution"):
+                    engine.verify_final()
+                    engine.verify_authority()
             _write_state(_state["workspaceId"], _state)
             return {"status": "approved", "principalProfile": "approver", **result, "blockedBy": []}
         except ExecutionError as exc:
@@ -422,58 +452,60 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_verify(request: dict[str, Any]) -> dict[str, Any]:
-    _state, _target, _manifest, observation, _workspace = _rehydrate(request)
-    if _state.get("execution") and _state.get("stackUp"):
-        engine = _executor(_state, _target, observation)
+    from tools.terminal_model_canary import ASSERTION_NAMES
+
+    state, target, _manifest, observation, workspace = _rehydrate(request)
+    assertions = dict.fromkeys(ASSERTION_NAMES, "blocked")
+    proofs, canonical = {}, {}
+    if state.get("execution") and state.get("stackUp"):
+        engine = _executor(state, target, observation)
         final = engine.verify_final()
+        authority = engine.verify_authority()
+        fake = engine.verify_fake_success()
         evidence = engine.evidence
         proofs = evidence.get("proofs", {})
-        authority = engine.verify_authority()
-        assertions = {"finalUrl": {"status": final.status, "detail": final.detail},
-                      "pixelProof": {"status": "pass" if proofs.get("pixel") else "blocked",
-                                     "detail": "independent pixel assertion"},
-                      **{name: {"status": check.status, "detail": check.detail} for name, check in authority.items()},
-                      "proposerApproverSeparation": {"status": "pass" if evidence.get("approvalResolution") else "blocked",
-                                                     "detail": "typed separate-principal approval"},
-                      }
-        _write_state(_state["workspaceId"], _state)
-        outcome = "fail" if any(a["status"] == "fail" for a in assertions.values()) else (
-            "pass" if all(a["status"] == "pass" for a in assertions.values()) else "blocked")
-        return {"status": outcome, "assertions": assertions,
-                "finalUrlProof": proofs.get("final-map"), "pixelProof": proofs.get("pixel"),
-                "canonicalIds": {k: evidence.get("publicationOperation", {}).get(k) for k in executor.ID_FIELDS},
-                "blockedBy": [] if outcome != "blocked" else [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]}
-    not_run = {"status": "blocked", "detail": "the journey did not reach a published artifact"}
-    return {
-        "status": "blocked",
-        "assertions": {
-            "finalUrl": not_run,
-            "pixelProof": not_run,
-            "canonicalIdJoin": not_run,
-            "tenantIsolation": not_run,
-            "rbacDenial": not_run,
-            "proposerApproverSeparation": not_run,
-            "currentAuthorityRevalidation": not_run,
-        },
-        "finalUrlProof": None,
-        "pixelProof": None,
-        "canonicalIds": {
-            "operationId": None,
-            "operationInstanceId": None,
-            "proposalId": None,
-            "jobId": None,
-            "correlationId": None,
-            "auditId": None,
-        },
-        "blockedBy": list(dict.fromkeys(EXECUTE_BLOCKERS + APPROVE_BLOCKERS)),
-    }
+        discovery = observation.setup_discovery or {}
+        http, proxy = discovery.get("http", {}), discovery.get("proxy", {})
+        assertions["toolProfilePresent"] = "pass" if observation.setup_view_present else "blocked"
+        assertions["catalogExact"] = ("pass" if observation.setup_view_present
+            and http.get("status") == proxy.get("status") == "pass"
+            and http.get("fullCatalogComparisonSha256")
+            and http["fullCatalogComparisonSha256"] == proxy.get("fullCatalogComparisonSha256") else "blocked")
+        assertions["authentication"] = ("pass" if observation.anonymous_admin_status in {401, 403}
+            and observation.anonymous_api_keys_status in {401, 403}
+            and observation.credential_probe and observation.credential_probe.status == "pass" else "fail")
+        journey = json.loads((HERE / "journey.v1.json").read_text())
+        originals = stagelib.run_stages(journey, observation,
+            lambda n: workspace.missing_for_stage(n) if workspace.status == "pass" else [stagelib.INSTALLED_CLIENTS])
+        current = originals[:2] + [stagelib.merge_execution(original, engine.result(original.number))
+                                  for original in originals[2:]]
+        assertions["evidenceFresh"] = ("fail" if any(r.status == "fail" for r in current) else
+                                      "pass" if all(r.status == "pass" for r in current) else "blocked")
+        assertions["fakeSuccessRejected"] = fake.status
+        assertions["finalUrlProof"] = final.status
+        pixel = evidence["checks"].get("4", {}).get("pixel", {})
+        assertions["pixelProof"] = pixel.get("status", "blocked") if proofs.get("pixel") else "blocked"
+        for name in ("rbacDenial", "tenantIsolation", "currentAuthorityRevalidation"):
+            assertions[name] = authority[name].status
+        separation = evidence["checks"].get("8", {}).get("separation", {})
+        assertions["proposerApproverSeparation"] = separation.get("status", "blocked")
+        # The canonical join is required even though it has no separate canary assertion.
+        if authority["canonicalIdJoin"].status != "pass":
+            assertions["evidenceFresh"] = authority["canonicalIdJoin"].status
+        canonical = evidence.get("publicationOperation", {})
+        _write_state(state["workspaceId"], state)
+    outcome = ("fail" if "fail" in assertions.values() else
+               "pass" if all(value == "pass" for value in assertions.values()) else "blocked")
+    return {"status": outcome, "assertions": assertions,
+            "finalUrlProof": proofs.get("final-map"), "pixelProof": proofs.get("pixel"),
+            "canonicalIds": {key: canonical.get(key) for key in executor.ID_FIELDS},
+            "blockedBy": [stagelib.JOURNEY_DRIVER] if outcome == "blocked" else []}
 
 
 def _executor(state, target, observation):
     workdir = Path(state["workdir"])
     bindir = workdir / "install" / "node_modules" / ".bin"
-    credentials = {name: probes.resolve_env_default(reference, "")
-                   for name, reference in (target.get("principals") or {}).items()}
+    credentials = local_fixture.credentials(target, workdir, state["baseUrl"])
     credentials.setdefault("proposer", probes.resolve_env_default(
         target["adminPassword"]["env"], target["adminPassword"]["default"]))
     transport = Transport(state["baseUrl"], bindir / "honua-mcp-proxy", bindir / "honua", workdir, credentials)
@@ -486,8 +518,10 @@ def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
     state = _read_state(workspace_id)
     target = json.loads(Path(state["targetPath"]).read_text())
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
-    compose, _base_url, _image = _compose_for(target, manifest)
+    compose, _base_url, _image = _compose_for(target, manifest, Path(state["workdir"]))
     result = compose.down()
+    if result.returncode == 0:
+        local_fixture.cleanup(state["workdir"])
     _state_path(workspace_id).unlink(missing_ok=True)
     return {
         "status": "pass" if result.returncode == 0 else "fail",

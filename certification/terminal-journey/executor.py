@@ -142,6 +142,9 @@ class JourneyExecutor:
             # render. No fictional network failure and no hidden mutation of a write.
             send_arguments = {**arguments, "width": -1}
             fault["status"] = "submitted"
+        if name == "honua_render_map":
+            self.evidence.setdefault("proofs", {}).pop("pixel", None)
+            self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
         result = self.transport.tool(name, send_arguments, view)
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
@@ -405,6 +408,24 @@ class JourneyExecutor:
                 raise ExecutionError("GET final published map", "separate-principal approval has not completed", blocked=True)
             return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None)
         return self._check(8, "final-map", "GET final published map content", prove)
+
+    def verify_fake_success(self):
+        def prove():
+            # First require live content to pass, then show that the same identity
+            # and hash cannot conceal a fabricated body from the independent oracle.
+            document = self.transport.get_json(self.fixture["publishedPath"], principal=None)
+            resource = document.get("data", document)
+            kwargs = {"item_id": self.resources["itemId"], "version_id": self.resources["versionId"],
+                      "content_hash": self.resources["contentHash"]}
+            expected = self.expected_map_body()
+            oracles.prove_map(document, expected, **kwargs)
+            fake = {**resource, "envelope": {**resource["envelope"], "body": {"fakeSuccess": True}}}
+            try:
+                oracles.prove_map(fake, expected, **kwargs)
+            except oracles.ProofError:
+                return {"modifiedLiveBodyRejected": True}
+            raise oracles.ProofError("fabricated success body passed the independent content oracle")
+        return self._check(8, "fake-success", "reject fabricated body with live canonical identity/hash", prove)
 
     def verify_authority(self):
         def join():

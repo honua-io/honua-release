@@ -39,6 +39,7 @@ sys.path.insert(0, str(HERE))
 import pins  # noqa: E402
 import probes  # noqa: E402
 import stages as stagelib  # noqa: E402
+import local_fixture  # noqa: E402
 
 
 class GateError(RuntimeError):
@@ -388,6 +389,7 @@ def run_live(
         compose_file=str(ROOT / compose_cfg["file"]),
         project=compose_cfg["project"],
         env={
+            **(local_fixture.compose_env(target, workdir) if base_url_override is None else {}),
             compose_cfg["imageEnv"]: image_ref,
             compose_cfg["portEnv"]: str(port),
             target["adminPassword"]["env"]: probes.resolve_env_default(
@@ -424,8 +426,12 @@ def run_live(
         import sdk
         from transport import ExecutionError, Transport
 
-        profiles = target.get("principals") or {}
-        credentials = {name: probes.resolve_env_default(reference, "") for name, reference in profiles.items()}
+        try:
+            credentials = local_fixture.credentials(target, workdir, base_url,
+                mint=base_url_override is None and observation.ready)
+        except (ExecutionError, KeyError, ValueError, TypeError, AttributeError) as exc:
+            credentials = {"proposer": ""}
+            notices.append("Journey principal fixture could not establish verified short-lived grants")
         credentials.setdefault("proposer", probes.resolve_env_default(
             target["adminPassword"]["env"], target["adminPassword"]["default"]))
         state = {"workspaceId": workdir.name, "workdir": str(workdir)}
@@ -437,10 +443,12 @@ def run_live(
         transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
                               bindir / "honua" if bindir else None, workdir, credentials)
         execution = executor.JourneyExecutor(state, target, observation, transport)
-        results[2:] = execution.run_build()
+        results[2:] = [stagelib.merge_execution(original, executed)
+                       for original, executed in zip(results[2:], execution.run_build(), strict=True)]
     finally:
         if base_url_override is None and not keep_stack:
             compose.down()
+            local_fixture.cleanup(workdir)
 
     return workspace, results, notices, running_image
 

@@ -10,6 +10,8 @@
     "imageEnv": "HONUA_SERVER_IMAGE",
     "portEnv": "HONUA_SERVER_PORT",
     "port": 8137,
+    "replicaPortEnv": "HONUA_JOURNEY_REPLICA_PORT",
+    "replicaPort": 8138,
     "notes": "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled."
   },
   "adminPassword": {
@@ -35,10 +37,11 @@
     "configRevision": "terminal-profiles-v1",
     "authPolicyRevision": "terminal-separate-principals-v1"
   },
-  "replicaBaseUrl": "http://127.0.0.1:8138",
   "principals": {
     "proposer": "HONUA_JOURNEY_PROPOSER_KEY",
-    "approver": "HONUA_JOURNEY_APPROVER_KEY"
+    "approver": "HONUA_JOURNEY_APPROVER_KEY",
+    "viewer": "HONUA_JOURNEY_VIEWER_KEY",
+    "other-tenant": "HONUA_JOURNEY_OTHER_TENANT_TOKEN"
   },
   "execution": {
     "datasource": {

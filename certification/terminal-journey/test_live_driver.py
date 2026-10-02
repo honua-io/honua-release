@@ -75,3 +75,49 @@ class RecoverableActionTransportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_approval_runs_final_and_authority_checks_before_next_observation():
+    state = {"workspaceId": "unit", "execution": {}, "stackUp": True}
+    state["execution"] = {"approvalResolution": {"proposalId": "proposal"}}
+    engine = mock.Mock(evidence=state["execution"])
+    engine.approve.return_value = {"approvalId": "approval", "proposalId": "proposal", "proposerSelfApproval": "denied"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(state, {}, {}, stages.Observation(), None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_approve({"workspaceId": "unit", "proposalId": "proposal"})
+    assert response["status"] == "approved"
+    assert [call[0] for call in engine.method_calls] == ["approve", "verify_final", "verify_authority"]
+
+
+def test_observe_reports_persisted_blocker_instead_of_ready():
+    import executor
+    from transport import Transport
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, {},
+        stages.Observation(setup_view_present=True), mock.Mock())
+    engine._check(4, "pixel", "honua_render_map", lambda: (_ for _ in ()).throw(
+        executor.ExecutionError("honua_render_map", "renderer unavailable", blocked=True)))
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+    prerequisites = {"number": 4, "id": stage["id"], "command": stage["command"], "status": "blocked",
+                     "blockedBy": [], "checks": []}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=prerequisites), \
+         mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    assert response["status"] == response["stageStatus"]["status"] == "blocked"
+    assert response["blockedBy"] == [stages.JOURNEY_DRIVER]
+    assert response["stageStatus"]["checks"][0]["invocation"] == "honua_render_map"
+
+
+def test_missing_unexecuted_assertions_remain_actionable_before_first_attempt():
+    import executor
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, {},
+        stages.Observation(setup_view_present=True), mock.Mock())
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+    status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=status), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    assert response["status"] == response["stageStatus"]["status"] == "ready"
+    assert response["blockedBy"] == []

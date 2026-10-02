@@ -29,6 +29,11 @@ services:
       service: server
     environment:
       ConnectionStrings__Redis: "redis:6379"
+      Oidc__Enabled: "true"
+      Oidc__Generic__Enabled: "true"
+      Oidc__Generic__Authority: "https://terminal-journey.invalid"
+      Oidc__Generic__ClientId: "terminal-journey"
+      Oidc__TokenValidation__SymmetricSigningKey: "${HONUA_JOURNEY_SIGNING_KEY:?fixture must mint an ephemeral signing key}"
     depends_on:
       redis:
         condition: service_healthy
@@ -41,6 +46,11 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
       ConnectionStrings__Redis: "redis:6379"
+      Oidc__Enabled: "true"
+      Oidc__Generic__Enabled: "true"
+      Oidc__Generic__Authority: "https://terminal-journey.invalid"
+      Oidc__Generic__ClientId: "terminal-journey"
+      Oidc__TokenValidation__SymmetricSigningKey: "${HONUA_JOURNEY_SIGNING_KEY:?fixture must mint an ephemeral signing key}"
       HONUA_ADMIN_PASSWORD: "${HONUA_ADMIN_PASSWORD:-honua-console-dev-key}"
       Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       Licensing__Mode: Disabled

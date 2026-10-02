@@ -960,6 +960,9 @@ def build_receipt_builder(
     if driver_command is not None and _repo_path(driver_command) != protocol.get("adapterPath"):
         raise CanaryError("driver command must be #123's declared repository adapter path")
     selected_stage = injection_stage or journey["stages"][min(3, len(journey["stages"]) - 1)]["id"]
+    supported_stage = next(stage["id"] for stage in journey["stages"] if stage["number"] == 4)
+    if selected_stage != supported_stage:
+        raise CanaryError(f"the journey driver supports error injection only at {supported_stage}")
     return ReceiptBuilder(
         manifest=manifest,
         journey=journey,
@@ -1166,7 +1169,13 @@ def execute_live(
                     builder.mark_stage(stage_id, "pass")
                     break
                 if stage_status != "ready":
-                    raise CanaryError(f"stage {stage_id} ({stage['command']}) returned {stage_status!r}")
+                    evidence = observed.get("stageStatus")
+                    checks = evidence.get("checks", []) if isinstance(evidence, dict) else []
+                    problem = next((check for check in checks if check.get("status") in {"fail", "blocked"}), {})
+                    blockers = observed.get("blockedBy") or (evidence.get("blockedBy", []) if isinstance(evidence, dict) else [])
+                    raise CanaryError(f"stage {stage_id} ({stage['command']}) returned {stage_status!r}; "
+                                      f"{problem.get('invocation', stage['command'])}: "
+                                      f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
 
                 system = _system_contract()
                 user_content = json.dumps(
