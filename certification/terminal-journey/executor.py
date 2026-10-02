@@ -361,6 +361,8 @@ class JourneyExecutor:
             if "layerId" not in self.resources:
                 raise ExecutionError("honua_apply_style_preset", "imported published layer is unavailable", blocked=True)
             params = {"serviceId": self.fixture["serviceId"], "layerId": self.resources["layerId"]}
+            self.transport.http("POST", "/ogc/styles", body=self.fixture["style"], expected=(201,),
+                                extra_headers={"X-Style-Id": self.fixture["styleId"]})
             call(4, "honua_get_style", {"styleId": self.fixture["styleId"], "includeStylesheet": True})
             call(4, "honua_apply_style_preset", {**params, "styleId": self.fixture["styleId"]})
             width, height = self.fixture["renderSize"]

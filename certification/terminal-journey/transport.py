@@ -39,9 +39,10 @@ class Transport:
         self.workdir, self.credentials = Path(workdir), credentials
         self.opener = urllib.request.build_opener(discovery._NoRedirect())
 
-    def http(self, method, path, *, principal="proposer", body=None, expected=(200,)):
+    def http(self, method, path, *, principal="proposer", body=None, expected=(200,), extra_headers=None):
         url = safe_url(self.base_url, path)
         headers = {"Accept": "application/json", "Cache-Control": "no-cache"}
+        headers.update(extra_headers or {})
         if principal is not None:
             headers["X-API-Key"] = self.credentials[principal]
         data = None if body is None else json.dumps(body, allow_nan=False).encode()
@@ -98,6 +99,14 @@ class Transport:
         # No shell or caller-supplied flags; credentials travel only in the child environment.
         args = [str(self.honua), "--base-url", self.base_url, "--json", "admin", "operate",
                 "approveOperationProposal", "--path", f"id={proposal_id}", "--profile", principal, "--yes"]
+        profiles = self.workdir / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True, mode=0o700)
+        profiles.chmod(0o700)
+        config = profiles / "config.json"
+        config.touch(mode=0o600, exist_ok=True)
+        config.chmod(0o600)
+        config.write_text(json.dumps({"profiles": {name: {"baseUrl": self.base_url}
+                                                  for name in ("proposer", "approver")}}))
         env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_KEY": self.credentials[principal],
                "HONUA_CONFIG_HOME": str(self.workdir / "profiles")}
         try:
