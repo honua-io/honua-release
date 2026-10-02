@@ -1391,6 +1391,10 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
         with mock.patch.object(cj, "validate_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert result["status"] == "pass" and result["certifying"] is True
+            previews[0]["cost"] = {**reports[0]["cost"], "status": "fail", "amountUsd": "20.01"}
+            over_budget = _aggregate_fixture([*reports, *previews], root, full_scope=True)
+            assert over_budget["status"] == "fail" and "run cost ceiling exceeded" in over_budget["why"]
+            del previews[0]["cost"]
             reports[0]["status"] = "fail"
             assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "fail"
 
