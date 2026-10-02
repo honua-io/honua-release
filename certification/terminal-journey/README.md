@@ -232,7 +232,10 @@ explicit blockers. The executor neither invents IDs nor relaxes the receipt
 schema to turn content assertions into release qualification. The render fault
 is a real read-only invalid-width request; only the candidate's structured
 refusal marks it observed, and an independently checked subsequent render marks
-recovery. No fictional armed state survives failed setup.
+recovery. Its failed action remains failed in the protocol JSON; the adapter
+allows that verified recoverable response to reach the canary so the next model
+turn can select a recovery action. Other process failures remain strict. No
+fictional armed state survives failed setup.
 
 Remaining acceptance is explicit:
 

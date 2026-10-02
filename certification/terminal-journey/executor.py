@@ -237,6 +237,11 @@ class JourneyExecutor:
             self.state["sdkBinding"] = sdk.prepare(self.manifest, self.transport.workdir)
         result = sdk.invoke(self.state.get("sdkBinding"), method, arguments,
                             base_url=self.transport.base_url, credential=self.transport.credentials["proposer"])
+        if not isinstance(result, dict):
+            raise ExecutionError(method, "published SDK omitted a typed result")
+        identity_key = {"TestConnectionAsync": "connectionId", "GetGeoservicesImportJobStatusAsync": "jobId"}.get(method)
+        if identity_key and result.get(identity_key) != arguments[0]:
+            raise ExecutionError(method, "SDK lifecycle response differs from the submitted resource identity")
         self._record(3, method, result)
         return result
 

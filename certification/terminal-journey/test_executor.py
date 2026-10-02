@@ -326,3 +326,15 @@ def test_cloud_import_cannot_send_remote_credentials_to_the_local_target_default
     check = engine.evidence["checks"]["6"]["replica-map"]
     assert check["status"] == "blocked"
     assert "remote replica endpoint" in check["detail"]
+
+
+@pytest.mark.parametrize("method,key", [("TestConnectionAsync", "connectionId"),
+                                       ("GetGeoservicesImportJobStatusAsync", "jobId")])
+def test_sdk_poll_cannot_replace_the_expected_identity_with_its_own_result(method, key):
+    engine = sdk_engine()
+    engine.resources[key] = "submitted-identity"
+    with mock.patch.object(executor.sdk, "invoke", return_value={key: "different-identity"}):
+        with pytest.raises(ExecutionError, match="submitted resource identity"):
+            engine.sdk_call(method, ["submitted-identity"])
+    assert engine.resources[key] == "submitted-identity"
+    assert not engine.evidence["actions"]

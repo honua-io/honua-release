@@ -1,4 +1,5 @@
 """Driver handoffs only; these tests do not qualify a live candidate journey."""
+import io
 import json
 import sys
 import tempfile
@@ -46,6 +47,30 @@ class StageBindingTests(unittest.TestCase):
         for identifier in ("../elsewhere", "/tmp/path", "a/b", "a\\b", ".", ""):
             with self.subTest(identifier=identifier), self.assertRaises(live_driver.DriverError):
                 live_driver._state_path(identifier)
+
+
+class RecoverableActionTransportTests(unittest.TestCase):
+    def test_recoverable_refusal_remains_failed_but_reaches_the_canary(self):
+        for recoverable, exit_code in ((True, 0), (False, 1)):
+            with self.subTest(recoverable=recoverable):
+                response = {"status": "fail", "stageStatus": {}, "canonicalIds": {}, "blockedBy": [],
+                            "result": {"accepted": False, "injectedError": {"id": "fault-1", "recoverable": recoverable}}}
+                stdin = io.StringIO(json.dumps({"protocol": live_driver.PROTOCOL, "operation": "execute"}))
+                stdout = io.StringIO()
+                with mock.patch.object(live_driver, "handle", return_value=response), \
+                     mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout):
+                    actual = live_driver.main()
+                self.assertEqual(actual, exit_code)
+                observed = json.loads(stdout.getvalue())
+                self.assertEqual(observed["status"], "fail")
+                self.assertFalse(observed["result"]["accepted"])
+
+    def test_other_operation_cannot_mask_a_process_failure_with_a_fault_marker(self):
+        response = {"status": "fail", "result": {"injectedError": {"recoverable": True}}}
+        stdin = io.StringIO(json.dumps({"protocol": live_driver.PROTOCOL, "operation": "verify"}))
+        with mock.patch.object(live_driver, "handle", return_value=response), \
+             mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", io.StringIO()):
+            self.assertEqual(live_driver.main(), 1)
 
 
 if __name__ == "__main__":

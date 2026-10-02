@@ -545,7 +545,14 @@ def main() -> int:
     response = handle(request if isinstance(request, dict) else {})
     json.dump(response, sys.stdout)
     sys.stdout.write("\n")
-    return 0 if response.get("status") != "fail" else 1
+    # A verified recoverable tool refusal is a domain failure carried in the
+    # protocol response. A process failure would prevent the canary from reading
+    # that evidence and selecting a recovery action on its next turn.
+    result = response.get("result") or {}
+    fault = result.get("injectedError") or {}
+    recoverable = (isinstance(request, dict) and request.get("operation") == "execute"
+                   and fault.get("recoverable") is True)
+    return 0 if response.get("status") != "fail" or recoverable else 1
 
 
 if __name__ == "__main__":

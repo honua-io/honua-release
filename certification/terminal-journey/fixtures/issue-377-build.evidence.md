@@ -44,7 +44,7 @@ DOCKER_CONFIG=/tmp/377-docker-config python3 certification/terminal-journey/run.
 
 Validation:
 
-- Focused journey, canary and receipt-checker suite: **281 passed, 55 subtests passed**.
+- Focused journey, canary and receipt-checker suite: **285 passed, 57 subtests passed**.
 - Full required tools/ and licensing suite after integrating current trunk:
   **1,702 passed**, with two existing tarfile deprecation warnings.
 - Published .NET SDK bridge, exact cached GitHub Packages `Honua.Sdk.Admin@1.7.0`:
