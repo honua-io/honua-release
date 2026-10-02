@@ -14,7 +14,6 @@ from typing import Any
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
-PHASES = ("freeze", "during", "after")
 
 
 class ReadinessError(ValueError):
@@ -22,7 +21,7 @@ class ReadinessError(ValueError):
 
 
 def _time(value: Any, field: str) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z", value):
         raise ReadinessError(f"{field} must be an RFC3339 UTC timestamp")
     try:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00")
@@ -45,19 +44,111 @@ def _run_id(value: Any, field: str) -> str:
 
 
 def _load(path: Path, field: str) -> dict[str, Any]:
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ReadinessError(f"{field} contains duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ReadinessError(f"{field} contains a nonstandard JSON number")
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_keys,
+                           parse_constant=invalid_constant)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ReadinessError(f"{field} is unreadable: {exc}") from exc
     if not isinstance(value, dict):
         raise ReadinessError(f"{field} must be a JSON object")
     return value
 
 
+# R21: required classes and their production tier. Additional consumed classes must
+# be explicitly declared too; declarations cannot change these mandated tiers.
+EVIDENCE_CLASSES = {
+    **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
+                     "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
+                     "deterministic-journey", "nightly-model-journey"), "nightly"),
+    **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
+}
+GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
+# Policy maximum between a receipt's completion and its freshUntil. A producer may set a
+# shorter bound but never a longer one, so the promotion window always closes. A declared
+# class without a maximum here refuses.
+MAX_FRESHNESS = {
+    **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
+                     "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
+                     "deterministic-journey", "nightly-model-journey",
+                     "genuine-model-journey", "update-rollback"), timedelta(days=7)),
+    **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
+}
+CANARY_SLOT = timedelta(hours=6, minutes=30)
+JOURNEYS = {
+    "deterministic-journey": ("deterministic", GA_CELLS),
+    "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
+    "genuine-model-journey": ("genuine-model", GA_CELLS),
+}
+
+
+def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
+             digest: str, earliest: datetime, latest: datetime) -> bool:
+    """Evaluate the complete attempt ledger; Preview cells never count as GA."""
+    cells = receipt.get("cells")
+    if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
+        return False
+    selected = [cell for cell in cells if cell.get("cell") in required]
+    if len(selected) != len(required) or {cell.get("cell") for cell in selected} != required:
+        return False
+    for cell in selected:
+        attempts = cell.get("attempts")
+        if (cell.get("mode") != mode or type(cell.get("attemptCount")) is not int
+                or not isinstance(attempts, list) or len(attempts) not in (1, 2)
+                or cell["attemptCount"] != len(attempts)):
+            return False
+        times = []
+        for index, attempt in enumerate(attempts, 1):
+            if not isinstance(attempt, dict):
+                return False
+            completed = _time(attempt.get("completedAt"), "journey attempt completedAt")
+            times.append(completed)
+            if (type(attempt.get("attempt")) is not int or attempt["attempt"] != index
+                    or attempt.get("lockDigest") != digest or not earliest <= completed <= latest):
+                return False
+            if index == len(attempts):
+                if attempt.get("status") != "pass":
+                    return False
+            elif attempt.get("status") != "fail" or attempt.get("failureAttribution") not in ("model", "infrastructure"):
+                return False
+        if times != sorted(times):
+            return False
+    return True
+
+
+def _update_rollback(receipt: dict[str, Any]) -> bool:
+    """Each GA cell appears once and passes both its update and its rollback."""
+    cells = receipt.get("cells")
+    if (not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells)
+            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"):
+        return False
+    names = [cell.get("cell") for cell in cells]
+    return (len(names) == len(set(names)) == len(GA_CELLS) and set(names) == GA_CELLS
+            and all(cell.get("updateStatus") == cell.get("rollbackStatus") == "pass" for cell in cells))
+
+
+def _canary_key(run: dict[str, Any], field: str) -> tuple[str, datetime, Any, Any]:
+    """Identity of one canary observation; the ledger may carry integer run ids and extra fields."""
+    return (_run_id(run.get("runId"), f"{field} runId"), _time(run.get("completedAt"), f"{field} completedAt"),
+            run.get("status"), run.get("lockDigest"))
+
+
 def evaluate(
     record: dict[str, Any], *, lock_path: Path, evidence_dir: Path,
-    lock_history: Path, now: datetime,
+    lock_history: Path | None = None, now: datetime,
 ) -> tuple[dict[str, Any], list[str]]:
+    # lock_history is accepted for old callers, but repository history does not
+    # reset a burn. lock_path must be the selected lock's retained exact bytes.
     checks: dict[str, dict[str, Any]] = {}
     failures: list[str] = []
 
@@ -71,111 +162,180 @@ def evaluate(
     label = record.get("platformLabel")
     check("platform-label", isinstance(label, str) and bool(re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?-rc\.[1-9][0-9]*", label or "")),
           f"platformLabel={label!r}")
-
     lock = record.get("lock") if isinstance(record.get("lock"), dict) else {}
-    recorded_digest = lock.get("digest")
+    digest = lock.get("digest")
     actual_digest = _digest(lock_path)
-    check("lock-digest", isinstance(recorded_digest, str) and SHA256_RE.fullmatch(recorded_digest) is not None
-          and recorded_digest == actual_digest,
-          f"recorded={recorded_digest!r}; current={actual_digest}")
-    history = [line for line in lock_history.read_text(encoding="utf-8").splitlines() if line.strip()]
-    check("lock-unchanged", not history,
-          "no platform-lock commits after burn start" if not history else
-          f"lock changed after burn start in commits: {', '.join(history)}; reset required")
-
+    check("lock-digest", isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None and digest == actual_digest,
+          f"recorded={digest!r}; selected={actual_digest}")
     burn_start = _time(lock.get("burnStartedAt"), "lock.burnStartedAt")
     age = now - burn_start
-    check("burn-window", timedelta(hours=48) <= age <= timedelta(hours=72),
-          f"candidate age is {age.total_seconds() / 3600:.2f}h; required 48-72h")
+    check("burn-duration", age >= timedelta(hours=48),
+          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least 48h")
 
     trains = record.get("strictTrains")
-    if not isinstance(trains, list):
-        raise ReadinessError("strictTrains must be an array")
-    train_ok = len(trains) == 3 and [row.get("phase") for row in trains if isinstance(row, dict)] == list(PHASES)
-    train_times: list[datetime] = []
-    train_ids: list[str] = []
-    for index, row in enumerate(trains):
-        if not isinstance(row, dict):
-            train_ok = False
-            continue
-        run_id = _run_id(row.get("runId"), f"strictTrains[{index}].runId")
-        completed = _time(row.get("completedAt"), f"strictTrains[{index}].completedAt")
-        train_ids.append(run_id)
-        train_times.append(completed)
-        report_path = evidence_dir / "trains" / run_id / "gate-report.json"
+    rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
+    train_ok = isinstance(trains, list) and len(trains) == 1 and isinstance(trains[0], dict)
+    train_time = burn_start
+    report: dict[str, Any] = {}
+    if train_ok:
+        row = trains[0]
+        run_id = _run_id(row.get("runId"), "minting train runId")
+        train_time = _time(row.get("completedAt"), "minting train completedAt")
         try:
-            report = _load(report_path, f"train {run_id} receipt")
-            run_metadata = _load(evidence_dir / "trains" / run_id / "run.json", f"train {run_id} metadata")
-            binding = report.get("candidate") if isinstance(report.get("candidate"), dict) else {}
-            train = binding.get("train") if isinstance(binding.get("train"), dict) else {}
-            candidate_lock = evidence_dir / "trains" / run_id / "platform-lock.json"
-            train_ok &= (
-                report.get("overallStatus") == "pass"
-                and report.get("dry_run") is False
-                and str(train.get("runId")) == run_id
-                and _digest(candidate_lock) == recorded_digest
-                and row.get("lockDigest") == recorded_digest
-                and row.get("status") == "pass"
-                and run_metadata.get("updated_at") == row.get("completedAt")
-            )
-        except (ReadinessError, OSError):
+            root = evidence_dir / "trains" / run_id
+            report = _load(root / "gate-report.json", "minting train receipt")
+            metadata = _load(root / "run.json", "minting train metadata")
+            binding = report.get("candidate", {}).get("train", {})
+            # Report freshness is checked at minting, rather than expiring the
+            # certification itself before the mandated 48-hour burn can finish.
+            from candidate_binding import validate_live_report
+            valid_report, _ = validate_live_report(report, now=train_time)
+            train_ok = (valid_report and str(binding.get("runId")) == run_id
+                        and _digest(root / "platform-lock.json") == digest
+                        and row.get("lockDigest") == digest and row.get("status") == "pass"
+                        and metadata.get("updated_at") == row.get("completedAt")
+                        and metadata.get("status") == "completed" and metadata.get("conclusion") == "success"
+                        and train_time <= burn_start)
+        except (ReadinessError, OSError, AttributeError):
             train_ok = False
-    if len(set(train_ids)) != len(train_ids):
-        train_ok = False
-    if len(train_times) == 3:
-        train_ok &= train_times[0] <= burn_start < train_times[1] < burn_start + timedelta(hours=48)
-        train_ok &= burn_start + timedelta(hours=48) <= train_times[2] <= burn_start + timedelta(hours=72)
-        sequence_pages = json.loads((evidence_dir / "train-sequence.json").read_text(encoding="utf-8"))
-        sequence = [run for page in sequence_pages for run in page.get("workflow_runs", [])]
-        strict_sequence = sorted(
-            (run for run in sequence
-             if str(run.get("display_title", "")).endswith("(dry_run=false)")
-             and train_times[0] <= _time(run.get("updated_at"), "release-train updated_at") <= train_times[2]),
-            key=lambda run: _time(run.get("updated_at"), "release-train updated_at"),
-        )
-        train_ok &= [str(run.get("id")) for run in strict_sequence] == train_ids
-        train_ok &= all(run.get("status") == "completed" and run.get("conclusion") == "success"
-                        for run in strict_sequence)
-    check("strict-trains", train_ok,
-          "three consecutive complete strict trains at freeze, during, and after burn-in")
+    check("minting-train", train_ok, "one passing strict train minted the selected lock before burn start")
+    check("exact-rc", bool(train_ok and str(trains[0].get("runId")) == rc_run_id),
+          f"promotion source run {rc_run_id} must be the minting train")
+
+    declarations = record.get("evidenceClasses")
+    declaration_ok = (isinstance(declarations, dict)
+                      and all(isinstance(key, str) and re.fullmatch(r"[a-z][a-z0-9-]*", key)
+                              and value in ("nightly", "qualifying") for key, value in declarations.items())
+                      and all(declarations.get(key) == value for key, value in EVIDENCE_CLASSES.items()))
+    declarations = declarations if isinstance(declarations, dict) else {}
+    rows = record.get("evidence")
+    rows = rows if isinstance(rows, list) else []
+    classes = [row.get("class") for row in rows if isinstance(row, dict)]
+    consumed = report.get("evidenceClasses")
+    declaration_ok &= (len(classes) == len(rows) and all(isinstance(key, str) for key in classes)
+                       and len(set(classes)) == len(classes) and set(classes) == set(declarations)
+                       and isinstance(consumed, list) and all(isinstance(key, str) for key in consumed)
+                       and len(set(consumed)) == len(consumed)
+                       and set(consumed) == {key for key, tier in declarations.items() if tier == "nightly"})
+    check("evidence-declarations", bool(declaration_ok),
+          "every consumed class is declared nightly or qualifying; all R21 classes are required")
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("class"), str):
+            continue
+        name = row["class"]
+        ok = name in declarations and bool(re.fullmatch(r"[a-z][a-z0-9-]*", name))
+        detail = "passing retained workflow receipt, bound to this lock, fresh, and bounded by its class policy maximum"
+        try:
+            run_id = _run_id(row.get("runId"), f"{name} runId")
+            completed = _time(row.get("completedAt"), f"{name} completedAt")
+            if not ok:
+                raise ReadinessError("undeclared evidence class")
+            root = evidence_dir / "evidence" / name / run_id
+            receipt = _load(root / "receipt.json", name)
+            metadata = _load(root / "run.json", f"{name} metadata")
+            expiry = _time(receipt.get("freshUntil"), f"{name} freshUntil")
+            tier = declarations[name]
+            ok &= (row.get("status") == receipt.get("status") == "pass"
+                   and row.get("lockDigest") == receipt.get("lockDigest") == digest
+                   and receipt.get("class") == name and receipt.get("kind") == tier
+                   and str(receipt.get("runId")) == run_id
+                   and receipt.get("completedAt") == row.get("completedAt") == metadata.get("updated_at")
+                   and metadata.get("status") == "completed" and metadata.get("conclusion") == "success"
+                   and completed <= now <= expiry and expiry > completed)
+            if tier == "nightly":
+                ok &= run_id == rc_run_id and completed <= train_time
+                earliest, latest = train_time - timedelta(hours=24), completed
+            else:
+                ok &= burn_start <= completed <= now
+                earliest, latest = burn_start, completed
+            ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
+            if name in JOURNEYS:
+                mode, required = JOURNEYS[name]
+                ok &= _journey(receipt, required, mode, digest, earliest, latest)
+            if name == "update-rollback":
+                ok &= _update_rollback(receipt)
+        except (ReadinessError, OSError, TypeError):
+            ok = False
+        check(f"evidence:{name}", bool(ok), detail)
 
     canaries = record.get("demoCanaries")
     if not isinstance(canaries, list):
         raise ReadinessError("demoCanaries must be an array")
     canary_ok = len(canaries) == 7
-    canary_times: list[datetime] = []
-    canary_ids: list[str] = []
-    for index, row in enumerate(canaries):
+    times: list[datetime] = []
+    ids: list[str] = []
+    for row in canaries:
         if not isinstance(row, dict):
             canary_ok = False
             continue
-        run_id = _run_id(row.get("runId"), f"demoCanaries[{index}].runId")
-        completed = _time(row.get("completedAt"), f"demoCanaries[{index}].completedAt")
-        canary_ids.append(run_id)
-        canary_times.append(completed)
+        run_id = _run_id(row.get("runId"), "canary runId")
+        completed = _time(row.get("completedAt"), "canary completedAt")
+        ids.append(run_id)
+        times.append(completed)
         try:
-            receipt = _load(evidence_dir / "canaries" / run_id / "live-canary-evidence.json", f"canary {run_id} receipt")
-            run_metadata = _load(evidence_dir / "canaries" / run_id / "run.json", f"canary {run_id} metadata")
-            receipt_lock = receipt.get("candidateLock") if isinstance(receipt.get("candidateLock"), dict) else {}
-            canary_ok &= (row.get("status") == "pass" and row.get("lockDigest") == recorded_digest
-                          and receipt.get("status") == "pass" and str(receipt.get("runId")) == run_id
-                          and receipt_lock.get("digest") == recorded_digest
-                          and run_metadata.get("updated_at") == row.get("completedAt"))
-        except ReadinessError:
+            root = evidence_dir / "canaries" / run_id
+            receipt = _load(root / "live-canary-evidence.json", f"canary {run_id}")
+            metadata = _load(root / "run.json", f"canary {run_id} metadata")
+            canary_ok &= (row.get("status") == receipt.get("status") == "pass"
+                          and row.get("lockDigest") == receipt.get("candidateLock", {}).get("digest") == digest
+                          and str(receipt.get("runId")) == run_id
+                          and metadata.get("updated_at") == row.get("completedAt")
+                          and metadata.get("status") == "completed" and metadata.get("conclusion") == "success")
+        except (ReadinessError, AttributeError):
             canary_ok = False
-    if len(set(canary_ids)) != len(canary_ids):
-        canary_ok = False
-    if len(canary_times) == 7:
-        canary_ok &= canary_times == sorted(canary_times) and canary_times[0] >= burn_start
-        canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= timedelta(hours=6, minutes=30)
-                         for a, b in zip(canary_times, canary_times[1:]))
-        canary_ok &= timedelta(0) <= now - canary_times[-1] <= timedelta(hours=6, minutes=30)
-    check("demo-canaries", canary_ok,
-          "seven distinct consecutive passing 6-hour canaries, latest no more than 6.5h old")
-
-    rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
-    check("exact-rc", rc_run_id in train_ids and bool(train_ids) and rc_run_id == train_ids[0],
-          f"promotion source run {rc_run_id} is the recorded freeze RC train")
+    canary_ok &= len(set(ids)) == len(ids)
+    if len(times) == 7:
+        canary_ok &= times == sorted(times) and times[0] >= burn_start
+        canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= CANARY_SLOT
+                         for a, b in zip(times, times[1:]))
+        canary_ok &= timedelta(0) <= now - times[-1] <= CANARY_SLOT
+    # The fetcher supplies the complete observed canary ledger, including failed
+    # runs and their lock bindings. A record cannot omit a failure of this lock, and
+    # it cannot move burnStartedAt past one: the scan starts at the minting train's
+    # completion, which the record does not control.
+    burn_detail = "no failed or incomplete canary of this lock, or unattributed failure, since minting"
+    start_ok = False
+    try:
+        sequence = _load(evidence_dir / "canary-sequence.json", "complete canary sequence")
+        runs = sequence.get("runs")
+        if not isinstance(runs, list) or sequence.get("lockDigest") != digest:
+            raise ReadinessError("missing lock-bound canary sequence")
+        observed = []
+        burn_ok = True
+        for run in runs:
+            if not isinstance(run, dict):
+                raise ReadinessError("malformed canary sequence")
+            key = _canary_key(run, "observed canary")
+            completed, status, bound = key[1:]
+            if completed > now:
+                continue
+            if bound == digest:
+                observed.append(key)
+                if status != "pass":
+                    burn_ok = False
+                    burn_detail = f"canary {key[0]} of this lock did not pass; the lock's burn has ended"
+            elif not (isinstance(bound, str) and SHA256_RE.fullmatch(bound)):
+                # A canary that fails before it reads its lock cannot be attributed to another
+                # lock, so it counts against every lock that was minted before it ran.
+                if status != "pass" and completed >= train_time:
+                    burn_ok = False
+                    burn_detail = f"canary {key[0]} did not pass and recorded no lock digest; it is unattributable"
+        observed.sort(key=lambda key: key[1])
+        observed_ids = [key[0] for key in observed]
+        burn_ok &= len(set(observed_ids)) == len(observed_ids)
+        selected = [_canary_key(row, "canary") for row in canaries if isinstance(row, dict)]
+        canary_ok &= len(observed) >= 7 and observed[-7:] == selected
+        # The lock is deployed when burn starts, so its first canary follows within one slot.
+        # A burn start claimed earlier than that would shorten the real burn.
+        start_ok = bool(observed) and observed[0][1] - burn_start <= CANARY_SLOT
+    except (ReadinessError, OSError):
+        burn_ok = canary_ok = False
+        burn_detail = "complete lock-bound canary sequence is missing or malformed"
+    check("burn-start", start_ok,
+          "the lock's first observed canary completed no more than 6h30m after the recorded burn start")
+    check("lock-burn-health", bool(burn_ok), burn_detail)
+    check("demo-canaries", bool(canary_ok),
+          "seven consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
     decision = {
         "schemaVersion": "promotion-readiness.v1", "platformLabel": label,
         "lockDigest": actual_digest, "rcTrainRunId": rc_run_id,
@@ -190,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record", required=True, type=Path)
     parser.add_argument("--lock", required=True, type=Path)
     parser.add_argument("--evidence-dir", required=True, type=Path)
-    parser.add_argument("--lock-history", required=True, type=Path)
+    parser.add_argument("--lock-history", type=Path, help="Legacy input; trunk history never resets a lock burn")
     parser.add_argument("--now")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--github-output", type=Path)
@@ -199,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         now = _time(args.now, "now") if args.now else datetime.now(timezone.utc)
         decision, failures = evaluate(_load(args.record, "promotion record"), lock_path=args.lock,
                                       evidence_dir=args.evidence_dir, lock_history=args.lock_history, now=now)
-    except (ReadinessError, OSError) as exc:
+    except (ReadinessError, OSError, TypeError) as exc:
         decision, failures = {"schemaVersion": "promotion-readiness.v1", "status": "refused",
                               "checks": {"record": {"status": "fail", "detail": str(exc)}}}, [str(exc)]
     args.out.write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
