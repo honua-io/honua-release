@@ -63,9 +63,12 @@ def prepare(manifest, workdir):
     env = {**os.environ, "NuGetPackageSourceCredentials_journey":
            f"Username=journey-reader;Password={token};ValidAuthenticationTypes=Basic",
            "NUGET_PACKAGES": str(destination / "packages")}
-    result = subprocess.run(["dotnet", "build", str(destination / "JourneyImport.csproj"),
-                             "-c", "Release", f"-p:JourneySdkVersion={version}",
-                             "--verbosity", "quiet"], env=env, capture_output=True, timeout=1200, check=False)
+    try:
+        result = subprocess.run(["dotnet", "build", str(destination / "JourneyImport.csproj"),
+                                 "-c", "Release", f"-p:JourneySdkVersion={version}",
+                                 "--verbosity", "quiet"], env=env, capture_output=True, timeout=1200, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ExecutionError("dotnet build JourneyImport.csproj", "published SDK restore/build could not finish", blocked=True) from exc
     if result.returncode:
         raise ExecutionError("dotnet build JourneyImport.csproj", "published SDK restore/build failed", blocked=True)
     return {"dll": str(destination / "bin" / "Release" / "net10.0" / "JourneyImport.dll"),

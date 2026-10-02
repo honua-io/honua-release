@@ -240,3 +240,73 @@ def test_missing_replica_cannot_be_a_same_process_reopen_pass():
     engine.check_map()
     assert engine.evidence["checks"]["6"]["saved-map"]["status"] == "pass"
     assert engine.evidence["checks"]["6"]["replica-map"]["status"] == "blocked"
+
+
+def sdk_engine():
+    transport = mock.Mock()
+    transport.credentials = {"proposer": "private-proposer"}
+    engine = engine_for(transport, execution={
+        "datasource": {"name": "source", "passwordEnv": "JOURNEY_TEST_PASSWORD"},
+        "importRequest": {"serviceUrl": "http://source/FeatureServer", "layerId": 0},
+        "publishRequest": {"table": "source"}, "features": [{}, {}],
+        "mapBody": {"source": "/ogc/features/collections/{layerId}/items"}})
+    engine.observation.setup_discovery["tools"].extend([
+        {"name": "honua_ingest_dataset"}, {"name": "honua_publish_service"}])
+    return engine
+
+
+def sdk_action(method, arguments):
+    return {"kind": "terminal_command", "command": "honua-journey-sdk " + method + " " + json.dumps(arguments)}
+
+
+def test_model_sdk_commands_bind_observed_view_fixture_and_credential_reference(monkeypatch):
+    engine = sdk_engine()
+    monkeypatch.setenv("JOURNEY_TEST_PASSWORD", "private-database-key")
+    with mock.patch.object(executor.sdk, "invoke", return_value={"connectionId": "connection-1"}) as invoke:
+        result = engine.execute(3, sdk_action("CreateConnectionAsync", [engine.fixture["datasource"]]))
+    assert invoke.call_args.args[2] == [{"name": "source", "password": "private-database-key"}]
+    assert result["resources"]["connectionId"] == "connection-1"
+    assert "private-database-key" not in json.dumps(result)
+    assert "private-proposer" not in json.dumps(result)
+    engine.transport.tool.assert_not_called()
+
+
+@pytest.mark.parametrize("command,number", [
+    ("sh -c echo secret", 3), ("honua-journey-sdk DeleteConnectionAsync []", 3),
+    ("honua-journey-sdk TestConnectionAsync [null]", 3),
+    ("honua-journey-sdk CreateConnectionAsync []", 4),
+    ("honua-journey-sdk CreateConnectionAsync [NaN]", 3)])
+def test_terminal_bridge_refuses_arbitrary_shell_method_stage_or_unbound_input(command, number):
+    engine = sdk_engine()
+    with mock.patch.object(executor.sdk, "invoke") as invoke:
+        with pytest.raises(ExecutionError):
+            engine.execute(number, {"kind": "terminal_command", "command": command})
+    invoke.assert_not_called()
+
+
+def test_sdk_import_submission_cannot_be_repeated():
+    engine = sdk_engine()
+    engine.resources["jobId"] = "import-job-1"
+    with mock.patch.object(executor.sdk, "invoke") as invoke:
+        with pytest.raises(ExecutionError, match="already been submitted"):
+            engine.execute(3, sdk_action("StartGeoservicesImportAsync", [engine.fixture["importRequest"]]))
+    invoke.assert_not_called()
+
+
+@pytest.mark.parametrize("changes", [{"featuresProcessed": 1}, {"failedFeatures": 1},
+                                     {"failedFeatures": False}, {"jobId": "different"}, {"status": "Running"}])
+def test_import_status_requires_independent_counts_and_the_submitted_job(changes):
+    engine = sdk_engine()
+    engine.resources["jobId"] = "import-job-1"
+    result = {"jobId": "import-job-1", "status": "Completed", "featuresProcessed": 2, "failedFeatures": 0, **changes}
+    with pytest.raises(oracles.ProofError):
+        engine.prove_import(result)
+
+
+def test_authored_map_source_binds_import_identity_without_reading_candidate_body():
+    engine = sdk_engine()
+    with pytest.raises(ExecutionError, match="imported layer identity"):
+        engine.expected_map_body()
+    engine.resources["layerId"] = 7
+    assert engine.expected_map_body() == {"source": "/ogc/features/collections/7/items"}
+    assert engine.fixture["mapBody"]["source"].endswith("{layerId}/items")

@@ -145,20 +145,46 @@
       "distance": 2
     },
     "mapBody": {
-      "layers": [
+      "mapPackageId": "journey-map",
+      "format": "honua_map_package.v1",
+      "sourceBindings": [
         {
-          "id": "journey-layer",
           "sourceId": "journey",
-          "type": "circle",
-          "visible": true
+          "protocol": "ogc_features",
+          "locator": {
+            "collectionId": "{layerId}"
+          }
         }
       ],
-      "view": {
+      "initialView": {
         "center": [
           0,
           0
         ],
-        "zoom": 4
+        "zoom": 4,
+        "pitch": 0,
+        "bearing": 0,
+        "crs": "EPSG:4326"
+      },
+      "mapSpec": {
+        "version": 8,
+        "sources": {
+          "journey": {
+            "type": "geojson",
+            "data": "/ogc/features/collections/{layerId}/items"
+          }
+        },
+        "layers": [
+          {
+            "id": "journey-layer",
+            "source": "journey",
+            "type": "circle",
+            "paint": {
+              "circle-radius": 8,
+              "circle-color": "#ef2020"
+            }
+          }
+        ]
       }
     },
     "route": "journey-map",

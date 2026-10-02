@@ -52,8 +52,9 @@ def structured(result, command):
 
 
 class JourneyExecutor:
-    def __init__(self, state, target, observation, transport):
+    def __init__(self, state, target, observation, transport, *, manifest=None):
         self.state, self.target, self.observation, self.transport = state, target, observation, transport
+        self.manifest = manifest
         self.evidence = state.setdefault("execution", {"actions": {}, "resources": {}, "checks": {}, "canonicalIds": {}})
         self.fixture = target.get("execution") or {}
 
@@ -87,6 +88,8 @@ class JourneyExecutor:
                 self.resources[key] = identity(str(result[key]), command)
         if type(result.get("generation")) is int:
             self.resources["generation"] = result["generation"]
+        if type(result.get("layerId")) is int and result["layerId"] >= 0:
+            self.resources["layerId"] = result["layerId"]
         version = result.get("version")
         if isinstance(version, dict):
             self._record_version(version, command)
@@ -115,6 +118,8 @@ class JourneyExecutor:
     def execute(self, number, action):
         view = self.view()
         kind = action.get("kind")
+        if kind == "terminal_command":
+            return self.execute_sdk_command(number, action, view)
         if kind != "tool_call":
             raise ExecutionError("model action", "only structured calls from the bounded server view may execute")
         name, arguments = action.get("tool"), action.get("arguments")
@@ -151,7 +156,8 @@ class JourneyExecutor:
         self._record(number, name, output)
         if name == "honua_render_map":
             self.check_render(output)
-            if fault and fault["status"] == "observed" and self.result(number).status == "pass":
+            if (fault and fault["status"] == "observed"
+                    and self.evidence["checks"].get("4", {}).get("pixel", {}).get("status") == "pass"):
                 fault["status"] = "recovered"
                 recovered = {"id": fault["id"], "recovered": True}
         if name == "honua_execute_plan":
@@ -166,9 +172,68 @@ class JourneyExecutor:
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
                 "resources": dict(self.resources)}
 
+    def execute_sdk_command(self, number, action, view):
+        """Interpret one typed bridge command; never invoke a shell or model argv."""
+        command = action.get("command", "")
+        pieces = command.split(" ", 2) if isinstance(command, str) else []
+        if number != 3 or len(pieces) != 3 or pieces[0] != "honua-journey-sdk" or pieces[1] not in SDK_METHODS:
+            raise ExecutionError("model terminal command", "command is outside the typed published SDK bridge")
+        method = pieces[1]
+        capability = "honua_publish_service" if method == "PublishLayerAsync" else "honua_ingest_dataset"
+        if capability not in {tool["name"] for tool in view["tools"]}:
+            raise ExecutionError(method, "SDK operation is outside the observed bounded ingest/publication view")
+        try:
+            arguments = json.loads(pieces[2], parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        except ValueError as exc:
+            raise ExecutionError(method, "SDK arguments must be a strict JSON array") from exc
+        if not isinstance(arguments, list):
+            raise ExecutionError(method, "SDK arguments must be an array")
+        expected = {
+            "CreateConnectionAsync": [self.fixture["datasource"]],
+            "TestConnectionAsync": [self.resources.get("connectionId")],
+            "StartGeoservicesImportAsync": [self.fixture["importRequest"]],
+            "GetGeoservicesImportJobStatusAsync": [self.resources.get("jobId")],
+            "PublishLayerAsync": [self.resources.get("connectionId"), self.fixture["publishRequest"]],
+        }[method]
+        if arguments != expected or any(value is None for value in expected):
+            raise ExecutionError(method, "SDK arguments do not bind the authored fixture and observed resource identities")
+        if method == "CreateConnectionAsync":
+            datasource = dict(arguments[0])
+            password = os.environ.get(datasource.pop("passwordEnv"), "")
+            if not password:
+                raise ExecutionError(method, "datasource password environment reference is unavailable", blocked=True)
+            arguments = [{**datasource, "password": password}]
+        if method == "StartGeoservicesImportAsync" and self.resources.get("jobId"):
+            raise ExecutionError(method, "import has already been submitted; poll its observed job identity")
+        output = self.sdk_call(method, arguments)
+        if method == "TestConnectionAsync":
+            self._check(3, "datasource", method, lambda: self.prove_connection(output))
+        if method == "GetGeoservicesImportJobStatusAsync" and output.get("status") == "Completed":
+            self._check(3, "import-complete", method, lambda: self.prove_import(output))
+        if method == "PublishLayerAsync":
+            self.check_features()
+        return {"status": "pass", "accepted": True, "resources": dict(self.resources),
+                "injectedError": None, "recoveredError": None,
+                "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
+
+    def prove_connection(self, result):
+        if result.get("connectionId") != self.resources.get("connectionId") or result.get("isHealthy") is not True:
+            raise oracles.ProofError("datasource test did not prove the created connection healthy")
+        return {"healthy": True}
+
+    def prove_import(self, result):
+        if (result.get("status") != "Completed" or result.get("jobId") != self.resources.get("jobId")
+                or type(result.get("featuresProcessed")) is not int or type(result.get("failedFeatures")) is not int
+                or result.get("featuresProcessed") != len(self.fixture["features"])
+                or result.get("failedFeatures") != 0):
+            raise oracles.ProofError("import lifecycle identity, completion or independent feature counts differ")
+        return {"featureCount": len(self.fixture["features"]), "failedCount": 0}
+
     def sdk_call(self, method, arguments):
         if method not in SDK_METHODS:
             raise ExecutionError(method, "SDK method is outside the journey surface")
+        if not self.state.get("sdkBinding") and self.manifest is not None:
+            self.state["sdkBinding"] = sdk.prepare(self.manifest, self.transport.workdir)
         result = sdk.invoke(self.state.get("sdkBinding"), method, arguments,
                             base_url=self.transport.base_url, credential=self.transport.credentials["proposer"])
         self._record(3, method, result)
@@ -227,8 +292,26 @@ class JourneyExecutor:
         return ("/api/v1/studio/content-items/" + identity(self.resources.get("itemId"), "read saved map")
                 + "/versions/" + identity(self.resources.get("versionId"), "read saved map"))
 
+    def expected_map_body(self):
+        """Bind authored map sources to the independently verified imported layer.
+
+        The candidate's saved body never supplies an expected value.
+        """
+        def bind(value):
+            if isinstance(value, dict):
+                return {key: bind(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [bind(item) for item in value]
+            if isinstance(value, str) and "{layerId}" in value:
+                layer_id = self.resources.get("layerId")
+                if type(layer_id) is not int or layer_id < 0:
+                    raise ExecutionError("bind map source", "imported layer identity is unavailable", blocked=True)
+                return value.replace("{layerId}", str(layer_id))
+            return value
+        return bind(self.fixture["mapBody"])
+
     def _prove_map(self, transport, path, principal="proposer"):
-        return oracles.prove_map(transport.get_json(path, principal=principal), self.fixture["mapBody"],
+        return oracles.prove_map(transport.get_json(path, principal=principal), self.expected_map_body(),
                                 item_id=self.resources["itemId"], version_id=self.resources["versionId"],
                                 content_hash=self.resources["contentHash"])
 
@@ -248,9 +331,10 @@ class JourneyExecutor:
             draft_id = identity(self.resources.get("draftId"), "GET reopened draft")
             draft = self.transport.get_json("/api/v1/studio/package-drafts/" + draft_id)
             draft = draft.get("data", draft)
-            if draft.get("baseVersionId") != self.resources["versionId"] or draft["envelope"]["body"] != self.fixture["mapBody"]:
+            expected = self.expected_map_body()
+            if draft.get("baseVersionId") != self.resources["versionId"] or draft["envelope"]["body"] != expected:
                 raise oracles.ProofError("reopened map body or source version differs")
-            return {"contentDigest": oracles.content_digest(self.fixture["mapBody"])}
+            return {"contentDigest": oracles.content_digest(expected)}
         self._check(6, "reopened-map", "GET reopened map draft", prove)
 
     def check_proposal(self):
@@ -327,23 +411,24 @@ class JourneyExecutor:
                 raise ExecutionError("GET current authority", "completed replay does not report current allowed authority")
             return {"status": "Completed", "policyDecision": "Allow", "authorizationOutcome": observed["authorizationOutcome"]}
 
-        def denied(path, principal):
+        def denied(path, principal, expected):
             if not self.transport.credentials.get(principal):
                 raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
-            _, status = self.transport.http("GET", path, principal=principal, expected=(403, 404))
+            _, status = self.transport.http("GET", path, principal=principal, expected=expected)
             return {"httpStatus": status}
 
         return {"canonicalIdJoin": self._check(8, "canonical-join", "GET canonical publication handle", join),
                 "currentAuthorityRevalidation": self._check(8, "current-authority", "GET current authority", authority),
                 "tenantIsolation": self._check(8, "tenant-isolation", "GET private saved map under another tenant",
-                    lambda: denied(self.map_path(), "other-tenant")),
+                    lambda: denied(self.map_path(), "other-tenant", (403, 404))),
                 "rbacDenial": self._check(8, "rbac-denial", "GET admin API keys under viewer",
-                    lambda: denied("/api/v1/admin/api-keys/", "viewer"))}
+                    lambda: denied("/api/v1/admin/api-keys/", "viewer", (403,)))}
 
     def result(self, number):
-        required = {3: {"imported-content"}, 4: {"style-applied", "pixel"}, 5: {"buffer"},
+        required = {3: {"datasource", "import-complete", "imported-content"}, 4: {"style-applied", "pixel"}, 5: {"buffer"},
                     6: {"saved-map", "replica-map", "reopened-map"}, 7: {"durable-proposal"},
-                    8: {"separation", "final-map"}}.get(number, set())
+                    8: {"separation", "final-map", "canonical-join", "current-authority",
+                        "tenant-isolation", "rbac-denial"}}.get(number, set())
         stored = self.evidence["checks"].get(str(number), {})
         checks = [probes.Check(r["id"], r["kind"], r["invocation"], r["status"], r["detail"], r.get("blockedBy", []))
                   for r in stored.values()]
@@ -380,8 +465,8 @@ class JourneyExecutor:
             created = self.sdk_call("CreateConnectionAsync", [{**datasource, "password": password}])
             connection_id = identity(str(created["connectionId"]), "CreateConnectionAsync")
             tested = self.sdk_call("TestConnectionAsync", [connection_id])
-            if tested.get("isHealthy") is not True:
-                raise ExecutionError("TestConnectionAsync", "datasource connectivity test failed")
+            self._check(3, "datasource", "TestConnectionAsync", lambda: self.prove_connection(tested))
+            self.prove_connection(tested)
             started = self.sdk_call("StartGeoservicesImportAsync", [self.fixture["importRequest"]])
             job_id = identity(started["jobId"], "StartGeoservicesImportAsync")
             finished = self.poll("GetGeoservicesImportJobStatusAsync",
@@ -389,6 +474,8 @@ class JourneyExecutor:
                 lambda r: r.get("status") in {"Completed", "Failed", "NeedsReview", "Cancelled"})
             if finished["status"] != "Completed":
                 raise ExecutionError("GetGeoservicesImportJobStatusAsync", "import did not complete cleanly")
+            self._check(3, "import-complete", "GetGeoservicesImportJobStatusAsync", lambda: self.prove_import(finished))
+            self.prove_import(finished)
             published = self.sdk_call("PublishLayerAsync", [connection_id, self.fixture["publishRequest"]])
             if type(published.get("layerId")) is not int:
                 raise ExecutionError("PublishLayerAsync", "published SDK omitted layer identity")
@@ -421,7 +508,7 @@ class JourneyExecutor:
             if "layerId" not in self.resources:
                 raise ExecutionError("honua_studio_create_draft", "imported published layer is unavailable", blocked=True)
             call(6, "honua_studio_create_draft", {"family": "map", "packageKey": self.state["workspaceId"],
-                 "schemaVersion": "1", "body": self.fixture["mapBody"]})
+                 "schemaVersion": "1", "body": self.expected_map_body()})
             call(6, "honua_studio_validate_draft", {"draftId": self.resources["draftId"]})
             call(6, "honua_studio_save_version", {"draftId": self.resources["draftId"], "generation": self.resources["generation"]})
             call(6, "honua_studio_reopen_version", {"itemId": self.resources["itemId"], "versionId": self.resources["versionId"]})
@@ -435,8 +522,12 @@ class JourneyExecutor:
         def approval():
             if "proposalId" not in self.resources:
                 raise ExecutionError("approveOperationProposal", "durable publication proposal is unavailable", blocked=True)
-            self.approve(self.resources["proposalId"])
-            self.verify_final()
+            try:
+                self.approve(self.resources["proposalId"])
+            finally:
+                if self.evidence.get("approvalResolution"):
+                    self.verify_final()
+                    self.verify_authority()
 
         for number, invoke in ((3, service), (4, style), (5, buffer), (6, composition), (7, publication), (8, approval)):
             try:

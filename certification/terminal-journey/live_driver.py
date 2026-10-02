@@ -15,8 +15,9 @@ This adapter is deliberately honest about what the candidate can do:
   returns `blocked` and names the missing dependency. No operation can return
   `pass` from mocked, replayed or assumed state, which is the protocol's fourth
   prohibition.
-* `execute` refuses any action outside the server-authored bounded tool view.
-  Verified discovery does not implement action execution or grant call authority.
+* `execute` invokes the installed proxy for calls in its verified bounded view.
+  Stage 3 can select the typed published .NET bridge for the observed ingest and
+  publication capabilities. Discovery itself never grants call authority.
 * Credential values never enter a response. Only environment-variable references
   are returned, per the protocol's first prohibition.
 """
@@ -298,6 +299,8 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
+                                "terminalSurface": {"sdkCommand": "honua-journey-sdk",
+                                                    "sdkMethods": sorted(executor.SDK_METHODS)} if number == 3 else {},
                                 "evidence": checks},
                 "toolView": _tool_view(observation), "blockedBy": []}
     return {
@@ -310,12 +313,7 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
-    """Execute exactly the model-selected action — but only from a bounded view.
-
-    Discovery does not grant authority or implement execution. Even a verified
-    bounded view must remain non-executable until the release driver performs
-    the real authenticated operation and records its canonical identities.
-    """
+    """Execute the selected bounded call and retain only observed identities."""
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
@@ -479,7 +477,8 @@ def _executor(state, target, observation):
     credentials.setdefault("proposer", probes.resolve_env_default(
         target["adminPassword"]["env"], target["adminPassword"]["default"]))
     transport = Transport(state["baseUrl"], bindir / "honua-mcp-proxy", bindir / "honua", workdir, credentials)
-    return executor.JourneyExecutor(state, target, observation, transport)
+    return executor.JourneyExecutor(state, target, observation, transport,
+                                    manifest=_load_yaml(ROOT / "platform-manifest.yaml"))
 
 
 def op_teardown(request: dict[str, Any]) -> dict[str, Any]:
