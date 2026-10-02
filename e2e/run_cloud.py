@@ -177,24 +177,33 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         report["status"] = "fail"
         report["why"] = f"cloud checks/journey failed: {type(e).__name__}"
     finally:
-        # Metering and receipt failures must not bypass either cleanup path.
+        # Metering, receipt persistence, local cleanup and infrastructure destruction are
+        # independent obligations. An error in any one must not bypass the following obligations.
         try:
-            if not report["journeyAttempts"]:
-                report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
-            report["cost"] = cloud_journey.check_cost(
-                cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT", "e2e/cloud-evidence/run-cost.json")),
-                cost_ceiling_usd, started_at=started_at)
-            if report["cost"]["status"] != "pass":
-                prior = report.get("why", "")
-                report.update(status="fail", why=f"{prior}; run cost exceeds ceiling")
-        except Exception as e:
-            prior = report.get("why", "")
-            report.update(status="fail", why=f"{prior}; cost/receipt evidence unavailable: {type(e).__name__}")
+            try:
+                if not report["journeyAttempts"]:
+                    report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
+            except Exception as e:
+                report.update(status="fail", why=report.get("why", "") +
+                              f"; receipt evidence unavailable: {type(e).__name__}")
+            finally:
+                try:
+                    report["cost"] = cloud_journey.check_cost(
+                        cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT",
+                                                          "e2e/cloud-evidence/run-cost.json")),
+                        cost_ceiling_usd, started_at=started_at)
+                    if report["cost"]["status"] != "pass":
+                        report.update(status="fail", why=report.get("why", "") +
+                                      "; run cost exceeds ceiling")
+                except Exception as e:
+                    report.update(status="fail", why=report.get("why", "") +
+                                  f"; cost evidence unavailable: {type(e).__name__}")
         finally:
             try:
                 cloud_journey.cleanup(cell)
             except Exception as e:
-                report.update(status="fail", why=report.get("why", "") + f"; journey cleanup failed: {type(e).__name__}")
+                report.update(status="fail", why=report.get("why", "") +
+                              f"; journey cleanup failed: {type(e).__name__}")
             finally:
                 try:
                     target.teardown(redis_enabled=redis_enabled)

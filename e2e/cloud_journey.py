@@ -25,14 +25,19 @@ PREVIEW_TARGETS = ("aws-eks", "aws-mixed")
 def drivers():
     # The owned modules use sibling imports. Load the runner under its own name, as the live
     # adapter imports it too; never copy stage logic or invoke a subprocess driver.
-    sys.path.insert(0, str(HERE))
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
     if "run" not in sys.modules or Path(sys.modules["run"].__file__) != HERE / "run.py":
         spec = importlib.util.spec_from_file_location("run", HERE / "run.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["run"] = module
         spec.loader.exec_module(module)
-    import live_driver
-    return sys.modules["run"], live_driver
+    if "live_driver" not in sys.modules or Path(sys.modules["live_driver"].__file__) != HERE / "live_driver.py":
+        spec = importlib.util.spec_from_file_location("live_driver", HERE / "live_driver.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["live_driver"] = module
+        spec.loader.exec_module(module)
+    return sys.modules["run"], sys.modules["live_driver"]
 
 
 def manifest():
