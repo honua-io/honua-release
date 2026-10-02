@@ -298,14 +298,17 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         acted = bool(engine.evidence["actions"].get(str(number)))
         proposal_id = engine.resources.get("proposalId")
         pending = number == 8 and proposal_id and not engine.evidence.get("approval")
-        prerequisites = stagelib.prerequisites([
+        observed_checks = [
             probes.Check(c["id"], c["kind"], c["invocation"], c["status"], c["detail"], c.get("blockedBy", []))
-            for c in status["checks"]])
+            for c in status["checks"]]
+        prerequisites = stagelib.prerequisites(observed_checks)
         recorded = engine.evidence["checks"].get(str(number), {})
         # Missing, unexecuted assertions are pending work. Persisted blockers and
         # completed work lacking canonical evidence are actual stopping conditions.
         concrete = prerequisites + ([c for c in result.checks if c.id in {r["id"] for r in recorded.values()}]
                                     if result else [])
+        if result is None:
+            concrete = observed_checks
         unfinished = result and any(c.detail == "required live assertion has not executed" for c in result.checks)
         if result and not unfinished:
             concrete = prerequisites + result.checks
@@ -484,7 +487,8 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
         assertions["fakeSuccessRejected"] = fake.status
         assertions["finalUrlProof"] = final.status
         pixel = evidence["checks"].get("4", {}).get("pixel", {})
-        assertions["pixelProof"] = pixel.get("status", "blocked") if proofs.get("pixel") else "blocked"
+        assertions["pixelProof"] = (pixel.get("status", "blocked") if proofs.get("pixel")
+                                    else "fail" if pixel.get("status") == "fail" else "blocked")
         for name in ("rbacDenial", "tenantIsolation", "currentAuthorityRevalidation"):
             assertions[name] = authority[name].status
         separation = evidence["checks"].get("8", {}).get("separation", {})
