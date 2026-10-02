@@ -279,7 +279,9 @@ def resolve(manifest, matrix, github, registry, limit=100):
     for name, component in manifest['components'].items():
         try:
             candidate['components'][name] = select_component(name, component, github, registry, limit)
-            print(f"RESOLVED {name} {candidate['components'][name]['sha']}")
+            selected = candidate['components'][name]
+            image = selected.get('image')
+            print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             detail = str(exc)
             if not detail.startswith(f'{name}:'):
