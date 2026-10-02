@@ -213,6 +213,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         "baseUrl": base_url,
         "stackUp": stack_up,
         "armedError": None,
+        "executionEnabled": bool(observation.setup_view_present and bindir is not None),
         "clientWorkspace": workspace.as_receipt(),
     }
     _write_state(workspace_id, state)
@@ -278,11 +279,22 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
     status = _stage_status(journey, observation, workspace, stage_ref)
-    if status["number"] >= 3 and state.get("execution"):
+    if state.get("executionEnabled") and state.get("stackUp") and observation.setup_view_present:
         engine = _executor(state, _target, observation)
-        result = engine.result(status["number"])
-        status.update(status=result.status, blockedBy=result.blocked_by,
-                      checks=[c.as_receipt() for c in result.checks])
+        number = status["number"]
+        result = engine.result(number) if number >= 3 else None
+        completed = (result.status == "pass" if result else status["status"] == "pass")
+        acted = bool(engine.evidence["actions"].get(str(number)))
+        proposal_id = engine.resources.get("proposalId")
+        pending = number == 8 and proposal_id and not engine.evidence.get("approval")
+        _write_state(state["workspaceId"], state)
+        return {"status": "pass" if completed and acted else "ready",
+                "stageStatus": "complete" if completed and acted else "awaiting_approval" if pending else "ready",
+                "proposalId": proposal_id if pending else None,
+                "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
+                                "fixture": _target.get("execution", {}),
+                                "evidence": [c.as_receipt() for c in result.checks] if result else status["checks"]},
+                "toolView": _tool_view(observation), "blockedBy": []}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
