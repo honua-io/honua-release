@@ -59,9 +59,16 @@ def retry(operation):
 
 class GitHub:
     def json(self, path):
+        # gh colors JSON when its config asks for color, and json.loads then sees an empty token.
+        env = os.environ.copy()
+        env['NO_COLOR'] = '1'
+        env['GH_FORCE_TTY'] = '0'
         result = retry(lambda: subprocess.run(
-            ['gh', 'api', path], capture_output=True, text=True, check=True))
-        return json.loads(result.stdout)
+            ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
     def pages(self, path, key=None):
         separator = '&' if '?' in path else '?'
@@ -274,7 +281,10 @@ def resolve(manifest, matrix, github, registry, limit=100):
             candidate['components'][name] = select_component(name, component, github, registry, limit)
             print(f"RESOLVED {name} {candidate['components'][name]['sha']}")
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-            failures.append(str(exc))
+            detail = str(exc)
+            if not detail.startswith(f'{name}:'):
+                detail = f'{name}: {detail}'
+            failures.append(detail)
     if failures:
         raise ResolutionError('\n'.join(failures))
     server_component = candidate['components']['honua-server']
@@ -297,7 +307,7 @@ def resolve(manifest, matrix, github, registry, limit=100):
             if 'requiresDbSchema' in data and not str(data['requiresDbSchema']).startswith('>'):
                 data['requiresDbSchema'] = floor
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-            failures.append(str(exc))
+            failures.append(f'honua-server dbSchema: {exc}')
     for name in ('honua-iac', 'honua-helm'):
         row = candidate_matrix.get('deploy', {}).get(name, {})
         for key in ('deploysServerImage', 'appVersion'):
