@@ -19,8 +19,11 @@ class GitHub:
 
 
 class Registry:
+    def candidate_tags(self, repository, sha):
+        return [] if sha == NEW else ['nightly-' + sha[:7]]
+
     def image(self, name, component, sha):
-        if sha == NEW:
+        if sha == NEW or not self.candidate_tags('honua-io/server', sha):
             raise resolver.ResolutionError('no published SHA-bound image')
         return {'image': 'ghcr.io/honua-io/server@sha256:' + 'c' * 64,
                 'digest': 'sha256:' + 'c' * 64,
@@ -34,8 +37,12 @@ def component():
 
 
 def test_green_commit_without_published_image_is_refused():
+    class Guard(GitHub):
+        def green(self, *_):
+            raise AssertionError('CI consulted before a published image')
+
     with pytest.raises(resolver.ResolutionError, match='server: no qualifying.*no published SHA-bound image'):
-        resolver.select_component('server', component(), GitHub(), Registry(), 1)
+        resolver.select_component('server', component(), Guard(), Registry(), 1)
 
 
 def test_newest_green_published_commit_wins_over_unpublished_head():
@@ -54,12 +61,31 @@ def test_source_snapshot_does_not_rewrite_published_artifact():
     assert selected['artifactSourceRevision'] == OLD
 
 
-def test_red_ci_never_queries_registry():
+def test_red_ci_never_reads_image_identity():
     class Red(GitHub):
         def green(self, *_):
             return False, 'required suite failed'
+
+    class Tags(Registry):
+        def candidate_tags(self, repository, sha):
+            return ['nightly-' + sha[:7]]
+
+        def image(self, *args):
+            raise AssertionError('image identity read for a red commit')
+
     with pytest.raises(resolver.ResolutionError, match='required suite failed'):
-        resolver.select_component('server', component(), Red(), None, 1)
+        resolver.select_component('server', component(), Red(), Tags(), 1)
+
+
+def test_floating_channel_tags_are_not_candidate_images():
+    registry = resolver.Registry(None)
+    registry.tags = lambda repository: [
+        'latest', 'stable', 'nightly', 'nightly-aot', '2026.1',
+        'nightly-aaaaaaa', 'nightly-aot-aaaaaaa', 'nightly-lambda-aot-aaaaaaa-amd64',
+        'candidate-aaaaaaaaaaaa-9-1',
+    ]
+    assert registry.candidate_tags('honua-io/server', NEW) == [
+        'candidate-aaaaaaaaaaaa-9-1', 'nightly-aaaaaaa', 'nightly-aot-aaaaaaa']
 
 
 def registry_fixture(sha=NEW):
@@ -82,9 +108,8 @@ def registry_fixture(sha=NEW):
     return registry, index, child
 
 
-def test_registry_reads_index_and_children_from_actual_bytes(monkeypatch):
+def test_registry_reads_index_and_children_from_actual_bytes():
     registry, index, child = registry_fixture()
-    monkeypatch.setattr(subprocess, 'run', lambda *_a, **_k: subprocess.CompletedProcess([], 0))
     result = registry.identity('honua-io/server', 'nightly-aaaaaaa', NEW, ['amd64'])
     assert result['digest'] == index
     assert result['platformDigests'] == {'amd64': child}

@@ -28,7 +28,18 @@ on:
       platform_label: { description: "e.g. 2026.1-rc.1", required: true, type: string }
       dry_run:        { description: "validate only, do not tag/publish", required: false, type: boolean, default: true }
       capacity_receipt_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: true, type: string }
+      candidate_ref: { description: "Immutable generated candidate snapshot commit (empty uses manual pins)", required: false, type: string, default: "" }
+      nightly: { description: "Mint only after the complete strict nightly train", required: false, type: boolean, default: false }
       dr_receipt_url: { description: "HTTPS URL of the candidate full-platform DR receipt", required: true, type: string }
+
+  workflow_call:
+    inputs:
+      platform_label: { required: true, type: string }
+      dry_run: { required: false, type: boolean, default: true }
+      capacity_receipt_url: { required: true, type: string }
+      dr_receipt_url: { required: true, type: string }
+      candidate_ref: { required: false, type: string, default: "" }
+      nightly: { required: false, type: boolean, default: false }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -77,8 +88,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
       - name: Bind the complete atomic platform lock before qualification
-        if: inputs.dry_run == false
+        if: inputs.dry_run == false && !inputs.nightly
         env:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
         run: |
@@ -89,6 +105,16 @@ jobs:
           # Burn-in hashes the committed lock bytes. They must be exactly the
           # canonical bytes attested here, not a second JSON/YAML serialization.
           cmp platform-lock.json frozen-lock/platform-lock.json
+
+      - name: Generate the unsigned nightly qualification lock
+        if: inputs.nightly && inputs.dry_run == false
+        run: |
+          set -euo pipefail
+          python tools/generate_platform_lock.py --manifest platform-manifest.yaml \
+            --matrix compatibility-matrix.yaml --output platform-lock.json
+          python tools/platform_lock_bundle.py platform-lock.json \
+            --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
+            --label '${{ inputs.platform_label }}' --out-dir frozen-lock
 
       # A dry run still feeds certification gates. Every generator refusal stops freeze;
       # partial drafts must never be relabelled as gate inputs. Successful drafts are labelled
@@ -171,12 +197,22 @@ jobs:
       # workflow run, never to a release; nothing here tags or publishes it.
       - name: Attest the frozen atomic candidate identity
         id: lock_attestation
+        if: ${{ !inputs.nightly }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: frozen-lock/platform-lock.json
 
+      - name: Attest nightly qualification inputs (the release lock remains unsigned)
+        if: inputs.nightly
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            platform-manifest.yaml
+            compatibility-matrix.yaml
+
       # Both modes retain provenance for the exact lock consumed by rollback certification.
       - name: Retain the candidate signature bundle
+        if: ${{ !inputs.nightly }}
         env:
           BUNDLE_PATH: ${{ steps.lock_attestation.outputs.bundle-path }}
         run: cp "$BUNDLE_PATH" frozen-lock/platform-lock.sigstore.json
@@ -196,6 +232,8 @@ jobs:
   gate_manifest:               # Phase 0 source-of-truth: validate manifest + matrix, enforce drift
     needs: freeze
     uses: ./.github/workflows/manifest-validate.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
     # A train cut is a fresh full snapshot, not a diff, so no drift baseline is passed here
     # (structure + coherence still run, and fail on an incoherent pinned set).
 
@@ -203,6 +241,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-build-test.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       # dry-run tolerates a not-yet-built (blocked) pin; a real cut demands every component green.
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
@@ -211,6 +250,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-artifact-consume.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       # dry-run cut tolerates not-yet-published artifacts (bootstrap); a real cut demands them (strict).
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
@@ -220,6 +260,7 @@ jobs:
     needs: [gate_manifest, gate_artifact_consume]
     uses: ./.github/workflows/e2e-local-docker.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       # a real cut promotes BLOCKED/SKIPPED to FAIL so the seam tier can genuinely fail the train.
       require_real: ${{ !inputs.dry_run }}
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
@@ -228,6 +269,7 @@ jobs:
     needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       # a real cut promotes BLOCKED (infra half-wired) / parity divergence / not-certified scenarios to
       # FAIL. When cloud/OIDC creds are unset the whole tier SELF-SKIPS (status: skipped) so a local cut
       # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
@@ -238,6 +280,7 @@ jobs:
     needs: [gate_build_test, gate_contract]
     uses: ./.github/workflows/certification.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       # dry-run tolerates no-candidate-server BLOCKED; a real cut demands a pass (strict).
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
@@ -247,6 +290,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-security.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
@@ -255,6 +299,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-contract.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
@@ -263,6 +308,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-sbom.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
@@ -273,6 +319,7 @@ jobs:
     needs: gate_e2e
     uses: ./.github/workflows/gate-observability.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit            # RELEASE_GH_TOKEN for the cross-repo metric-contract checkout
@@ -281,6 +328,7 @@ jobs:
     needs: gate_conformance
     uses: ./.github/workflows/gate-docs.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
@@ -288,6 +336,7 @@ jobs:
     needs: gate_e2e
     uses: ./.github/workflows/gate-upgrade.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
@@ -296,9 +345,11 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/rollback-certification.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       # Explicit, not github.event_name: under workflow_call that reads as the train's own
       # workflow_dispatch, which used to send this gate down the "manual, checked-out file" branch
       # and try to cp a platform-lock.json that was never committed to this ref.
+      candidate_snapshot: ${{ inputs.nightly }}
       candidate_lock_artifact: candidate-manifest
 
   gate_evidence:                # evidence lineage/freshness (#60): the honua-evidence capability
@@ -307,6 +358,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-evidence.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
 
@@ -338,6 +390,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-dr.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       receipt_url: ${{ inputs.dr_receipt_url }}
       candidate_bundle: true
 
@@ -345,7 +398,20 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/capacity-soak.yml
     with:
+      candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
+
+  gate_journey_todo:
+    name: TODO required promise-journey gate (release 386)
+    needs: freeze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed until gate-journey.yml exists on trunk
+        env:
+          STRICT: ${{ !inputs.dry_run }}
+        run: |
+          echo "TODO: gate-journey.yml was absent from origin/trunk at implementation; promise-journey cells are required."
+          if [ "$STRICT" = "true" ]; then exit 1; fi
 
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
@@ -368,6 +434,7 @@ jobs:
       - gate_protocol_certification
       - gate_capacity_soak
       - gate_dr
+      - gate_journey_todo
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -416,6 +483,7 @@ jobs:
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
           S_DR: ${{ needs.gate_dr.result }}
+          S_JOURNEY: ${{ needs.gate_journey_todo.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -440,6 +508,7 @@ jobs:
           protocol-certification|$S_PROTOCOL
           capacity-soak|$S_CAPACITY
           dr|$S_DR
+          journey|$S_JOURNEY
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -517,6 +586,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Bind the report to the exact candidate and train identity
+        if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
         env:
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
@@ -525,6 +595,7 @@ jobs:
           TRAIN_RUN_ID: ${{ github.run_id }}
           TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
           TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NIGHTLY: ${{ inputs.nightly }}
           CERTIFICATION_MODE: ${{ inputs.dry_run && 'dry-run' || 'live' }}
         run: |
           set -euo pipefail
@@ -555,8 +626,9 @@ jobs:
             --train-run-attempt "$TRAIN_RUN_ATTEMPT" \
             --train-run-url "$TRAIN_RUN_URL" \
             --certification-mode "$CERTIFICATION_MODE"
+          cp out/certified-candidate/gate-report.json out/gate-report.json
           # Use only the attested freeze output, never a second checkout of lock bytes.
-          if [ "$CERTIFICATION_MODE" = "live" ]; then
+          if [ "$CERTIFICATION_MODE" = "live" ] && [ "${NIGHTLY:-}" != "true" ]; then
             test -f candidate-input/frozen-lock/platform-lock.sigstore.json || {
               echo "::error::a signed frozen platform lock is required for promotion evidence"; exit 1;
             }
@@ -570,9 +642,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-gate-report
-          path: out/certified-candidate/gate-report.json
+          path: out/gate-report.json
 
       - name: Upload the certified candidate bundle
+        if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: certified-candidate
@@ -589,5 +662,8 @@ jobs:
           if [ "$OVERALL" = "blocked" ]; then
             echo "::warning::release-train: a wired gate is blocked (unpublished artifacts / placeholder pins). Not certifiable for a real cut."
           fi
-          echo "TODO: when all gates are wired + green and not dry_run, tag the RC here."
+          if [ "$OVERALL" != "pass" ] && [ '${{ inputs.dry_run }}' = "false" ]; then
+            echo "::error::strict train requires every gate to pass"; exit 1
+          fi
+          echo "Nightly signs a lock only after the complete strict train passes."
           echo "Promotion to the platform label is a separate, environment-gated workflow (promote.yml)."
