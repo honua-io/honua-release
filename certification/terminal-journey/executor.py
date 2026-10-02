@@ -17,6 +17,7 @@ import oracles
 import probes
 import sdk
 import stages
+import discovery
 from transport import ExecutionError, Transport
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
@@ -183,8 +184,8 @@ class JourneyExecutor:
         if capability not in {tool["name"] for tool in view["tools"]}:
             raise ExecutionError(method, "SDK operation is outside the observed bounded ingest/publication view")
         try:
-            arguments = json.loads(pieces[2], parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-        except ValueError as exc:
+            arguments = discovery.parse(pieces[2].encode("utf-8"))
+        except (discovery.DiscoveryError, UnicodeError) as exc:
             raise ExecutionError(method, "SDK arguments must be a strict JSON array") from exc
         if not isinstance(arguments, list):
             raise ExecutionError(method, "SDK arguments must be an array")

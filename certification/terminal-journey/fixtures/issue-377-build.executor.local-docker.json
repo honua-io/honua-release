@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-02T22:31:59.341035Z",
+  "generatedAt": "2026-10-02T22:53:28.832271Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
     "kind": "local-docker",
     "configPath": "certification/terminal-journey/targets/local-docker.json",
-    "configSha256": "99d8372ab41dbedbea3584c00d9b93ada0d3fefc9c5b6d1ae24c313d0612cbf0",
+    "configSha256": "353b7cbf3a6e4302f8f136c6540f97a865445e64605611dc4e69cf08c63ce6fc",
     "baseUrl": "http://127.0.0.1:8137",
     "composeProject": "honua-terminal-journey"
   },
@@ -33,7 +33,7 @@
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/home/mike/honua-io/wt-release-377-build-journey/.terminal-journey/issue-377-live-3/clients",
+    "root": "/tmp/377-executor-public-pull/clients",
     "reason": null,
     "resolved": [
       {
@@ -123,7 +123,7 @@
       "number": 1,
       "stage": "installed-client-handoff",
       "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list",
-      "status": "fail",
+      "status": "blocked",
       "blockedBy": [
         "https://github.com/honua-io/honua-release/issues/7",
         "https://github.com/honua-io/honua-server/issues/3428"
@@ -143,36 +143,36 @@
           "id": "1.2-readiness",
           "kind": "http",
           "invocation": "GET /healthz/ready",
-          "status": "fail",
-          "detail": "unreachable: <urlopen error [Errno 111] Connection refused>"
+          "status": "pass",
+          "detail": "HTTP 200: Ready"
         },
         {
           "id": "1.2-licensing-disabled",
           "kind": "http",
           "invocation": "GET /api/v1/admin/license",
-          "status": "fail",
-          "detail": "admin license mode not observed"
+          "status": "pass",
+          "detail": "admin license mode: disabled"
         },
         {
           "id": "1.3-candidate-identity",
           "kind": "http",
           "invocation": "GET /api/v1/capabilities/manifest",
-          "status": "fail",
-          "detail": "the anonymous capability manifest did not return server identity"
+          "status": "pass",
+          "detail": "candidate identity reported: revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a' source='commit-sha'; expected manifest revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a'"
         },
         {
           "id": "1.4-auth-enforced",
           "kind": "http",
           "invocation": "GET /api/v1/admin/version without credentials",
-          "status": "fail",
-          "detail": "the admin endpoint could not be probed"
+          "status": "pass",
+          "detail": "anonymous admin access refused with HTTP 401 (authentication precedes tenant resolution, https://github.com/honua-io/honua-server/issues/3430)"
         },
         {
           "id": "1.5-proxy-tools-list",
           "kind": "mcp-tool",
           "invocation": "honua-mcp-proxy \u2192 initialize + paginated tools/list",
           "status": "blocked",
-          "detail": "the pinned proxy was unavailable",
+          "detail": "setup transport or JSON contract could not be observed",
           "blockedBy": [
             "https://github.com/honua-io/honua-release/issues/7"
           ]
@@ -182,7 +182,7 @@
           "kind": "mcp-tool",
           "invocation": "server-authored bounded setup/profile tool view",
           "status": "blocked",
-          "detail": "initialize-bound setup discovery has not been verified through both HTTP and the installed proxy",
+          "detail": "setup transport or JSON contract could not be observed",
           "blockedBy": [
             "https://github.com/honua-io/honua-server/issues/3428"
           ]
@@ -194,11 +194,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
-        "freshness": "unverified",
-        "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -206,9 +206,7 @@
       "stage": "credential-preflight",
       "command": "honua admin apiKeys list/effective-permissions",
       "status": "fail",
-      "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/123"
-      ],
+      "blockedBy": [],
       "checks": [
         {
           "id": "2.1-admin-cli",
@@ -220,19 +218,16 @@
         {
           "id": "2.3-credential-permissions",
           "kind": "cli",
-          "invocation": "honua admin secure listAdminApiKeys; honua admin secure getAdminApiKeyEffectivePermissions",
-          "status": "blocked",
-          "detail": "the driver has not executed credentialed key-list and effective-permissions checks; command discovery is insufficient",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/123"
-          ]
+          "invocation": "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure createAdminApiKey --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
+          "status": "fail",
+          "detail": "createAdminApiKey exited 2; createAdminApiKey did not return the private-sink receipt"
         },
         {
           "id": "2.2-admin-endpoint-present",
           "kind": "http",
           "invocation": "GET /api/v1/admin/api-keys/ (credentialed surface exists on the candidate)",
-          "status": "fail",
-          "detail": "the Admin API-key endpoint returned HTTP None"
+          "status": "pass",
+          "detail": "the candidate serves the authenticated Admin API-key surface (HTTP 401)"
         }
       ],
       "operationId": null,
@@ -241,11 +236,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -264,6 +259,26 @@
           "invocation": "initialize + tools/list",
           "status": "blocked",
           "detail": "initialize-bound discovery is not verified",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.datasource",
+          "kind": "artifact",
+          "invocation": "datasource",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.import-complete",
+          "kind": "artifact",
+          "invocation": "import-complete",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
           "blockedBy": [
             "https://github.com/honua-io/honua-release/issues/123"
           ]
@@ -295,11 +310,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -359,11 +374,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -413,11 +428,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -487,11 +502,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -541,11 +556,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     },
     {
@@ -569,6 +584,26 @@
           ]
         },
         {
+          "id": "8.canonical-join",
+          "kind": "artifact",
+          "invocation": "canonical-join",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.current-authority",
+          "kind": "artifact",
+          "invocation": "current-authority",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
           "id": "8.final-map",
           "kind": "artifact",
           "invocation": "final-map",
@@ -579,9 +614,29 @@
           ]
         },
         {
+          "id": "8.rbac-denial",
+          "kind": "artifact",
+          "invocation": "rbac-denial",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
           "id": "8.separation",
           "kind": "artifact",
           "invocation": "separation",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.tenant-isolation",
+          "kind": "artifact",
+          "invocation": "tenant-isolation",
           "status": "blocked",
           "detail": "required live assertion has not executed",
           "blockedBy": [
@@ -605,25 +660,26 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "urn:honua:issue-377:build-executor",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "unverified",
         "completeness": "incomplete",
-        "observedAt": "2026-10-02T22:31:59.340486Z"
+        "observedAt": "2026-10-02T22:53:28.832072Z"
       }
     }
   ],
   "failure": {
-    "number": 1,
-    "stage": "installed-client-handoff",
-    "command": "GET /healthz/ready",
-    "check": "1.2-readiness",
-    "detail": "unreachable: <urlopen error [Errno 111] Connection refused>"
+    "number": 2,
+    "stage": "credential-preflight",
+    "command": "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure createAdminApiKey --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
+    "check": "2.3-credential-permissions",
+    "detail": "createAdminApiKey exited 2; createAdminApiKey did not return the private-sink receipt"
   },
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
     "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed.",
-    "the pinned candidate stack did not come up: error getting credentials - err: exit status 1, out: ``"
+    "the pinned candidate stack did not come up: container honua-terminal-journey-server-1 is unhealthy",
+    "Setup discovery sidecar: /tmp/377-executor-public-pull/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",

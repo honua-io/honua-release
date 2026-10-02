@@ -275,7 +275,8 @@ def test_model_sdk_commands_bind_observed_view_fixture_and_credential_reference(
     ("sh -c echo secret", 3), ("honua-journey-sdk DeleteConnectionAsync []", 3),
     ("honua-journey-sdk TestConnectionAsync [null]", 3),
     ("honua-journey-sdk CreateConnectionAsync []", 4),
-    ("honua-journey-sdk CreateConnectionAsync [NaN]", 3)])
+    ("honua-journey-sdk CreateConnectionAsync [NaN]", 3),
+    ('honua-journey-sdk CreateConnectionAsync [{"name":"source","name":"other"}]', 3)])
 def test_terminal_bridge_refuses_arbitrary_shell_method_stage_or_unbound_input(command, number):
     engine = sdk_engine()
     with mock.patch.object(executor.sdk, "invoke") as invoke:

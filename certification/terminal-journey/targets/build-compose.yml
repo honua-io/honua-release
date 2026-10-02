@@ -3,6 +3,13 @@ services:
     extends:
       file: ../../../e2e/local-docker/docker-compose.yml
       service: db
+    healthcheck:
+      # The image's temporary initialization server accepts Unix sockets before
+      # the final TCP listener starts. Candidate migrations need that listener.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
   redis:
     image: redis:7.2-alpine
     healthcheck:
@@ -41,7 +48,7 @@ services:
       AllowedHosts: "*"
     ports: ["${HONUA_JOURNEY_REPLICA_PORT:-8138}:8080"]
     depends_on:
-      db:
+      server:
         condition: service_healthy
       redis:
         condition: service_healthy
