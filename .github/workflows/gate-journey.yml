@@ -55,11 +55,13 @@ jobs:
           [[ "$RECEIPTS_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECEIPTS_RUN_ID" > producer-run.json
           # Do not require a successful conclusion: Preview jobs cannot block GA evidence.
-          # A local reusable cloud workflow shares the enclosing release train's run identity.
+          # A local reusable cloud workflow shares the enclosing release train's run identity, and a
+          # train called by the nightly shares the nightly's (#386).
           jq -e --arg id "$RECEIPTS_RUN_ID" --arg attempt "$RECEIPTS_RUN_ATTEMPT" '
             (.id | tostring) == $id and (.run_attempt | tostring) == $attempt and
             .head_branch == "trunk" and (.event == "schedule" or .event == "workflow_dispatch") and
-            (.path == ".github/workflows/e2e-cloud-aws.yml" or .path == ".github/workflows/release-train.yml")
+            (.path == ".github/workflows/e2e-cloud-aws.yml" or .path == ".github/workflows/release-train.yml"
+              or .path == ".github/workflows/nightly-certification.yml")
           ' producer-run.json
       - name: Download candidate identity
         if: inputs.candidate_bundle

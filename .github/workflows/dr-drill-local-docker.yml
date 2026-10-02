@@ -10,6 +10,12 @@ on:
     branches: [trunk]
     paths: [platform-manifest.yaml]
   workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Immutable generated candidate snapshot SHA (empty uses checked-in pins)
+        type: string
+        required: false
+        default: ""
   schedule:
     - cron: "17 9 * * 1"
 
@@ -48,6 +54,11 @@ jobs:
           repository: honua-io/honua-server
           ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -158,6 +169,11 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -203,6 +219,11 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -308,6 +329,21 @@ jobs:
             echo
             echo "Supply that URL to \`gate-dr\` (\`receipt_url\`) or to the release train (\`dr_receipt_url\`)."
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain the immutable receipt location
+        env:
+          RECEIPT_URL: ${{ steps.publish.outputs.receipt_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open("receipt-location.json", "w") as stream:
+              json.dump({"receipt_url": os.environ["RECEIPT_URL"]}, stream)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dr-receipt-location-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipt-location.json
+          if-no-files-found: error
+
       - name: Confirm the published receipt is anonymously fetchable and byte-identical
         env:
           RECEIPT_URL: ${{ steps.publish.outputs.receipt_url }}
