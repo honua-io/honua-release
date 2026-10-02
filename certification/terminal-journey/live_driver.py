@@ -35,6 +35,8 @@ sys.path.insert(0, str(HERE))
 import pins  # noqa: E402
 import probes  # noqa: E402
 import stages as stagelib  # noqa: E402
+import executor  # noqa: E402
+from transport import ExecutionError, Transport  # noqa: E402
 
 PROTOCOL = "terminal-journey-driver-v1"
 DEFAULT_TARGET = HERE / "targets" / "local-docker.json"
@@ -71,6 +73,9 @@ def _read_state(workspace_id: str) -> dict[str, Any]:
 def _write_state(workspace_id: str, state: dict[str, Any]) -> None:
     path = _state_path(workspace_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
     path.write_text(json.dumps(state, indent=2) + "\n")
 
 
@@ -273,6 +278,11 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
     status = _stage_status(journey, observation, workspace, stage_ref)
+    if status["number"] >= 3 and state.get("execution"):
+        engine = _executor(state, _target, observation)
+        result = engine.result(status["number"])
+        status.update(status=result.status, blockedBy=result.blocked_by,
+                      checks=[c.as_receipt() for c in result.checks])
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
@@ -295,6 +305,21 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
     status = _stage_status(journey, observation, workspace, stage_ref)
     action = request.get("action") or {}
     view = _tool_view(observation)
+
+    if observation.setup_view_present and state.get("stackUp"):
+        engine = _executor(state, _target, observation)
+        try:
+            result = engine.execute(status["number"], action)
+        except ExecutionError as exc:
+            _write_state(state["workspaceId"], state)
+            return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
+                    "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
+                               "injectedError": None, "recoveredError": None},
+                    "canonicalIds": {k: None for k in executor.ID_FIELDS},
+                    "blockedBy": [stagelib.JOURNEY_DRIVER] if exc.blocked else []}
+        _write_state(state["workspaceId"], state)
+        return {"status": result["status"], "stageStatus": status, "result": result,
+                "canonicalIds": {k: result.get("canonicalIds", {}).get(k) for k in executor.ID_FIELDS}, "blockedBy": []}
 
     return {
         "status": "blocked",
@@ -329,6 +354,16 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
 def op_inject_error(request: dict[str, Any]) -> dict[str, Any]:
     state = _read_state(str(request.get("workspaceId", "")))
     error_id = request.get("errorId")
+    if state.get("stackUp") and state.get("executionEnabled"):
+        executor.identity(error_id, "inject_error")
+        stage_ref = request.get("stage")
+        journey = json.loads((HERE / "journey.v1.json").read_text())
+        stage = next((s for s in journey["stages"] if s["id"] == stage_ref), None)
+        if not stage or stage["number"] != 4 or state.get("armedError"):
+            raise DriverError("inject_error requires one unarmed style-render stage")
+        state["armedError"] = {"id": error_id, "stageNumber": 4, "status": "armed"}
+        _write_state(state["workspaceId"], state)
+        return {"status": "armed", "errorId": error_id, "recoverable": True, "blockedBy": []}
     return {
         "status": "blocked",
         "errorId": error_id,
@@ -344,6 +379,17 @@ def op_inject_error(request: dict[str, Any]) -> dict[str, Any]:
 
 def op_approve(request: dict[str, Any]) -> dict[str, Any]:
     _state, target, _manifest, _observation, _workspace = _rehydrate(request)
+    if _state.get("execution") and _state.get("stackUp"):
+        try:
+            result = _executor(_state, target, _observation).approve(request.get("proposalId"))
+            _write_state(_state["workspaceId"], _state)
+            return {"status": "approved", "principalProfile": "approver", **result, "blockedBy": []}
+        except ExecutionError as exc:
+            _write_state(_state["workspaceId"], _state)
+            return {"status": "blocked" if exc.blocked else "fail", "principalProfile": "approver",
+                    "proposalId": request.get("proposalId"), "approvalId": None,
+                    "proposerSelfApproval": "denied-untested", "detail": f"{exc.command}: {exc.reason}",
+                    "blockedBy": [stagelib.APPROVAL_COMMAND] if exc.blocked else []}
     return {
         "status": "blocked",
         "principalProfile": "approver",
@@ -362,6 +408,24 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
 
 def op_verify(request: dict[str, Any]) -> dict[str, Any]:
     _state, _target, _manifest, observation, _workspace = _rehydrate(request)
+    if _state.get("execution") and _state.get("stackUp"):
+        engine = _executor(_state, _target, observation)
+        final = engine.verify_final()
+        evidence = engine.evidence
+        proofs = evidence.get("proofs", {})
+        missing = {"status": "blocked", "detail": "live authority assertion has not executed"}
+        assertions = {"finalUrl": {"status": final.status, "detail": final.detail},
+                      "pixelProof": {"status": "pass" if proofs.get("pixel") else "blocked",
+                                     "detail": "independent pixel assertion"},
+                      "canonicalIdJoin": missing, "tenantIsolation": missing, "rbacDenial": missing,
+                      "proposerApproverSeparation": {"status": "pass" if evidence.get("approval") else "blocked",
+                                                     "detail": "typed separate-principal approval"},
+                      "currentAuthorityRevalidation": missing}
+        _write_state(_state["workspaceId"], _state)
+        return {"status": "fail" if final.status == "fail" else "blocked", "assertions": assertions,
+                "finalUrlProof": proofs.get("final-map"), "pixelProof": proofs.get("pixel"),
+                "canonicalIds": {k: evidence.get("publicationOperation", {}).get(k) for k in executor.ID_FIELDS},
+                "blockedBy": [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]}
     not_run = {"status": "blocked", "detail": "the journey did not reach a published artifact"}
     return {
         "status": "blocked",
@@ -386,6 +450,17 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
         },
         "blockedBy": list(dict.fromkeys(EXECUTE_BLOCKERS + APPROVE_BLOCKERS)),
     }
+
+
+def _executor(state, target, observation):
+    workdir = Path(state["workdir"])
+    bindir = workdir / "install" / "node_modules" / ".bin"
+    credentials = {name: probes.resolve_env_default(reference, "")
+                   for name, reference in (target.get("principals") or {}).items()}
+    credentials.setdefault("proposer", probes.resolve_env_default(
+        target["adminPassword"]["env"], target["adminPassword"]["default"]))
+    transport = Transport(state["baseUrl"], bindir / "honua-mcp-proxy", bindir / "honua", workdir, credentials)
+    return executor.JourneyExecutor(state, target, observation, transport)
 
 
 def op_teardown(request: dict[str, Any]) -> dict[str, Any]:

@@ -419,6 +419,24 @@ def run_live(
         if observation.proxy_note:
             notices.append(observation.proxy_note)
         results = stagelib.run_stages(journey, observation, workspace_blockers)
+        import executor
+        import sdk
+        from transport import ExecutionError, Transport
+
+        profiles = target.get("principals") or {}
+        credentials = {name: probes.resolve_env_default(reference, "") for name, reference in profiles.items()}
+        credentials.setdefault("proposer", probes.resolve_env_default(
+            target["adminPassword"]["env"], target["adminPassword"]["default"]))
+        state = {"workspaceId": workdir.name, "workdir": str(workdir)}
+        if observation.setup_view_present and workspace.status == "pass":
+            try:
+                state["sdkBinding"] = sdk.prepare(manifest, workdir)
+            except ExecutionError as exc:
+                notices.append(f"Published SDK preparation: {exc.command}: {exc.reason}")
+        transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
+                              bindir / "honua" if bindir else None, workdir, credentials)
+        execution = executor.JourneyExecutor(state, target, observation, transport)
+        results[2:] = execution.run_build()
     finally:
         if base_url_override is None and not keep_stack:
             compose.down()
