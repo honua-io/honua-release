@@ -1199,7 +1199,9 @@ def _aggregate_fixture(reports, directory, full_scope=False):
 def _cell_report(directory, receipt):
     return {"cell": receipt["target"]["id"], "status": "pass", "artifactDirectory": str(directory),
         "journeyAttempts": [_artifact(directory, receipt)],
-        "cost": {"status": "pass", "scope": "run", "amountUsd": "1", "ceilingUsd": "20"}}
+        "cost": {"status": "pass", "scope": "run", "amountUsd": "1", "ceilingUsd": "20",
+            "runId": "offline-run", "runAttempt": "2", "measuredAt": run_cloud.cloud_journey.now(),
+            "candidateDigest": run_cloud.cloud_journey.candidate_digest()}}
 
 
 def test_cloud_missing_and_skipped_cell_receipts_fail():
@@ -1371,6 +1373,66 @@ def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
     assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
     assert "python e2e/cloud_journey.py --reports reports" in assembly
     assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
+
+
+def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
+    cj = run_cloud.cloud_journey
+    # Isolate matrix verdict policy from the owned driver's currently ECS-only schema. Actual
+    # schema/candidate/staleness rejection is exercised above using the unmocked ECS validator.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        reports = []
+        for cell in cj.GA_CELLS:
+            subdir = root / cell.replace("/", "-")
+            subdir.mkdir()
+            reports.append(_cell_report(subdir, _ecs_receipt(cell)))
+        previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
+                    for target in cj.PREVIEW_TARGETS for redis in ("off", "on")]
+        with mock.patch.object(cj, "validate_attempt", return_value=True):
+            result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
+            assert result["status"] == "pass" and result["certifying"] is True
+            reports[0]["status"] = "fail"
+            assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "fail"
+
+
+def test_cloud_invalid_schema_wrong_cell_and_tampered_receipt_fail():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        receipt = _ecs_receipt()
+        receipt["stages"].pop()
+        assert _aggregate_fixture([_cell_report(root, receipt)], root)["status"] == "fail"
+        report = _cell_report(root, _ecs_receipt())
+        report["cell"] = "aws-ecs/redis-on"
+        assert "wrong candidate" in _aggregate_fixture([report], root)["why"]
+        report = _cell_report(root, _ecs_receipt())
+        (root / "receipt-1.json").write_text("{}")
+        assert "digest mismatch" in _aggregate_fixture([report], root)["why"]
+        receipt = _ecs_receipt()
+        receipt["roster"]["status"] = "blocked"
+        assert "roster evidence" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
+
+
+def test_cost_meter_rejects_stale_wrong_run_and_nonfinite_amount():
+    cj = run_cloud.cloud_journey
+    import pytest
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "cost.json"
+        started = datetime.now(timezone.utc) - timedelta(minutes=1)
+        base = {"runId": os.environ.get("GITHUB_RUN_ID", "local"),
+                "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"), "currency": "USD",
+                "scope": "run", "measuredAt": cj.now(), "amount": "20"}
+        path.write_text(json.dumps(base))
+        assert cj.check_cost(path, "20", started_at=started)["status"] == "pass"
+        for change in ({"runId": "another-run"}, {"scope": "cell"}, {"currency": "EUR"},
+                       {"amount": "NaN"}, {"amount": "-1"},
+                       {"measuredAt": (started - timedelta(seconds=1)).isoformat()}):
+            path.write_text(json.dumps({**base, **change}))
+            with pytest.raises(ValueError):
+                cj.check_cost(path, "20", started_at=started)
+        path.write_text(json.dumps(base))
+        for ceiling in ("0", "-1", "NaN"):
+            with pytest.raises(ValueError):
+                cj.check_cost(path, ceiling, started_at=started)
 
 
 if __name__ == "__main__":

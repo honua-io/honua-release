@@ -21,6 +21,10 @@ on:
         type: choice
         options: [both, "off", "on"]
         default: both
+      cost_ceiling_usd:
+        description: "Per-run USD ceiling; requires current cumulative run-cost.json from the harness meter"
+        type: string
+        default: "20"
       run_iac_live:
         description: "Also dispatch the full honua-iac live AWS harness"
         type: boolean
@@ -37,6 +41,10 @@ on:
       redis_mode:
         type: string
         default: both
+      cost_ceiling_usd:
+        description: "Per-run USD ceiling; requires current cumulative run-cost.json from the harness meter"
+        type: string
+        default: "20"
       run_iac_live:
         type: boolean
         default: true
@@ -312,6 +320,7 @@ jobs:
       HONUA_LAMBDA_ARCHITECTURE: ${{ needs.candidate.outputs.lambda_architecture }}
       HONUA_ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
       HONUA_ECS_ARCHITECTURE: ${{ needs.candidate.outputs.ecs_architecture }}
+      HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
       HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -383,6 +392,8 @@ jobs:
           # get in, and it is the only one that does.
           echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
 
+      # The harness meter must refresh e2e/cloud-evidence/run-cost.json with cumulative run USD.
+      # Missing, stale, cell-scoped or wrong-run metering fails the cell before cleanup.
       - name: "Run ${{ matrix.target }} / redis-${{ matrix.redis }} parity"
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
@@ -529,8 +540,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
-          PARITY_RESULT: ${{ needs.parity.result }}
-          IAC_LIVE_RESULT: ${{ needs.iac-live.result }}
           FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') )) && 'true' || 'false' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
@@ -553,7 +562,7 @@ jobs:
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; full AWS target x Redis scope plus iac-live is required for certification"
+                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 
