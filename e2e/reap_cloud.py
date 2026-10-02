@@ -15,7 +15,8 @@ import argparse
 import os
 import time
 
-from targets import REGISTRY
+from run_cloud import REGISTRY
+import cloud_journey
 from targets.base import ProvisionError
 
 REAP_ATTEMPTS = 12
@@ -50,7 +51,12 @@ def main() -> int:
     args = parser.parse_args()
 
     target = REGISTRY[args.target](run_id=os.environ.get("GITHUB_RUN_ID", "local"))
-    reap(target, redis_enabled=args.redis == "on")
+    # Local journey workspaces and the containing AWS deployment share the same cell lifetime.
+    # Try destroy even if workspace cleanup fails.
+    try:
+        cloud_journey.cleanup(f"{args.target}/redis-{args.redis}")
+    finally:
+        reap(target, redis_enabled=args.redis == "on")
     return 0
 
 
