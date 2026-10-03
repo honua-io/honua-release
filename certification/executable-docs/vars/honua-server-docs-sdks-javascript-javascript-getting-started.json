@@ -9,7 +9,7 @@
   "substitute": {
     "serviceId: \"default\",\n  layerId: 0,": {
       "value": "serviceId: \"{fixture.featureService}\",\n  layerId: {fixture.featureLayerId},",
-      "documentedAt": "docs/sdks/javascript/javascript-getting-started.md:51 — \"swap `serviceId`/`layerId` for one of your own layers\""
+      "documentedAt": "docs/sdks/javascript/javascript-getting-started.md:49 — \"swap `serviceId`/`layerId` for one of your own layers\""
     }
   }
 }
