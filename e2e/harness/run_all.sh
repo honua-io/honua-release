@@ -62,6 +62,10 @@ cmd_check() {
   # The verdict logic is the gate. Fixture-test it here, in the static tier, so a regression that
   # would let a non-booting candidate go green fails on the PR that introduces it - with no images.
   bash "$HERE/test_report.sh"
+  # S4 used to exit under set -e before emit_scenario, which left the gate green. This fixture
+  # runs with no images: a refused realm render must be a failing scenario, and a stale project
+  # must be removed before the port check.
+  bash "$HERE/test_console_s4_driver.sh"
   echo "static checks: OK"
 }
 

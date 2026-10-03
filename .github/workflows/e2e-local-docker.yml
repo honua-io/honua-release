@@ -173,6 +173,27 @@ jobs:
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
 
+      # S4 boots its own stack (compose.console-s4.yml: Keycloak + a server whose public base URL is
+      # the Console origin) inside the S4 stage, so its compose and the realm renderer are checked
+      # here too. The values are placeholders: the driver mints the real ones per run.
+      - name: Static checks (S4 Console topology)
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          S4_IDP_HOSTNAME=host.docker.internal S4_CONSOLE_ORIGIN=http://127.0.0.1:5176 \
+            S4_CLIENT_SECRET=static-check S4_OPERATOR_USER=alice S4_OPERATOR_PASSWORD=static-check \
+            bash e2e/harness/keycloak/render.sh "$tmp"
+          jq -e '.clients[0].redirectUris == ["http://127.0.0.1:5176/admin/auth/callback"]
+                 and .clients[0].attributes["pkce.code.challenge.method"] == "S256"
+                 and .accessTokenLifespan >= 7200' "$tmp/import/honua-realm.json" >/dev/null
+          openssl x509 -in "$tmp/certs/kc.crt" -noout -ext subjectAltName \
+            | grep -q 'DNS:host.docker.internal, DNS:localhost, IP Address:127.0.0.1'
+          HONUA_SERVER_IMAGE=static-check S4_RUN_DIR="$tmp" S4_IDP_ADMIN_PASSWORD=x S4_ADMIN_KEY=x \
+            S4_MASTER_KEY=x S4_CLIENT_SECRET=x S4_OPERATOR_BEARER_KEY=x \
+            docker compose -f e2e/harness/compose.console-s4.yml config >/dev/null
+          rm -rf "$tmp"
+          echo "S4 topology: OK"
+
       # Pull the pinned server image from ghcr (packages:read). If this can't authenticate the image
       # never boots, and per honua-release#303 that FAILS the job rather than reporting a green
       # check over 13 identical BLOCKED rows.
@@ -287,6 +308,9 @@ jobs:
           dotnet restore _console/src/Honua.Console.Web/Honua.Console.Web.csproj \
             --configfile _console/NuGet.config \
             --nologo
+      # S4 is the one driver that boots a stack of its own: e2e/drivers/console/run.sh brings up
+      # compose.console-s4.yml (IdP on host.docker.internal:8443, server on 127.0.0.1:8088, Console
+      # on 127.0.0.1:5176) for its stage and tears it down before the next driver runs.
       - name: Run Slice-1 harness (boot -> seed -> drivers -> gate-report.json)
         env:
           # nightly (schedule) hardens the gate by promoting SCENARIO-level BLOCKED to FAIL; PRs run
@@ -346,6 +370,8 @@ jobs:
           name: e2e-slice1-console-live
           path: |
             e2e/out/console-live.log
+            e2e/out/console-playwright-results.json
+            e2e/out/console-s4-stack.log
             e2e/out/console-playwright/**
           if-no-files-found: ignore
           retention-days: 14
