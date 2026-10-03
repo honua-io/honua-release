@@ -70,7 +70,7 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
-                     "deterministic-journey", "nightly-model-journey", "executable-docs"), "nightly"),
+                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
 }
 GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
@@ -80,7 +80,7 @@ GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/r
 MAX_FRESHNESS = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
-                     "deterministic-journey", "nightly-model-journey", "executable-docs",
+                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
     **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
 }

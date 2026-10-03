@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "revision": "sdk-regression-fixture-v1",
+  "description": "Deterministic rows the SDK regression scenarios read and write. Every oracle is computed from this file, never from a server response.",
+  "sites": {
+    "table": "sdkreg_sites",
+    "service": "sdkreg-sites",
+    "layerName": "sites",
+    "geometryType": "Point",
+    "fields": {"gid": "integer", "name": "text", "rank": "integer"},
+    "features": [
+      {"gid": 1, "name": "alpha", "rank": 10, "x": -122.4, "y": 37.7},
+      {"gid": 2, "name": "bravo", "rank": 20, "x": -122.3, "y": 37.75},
+      {"gid": 3, "name": "charlie", "rank": 30, "x": -122.2, "y": 37.8},
+      {"gid": 4, "name": "delta", "rank": 40, "x": -122.1, "y": 37.85},
+      {"gid": 5, "name": "echo", "rank": 50, "x": -121.9, "y": 37.95},
+      {"gid": 6, "name": "foxtrot", "rank": 60, "x": -121.8, "y": 38.0}
+    ],
+    "filter": {"field": "rank", "op": ">=", "value": 30},
+    "bbox": [-122.25, 37.7, -121.95, 37.9]
+  },
+  "area": {
+    "table": "sdkreg_area",
+    "service": "sdkreg-area",
+    "layerName": "area",
+    "geometryType": "Polygon",
+    "fields": {"gid": "integer", "name": "text"},
+    "features": [
+      {"gid": 1, "name": "block", "envelope": [-90.0, 0.0, -45.0, 60.0]}
+    ],
+    "tiles": {
+      "tileMatrixSet": "WebMercatorQuad",
+      "painted": {"tileMatrix": 2, "tileRow": 1, "tileCol": 1},
+      "empty": {"tileMatrix": 2, "tileRow": 1, "tileCol": 3},
+      "samples": [[32, 128], [96, 200], [64, 64], [224, 128], [200, 40], [32, 8]],
+      "edgeMarginPixels": 4
+    }
+  },
+  "edits": {
+    "tablePrefix": "sdkreg_edits_",
+    "servicePrefix": "sdkreg-edits-",
+    "layerName": "edits",
+    "geometryType": "Point",
+    "fields": {"gid": "integer", "name": "text", "rank": "integer"},
+    "features": [
+      {"gid": 1, "name": "north", "rank": 1, "x": -120.0, "y": 39.0},
+      {"gid": 2, "name": "south", "rank": 2, "x": -120.0, "y": 38.0},
+      {"gid": 3, "name": "east", "rank": 3, "x": -119.0, "y": 38.5}
+    ],
+    "add": {"gid": 4, "name": "west", "rank": 4, "x": -121.0, "y": 38.5},
+    "update": {"gid": 2, "attributes": {"rank": 20}},
+    "delete": {"gid": 3},
+    "attachment": {"gid": 1, "name": "sdk-regression.txt", "contentType": "text/plain", "content": "honua sdk regression fixture v1\n"}
+  },
+  "lifecycle": {
+    "tablePrefix": "sdkreg_lifecycle_",
+    "servicePrefix": "sdkreg-lifecycle-",
+    "connectionPrefix": "sdkreg-",
+    "layerName": "lifecycle",
+    "geometryType": "Point",
+    "fields": {"gid": "integer", "name": "text"},
+    "features": [
+      {"gid": 1, "name": "first", "x": -100.0, "y": 40.0},
+      {"gid": 2, "name": "second", "x": -101.0, "y": 41.0}
+    ],
+    "database": {"host": "db", "port": 5432, "databaseName": "honua", "username": "honua", "provider": "PostGIS"}
+  },
+  "processes": {
+    "processId": "geometry.buffer",
+    "point": [10.0, 20.0],
+    "srid": 4326,
+    "distance": 2.0,
+    "tolerance": 1e-06,
+    "pollTimeoutSeconds": 60
+  }
+}

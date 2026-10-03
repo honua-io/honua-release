@@ -182,6 +182,7 @@ def run_blocks(document):
 @pytest.mark.parametrize('path', ['.github/workflows/nightly-certification.yml',
                                   '.github/workflows/release-train.yml',
                                   '.github/workflows/gate-journey.yml',
+                                  '.github/workflows/gate-installed-clients.yml',
                                   '.github/actions/candidate-input/action.yml'])
 def test_no_expression_is_interpolated_into_a_shell_script(path):
     document = yaml.safe_load((ROOT / path).read_text())
@@ -250,6 +251,24 @@ def test_the_strict_train_runs_the_real_journey_gate():
     assert assemble['env']['S_JOURNEY'] == \
         '${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}'
     assert 'journey|$S_JOURNEY' in assemble['run']
+
+
+def test_the_strict_train_runs_the_installed_client_gate():
+    # installed-clients (#381/#386): the published SDKs drive the exact candidate every train.
+    train = workflow('release-train.yml')
+    jobs = train['jobs']
+    gate = jobs['gate_installed_clients']
+    assert gate['uses'] == './.github/workflows/gate-installed-clients.yml'
+    assert gate['needs'] == 'freeze'
+    assert gate['with'] == {'candidate_ref': '${{ inputs.candidate_ref }}', 'platform_label': '${{ inputs.platform_label }}'}
+    assert 'gate_installed_clients' in jobs['report']['needs']
+    assemble = step(jobs['report'], 'Assemble platform gate-report.json')
+    assert assemble['env']['S_INSTALLED'] == \
+        '${{ needs.gate_installed_clients.outputs.overall_status || needs.gate_installed_clients.result }}'
+    assert 'installed-clients|$S_INSTALLED' in assemble['run']
+    called = workflow('gate-installed-clients.yml')
+    assert set(called['triggers']['workflow_call']['outputs']) == {'overall_status'}
+    assert called['jobs']['report']['outputs']['overall_status'] == '${{ steps.assemble.outputs.overall_status }}'
 
 
 @pytest.mark.parametrize('override,accepted', [

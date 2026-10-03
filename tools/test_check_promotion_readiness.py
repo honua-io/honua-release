@@ -19,7 +19,7 @@ OTHER_LOCK = "sha256:" + "f" * 64
 # dropping a class, journey or cell from the checker fails these tests.
 NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",
                    "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey",
-                   "executable-docs")
+                   "executable-docs", "installed-clients")
 QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
 CLASSES = {**dict.fromkeys(NIGHTLY_CLASSES, "nightly"), **dict.fromkeys(QUALIFYING_CLASSES, "qualifying")}
 GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on")

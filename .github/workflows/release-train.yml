@@ -430,6 +430,13 @@ jobs:
       candidate_digest: ${{ needs.freeze.outputs.manifest_sha256 }}
       candidate_bundle: true
 
+  gate_installed_clients:       # installed-client SDK regression (#381, #386): the published Python, JS and
+    needs: freeze                # .NET SDKs drive the exact candidate through every scenario contract
+    uses: ./.github/workflows/gate-installed-clients.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
+      platform_label: ${{ inputs.platform_label }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -453,6 +460,7 @@ jobs:
       - gate_dr
       - gate_journey
       - gate_executable_docs
+      - gate_installed_clients
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -503,6 +511,7 @@ jobs:
           S_DR: ${{ needs.gate_dr.result }}
           S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
           S_EXEC_DOCS: ${{ needs.gate_executable_docs.outputs.overall_status || needs.gate_executable_docs.result }}
+          S_INSTALLED: ${{ needs.gate_installed_clients.outputs.overall_status || needs.gate_installed_clients.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -529,6 +538,7 @@ jobs:
           dr|$S_DR
           journey|$S_JOURNEY
           executable-docs|$S_EXEC_DOCS
+          installed-clients|$S_INSTALLED
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
