@@ -1,8 +1,8 @@
 {
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
-  "sha": "6d22eef8e3570a4a4738f5c2d5bb4ff1528bfac7",
-  "total": 1243,
+  "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
+  "total": 1277,
   "files": {
     ".github/workflows/certification.yml": 31,
     ".github/workflows/demo-canary.yml": 1,
@@ -14,6 +14,8 @@
     "certification/conformance-evidence.yaml": 8,
     "certification/console-read-approve/receipt.nightly-42596b4.console-dcb9eb2.json": 1,
     "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json": 1,
+    "certification/executable-docs/evidence/first-local-run/full-run-original.json": 17,
+    "certification/executable-docs/evidence/first-local-run/report.json": 17,
     "certification/first-publication/preflight-2026-09-26.json": 3,
     "certification/first-publication/preflight-2026-10-02.json": 3,
     "certification/first-publication/registry-observations-2026-09-06.json": 2,

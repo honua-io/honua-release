@@ -1,7 +1,7 @@
 {
   "schema": "honua.vendor-terms.confidential-known.v1",
   "repo": "honua-release",
-  "sha": "6d22eef8e3570a4a4738f5c2d5bb4ff1528bfac7",
+  "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
   "asOf": "2026-10-03",
   "burnDown": [
     "honua-io/honua-release#427",
