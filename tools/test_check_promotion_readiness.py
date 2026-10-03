@@ -547,3 +547,25 @@ def test_schema_no_longer_requires_a_burn_start_commit(tmp_path):
     assert validator.is_valid(record)
     record["lock"]["burnStartCommit"] = "a" * 40
     assert not validator.is_valid(record)
+
+
+@pytest.mark.parametrize('position', ['inside', 'before', 'after'])
+def test_nightly_receipt_production_must_fall_within_the_minting_run(position, tmp_path):
+    fixture = _fixture(tmp_path)
+    record, _, evidence, _ = fixture
+    row = next(row for row in record['evidence'] if row['class'] == 'contract')
+    finished = datetime.fromisoformat(row['completedAt'].replace('Z', '+00:00'))
+    produced = finished - timedelta(minutes=1)
+    row['completedAt'] = _stamp(produced)
+    receipt = _receipt(fixture, 'contract')
+    _edit(receipt, lambda value: value.update(completedAt=row['completedAt'],
+                                            freshUntil=_stamp(produced + timedelta(days=7))))
+    start = finished - timedelta(hours=1)
+    end = finished
+    if position == 'before':
+        start = produced + timedelta(seconds=1)
+    elif position == 'after':
+        end = produced - timedelta(seconds=1)
+    _edit(receipt.with_name('run.json'), lambda value: value.update(created_at=_stamp(start), updated_at=_stamp(end)))
+    decision = _decision(fixture)
+    assert decision['checks']['evidence:contract']['status'] == ('pass' if position == 'inside' else 'fail')

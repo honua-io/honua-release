@@ -23,6 +23,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import terminal_model_canary as canary  # noqa: E402
 
+
+@pytest.mark.parametrize("state", ["ready", "awaiting_approval"])
+def test_actionable_driver_evidence_binds_stage_without_claiming_completion(state):
+    stage = canary.load_journey(JOURNEY)["stages"][2]
+    evidence = {"number": stage["number"], "id": stage["id"], "command": stage["command"],
+                "status": state, "checks": [], "blockedBy": []}
+    assert canary.observed_stage_status({"status": "ready", "stageStatus": evidence}, stage) == state
+    for patch in ({"id": "another-stage"}, {"number": 8}, {"command": "fabricated command"}):
+        with pytest.raises(canary.CanaryError):
+            canary.observed_stage_status({"status": "ready", "stageStatus": {**evidence, **patch}}, stage)
+    with pytest.raises(canary.CanaryError):
+        canary.observed_stage_status({"status": "blocked", "stageStatus": evidence}, stage)
+
+
+def test_owned_journey_execution_and_independent_proof_regressions_run_in_the_required_gate():
+    import subprocess
+    result = subprocess.run([sys.executable, "-m", "pytest", str(REPO_ROOT / "certification" /
+                             "terminal-journey" / "test_executor.py"), str(REPO_ROOT / "certification" /
+                             "terminal-journey" / "test_live_driver.py"), "-q"],
+                            cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+
 MANIFEST = REPO_ROOT / "platform-manifest.yaml"
 JOURNEY = REPO_ROOT / "certification" / "terminal-journey" / "journey.v1.json"
 PROTOCOL = REPO_ROOT / "certification" / "terminal-model-canary" / "driver-protocol.v1.json"
@@ -711,7 +733,8 @@ def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):
     assert receipt["actions"][-1]["status"] == "pass"
 
 
-def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch):
+@pytest.mark.parametrize("owned_verification", [False, True])
+def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification):
     """State-machine unit test only; it makes no candidate or genuine-model claim."""
     builder = _builder(_endpoint())
     stages = builder.journey["stages"]
@@ -722,6 +745,7 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     error_id = builder.receipt["errorInjection"]["id"]
     calls = []
     prompts = []
+    verify_owned = _owned_verification_fixture(monkeypatch) if owned_verification else None
 
     class Driver:
         def __init__(self, *_):
@@ -759,6 +783,8 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                 return {"status": "approved", "proposalId": stage_id, "approvalId": "test-approval",
                         "proposerSelfApproval": "denied"}
             if operation == "verify":
+                if verify_owned:
+                    return verify_owned(payload)
                 return {"status": "pass", "assertions": dict.fromkeys(canary.ASSERTION_NAMES, "pass"),
                         "finalUrlProof": "unit-only", "pixelProof": "unit-only", "canonicalIds": {"test": "unit-only"}}
             assert operation == "teardown"
@@ -894,3 +920,117 @@ def test_fault_evidence_rejects_explicit_null_contradictions(name, top, nested):
 def test_fault_evidence_accepts_matching_dual_representations(value):
     assert canary.fault_evidence({"recoveredError": value, "result": {
         "recoveredError": value}}, "recoveredError") == value
+
+
+def _owned_verification_fixture(monkeypatch):
+    """Real driver + verifier handoff using authored unit evidence, no qualification."""
+    sys.path.insert(0, str(REPO_ROOT / "certification" / "terminal-journey"))
+    import live_driver
+    import executor
+    import stages as journey_stages
+    import probes
+    from unittest import mock
+
+    body = {"map": "authored-unit-map"}
+    target = {"execution": {"mapBody": body, "publishedPath": "/published"}}
+    manifest = canary.load_manifest(MANIFEST)
+    pin = manifest["components"]["honua-server"]
+    catalog_digest = "sha256:" + "a" * 64
+    observation = journey_stages.Observation(ready=True, licensing_disabled=True,
+        anonymous_admin_status=401, anonymous_api_keys_status=401,
+        expected_revision=pin["sha"], image_ref=f"{pin['image']}@{pin['digest']}",
+        capability_manifest={"server": {"deploymentRevision": pin["sha"]}},
+        proxy_available=True, setup_view_present=True,
+        tool_names=tuple(set(journey_stages.STYLE_TOOLS + journey_stages.GP_TOOLS + journey_stages.STUDIO_DRAFT_TOOLS
+                             + journey_stages.STUDIO_COMPOSITION_TOOLS + journey_stages.PUBLICATION_TOOLS)),
+        credential_probe=probes.CredentialProbe(status="pass", detail="unit grant lifecycle"),
+        setup_discovery={"status": "pass", "http": {"status": "pass", "fullCatalogComparisonSha256": catalog_digest},
+                         "proxy": {"status": "pass", "fullCatalogComparisonSha256": catalog_digest}})
+    state = {"workspaceId": "unit-only", "stackUp": True}
+    transport = mock.Mock(credentials={"proposer": "unit-proposer", "approver": "unit-approver",
+                                       "viewer": "unit-viewer", "other-tenant": "unit-other-tenant"})
+    engine = executor.JourneyExecutor(state, target, observation, transport)
+    engine.resources.update(itemId="item", versionId="version", contentHash="hash")
+    canonical = {key: "unit-" + key for key in executor.ID_FIELDS}
+    engine.evidence["publicationOperation"] = canonical
+    engine.evidence["approvalResolution"] = {"requestedBy": "unit-proposer", "resolvedBy": "unit-approver"}
+    engine.evidence["approval"] = {"approvalId": "approval"}
+    for number in range(3, 9):
+        pending = engine.result(number)
+        for check in pending.checks:
+            if check.id.endswith("canonical-evidence"):
+                continue
+            engine._check(number, check.id.split(".", 1)[1], "authored unit proof", lambda: {"unitOnly": True})
+        engine.evidence["canonicalIds"][str(number)] = canonical
+        engine.evidence.setdefault("receiptIds", {})[str(number)] = {
+            key: "unit-" + key for key in ("policyDecisionId", "actuatorId", "verificationId")}
+    def read(path, **kwargs):
+        if path == "/published":
+            return {"itemId": "item", "versionId": "version", "contentHash": "hash", "envelope": {"family": "map", "body": body}}
+        return {**canonical, "status": "Completed", "policyDecision": "Allow", "authorizationOutcome": "authorized"}
+    transport.get_json.side_effect = read
+    transport.http.side_effect = lambda *args, **kwargs: (b"{}", kwargs["expected"][0])
+    workspace = mock.Mock(status="pass")
+    workspace.missing_for_stage.return_value = []
+    monkeypatch.setattr(live_driver, "_rehydrate", lambda request: (state, target, manifest, observation, workspace))
+    monkeypatch.setattr(live_driver, "_executor", lambda *args: engine)
+    monkeypatch.setattr(live_driver, "_write_state", lambda *args: None)
+    return live_driver.op_verify
+
+
+def test_owned_verify_reports_latest_pixel_failure_and_exact_assertion_names(monkeypatch):
+    verify = _owned_verification_fixture(monkeypatch)
+    response = verify({"workspaceId": "unit-only"})
+    assert response["status"] == "pass"
+    assert set(response["assertions"]) == set(canary.ASSERTION_NAMES)
+    assert set(response["assertions"].values()) == {"pass"}
+    import live_driver
+    import executor
+    engine = live_driver._executor(None, None, None)
+    engine._check(4, "pixel", "honua_render_map", lambda: (_ for _ in ()).throw(executor.oracles.ProofError("latest render failed")))
+    response = verify({"workspaceId": "unit-only"})
+    assert response["status"] != "pass"
+    assert response["assertions"]["pixelProof"] != "pass"
+    assert response["pixelProof"] is None
+
+
+@pytest.mark.parametrize("number", [1, 2, 3, 5, 6, 7, 8])
+def test_unsupported_injection_stage_rejected_before_starting_driver(number):
+    stage_id = canary.load_journey(JOURNEY)["stages"][number - 1]["id"]
+    with pytest.raises(canary.CanaryError, match="supports error injection only"):
+        canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+            endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, injection_stage=stage_id)
+
+
+def test_blocked_driver_evidence_names_dependency_stage_and_tool_before_action_limit(monkeypatch):
+    builder = _builder(_endpoint())
+    stage = builder.journey["stages"][0]
+    dependency = "https://github.com/honua-io/honua-server/issues/3591"
+    class Driver:
+        def __init__(self, *_):
+            pass
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "unit", "toolView": {"bounded": True},
+                        "credentialReferences": [{"envVar": "UNIT_KEY"}]}
+            if operation == "observe":
+                return {"status": "blocked", "blockedBy": [dependency], "stageStatus": {
+                    "number": stage["number"], "id": stage["id"], "command": stage["command"],
+                    "status": "blocked", "blockedBy": [dependency], "checks": [{"status": "blocked",
+                    "invocation": "initialize + tools/list", "detail": "installed proxy cannot negotiate setup"}]}}
+            assert operation == "teardown"
+            return {"status": "pass"}
+    class Model:
+        def __init__(self, *_):
+            pass
+        def complete(self, *_):
+            raise AssertionError("blocked evidence must not ask for a model action")
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, max_actions_per_stage=2)
+    assert receipt["status"] == "fail"
+    detail = json.dumps(receipt["notices"])
+    assert stage["id"] in detail
+    assert "initialize + tools/list" in detail
+    assert dependency in detail
+    assert "bounded limit" not in detail

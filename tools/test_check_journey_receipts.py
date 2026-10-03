@@ -142,6 +142,7 @@ def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
     ga = [r for r in result["cells"] if r["counted"]]
     assert len(ga) == 4
     assert ga[0]["drivers"] == ["genuine-model"]
+    assert ga[0]["attempts"][0]["completedAt"] == STAMP
     assert ga[1]["drivers"] == ["deterministic"]
     assert result["gates"][0]["decided"] == "pass"
 

@@ -28,6 +28,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
+import upgrade_lock_binding
 import validate_platform
 from verify_client_artifacts import verify_manifest
 
@@ -277,23 +278,52 @@ def select_component(name, component, github, registry, limit):
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
 
 
-def migration_floor(github, repository, sha):
+def migration_tree(github, repository, sha):
+    """Every migration script path in the selected source tree, or a refusal."""
     tree = github.json(f'repos/{repository}/git/trees/{sha}?recursive=1')
     if not isinstance(tree, dict):
         raise ResolutionError(f'{repository}@{sha}: migration tree was not an object')
     if tree.get('truncated'):
-        raise ResolutionError(f'{repository}@{sha}: migration tree truncated; refusing to guess dbSchema')
+        raise ResolutionError(f'{repository}@{sha}: migration tree truncated; refusing to guess the migration set')
+    return [path for path in (str((row or {}).get('path') or '') for row in tree.get('tree') or [])
+            if '/Migrations/' in path and path.endswith('.sql')]
+
+
+def migration_floor(paths, repository, sha):
     numbers = []
-    for row in tree.get('tree') or []:
-        path = str((row or {}).get('path') or '')
-        if '/Migrations/' not in path or not path.endswith('.sql'):
-            continue
+    for path in paths:
         match = re.match(r'(\d+)_', path.rsplit('/', 1)[-1])
         if match:
             numbers.append(int(match.group(1)))
     if not numbers:
         raise ResolutionError(f'{repository}@{sha}: no numbered migration; refusing to guess dbSchema')
     return str(max(numbers))
+
+
+# The journal a lock declares is the one a default deployment records in public.schema_versions:
+# DbUp names each embedded script `Honua.Server.Migrations.<file>` (EmbeddedResource
+# `Migrations\*.sql`, not recursive). Two script sets are conditional and outside it:
+# - `Honua.Postgres.Migrations.*` (src/Honua.Db/Postgres/Migrations) runs only where the optional
+#   postgis_raster extension is provisioned; the upgrade gate's PostGIS image does not install it.
+# - the configured-schema adoption script runs only for a non-default Database:Schema.
+SERVER_MIGRATION_ROOT = 'src/Honua.Server/Migrations/'
+SERVER_MIGRATION_RESOURCE = 'Honua.Server.Migrations.'
+CONFIGURED_SCHEMA_ADOPTION = 'Honua.Server.Migrations.109_AdoptConfiguredGuardedSchema.sql'
+CONFIGURED_SCHEMA_ADOPTION_DECLARATION = 'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs'
+
+
+def migration_journal(github, paths, repository, sha):
+    """The exact default-deployment journal (script names) declared by the selected server source."""
+    names = [SERVER_MIGRATION_RESOURCE + path.removeprefix(SERVER_MIGRATION_ROOT) for path in paths
+             if path.startswith(SERVER_MIGRATION_ROOT) and '/' not in path.removeprefix(SERVER_MIGRATION_ROOT)]
+    if CONFIGURED_SCHEMA_ADOPTION not in names:
+        raise ResolutionError(f'{repository}@{sha}: {CONFIGURED_SCHEMA_ADOPTION} is gone; '
+                              'refusing to guess the default-deployment migration set')
+    declaration = github.file(repository, sha, CONFIGURED_SCHEMA_ADOPTION_DECLARATION).decode('utf-8')
+    if f'"{CONFIGURED_SCHEMA_ADOPTION}"' not in declaration:
+        raise ResolutionError(f'{repository}@{sha}: {CONFIGURED_SCHEMA_ADOPTION_DECLARATION} no longer names '
+                              f'{CONFIGURED_SCHEMA_ADOPTION}; refusing to guess the default-deployment migration set')
+    return [name for name in names if name != CONFIGURED_SCHEMA_ADOPTION]
 
 
 def resolve(manifest, matrix, github, registry, limit=100):
@@ -324,15 +354,21 @@ def resolve(manifest, matrix, github, registry, limit=100):
     if server != original:
         # A bound ledger for yesterday's image cannot certify tonight's image.
         certification['ledger']['status'] = 'pending'
-        try:
-            repository = server_component['repository'].removeprefix('https://github.com/')
-            floor = migration_floor(github, repository, server)
-            server_component['dbSchema'] = floor
-            data = candidate_matrix.setdefault('data', {}).setdefault('honua-server', {})
-            if 'requiresDbSchema' in data and not str(data['requiresDbSchema']).startswith('>'):
-                data['requiresDbSchema'] = floor
-        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-            failures.append(f'honua-server dbSchema: {exc}')
+    # Schema floor and migration journal are read from the selected tree on every night; a hand
+    # value (or a value left over from another sha) never survives into the candidate.
+    server_component.pop('migrationJournalSha256', None)
+    try:
+        repository = server_component['repository'].removeprefix('https://github.com/')
+        paths = migration_tree(github, repository, server)
+        floor = migration_floor(paths, repository, server)
+        journal = migration_journal(github, paths, repository, server)
+        server_component['migrationJournalSha256'] = upgrade_lock_binding.journal_digest(journal)
+        server_component['dbSchema'] = floor
+        data = candidate_matrix.setdefault('data', {}).setdefault('honua-server', {})
+        if 'requiresDbSchema' in data and not str(data['requiresDbSchema']).startswith('>'):
+            data['requiresDbSchema'] = floor
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        failures.append(f'honua-server migrations: {exc}')
     for name in ('honua-iac', 'honua-helm'):
         row = candidate_matrix.get('deploy', {}).get(name, {})
         for key in ('deploysServerImage', 'appVersion'):

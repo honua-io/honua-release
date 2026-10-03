@@ -35,6 +35,21 @@ def inputs(candidate, tmp_path):
             'train': {'workflowPath': '.github/workflows/nightly-certification.yml', 'runId': RUN,
                       'runAttempt': 1, 'certificationMode': 'live'},
             'artifacts': {p.name: {'sha256': _sha256(p), 'size': p.stat().st_size} for p in real_paths}}}
+    # Recorded gate observations: the four deterministic cells and the nightly genuine-model cell.
+    stamp = report['generatedAt'].replace('+00:00', 'Z')
+    journeys = [{'status': 'pass', 'generatedAt': stamp, 'runId': RUN, 'runAttempt': 1,
+                 'candidateDigest': _sha256(real_paths[0]),
+                 'cells': [{'cell': cell, 'status': 'pass', 'attempts': [
+                     {'number': 1, 'status': 'pass', 'driver': mode, 'completedAt': stamp}]}]
+                } for mode, cells in (
+                    ('deterministic', ('aws-ecs/redis-off', 'aws-ecs/redis-on',
+                                       'aws-serverless/redis-off', 'aws-serverless/redis-on')),
+                    ('genuine-model', ('aws-ecs/redis-off',))) for cell in cells]
+    draft = nightly.generate(*real_paths)
+    nightly.bind(draft.lock, *real_paths, '2026.1-rc.3')
+    qualification_lock = tmp_path / 'qualification-lock.json'
+    qualification_lock.write_bytes(nightly.bundle_files(draft.lock)['platform-lock.json'])
+    report = nightly.declare_evidence(report, qualification_lock, journeys)
     return report, real_paths
 
 
@@ -311,3 +326,57 @@ def test_cli_refuses_to_stamp_or_mint_without_synced_history(inputs, tmp_path):
                              '--manifest', str(paths[0]), '--matrix', str(paths[1]),
                              '--certificate-identity', 'x'], capture_output=True, text=True)
     assert minted.returncode == 1 and 'rulesets' in minted.stderr
+
+
+NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
+                    'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
+
+
+def test_minted_layout_retains_every_declared_receipt_and_no_qualifying_receipt(inputs, tmp_path):
+    report, paths = inputs
+    output = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', output, signer=signer)
+    retained = json.loads((output / 'gate-report.json').read_text())
+    digest = 'sha256:' + _sha256(output / 'platform-lock.json')
+    assert set(retained['evidenceClasses']) == set(NIGHTLY_EXPECTED)
+    assert set(retained['evidenceDeclarations']) == set(NIGHTLY_EXPECTED + QUALIFYING_EXPECTED)
+    for name in NIGHTLY_EXPECTED:
+        declaration = retained['evidenceDeclarations'][name]
+        receipt = json.loads((output / declaration['receipt']).read_text())
+        assert receipt['class'] == name and receipt['kind'] == declaration['kind'] == 'nightly'
+        assert receipt['status'] == 'pass' and receipt['lockDigest'] == digest
+        assert receipt['runId'] == RUN and receipt['runAttempt'] == 1
+        assert receipt['completedAt'] == retained['generatedAt']
+        assert receipt['freshUntil'] == declaration['freshUntil']
+        assert (datetime.fromisoformat(receipt['freshUntil'].replace('Z', '+00:00')) -
+                datetime.fromisoformat(receipt['completedAt'].replace('Z', '+00:00'))).days == 7
+    for name in QUALIFYING_EXPECTED:
+        assert retained['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
+        assert not (output / 'promotion-receipts' / name).exists()
+    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == 11
+
+
+@pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'missing-model', 'forged-qualifying', 'expiry'])
+def test_receipt_gaps_refuse_before_signing(inputs, tmp_path, mutation):
+    report, paths = inputs
+    if mutation == 'missing-class':
+        del report['evidenceReceipts']['contract']
+    elif mutation == 'wrong-lock':
+        report['evidenceReceipts']['contract']['lockDigest'] = 'sha256:' + 'a' * 64
+    elif mutation == 'missing-model':
+        report['evidenceReceipts']['nightly-model-journey']['cells'] = []
+    elif mutation == 'forged-qualifying':
+        report['evidenceDeclarations']['cite']['receipt'] = 'forged.json'
+    elif mutation == 'expiry':
+        report['evidenceReceipts']['contract']['freshUntil'] = '2099-01-01T00:00:00Z'
+    refuses_before_signing(report, paths, tmp_path, 'receipt|qualifying|declarations')
+
+
+def test_missing_model_observation_cannot_be_turned_into_a_passing_receipt(inputs, tmp_path):
+    report, paths = inputs
+    lock = tmp_path / 'qualification-lock.json'
+    declared = nightly.declare_evidence(report, lock, [])
+    assert declared['evidenceReceipts']['deterministic-journey']['status'] == 'fail'
+    assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    refuses_before_signing(declared, paths, tmp_path, 'nightly receipt')
