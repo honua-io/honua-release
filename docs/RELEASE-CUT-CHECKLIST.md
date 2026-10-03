@@ -52,10 +52,15 @@ Use the isolated staging target. Health-only evidence cannot discharge
 [Lambda GA bill ledger](2026.1-lambda-ga-bill.md) and
 [serverless operating limits](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits).
 
-**Upgrade baseline ruling:** the operator must settle the prior-release lookup, which currently finds
-the 2026-08-20 `honua-2026.1` engineering snapshot. Do not assert that no prior release exists. Either
-exclude pre-release snapshots by a recorded ruling or certify against that baseline. Same-image
-lifecycle coverage alone cannot replace the required two-revision application proof below.
+**Upgrade baseline (R26, #376, 2026-10-03):** no prior `honua-*` platform release exists for rc.3. The
+prior release is the newest published, non-pre-release `honua-*` GitHub Release carrying the signed
+platform lock that promotion publishes (`platform-lock.json` with `platform-lock.sigstore.json`).
+`gate-upgrade` and `tools/release_rollback_target.py` resolve it through the same function,
+`prior_platform_release` in `tools/check_upgrade.py`. The 2026-08-20 `honua-2026.1` engineering snapshot
+is a pre-release without a lock, so it is excluded and remains published unchanged. The upgrade gate
+reports the self-limiting first-release basis until the first promotion. A failed release lookup is
+blocked; it is not evidence that no prior release exists. Same-image lifecycle coverage alone cannot
+replace the required two-revision application proof below.
 
 ## 2. Select, burn and qualify a promotion candidate
 

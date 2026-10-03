@@ -351,9 +351,10 @@ def test_generated_registry_lock_certifies_one_operation(tmp_path, registry_dock
     assert all(receipt["functionalSmoke"].values())
 
 
-def _release(tag, lock=False, published_at=None):
-    return {"tag_name": tag, "draft": False, "published_at": published_at or tag,
-            "assets": [{"name": "platform-lock.json"}] if lock else []}
+def _release(tag, lock=False, published_at=None, prerelease=False):
+    # lock=True mirrors what promote.yml publishes: the lock and its Sigstore bundle.
+    return {"tag_name": tag, "draft": False, "prerelease": prerelease, "published_at": published_at or tag,
+            "assets": [{"name": "platform-lock.json"}, {"name": "platform-lock.sigstore.json"}] if lock else []}
 
 
 def _target_fixture(tmp_path, pages, reject=False):
@@ -398,6 +399,24 @@ def test_retained_lock_on_later_page_uses_ordinary_path(tmp_path):
     assert report["retained_release"] == "honua-2026.1"
     assert report["rollback_target_digest"] != report["candidate_lock_digest"]
     assert calls[-1][:2] == ("attestation", "verify")
+
+
+def test_pre_release_snapshot_is_never_a_rollback_target(tmp_path):
+    # R26: the 2026-08-20 honua-2026.1 engineering snapshot is a pre-release, even if it carried a lock.
+    candidate, target, calls, command = _target_fixture(tmp_path, [[
+        _release("honua-2026.1", lock=True, published_at="2026-08-20T16:49:02Z", prerelease=True)]])
+    report = targets.resolve(candidate, target, "honua-io/honua-release", command)
+    assert report["first_lock_bearing_release"] is True
+    assert report["scanned_releases"] == ["honua-2026.1"]
+    assert target.read_bytes() == candidate.read_bytes()
+    assert len(calls) == 1
+
+
+def test_unsigned_lock_is_not_a_rollback_target(tmp_path):
+    release = _release("honua-2026.1", published_at="2026-09-11T00:00:00Z")
+    release["assets"] = [{"name": "platform-lock.json"}]
+    candidate, target, calls, command = _target_fixture(tmp_path, [[release]])
+    assert targets.resolve(candidate, target, "honua-io/honua-release", command)["first_lock_bearing_release"]
 
 
 def test_candidate_release_is_not_misidentified_as_an_earlier_lock(tmp_path):

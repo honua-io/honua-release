@@ -84,7 +84,7 @@ jobs:
             label="$(python -c 'import json;print(json.load(open("_candidate/platform-lock.json"))["platform"]["id"].removeprefix("honua-"))')"
             python tools/platform_lock_bundle.py _candidate/platform-lock.json \
               --manifest _candidate/platform-manifest.yaml --matrix _candidate/compatibility-matrix.yaml \
-              --label "$label" --out-dir _candidate/frozen-lock --check
+              --label "$label" --out-dir _candidate/frozen-lock --qualification --check
           else
             gh attestation verify _candidate/platform-lock.json --repo "$GITHUB_REPOSITORY" > out/rollback-certification/candidate-lock-verification.log
           fi

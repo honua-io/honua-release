@@ -630,6 +630,16 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
         (work / path).parent.mkdir(parents=True, exist_ok=True)
         (work / path).write_text(path)
     (work / 'mint.txt').write_text('MINTED: 2026.1-rc.3 -> nightly-lock\n')
+    notes = tmp_path / 'notes'
+    notes.mkdir()
+    git(notes, 'init', '-q')
+    (notes / 'notes.md').write_text('generated notes\n')
+    git(notes, 'add', 'notes.md')
+    git(notes, '-c', 'user.name=Mike McDougall', '-c', 'user.email=mike@honua.io',
+        'commit', '-qm', 'retain notes')
+    revision = git(notes, 'rev-parse', 'HEAD')
+    git(notes, 'bundle', 'create', str(work / 'certified/release-notes.bundle'), 'HEAD')
+    (work / 'certified/release-notes-revision.txt').write_text(revision + '\n')
     runner_temp = tmp_path / 'runner-temp'
     runner_temp.mkdir()
     output = tmp_path / 'out.txt'
@@ -638,6 +648,10 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
     assert 'label=2026.1-rc.3' in output.read_text()
     files = git(origin, 'ls-tree', '-r', '--name-only', 'refs/tags/nightly-lock/2026.1-rc.3').splitlines()
     assert files == ['bom.cdx.json', 'platform-lock.json', 'platform-lock.sigstore.json']
+    assert git(origin, 'rev-parse', 'refs/tags/nightly-lock/2026.1-rc.3^') == revision
+    assert git(origin, 'show', f'{revision}:notes.md') == 'generated notes'
+    assert git(origin, 'show', '-s', '--format=%cn <%ce>', 'refs/tags/nightly-lock/2026.1-rc.3') == \
+        'Mike McDougall <mike@honua.io>'
     assert git(origin, 'log', '--format=%an <%ae>|%s', '-1', 'refs/tags/nightly-lock/2026.1-rc.3') == \
         'Mike McDougall <mike@honua.io>|chore: nightly lock 2026.1-rc.3'
     # No force: a second publication of the same label is refused by git.

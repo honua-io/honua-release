@@ -73,7 +73,8 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     return {"kind": kinds.get(prefix, "other"), "coordinate": name or str(coordinate)}
 
 
-def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) -> Draft:
+def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
+             qualification=False) -> Draft:
     """Derive a draft; the CLI also requires live registry architecture verification."""
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
@@ -305,11 +306,18 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             for component in lock["components"].values()
         ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
-    _release_facts(manifest, lock, refuse)
+    _release_facts(manifest, lock, refuse, qualification=qualification)
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
 
 
-def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) -> None:
+POST_GATE_FIELDS = frozenset({"sbom", "provenance", "notes"})
+
+
+def pending(field: str) -> dict:
+    return {"status": "post-gate pending", "field": field}
+
+
+def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any, *, qualification=False) -> None:
     """Consume the declared release-level facts; refuse every fact that is absent or mutable.
 
     These are the parts of the candidate identity that no component owns. They are declared by
@@ -361,8 +369,17 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any) 
             continue
         seen.add(key)
         lock["fixtures"].append(reference)
-    if not lock["fixtures"]:
+    if qualification and "fixtures" not in evidence:
+        lock["fixtures"] = pending("fixtures")
+    elif not lock["fixtures"]:
         refuse("$.fixtures: fixture repository revisions are not declared", "AT-CUT")
+
+    if qualification:
+        # This draft cannot pass the release-lock schema or the signing binder. Gates
+        # qualify these exact bytes; only mint replaces these explicit pending facts.
+        for field in POST_GATE_FIELDS:
+            lock[field] = pending(field)
+        return
 
     # Mechanical binding: every reference names a locked component, and every component whose
     # artifacts the candidate publishes is covered. This is what can be checked from the frozen
@@ -412,13 +429,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, default=REPO_ROOT / "platform-manifest.yaml")
     parser.add_argument("--matrix", type=Path, default=REPO_ROOT / "compatibility-matrix.yaml")
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "platform-lock.v1.draft.yaml")
+    parser.add_argument("--qualification", action="store_true",
+                        help="unsigned nightly draft with explicit post-gate pending fields")
     args = parser.parse_args(argv)
     try:
-        draft = generate(args.manifest, args.matrix, image_inspector=registry_image_platform_digests)
+        draft = generate(args.manifest, args.matrix, image_inspector=registry_image_platform_digests,
+                         qualification=args.qualification)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"ERROR: cannot generate lock draft: {exc}", file=sys.stderr)
         return 2
-    args.output.write_text(yaml.safe_dump(draft.lock, sort_keys=False), encoding="utf-8")
+    if args.qualification:
+        from platform_lock_bundle import canonical_bytes
+        args.output.write_bytes(canonical_bytes(draft.lock))
+    else:
+        args.output.write_text(yaml.safe_dump(draft.lock, sort_keys=False), encoding="utf-8")
     if draft.unresolved:
         print(f"BLOCKED: wrote {args.output}; {len(draft.unresolved)} release field(s) remain unresolved:", file=sys.stderr)
         if draft.deferred_until_cut:
@@ -426,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         for item in draft.unresolved:
             print(f"- {item}", file=sys.stderr)
         return 1
-    print(f"PASS: wrote complete draft {args.output}")
+    print(f"PASS: wrote draft {args.output}")
     return 0
 
 

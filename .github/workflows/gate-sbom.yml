@@ -31,6 +31,7 @@ on:
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
+      candidate_snapshot: { required: false, type: boolean, default: false }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
     secrets:
@@ -63,6 +64,15 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the exact unsigned nightly qualification lock
+        if: inputs.candidate_snapshot
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: qualification-inputs
+      - name: Adopt the qualification draft for BOM generation
+        if: inputs.candidate_snapshot
+        run: cp qualification-inputs/frozen-lock/platform-lock.json platform-lock.json
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -75,6 +85,7 @@ jobs:
         id: gen
         env:
           ENFORCEMENT: ${{ inputs.enforcement }}
+          CANDIDATE_SNAPSHOT: ${{ inputs.candidate_snapshot }}
         run: |
           set -uo pipefail
           GATE=sbom-platform; STATUS=fail; WHY=""
@@ -83,9 +94,13 @@ jobs:
           OUT="bom/honua-platform-${LABEL}.cdx.json"
           generate_bom() {
             if [ "$ENFORCEMENT" = "strict" ]; then
+              ARGS=()
+              if [ "$CANDIDATE_SNAPSHOT" = "true" ]; then
+                ARGS+=(--qualification)
+              fi
               python tools/platform_lock_bundle.py platform-lock.json \
                 --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
-                --label "$LABEL" --out-dir bom/locked && cp bom/locked/bom.cdx.json "$OUT"
+                --label "$LABEL" --out-dir bom/locked "${ARGS[@]}" && cp bom/locked/bom.cdx.json "$OUT"
             else
               python tools/generate_bom.py --label "$LABEL" --timestamp "$(date -u +%FT%TZ)" --out "$OUT"
             fi

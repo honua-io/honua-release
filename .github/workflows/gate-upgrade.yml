@@ -11,8 +11,9 @@
 #                  advanced and seed rows survived, then `helm rollback` and query those rows through the
 #                  prior image. That last query is the expand-contract proof.
 #
-# The prior release's manifest/image is read from the latest `honua-*` GitHub Release (created by
-# promote); until one exists the immutable first-cut baseline is used. The kind smoke
+# The prior release's manifest/image is read from the latest promoted `honua-*` GitHub Release (not a
+# pre-release, signed platform lock attached — tools/check_upgrade.py prior_platform_release, ruling
+# R26); until one exists the immutable first-cut baseline is used. The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
 #
@@ -32,6 +33,7 @@ on:
       - "platform-manifest.yaml"
       - "compatibility-matrix.yaml"
       - "tools/check_upgrade.py"
+      - "tools/test_check_upgrade.py"
       - "tools/semver.py"
       - "tools/test_slo_upgrade.py"
       - "tools/upgrade_recovery.py"
@@ -98,7 +100,10 @@ jobs:
       - run: python -m pip install "pyyaml>=6.0" pytest
 
       - name: Self-test the upgrade logic
-        run: python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
+        run: |
+          set -euo pipefail
+          python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
+          python -m pytest tools/test_check_upgrade.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -106,15 +111,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 \
-                  --json tagName --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
-          if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
+          # R26 (#376): the prior release is a promoted, non-pre-release honua-* release carrying a
+          # signed platform lock — the same resolver the rollback target uses. Pre-release snapshots
+          # (the 2026-08-20 honua-2026.1) never count. A failed lookup or download is not "no prior
+          # release": it blocks instead of taking the first-release basis.
+          if ! PREV="$(python tools/check_upgrade.py --resolve-prior-release "${{ github.repository }}")"; then
+            echo "lookup=failed" >> "$GITHUB_OUTPUT"
+            echo "prev=" >> "$GITHUB_OUTPUT"
+          elif [ -z "$PREV" ]; then
+            echo "prev=" >> "$GITHUB_OUTPUT"
+            echo "no prior platform release (promoted honua-* with a signed lock) to upgrade from yet"
+          elif gh release download "$PREV" --repo "${{ github.repository }}" \
                --pattern 'finalized-manifest.yaml' --dir prior >/tmp/dl.log 2>&1; then
             echo "prev=$PREV" >> "$GITHUB_OUTPUT"
             echo "found prior release: $PREV"
           else
+            cat /tmp/dl.log
+            echo "lookup=failed" >> "$GITHUB_OUTPUT"
             echo "prev=" >> "$GITHUB_OUTPUT"
-            echo "no prior platform release (honua-*) to upgrade from yet"
           fi
 
       - name: Evaluate upgrade compatibility
@@ -122,17 +136,19 @@ jobs:
         run: |
           set -uo pipefail
           ENF='${{ inputs.enforcement }}'
-          if [ -z "${{ steps.prior.outputs.prev }}" ]; then
-            # FIRST PLATFORM RELEASE. No honua-* release exists, so there is no upgrade path in
+          if [ "${{ steps.prior.outputs.lookup }}" = "failed" ]; then
+            STATUS=blocked; WHY="prior platform release lookup or manifest download failed — not evidence that no prior release exists"; RC=1
+          elif [ -z "${{ steps.prior.outputs.prev }}" ]; then
+            # FIRST PLATFORM RELEASE (R26). No promoted honua-* release exists, so there is no upgrade path in
             # existence to certify — not an unverified one, a non-existent one. Reporting `blocked`
             # here made the first cut unpromotable by construction: finalize_release refuses any
             # blocked gate, and this branch can only be true before the first tag, so nothing anyone
             # did could ever clear it.
             #
-            # This is SELF-LIMITING and that is what makes it safe: the moment any honua-* release is
-            # tagged, `prev` is non-empty forever and this branch can never be taken again. Every
+            # This is SELF-LIMITING and that is what makes it safe: the moment promote publishes a
+            # honua-* release with its signed lock, `prev` is non-empty forever and this branch can never be taken again. Every
             # subsequent cut runs the real prior-vs-candidate comparison below and must pass it.
-            STATUS=pass; WHY="first platform release — no prior honua-* release exists, so there is no upgrade path to certify (self-limiting: the next cut compares against this one)"; RC=0
+            STATUS=pass; WHY="first platform release (R26) — no promoted honua-* release with a signed lock exists, so there is no upgrade path to certify (self-limiting: the next cut compares against this one)"; RC=0
           elif [ "$ENF" = "strict" ]; then
             python tools/check_upgrade.py --prior-manifest prior/finalized-manifest.yaml --require-real; RC=$?
             if [ "$RC" = "0" ]; then STATUS=pass; else STATUS=fail; fi; WHY="see log"
@@ -186,8 +202,8 @@ jobs:
           set -uo pipefail
           mkdir -p _locks
           VERIFIED=0
-          PREV="$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName \
-                  --jq '[.[]|select(.tagName|startswith("honua-"))][0].tagName' 2>/dev/null || true)"
+          # Same R26 resolver as static-compat; an empty or failed lookup leaves VERIFIED=0 (blocked).
+          PREV="$(python tools/check_upgrade.py --resolve-prior-release "${{ github.repository }}" || true)"
           if [ -n "$PREV" ] && gh release download "$PREV" --repo "${{ github.repository }}" \
                --pattern 'platform-lock.json' --dir _locks/prior >/tmp/prior-lock-download.log 2>&1 \
                && [ -f platform-lock.json ]; then
