@@ -637,6 +637,7 @@ def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declaratio
         sdk = candidate['components']['honua-sdk-' + name]
         assert (sdk['sha'], sdk['artifactSourceRevision'], sdk['artifactVersion'], sdk['artifactSha256']) == (
             revision, revision, version, digest)
+        assert sdk['version'] == sdk['artifactVersion'] == version
         assert sdk['contractVersions'] == {'admin': 'v1'}
         assert ('honua-sdk-' + name, 'honua-io/honua-sdk-' + name, revision) in source.checked
         assert ('honua-io/honua-sdk-' + name, revision, 'release/component-versions.json') in source.declarations.reads
@@ -673,6 +674,8 @@ def test_a_new_published_pin_advances_source_and_artifact_identity_together(monk
     newer, _, _ = resolve_published(monkeypatch)
     old = older['components']['honua-sdk-dotnet']
     new = newer['components']['honua-sdk-dotnet']
+    assert old['version'] == old['artifactVersion'] == '1.10.0'
+    assert new['version'] == new['artifactVersion'] == '1.10.1'
     assert (old['sha'], old['artifactVersion'], old['artifactSha256']) == (
         'd81067a035854a1bc4c396ed763ba0de6b18864e', '1.10.0',
         'sha256:dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa')

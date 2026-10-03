@@ -154,7 +154,7 @@ def test_recorded_registries_return_verified_artifact_identities(monkeypatch):
         'dotnet': {'version': '1.10.1', 'sourceRevision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
                    'sha256': 'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'},
     }
-    assert len(reads) == 7  # metadata and package bytes, plus NuGet's catalog
+    assert len(reads) == 8  # metadata, bytes, NuGet catalog, and PyPI provenance
     assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}) == [
         'nuget:Honua.Sdk@1.10.1', 'npm:@honua/sdk-js@0.1.12',
         'pypi:honua-sdk==0.1.12:honua_sdk-0.1.12-py3-none-any.whl',
@@ -168,6 +168,7 @@ def test_recorded_registries_return_verified_artifact_identities(monkeypatch):
     ('dotnet', 'digest', 'sha256:' + '0' * 64, 'manifest digest'),
     ('dotnet', 'sourceSha', 'b' * 40, 'repository commit'),
     ('python', 'sourceSha', 'trunk', 'immutable revision'),
+    ('python', 'sourceSha', 'b' * 40, 'manifest sourceSha'),
     ('js', 'publicationState', 'pending', 'not published/promoted'),
 ])
 def test_recorded_identity_drift_never_returns_an_identity(monkeypatch, name, field, value, message):
@@ -198,3 +199,28 @@ def test_recorded_nuget_index_does_not_publish_1_6_2():
     assert json.loads((RECORDED / 'nuget-index.json').read_text())['versions'] == [
         '1.6.4', '1.7.0', '1.8.0', '1.9.0', '1.10.0', '1.10.1',
     ]
+
+
+@pytest.mark.parametrize('mutation', ['absent', 'subject', 'publisher', 'signature', 'certificate'])
+def test_pypi_refuses_missing_or_invalid_provenance(monkeypatch, mutation):
+    recorded_registry(monkeypatch)
+    request = vca._request
+    provenance = json.loads((RECORDED / 'pypi-provenance.json').read_text())
+    bundle = provenance['attestation_bundles'][0]
+    envelope = bundle['attestations'][0]['envelope']
+    if mutation == 'absent':
+        provenance['attestation_bundles'] = []
+    elif mutation == 'subject':
+        statement = json.loads(base64.b64decode(envelope['statement']))
+        statement['subject'][0]['digest']['sha256'] = '0' * 64
+        envelope['statement'] = base64.b64encode(json.dumps(statement).encode()).decode()
+    elif mutation == 'publisher':
+        bundle['publisher']['repository'] = 'other/repo'
+    elif mutation == 'certificate':
+        bundle['attestations'][0]['verification_material']['certificate'] = ''
+    else:
+        envelope['signature'] = base64.b64encode(b'wrong').decode()
+    monkeypatch.setattr(vca, '_request', lambda url, **kw:
+                        json.dumps(provenance).encode() if url.endswith('/provenance') else request(url, **kw))
+    with pytest.raises(vca.VerificationError, match='PyPI provenance'):
+        vca.verify_manifest({'clientArtifacts': {'python': RECORDED_PINS['python']}}, include_identities=True)

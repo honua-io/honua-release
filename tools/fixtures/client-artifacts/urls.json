@@ -9,5 +9,6 @@
   "nuget-index.json": "https://api.nuget.org/v3-flatcontainer/honua.sdk/index.json",
   "nuget-1.10.0-registration.json": "https://api.nuget.org/v3/registration5-gz-semver2/honua.sdk/1.10.0.json",
   "nuget-1.10.0-catalog.json": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json",
-  "nuget-1.10.0.nupkg": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.0/honua.sdk.1.10.0.nupkg"
+  "nuget-1.10.0.nupkg": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.0/honua.sdk.1.10.0.nupkg",
+  "pypi-provenance.json": "https://pypi.org/integrity/honua-sdk/0.1.12/honua_sdk-0.1.12-py3-none-any.whl/provenance"
 }

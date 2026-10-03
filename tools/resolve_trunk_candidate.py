@@ -308,7 +308,7 @@ def select_sdk(name, component, artifacts, identities, github):
     green, why = github.green(name, repository, sha)
     if not green:
         raise ResolutionError(f'{name}: published source {sha}: CI {why}')
-    return {**component, 'sha': sha, 'artifactVersion': identity['version'],
+    return {**component, 'sha': sha, 'version': identity['version'], 'artifactVersion': identity['version'],
             'artifactSourceRevision': sha, 'artifactSha256': identity['sha256']}
 
 

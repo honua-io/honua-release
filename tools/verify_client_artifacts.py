@@ -143,7 +143,61 @@ def _verify_npm(name: str, artifact: dict) -> tuple[str, str]:
     return f"npm:{package}@{version}", _sha256_pin(data)
 
 
-def _verify_pypi(name: str, artifact: dict) -> str:
+def _pypi_source(name: str, artifact: dict) -> str:
+    """Bind PyPI's registry-validated publish attestation to bytes and source.
+
+    Trust PyPI over HTTPS for certificate/log validation, as for registry digests.
+    Also verify the envelope signature before reading Fulcio source extensions.
+    """
+    from cryptography import x509
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    parts = [urllib.parse.quote(str(artifact[key]), safe="") for key in ("package", "version", "filename")]
+    provenance = _request_json("https://pypi.org/integrity/" + "/".join(parts) + "/provenance")
+    revisions = set()
+    try:
+        for bundle in provenance.get("attestation_bundles", []):
+            publisher = bundle["publisher"]
+            if publisher["kind"] != "GitHub" or publisher["repository"] != artifact["repository"]:
+                raise ValueError("publisher repository mismatch")
+            for attestation in bundle["attestations"]:
+                envelope = attestation["envelope"]
+                payload = base64.b64decode(envelope["statement"], validate=True)
+                statement = json.loads(payload)
+                if statement["predicateType"] != "https://docs.pypi.org/attestations/publish/v1":
+                    continue
+                if statement["_type"] != "https://in-toto.io/Statement/v1" or statement["subject"] != [
+                    {"name": artifact["filename"], "digest": {"sha256": artifact["digest"].removeprefix("sha256:")}}
+                ]:
+                    raise ValueError("attestation subject mismatch")
+                certificate = x509.load_der_x509_certificate(base64.b64decode(
+                    attestation["verification_material"]["certificate"], validate=True))
+                pae = b"DSSEv1 28 application/vnd.in-toto+json " + str(len(payload)).encode() + b" " + payload
+                certificate.public_key().verify(base64.b64decode(envelope["signature"], validate=True),
+                                                pae, ec.ECDSA(hashes.SHA256()))
+                def extension(number):
+                    value = certificate.extensions.get_extension_for_oid(
+                        x509.ObjectIdentifier(f"1.3.6.1.4.1.57264.1.{number}")).value.value
+                    # Fulcio encodes these short fields as DER UTF8String.
+                    if len(value) < 2 or value[:2] != bytes([12, len(value) - 2]):
+                        raise ValueError("invalid source extension")
+                    return value[2:].decode("utf-8")
+                if extension(12) != "https://github.com/" + artifact["repository"]:
+                    raise ValueError("certificate repository mismatch")
+                revision = extension(13)
+                if not re.fullmatch(r"[0-9a-f]{40}", revision):
+                    raise ValueError("invalid source revision")
+                revisions.add(revision)
+    except (KeyError, TypeError, ValueError, AttributeError, x509.ExtensionNotFound, InvalidSignature) as exc:
+        raise VerificationError(f"{name}: invalid PyPI provenance: {exc}") from exc
+    if len(revisions) != 1 or artifact["sourceSha"] not in revisions:
+        raise VerificationError(f"{name}: PyPI provenance is absent or does not match manifest sourceSha")
+    return revisions.pop()
+
+
+def _verify_pypi(name: str, artifact: dict) -> tuple[str, str]:
     package = str(artifact["package"])
     version = str(artifact["version"])
     filename = str(artifact.get("filename", ""))
@@ -164,7 +218,7 @@ def _verify_pypi(name: str, artifact: dict) -> str:
     if _sha256_pin(data) != expected:
         raise VerificationError(f"{name}: downloaded wheel bytes do not match manifest digest")
     _verify_wheel(data, package, version)
-    return f"pypi:{package}=={version}:{filename}"
+    return f"pypi:{package}=={version}:{filename}", _pypi_source(name, artifact)
 
 
 def _verify_nuget_package(name: str, artifact: dict, github_token: str | None) -> str:
@@ -255,7 +309,8 @@ def verify_manifest(manifest: dict, *, github_token: str | None = None,
             coordinate, digest = _verify_npm(name, artifact)
             verified.append(coordinate)
         elif ecosystem == "pypi":
-            verified.append(_verify_pypi(name, artifact))
+            coordinate, source = _verify_pypi(name, artifact)
+            verified.append(coordinate)
             digest = artifact["digest"]
         elif ecosystem == "nuget":
             verified.append(_verify_nuget_package(name, artifact, github_token))
