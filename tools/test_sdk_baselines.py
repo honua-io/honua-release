@@ -219,14 +219,28 @@ def test_a_declared_first_release_cannot_stand_for_a_numeric_floor():
     """The sentinel resolves to the first release; it never matches a lower, numeric-only floor."""
     item = component()
     item["serverCompatibility"]["minimumServerVersion"] = "first-release"
-    with pytest.raises(ValueError, match="must equal derived floor 1.2.0"):
+    with pytest.raises(ValueError, match="no consumed manifest introduces"):
         check_component(item, release_context(first_release_lock()))
     item = component()
     item["serverCompatibility"]["declarations"][0]["minimumServerVersion"] = "first-release"
-    with pytest.raises(ValueError, match="disagrees with lock floor 1.2.0"):
+    with pytest.raises(ValueError, match="no consumed manifest introduces"):
         check_component(item, release_context(first_release_lock()))
-    with pytest.raises(ValueError, match="which this lock does not name"):
+    with pytest.raises(ValueError, match="no consumed manifest introduces"):
         check_component(item, {})
+
+
+def test_a_numeric_only_manifest_cannot_declare_first_release_even_at_the_same_version():
+    """Equal values are not enough: the sentinel needs a first-release introduction to summarise."""
+    context = {"firstReleaseVersion": "1.2.0"}
+    assert check_component(component(), context) == "1.2.0"
+    item = component()
+    item["serverCompatibility"]["minimumServerVersion"] = "first-release"
+    with pytest.raises(ValueError, match="no consumed manifest introduces"):
+        check_component(item, context)
+    item = component()
+    item["serverCompatibility"]["declarations"][0]["minimumServerVersion"] = "first-release"
+    with pytest.raises(ValueError, match="no consumed manifest introduces"):
+        check_component(item, context)
 
 
 def test_the_generator_resolves_the_floor_once_every_component_is_built(tmp_path):

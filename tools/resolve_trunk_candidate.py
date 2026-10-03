@@ -495,7 +495,8 @@ def published_revisions(name, component, client_artifacts):
 
     The primary package's revision is the component's artifactSourceRevision (#412). A companion
     package of the same repository (e.g. @honua/mcp-server beside @honua/sdk-js) ships too, so the
-    lock's declarations must cover its revision as well (sdk_baselines.check_component).
+    lock's declarations must cover its revision as well (sdk_baselines.check_component). Optional
+    (`required: false`) rows do not ship and contribute no revision.
     """
     repository = str(component.get('repository') or '').removeprefix('https://github.com/')
     primary = str(component.get('artifactSourceRevision') or '')
@@ -503,7 +504,9 @@ def published_revisions(name, component, client_artifacts):
         raise ResolutionError(f'{name}: no published source revision to read {SDK_BASELINE_PATH} at')
     revisions = [primary]
     for client, artifact in sorted((client_artifacts or {}).items()):
-        if not isinstance(artifact, dict):
+        # verify_manifest skips optional rows, so their bytes and publication are unverified: they
+        # do not ship and their sourceSha is not a published revision.
+        if not isinstance(artifact, dict) or artifact.get('required', True) is False:
             continue
         if str(artifact.get('repository') or '').removeprefix('https://github.com/') != repository:
             continue

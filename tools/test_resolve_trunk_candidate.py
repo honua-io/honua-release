@@ -1187,6 +1187,16 @@ def test_a_companion_revision_without_the_baseline_refuses():
         read_baseline('honua-sdk-js', files=files, artifacts=companion_artifacts(NEW))
 
 
+def test_an_optional_companion_row_contributes_no_revision():
+    """verify_manifest skips `required: false` rows, so their sourceSha is not a published revision."""
+    files = {('honua-io/honua-sdk-js', DOTNET_PUBLISHED, resolver.SDK_BASELINE_PATH): baseline_bytes('honua-sdk-js')}
+    artifacts = companion_artifacts(NEW)
+    artifacts['honua-mcp-server'].update(required=False, publicationState='unpublished')
+    compatibility, source = read_baseline('honua-sdk-js', files=files, artifacts=artifacts)
+    assert [d['revision'] for d in compatibility['declarations']] == [DOTNET_PUBLISHED]
+    assert all(read[1] != NEW for read in source.reads)
+
+
 def test_published_revisions_that_declare_different_floors_refuse():
     path = resolver.SDK_BASELINE_PATH
     files = {('honua-io/honua-sdk-js', DOTNET_PUBLISHED, path): baseline_bytes('honua-sdk-js'),

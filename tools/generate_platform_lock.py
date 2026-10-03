@@ -123,6 +123,10 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
         if not isinstance(published, dict):
             refuse(f"{path}: published identity must be a mapping", "PUBLISH")
             continue
+        # An optional row is never verified (verify_client_artifacts) and does not ship, so it is
+        # no locked artifact and needs no SDK baseline declaration (resolve_trunk_candidate).
+        if published.get("required", True) is False:
+            continue
         kind = {"npm": "npm", "pypi": "wheel", "nuget": "nuget"}.get(published.get("ecosystem"))
         identity = {"kind": kind, "coordinate": published.get("package"),
                     "version": published.get("version"), "sourceRevision": published.get("sourceSha")}

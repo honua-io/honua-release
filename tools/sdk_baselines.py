@@ -129,10 +129,26 @@ def derive(baseline: dict[str, Any], context: dict[str, Any] | None = None) -> s
     return str(max(floors))
 
 
-def declared_floor(value: Any, context: dict[str, Any] | None) -> Any:
-    """A declared `first-release` floor is the first release this lock names, or unqualified."""
+def has_first_release(baseline: dict[str, Any]) -> bool:
+    """Whether any consumed manifest introduces a required capability in the first release."""
+    return any(
+        (manifest.get("content", {}).get("capabilities", {}).get(capability) or {}).get("introductionModel")
+        == FIRST_RELEASE
+        for manifest in baseline.get("manifests") or []
+        for capability in manifest.get("requiredCapabilities") or [])
+
+
+def declared_floor(value: Any, context: dict[str, Any] | None, first_release: bool) -> Any:
+    """A declared `first-release` floor is the first release this lock names, or unqualified.
+
+    The sentinel summarises a first-release introduction. A numeric-only manifest cannot declare
+    it, even when its numeric floor happens to equal the first release.
+    """
     if value != FIRST_RELEASE:
         return value
+    if not first_release:
+        raise ValueError(f"unqualified: the SDK declares the first {PUBLISHER} release as its floor, "
+                         "but no consumed manifest introduces a required capability in it")
     version = (context or {}).get("firstReleaseVersion")
     if not version:
         raise ValueError(f"unqualified: the SDK declares the first {PUBLISHER} release as its floor, "
@@ -143,7 +159,8 @@ def declared_floor(value: Any, context: dict[str, Any] | None) -> Any:
 def check_component(component: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     baseline = component.get("serverCompatibility", {})
     floor = derive(baseline, context)
-    if declared_floor(baseline.get("minimumServerVersion"), context) != floor:
+    first_release = has_first_release(baseline)
+    if declared_floor(baseline.get("minimumServerVersion"), context, first_release) != floor:
         raise ValueError(f"lock minimumServerVersion must equal derived floor {floor}")
     declarations = baseline.get("declarations")
     if not isinstance(declarations, list) or not declarations:
@@ -157,7 +174,7 @@ def check_component(component: dict[str, Any], context: dict[str, Any] | None = 
             raise ValueError("SDK declaration revision is not bound to component/artifact source")
         if not declaration.get("path") or not DIGEST.fullmatch(str(declaration.get("sha256", ""))):
             raise ValueError("SDK declaration needs a path and byte SHA-256")
-        if declared_floor(declaration.get("minimumServerVersion"), context) != floor:
+        if declared_floor(declaration.get("minimumServerVersion"), context, first_release) != floor:
             raise ValueError(f"declared baseline {declaration.get('minimumServerVersion')!r} disagrees with lock floor {floor}")
         declared_revisions.add(declaration["revision"])
     if revisions - declared_revisions:
