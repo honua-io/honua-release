@@ -922,6 +922,25 @@ def test_the_nightly_train_runs_every_fixture_gate_and_mints_from_their_records(
     assert '--fixture-revisions fixture-revisions' in mint_steps[signing]['run']
 
 
+def test_post_gate_collection_is_live_green_and_precedes_qualified_bundle_upload():
+    report_job = _workflow('release-train.yml')['jobs']['report']
+    assert 'gate_sbom' in report_job['needs']
+    steps = report_job['steps']
+    collection = next(i for i, step in enumerate(steps) if '--collect-post-gate' in step.get('run', ''))
+    binding = next(i for i, step in enumerate(steps) if '--declare-evidence' in step.get('run', ''))
+    upload = next(i for i, step in enumerate(steps) if step.get('name') == 'Upload the certified candidate bundle')
+    assert binding < collection < upload
+    assert steps[collection]['if'] == "inputs.nightly && inputs.dry_run == false && steps.assemble.outputs.overall == 'pass'"
+    assert 'qualification-lock.json' in steps[collection]['run']
+    assert any('pip install' in step.get('run', '') and 'jsonschema' in step['run'] for step in steps)
+    command = next(step['run'] for step in _workflow('nightly-certification.yml')['jobs']['mint']['steps']
+                   if step.get('id') == 'mint')
+    for argument in ('--lock certified/qualification-lock.json',
+                     '--post-gate-references certified/post-gate-references.json',
+                     '--notes-bundle certified/release-notes.bundle'):
+        assert argument in command
+
+
 def test_cli_mint_requires_fixture_revisions(inputs, tmp_path):
     _, paths = inputs
     minted = subprocess.run([sys.executable, str(Path(nightly.__file__)), '--report', str(tmp_path / 'r.json'),
