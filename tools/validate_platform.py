@@ -158,8 +158,9 @@ def _component_version_kind(comp: dict) -> str:
 def check_platform_version_stamp(manifest: dict, f: Findings) -> None:
     """R22: a stamped imaged-component version is the label's platform version, beside bound bytes.
 
-    The stamp is optional here (the resolver validates before mint names the label); the lock
-    generator refuses an imaged component that carries none. What is stamped must agree.
+    The stamp is optional for an ordinary validate (the resolver runs before mint names the label).
+    An exact candidate whose imaged identity is already bound must carry it (check_exact_candidate).
+    The lock generator refuses an imaged component that carries none. What is stamped must agree.
     """
     components = manifest.get("components") or {}
     release = str(manifest.get("platformRelease", ""))
@@ -525,6 +526,26 @@ def check_exact_candidate(
             tr.verify_manifest_pins(manifest, reachability_client)
         except tr.ReachabilityError as exc:
             f.error(f"exact-candidate: {exc}")
+    # R22: once an imaged component's bytes are bound, an exact candidate must name them with the
+    # label's platform version. An absent stamp is not a license to attest some other version.
+    # A component whose identity is not bound stays optional here; the generator still refuses it,
+    # and manual freeze now fails closed on that refusal.
+    release = str(manifest.get("platformRelease", ""))
+    try:
+        expected_version = platform_version.artifact_version(release)
+    except ValueError as exc:
+        f.error(f"exact-candidate: platformRelease {exc}")
+        expected_version = None
+    components = manifest.get("components") or {}
+    for name in platform_version.IMAGED_COMPONENTS:
+        comp = components.get(name)
+        if not isinstance(comp, dict) or platform_version.unbound_identity(comp):
+            continue
+        if expected_version is not None and comp.get("artifactVersion") != expected_version:
+            f.error(
+                f"exact-candidate: {name}.artifactVersion {comp.get('artifactVersion')!r} must be the "
+                f"platform version {expected_version!r} of platformRelease {release!r} (R22)"
+            )
 
 
 # --------------------------------------------------------------------------------------------------

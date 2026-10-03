@@ -389,6 +389,37 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
     assert matrix['data']['honua-server']['requiresDbSchema'] == '109'
 
 
+def test_a_chart_identity_from_another_sha_cannot_take_tonights_version():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                       'artifactSourceRevision': OLD, 'artifactSha256': package,
+                       'artifactVersion': '2026.1.0-rc.2'},
+        'honua-server': {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'sha': NEW,
+                         'artifactSourceRevision': NEW, 'digest': 'sha256:' + 'e' * 64,
+                         'artifactVersion': '2026.1.0-rc.2', 'releaseVersion': '2026.1.0-rc.2'},
+    }
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert 'digest' not in helm and 'artifactSourceRevision' not in helm and 'artifactSha256' not in helm
+    assert 'artifactVersion' not in helm
+    assert components['honua-server']['digest'] == 'sha256:' + 'e' * 64
+    assert components['honua-server']['artifactSourceRevision'] == NEW
+    assert 'artifactVersion' not in components['honua-server']
+    assert 'releaseVersion' not in components['honua-server']
+
+
+def test_a_chart_identity_bound_to_the_selected_sha_is_kept_for_the_stamp():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                                 'artifactSourceRevision': NEW, 'artifactSha256': package,
+                                 'artifactVersion': '2026.1.0-rc.2'}}
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert (helm['digest'], helm['artifactSourceRevision'], helm['artifactSha256']) == (digest, NEW, package)
+    assert 'artifactVersion' not in helm
+
+
 def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(monkeypatch):
     # R22 (#231 WI-2): mint stamps the platform version of tonight's label beside tonight's image.
     candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
