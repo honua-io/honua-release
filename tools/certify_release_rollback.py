@@ -14,6 +14,8 @@ from image_platforms import verify_image_platform_digests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 import release_rollback as rollback  # noqa: E402
 
+IMAGE_REGISTRY = "ghcr.io/honua-io"
+
 
 def write(path: Path, value: dict) -> Path:
     rollback.atomic_write(path, value)
@@ -101,6 +103,11 @@ def certify(args, report: dict) -> int:
         for name, component in lock["components"].items():
             for artifact in component.get("artifacts", []):
                 if artifact.get("kind") == "image":
+                    # The registry check proves the bytes behind a coordinate, not that the
+                    # coordinate is this component's: a console index must never certify as server.
+                    if artifact.get("coordinate") != f"{IMAGE_REGISTRY}/{name}":
+                        raise rollback.RollbackError(
+                            f"ROLLBACK_{role}_IMAGE_COORDINATE_MISMATCH: {name}: {artifact.get('coordinate')!r}")
                     try:
                         verify_image_platform_digests(artifact)
                     except (OSError, TypeError, ValueError) as exc:
