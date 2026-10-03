@@ -30,6 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
+import sdk_baselines
+from semver import parse as parse_semver
 import upgrade_lock_binding
 import validate_platform
 from verify_client_artifacts import verify_manifest
@@ -445,6 +447,130 @@ def migration_journal(github, paths, repository, sha):
     return [name for name in names if name != CONFIGURED_SCHEMA_ADOPTION]
 
 
+# Each SDK repository declares the honua-server capabilities it requires, and the floor each was
+# introduced at, in this file (schemas/sdk-capability-baseline.v1.schema.json,
+# docs/SDK-SERVER-BASELINE-RULE.md; honua-release#231 WI-5). It is read at every published source
+# revision of the SDK's packages, never at a newer head, and recorded as the component's
+# serverCompatibility manifest and declaration. sdk_baselines.py resolves the floor in the lock.
+SDK_BASELINE_PATH = 'release/sdk-capability-baseline.json'
+SDK_BASELINE_SCHEMA = ROOT / 'schemas' / 'sdk-capability-baseline.v1.schema.json'
+# The capabilities a candidate server advertises: its canonical capability-key vocabulary, read
+# at the selected honua-server sha. Every SDK consumes this file (capability-keys fixtures).
+SERVER_CAPABILITY_KEYS = ('honua-server', 'docs/gis/data/capability-keys.v1.json')
+
+
+def _json_file(github, repository, revision, path, where):
+    """`(raw bytes, parsed JSON)` at an exact revision, or a refusal naming `where`."""
+    try:
+        raw = github.file(repository, revision, path)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+    try:
+        return raw, json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is not a JSON document: {exc}') from exc
+
+
+def advertised_capabilities(github, candidate):
+    """The capability keys the selected honua-server advertises, or a refusal."""
+    owner, path = SERVER_CAPABILITY_KEYS
+    server = candidate['components'][owner]
+    repository = str(server.get('repository') or '').removeprefix('https://github.com/')
+    sha = str(server.get('sha') or '')
+    if not SHA.fullmatch(sha):
+        raise ResolutionError(f'{owner} has no immutable revision to read {path} at')
+    where = f'{repository}@{sha}:{path}'
+    _, document = _json_file(github, repository, sha, path, where)
+    rows = document.get('capabilities') if isinstance(document, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise ResolutionError(f'{where} has no capabilities list')
+    keys = [row.get('key') if isinstance(row, dict) else None for row in rows]
+    if not all(isinstance(key, str) and key for key in keys):
+        raise ResolutionError(f'{where} has a capability row without a key')
+    return frozenset(keys)
+
+
+def published_revisions(name, component, client_artifacts):
+    """Every source revision a published package of this SDK repository was built from.
+
+    The primary package's revision is the component's artifactSourceRevision (#412). A companion
+    package of the same repository (e.g. @honua/mcp-server beside @honua/sdk-js) ships too, so the
+    lock's declarations must cover its revision as well (sdk_baselines.check_component). Optional
+    (`required: false`) rows do not ship and contribute no revision.
+    """
+    repository = str(component.get('repository') or '').removeprefix('https://github.com/')
+    primary = str(component.get('artifactSourceRevision') or '')
+    if not SHA.fullmatch(primary):
+        raise ResolutionError(f'{name}: no published source revision to read {SDK_BASELINE_PATH} at')
+    revisions = [primary]
+    for client, artifact in sorted((client_artifacts or {}).items()):
+        # verify_manifest skips optional rows, so their bytes and publication are unverified: they
+        # do not ship and their sourceSha is not a published revision.
+        if not isinstance(artifact, dict) or artifact.get('required', True) is False:
+            continue
+        if str(artifact.get('repository') or '').removeprefix('https://github.com/') != repository:
+            continue
+        revision = str(artifact.get('sourceSha') or '')
+        if not SHA.fullmatch(revision):
+            raise ResolutionError(f'{name}: clientArtifacts.{client} has no immutable sourceSha')
+        if revision not in revisions:
+            revisions.append(revision)
+    return repository, revisions
+
+
+def _baseline_floor(where, baseline):
+    """The declared floor must be the maximum of the declared introductions it summarises."""
+    entries = [baseline['capabilities'][key] for key in baseline['requiredCapabilities']]
+    if any(entry.get('introductionModel') == sdk_baselines.FIRST_RELEASE for entry in entries):
+        # No earlier server exists, so the first release is above every numeric floor.
+        expected = sdk_baselines.FIRST_RELEASE
+    else:
+        expected = str(max(parse_semver(entry['minimumServerVersion']) for entry in entries))
+    if baseline['minimumServerVersion'] != expected:
+        raise ResolutionError(f"{where}: minimumServerVersion {baseline['minimumServerVersion']!r} is not "
+                              f'the maximum of its required capabilities ({expected!r})')
+    return expected
+
+
+def sdk_capability_baseline(github, name, component, client_artifacts, advertised):
+    """The component's serverCompatibility, read at its published revisions, or a refusal."""
+    repository, revisions = published_revisions(name, component, client_artifacts)
+    schema = json.loads(SDK_BASELINE_SCHEMA.read_text(encoding='utf-8'))
+    manifests, declarations, floors = [], [], set()
+    for revision in revisions:
+        where = f'{name}: {repository}@{revision}:{SDK_BASELINE_PATH}'
+        raw, baseline = _json_file(github, repository, revision, SDK_BASELINE_PATH, where)
+        errors = sorted(Draft202012Validator(schema).iter_errors(baseline), key=lambda e: list(e.absolute_path))
+        if errors:
+            raise ResolutionError(f'{where} does not match {SDK_BASELINE_SCHEMA.name}: ' + '; '.join(
+                f"{'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message}" for error in errors[:5]))
+        if baseline['component'] != name:
+            raise ResolutionError(f"{where} declares component {baseline['component']!r}, not {name!r}")
+        required = baseline['requiredCapabilities']
+        if set(baseline['capabilities']) != set(required):
+            raise ResolutionError(f'{where}: capabilities must hold exactly one introduction per required '
+                                  f"capability; got {sorted(baseline['capabilities'])} for {sorted(required)}")
+        missing = sorted(set(required) - advertised)
+        if missing:
+            raise ResolutionError(f'{where}: the candidate honua-server does not advertise required '
+                                  f"capabilit{'y' if len(missing) == 1 else 'ies'} {', '.join(missing)}")
+        floors.add(_baseline_floor(where, baseline))
+        manifests.append({
+            'source': {'repository': f'https://github.com/{repository}', 'revision': revision,
+                       'path': SDK_BASELINE_PATH},
+            'sha256': sdk_baselines.content_digest(baseline),
+            'content': baseline,
+            'requiredCapabilities': list(required),
+        })
+        declarations.append({'revision': revision, 'path': SDK_BASELINE_PATH,
+                             'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest(),
+                             'minimumServerVersion': baseline['minimumServerVersion']})
+    if len(floors) != 1:
+        raise ResolutionError(f'{name}: published revisions {", ".join(revisions)} declare different '
+                              f'minimumServerVersion values {sorted(floors)}; republish them together')
+    return {'minimumServerVersion': floors.pop(), 'manifests': manifests, 'declarations': declarations}
+
+
 # The lock's OKF and catalog content digests (honua-release#231 WI-7) are the byte sha256 of one file
 # at a revision this candidate selected, declared as repository@revision:path#sha256 so
 # verify_content_digests.py re-reads the same bytes. Each source is (owner, path): owner is a
@@ -548,6 +674,26 @@ def resolve(manifest, matrix, github, registry, limit=100):
         for key in ('deploysServerImage', 'appVersion'):
             if key in row:
                 row[key] = 'sha:' + server
+    # SDK server floors are read at each SDK's published revisions; a carried-forward
+    # serverCompatibility never survives. A missing or invalid baseline refuses the night.
+    baseline_components = [name for name in sdk_baselines.SDK_COMPONENTS if name in candidate['components']]
+    for name in baseline_components:
+        candidate['components'][name].pop('serverCompatibility', None)
+    advertised = None
+    if baseline_components:
+        try:
+            advertised = advertised_capabilities(github, candidate)
+        except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+            failures.append(f'honua-server capability keys: {exc}')
+    if advertised is not None:
+        for name in baseline_components:
+            try:
+                candidate['components'][name]['serverCompatibility'] = sdk_capability_baseline(
+                    github, name, candidate['components'][name], candidate.get('clientArtifacts') or {},
+                    advertised)
+            except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+                detail = str(exc)
+                failures.append(detail if detail.startswith(f'{name}:') else f'{name}: {detail}')
     mcp = candidate['components'].get('geospatial-mcp', {})
     declaration = candidate.get('platformLockEvidence', {}).get('contentDigests', {}).get('geospatialMcp')
     if declaration and mcp:

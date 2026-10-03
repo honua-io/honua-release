@@ -93,16 +93,109 @@ That is a derivation, not a guess, and it fails closed on every side:
   premise at all;
 - the capability's `evidence` must cite that exact receipt URI and digest, so a manifest cannot
   claim the model against a receipt nobody locked;
-- the lock must name the first release (`components.honua-server.releaseVersion`), and that
-  version must equal the released version of a locked `honua-server` artifact — a `releaseVersion`
-  beside a differently versioned artifact would publish a floor for a server nobody can install.
-  The lock names no release today, so nothing resolves;
+- the lock must name the first release, and that version must equal the released version of a
+  locked `honua-server` artifact — a version beside a differently versioned artifact would publish
+  a floor for a server nobody can install. The first release is the lock's platform version
+  (R22): `platform.id` `honua-2026.1-rc.3` names `2026.1.0-rc.3`, the version every imaged
+  component takes. A `components.honua-server.releaseVersion`, where one is declared, takes
+  precedence. A lock whose server image still carries the `pre-release` sentinel names no shipped
+  release, so nothing resolves;
 - a capability may not carry both the model and a different number.
 
 The model raises the floor with the release: whatever SemVer the first server release is issued
 under becomes the floor for every capability introduced by it, and the component floor stays the
 maximum across all of its required capabilities. It never lowers a floor an earlier server
 genuinely established, because there is no earlier server.
+
+## The SDK capability baseline file (honua-release#231 WI-5)
+
+Each SDK repository (`honua-sdk-js`, `honua-sdk-dotnet`, `honua-sdk-python`, `geospatial-mcp`)
+commits `release/sdk-capability-baseline.json` at its root.
+[`schemas/sdk-capability-baseline.v1.schema.json`](../schemas/sdk-capability-baseline.v1.schema.json)
+defines it. This is the .NET file:
+
+```json
+{
+  "format": "honua.sdk-capability-baseline/v1",
+  "component": "honua-sdk-dotnet",
+  "minimumServerVersion": "first-release",
+  "requiredCapabilities": [
+    "discovery.capability-manifest",
+    "serve.geoservices-featureserver",
+    "serve.ogc-api-features"
+  ],
+  "capabilities": {
+    "discovery.capability-manifest": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    },
+    "serve.geoservices-featureserver": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    },
+    "serve.ogc-api-features": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    }
+  }
+}
+```
+
+The exact file for each of the four repositories is in
+[`tools/fixtures/sdk-capability-baselines/`](../tools/fixtures/sdk-capability-baselines/).
+
+- `component` is the platform-manifest key. A file copied from another SDK is refused.
+- `requiredCapabilities` are keys of the honua-server capability vocabulary,
+  `docs/gis/data/capability-keys.v1.json`, that the SDK cannot work without. Optional features
+  negotiated at runtime are not listed. The resolver reads that vocabulary at the **selected
+  honua-server sha** and refuses a baseline that names a key the candidate server does not
+  advertise.
+- `capabilities` holds exactly one introduction entry per required capability: either a numeric
+  `minimumServerVersion` that an earlier released server established, or
+  `introductionModel: first-release`. In both cases the entry needs `versionModel: semver` and
+  `evidence` (`uri` + `sha256`). First-release evidence must cite the publication-history
+  receipt that the lock pins (above).
+- `minimumServerVersion` is the maximum over the required capabilities. Because no earlier
+  server exists, that maximum is `first-release` as soon as one required capability uses the
+  model. The resolver refuses any other value.
+
+### How the resolver reads it
+
+`tools/resolve_trunk_candidate.py` reads the file through the contents API. It never reads it at
+the SDK's trunk head. It reads it at the SDK's **published** source revision: the
+`artifactSourceRevision` of the verified primary package (#412, R25), plus the `sourceSha` of
+every other published package from the same repository (for example `@honua/mcp-server` beside
+`@honua/sdk-js`), because the lock's declarations must cover every shipped artifact revision.
+Each revision becomes one `serverCompatibility.manifests[]` entry. That entry holds the source,
+the canonical-JSON digest, the content and `requiredCapabilities`. Each revision also becomes one
+`declarations[]` entry with the byte SHA-256 and the declared floor. A `serverCompatibility`
+carried in the manifest by hand never survives. The night refuses, naming the SDK, when the
+file is missing at any of those revisions, when it does not match the schema, names another
+component, is internally inconsistent or names an unadvertised capability, or when revisions
+disagree on the floor.
+
+`first-release` stays literal in the lock. `tools/sdk_baselines.py` resolves it against the same
+lock, to the platform version, under every rule above. The validator, the generator and the
+compatibility table therefore all print the concrete floor (`2026.1.0-rc.3`). The generator
+checks SDK floors only after every component is built, so the order of the manifest's rows
+cannot decide whether a floor resolves.
+
+**A baseline exists only at a published revision.** Committing the file to an SDK's trunk
+changes nothing until that SDK publishes a package built from a commit that contains it, and
+the `clientArtifacts` pin is moved to that publication (R25). Until then the resolver reads the
+old published revision, finds no file, and refuses.
 
 ## Current qualification blocker
 
@@ -116,6 +209,13 @@ declarations still conflict: JavaScript `d7cec2d5` declares `1.0.0`, .NET
 `2e91603f`) drops the CalVer floor and keeps `1.0.0`, but that revision is not the
 pinned artifact. Replacing these with one chosen number would not implement the
 derivation rule.
+
+As of 2026-10-03 (WI-5), the resolver reads the baseline file. None of the four repositories
+carries it at a published revision yet, so every night refuses on the four SDK rows until each
+repository commits its file, republishes, and moves its pin. After that, the generator still
+refuses until two facts are present in the lock. The first is a `honua-server` image whose
+version is the platform version (WI-2/R22). The second is the publication-history receipt pinned
+as `components.honua-server.publicationHistory`.
 
 Before #233 can close, protocol publishers must bind introduction evidence — for
 2026.1 that means the first-release model above, since no earlier server exists —

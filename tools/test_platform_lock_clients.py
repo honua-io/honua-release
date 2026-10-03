@@ -108,6 +108,15 @@ def test_conflicting_primary_identity_is_refused_without_mixing_bytes(inputs, fi
     assert primary["version" if field == "version" else "sourceRevision"] == value
 
 
+def test_an_optional_client_row_is_not_a_locked_artifact(inputs):
+    """verify_client_artifacts never verifies a `required: false` row, so it does not ship."""
+    _, manifest, _ = inputs
+    manifest["clientArtifacts"]["mcp"].update(required=False, publicationState="unpublished")
+    draft = generate(inputs)
+    assert not any("$.clientArtifacts.mcp" in error for error in draft.unresolved)
+    assert [artifact["coordinate"] for artifact in draft.lock["components"]["sdk"]["artifacts"]] == ["@honua/sdk-js"]
+
+
 def test_conflicting_nuget_hash_does_not_overwrite_component_evidence(inputs):
     digest = "sha256:" + "f" * 64
     inputs[1]["components"]["honua-sdk-dotnet"].update(

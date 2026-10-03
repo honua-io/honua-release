@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/sdk-capability-baseline.v1.schema.json",
+  "title": "Honua SDK capability baseline v1",
+  "description": "release/sdk-capability-baseline.json at the root of one SDK repository: the honua-server capabilities that SDK requires and the server introduction floor of each. The nightly resolver reads it at every published source revision of the SDK's packages and records it as the lock's serverCompatibility manifest and declaration; see docs/SDK-SERVER-BASELINE-RULE.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "component", "minimumServerVersion", "requiredCapabilities", "capabilities"],
+  "properties": {
+    "format": {"const": "honua.sdk-capability-baseline/v1"},
+    "component": {
+      "description": "The platform-manifest component key this repository declares for.",
+      "enum": ["honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp"]
+    },
+    "minimumServerVersion": {
+      "description": "The SDK's declared floor: the maximum introduction floor over requiredCapabilities. `first-release` when any required capability is introduced by the first honua-server release; sdk_baselines.py resolves it from the lock's platform version.",
+      "$ref": "#/$defs/floor"
+    },
+    "requiredCapabilities": {
+      "description": "Capability keys from honua-server docs/gis/data/capability-keys.v1.json that the SDK cannot work without. Optional features negotiated at runtime are not listed. The candidate server must advertise every key.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/capabilityKey"}
+    },
+    "capabilities": {
+      "description": "Exactly one introduction entry per required capability.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/capabilityKey"},
+      "additionalProperties": {"$ref": "#/$defs/introduction"}
+    }
+  },
+  "$defs": {
+    "capabilityKey": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$"},
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "floor": {"oneOf": [{"$ref": "#/$defs/semver"}, {"const": "first-release"}]},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {"type": "string", "pattern": "^https://\\S+$"},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "introduction": {
+      "description": "Either a numeric floor an earlier released server established, or the first-release model, whose evidence must cite the publication-history receipt the lock pins.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["versionModel", "evidence"],
+      "properties": {
+        "versionModel": {"const": "semver"},
+        "minimumServerVersion": {"$ref": "#/$defs/semver"},
+        "introductionModel": {"const": "first-release"},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      },
+      "oneOf": [
+        {"required": ["minimumServerVersion"], "not": {"required": ["introductionModel"]}},
+        {"required": ["introductionModel"], "not": {"required": ["minimumServerVersion"]}}
+      ]
+    }
+  }
+}

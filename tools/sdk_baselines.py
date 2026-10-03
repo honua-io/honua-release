@@ -14,7 +14,12 @@ REVISION = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 # A capability that exists in the publisher's first release has no earlier server to name.
 # It resolves to that release only against an immutable receipt proving no prior publication.
+# An SDK's baseline declaration may also say `first-release` for its whole floor, because the
+# SDK is published before any candidate names the release; the lock resolves it (below).
 FIRST_RELEASE = "first-release"
+# R22 (honua-release#376): every imaged component takes the lock's platform version
+# `YYYY.N.P-rc.N` (GA `YYYY.N.P`), derived from the platform id `honua-YYYY.N[.P][-rc.N]`.
+PLATFORM_ID = re.compile(r"honua-(?P<year>[0-9]{4})\.(?P<minor>[0-9]+)(?:\.(?P<patch>[0-9]+))?(?P<rc>-rc\.[0-9]+)?")
 
 
 def content_digest(value: Any) -> str:
@@ -22,11 +27,24 @@ def content_digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(data.encode()).hexdigest()
 
 
+def platform_version(lock: dict[str, Any]) -> str | None:
+    """The lock's platform version (R22): `honua-2026.1-rc.3` is `2026.1.0-rc.3`; else None."""
+    match = PLATFORM_ID.fullmatch(str((lock.get("platform") or {}).get("id") or ""))
+    if not match:
+        return None
+    return f"{match['year']}.{match['minor']}.{match['patch'] or 0}{match['rc'] or ''}"
+
+
 def release_context(lock: dict[str, Any]) -> dict[str, Any]:
-    """First-release facts, read only from the lock; never inferred from an SDK or a label."""
+    """First-release facts, read only from the lock; never inferred from an SDK or a label.
+
+    The first release is the lock's platform version, the version R22 gives the server image.
+    A `releaseVersion` the publisher row declares explicitly takes precedence. Either way the
+    named version must be a locked publisher artifact's version (`first_release_floor`).
+    """
     publisher = (lock.get("components") or {}).get(PUBLISHER) or {}
     return {
-        "firstReleaseVersion": publisher.get("releaseVersion"),
+        "firstReleaseVersion": publisher.get("releaseVersion") or platform_version(lock),
         "publicationHistory": publisher.get("publicationHistory"),
         "publisherArtifacts": publisher.get("artifacts"),
     }
@@ -111,10 +129,38 @@ def derive(baseline: dict[str, Any], context: dict[str, Any] | None = None) -> s
     return str(max(floors))
 
 
+def has_first_release(baseline: dict[str, Any]) -> bool:
+    """Whether any consumed manifest introduces a required capability in the first release."""
+    return any(
+        (manifest.get("content", {}).get("capabilities", {}).get(capability) or {}).get("introductionModel")
+        == FIRST_RELEASE
+        for manifest in baseline.get("manifests") or []
+        for capability in manifest.get("requiredCapabilities") or [])
+
+
+def declared_floor(value: Any, context: dict[str, Any] | None, first_release: bool) -> Any:
+    """A declared `first-release` floor is the first release this lock names, or unqualified.
+
+    The sentinel summarises a first-release introduction. A numeric-only manifest cannot declare
+    it, even when its numeric floor happens to equal the first release.
+    """
+    if value != FIRST_RELEASE:
+        return value
+    if not first_release:
+        raise ValueError(f"unqualified: the SDK declares the first {PUBLISHER} release as its floor, "
+                         "but no consumed manifest introduces a required capability in it")
+    version = (context or {}).get("firstReleaseVersion")
+    if not version:
+        raise ValueError(f"unqualified: the SDK declares the first {PUBLISHER} release as its floor, "
+                         "which this lock does not name")
+    return str(version)
+
+
 def check_component(component: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     baseline = component.get("serverCompatibility", {})
     floor = derive(baseline, context)
-    if baseline.get("minimumServerVersion") != floor:
+    first_release = has_first_release(baseline)
+    if declared_floor(baseline.get("minimumServerVersion"), context, first_release) != floor:
         raise ValueError(f"lock minimumServerVersion must equal derived floor {floor}")
     declarations = baseline.get("declarations")
     if not isinstance(declarations, list) or not declarations:
@@ -128,7 +174,7 @@ def check_component(component: dict[str, Any], context: dict[str, Any] | None = 
             raise ValueError("SDK declaration revision is not bound to component/artifact source")
         if not declaration.get("path") or not DIGEST.fullmatch(str(declaration.get("sha256", ""))):
             raise ValueError("SDK declaration needs a path and byte SHA-256")
-        if declaration.get("minimumServerVersion") != floor:
+        if declared_floor(declaration.get("minimumServerVersion"), context, first_release) != floor:
             raise ValueError(f"declared baseline {declaration.get('minimumServerVersion')!r} disagrees with lock floor {floor}")
         declared_revisions.add(declaration["revision"])
     if revisions - declared_revisions:
