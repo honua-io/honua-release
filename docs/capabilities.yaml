@@ -13,6 +13,12 @@
 #                                on every joined suite. A stale/unfetchable matrix reports BLOCKED,
 #                                never a fake pass (tools/check_capabilities.resolve_capability_key).
 #   status: roadmap  -> explicitly labelled as not-yet-shipped; needs no evidence (but is honest).
+#   status: internal -> ruling R29 (honua-release#376, 2026-10-03): used only on Honua's own demo
+#                       infrastructure; not offered for customer deployment in 2026.1 and not GA,
+#                       Preview or Experimental. MUST cite `capabilityKey` and `ruling` and carry no
+#                       `evidence`; it makes no availability, performance or support claim and is
+#                       not counted in any GA denominator (check_ga_surface.py fails if the key is
+#                       ever advertised as GA). Lifecycle vocabulary: compatibility-matrix.yaml.
 #
 # tools/check_capabilities.py fails the docs gate if a `shipped` claim has missing/unresolvable
 # evidence, or an unknown status — so a capability cannot be advertised without an actual test/gate.
@@ -102,6 +108,13 @@ capabilities:
     claim: "A deployed candidate's live /api/v1/capabilities/manifest is asserted against the release's committed expected-GA capability set, target-agnostically (terraform-provisioned cells and https://demo.honua.io alike)."
     status: shipped
     evidence: { kind: canonical-check, ref: capability-manifest }
+
+  # --- internal (ruling R29; no customer claim) ---------------------------------------------------
+  - id: multi-tenancy
+    claim: "Multi-tenant operation runs only on Honua's own demo stack (honua-demo-infra, demo.honua.io). It is not offered for customer deployment in 2026.1; single-tenant is the only customer topology."
+    status: internal
+    capabilityKey: admin.multi-tenancy
+    ruling: "https://github.com/honua-io/honua-release/issues/376"
 
   # --- roadmap (honestly labelled; not yet shipped) -------------------------------------------------
   - id: slo-observability

@@ -747,3 +747,40 @@ def test_false_does_not_allow_empty_manifest_version_sets(section):
     assert not any("sourcePinnedOnly must be a boolean" in error for error in findings.errors)
     for group in ("contractVersions", "schemaVersions"):
         assert any(f"{section}.{name}.{group}: must be a non-empty mapping" in error for error in findings.errors)
+
+
+def _internal_matrix(**row):
+    _, matrix = _real_files()
+    matrix = copy.deepcopy(matrix)
+    matrix["capabilities"]["multi-tenancy"].update(row)
+    return matrix
+
+
+def test_multi_tenancy_is_internal_under_ruling_r29():
+    _, matrix = _real_files()
+    assert matrix["capabilities"]["multi-tenancy"]["lifecycle"] == "internal"
+    assert "internal" in matrix["lifecycle"]
+
+
+@pytest.mark.parametrize("claim", ["availability", "performance", "support", "qualification", "releaseScope"])
+def test_internal_capability_rejects_customer_claims(claim):
+    f = vp.Findings()
+    vp.check_capability_lifecycle(_internal_matrix(**{claim: "99.9%"}), f)
+    assert any("must not carry" in e for e in f.errors), f.errors
+
+
+def test_internal_capability_is_not_counted_in_the_ga_denominator():
+    f = vp.Findings()
+    vp.check_capability_lifecycle(_internal_matrix(), f, {"expectedGa": ["serve.wfs", "admin.multi-tenancy"]})
+    assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
+
+
+def test_capability_lifecycle_rejects_unknown_status_and_vocabulary_drift():
+    f = vp.Findings()
+    vp.check_capability_lifecycle(_internal_matrix(lifecycle="trial"), f)
+    assert any("lifecycle must be one of" in e for e in f.errors), f.errors
+    matrix = _internal_matrix()
+    del matrix["lifecycle"]["internal"]
+    f = vp.Findings()
+    vp.check_capability_lifecycle(matrix, f)
+    assert any("lifecycle must define exactly" in e for e in f.errors), f.errors

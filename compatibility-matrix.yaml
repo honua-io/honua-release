@@ -130,6 +130,27 @@ data:
     # (120_AddStudioTenantOwnership.sql); the client-compatibility floor stays >=115 for the same reason.
     requiresDbSchema: ">=115"
 
+# Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
+# (tools/validate_platform.py check_capability_lifecycle).
+lifecycle:
+  ga: "Generally available: supported for customer deployment and counted in the GA denominator; requires candidate-bound qualification evidence."
+  preview: "Offered to customers for evaluation, with no production availability, performance or durability commitment; security and isolation floors still apply."
+  experimental: "Present in the binary, opt-in and disabled by default; no customer support claim."
+  excluded: "Not part of 2026.1 for any deployment."
+  # Ruling R29 (honua-release#376, 2026-10-03); supersedes the 2026-09-04 Preview/trial wording.
+  internal: "Used only on Honua's own demo infrastructure. Not offered for customer deployment in 2026.1 and not GA, Preview or Experimental. Carries no availability, performance or support claim and is not counted in any GA denominator."
+
+# Capability rows whose lifecycle is declared here rather than derived from a component's
+# lifecycleStatus. `capabilityKeys` name honua-evidence capability-matrix keys; an internal key must
+# not appear in e2e/expected-ga-manifest.json `expectedGa`.
+capabilities:
+  multi-tenancy:
+    lifecycle: internal
+    capabilityKeys: [admin.multi-tenancy]
+    deployment: "Honua's own demo stack (honua-demo-infra, demo.honua.io) only."
+    reason: "Ruling R29: no customer-facing multi-tenant claim exists; ELv2 bars third parties from operating Honua as a managed service."
+    ruling: "https://github.com/honua-io/honua-release/issues/376"
+
 # Support window policy: server supports clients within N-2 minor of its contract version.
 supportWindow:
   clientMinorsBack: 2

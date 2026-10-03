@@ -17,6 +17,9 @@ Corpus selection — why a key IS "advertised GA" here:
     its experimental label already discloses that, so it is out of this corpus. (This also covers a
     future `deferred`-only maturity state the same way, since `implemented` stays 0.)
 
+A key that docs/capabilities.yaml declares `internal` (ruling R29) must never be in the corpus: it is
+not offered to customers and is outside every GA denominator, so its presence fails the gate.
+
 Every key in that corpus is then run through the identical criteria as `capability-key` evidence
 (tools/check_capabilities.resolve_capability_key): implemented > 0 (true by corpus construction),
 provingTestCount >= floor, and 100% CITE pass rate wherever CITE is joined.
@@ -53,7 +56,8 @@ def advertised_ga_keys(matrix: dict) -> list[dict]:
 
 
 def evaluate_ga_surface(matrix: dict | None,
-                        min_proving_tests: int = cc.DEFAULT_MIN_PROVING_TESTS) -> tuple[list[dict], str]:
+                        min_proving_tests: int = cc.DEFAULT_MIN_PROVING_TESTS,
+                        internal_keys: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict], str]:
     """-> (rows, overall) with overall in {pass, fail, blocked}.
 
     blocked — the matrix itself is unavailable, OR (defensively) a real matrix parsed to zero
@@ -63,6 +67,10 @@ def evaluate_ga_surface(matrix: dict | None,
         return [], "blocked"
     rows = []
     for entry in advertised_ga_keys(matrix):
+        if entry["key"] in internal_keys:
+            rows.append({"key": entry["key"], "status": "fail",
+                         "why": "declared internal (ruling R29) but advertised as GA; internal keys are outside every GA denominator"})
+            continue
         status, why = cc.resolve_capability_key(entry["key"], matrix, min_proving_tests)
         rows.append({"key": entry["key"], "status": status, "why": why})
     if not rows:
@@ -74,6 +82,12 @@ def evaluate_ga_surface(matrix: dict | None,
     else:
         overall = "pass"
     return rows, overall
+
+
+def _load_internal_keys(capabilities_path: Path) -> set[str]:
+    import yaml
+    data = yaml.safe_load(capabilities_path.read_text(encoding="utf-8")) or {}
+    return cc.internal_capability_keys(data.get("capabilities") or [])
 
 
 def _load_min_proving_tests(capabilities_path: Path) -> int:
@@ -102,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     if min_proving is None:
         min_proving = _load_min_proving_tests(cc.CAPABILITIES_PATH)
 
-    rows, overall = evaluate_ga_surface(matrix, min_proving)
+    rows, overall = evaluate_ga_surface(matrix, min_proving, _load_internal_keys(cc.CAPABILITIES_PATH))
     print(f"== advertised-GA ⊆ evidenced-GA — {overall.upper()} ({len(rows)} keys checked, "
           f"floor={min_proving}, matrix={'loaded' if matrix else 'unavailable'}) ==")
     for r in rows:

@@ -54,6 +54,29 @@ def test_shipped_with_no_evidence_fails():
     assert overall == "fail"
 
 
+def test_internal_claim_passes_without_evidence_and_is_not_shipped():
+    internal = {"id": "mt", "status": "internal", "capabilityKey": "admin.multi-tenancy",
+                "ruling": "https://github.com/honua-io/honua-release/issues/376"}
+    rows, overall = cap.check([internal], CHECKS, GATES)
+    assert overall == "pass" and "internal" in rows[0]["why"]
+    assert cap.internal_capability_keys([internal]) == {"admin.multi-tenancy"}
+
+
+def test_internal_claim_with_shipped_evidence_or_without_ruling_fails():
+    base = {"id": "mt", "status": "internal", "capabilityKey": "admin.multi-tenancy", "ruling": "R29"}
+    for bad in ({**base, "evidence": {"kind": "gate", "ref": "docs"}},
+                {k: v for k, v in base.items() if k != "ruling"},
+                {k: v for k, v in base.items() if k != "capabilityKey"}):
+        rows, overall = cap.check([bad], CHECKS, GATES)
+        assert overall == "fail", bad
+
+
+def test_committed_multi_tenancy_claim_is_internal():
+    data = yaml.safe_load((Path(__file__).resolve().parents[1] / "docs" / "capabilities.yaml").read_text(encoding="utf-8"))
+    rows = [c for c in data["capabilities"] if c.get("capabilityKey") == "admin.multi-tenancy"]
+    assert [c["status"] for c in rows] == ["internal"]
+
+
 def test_unknown_status_fails():
     rows, overall = cap.check([{"id": "x", "status": "kinda-shipped"}], CHECKS, GATES)
     assert overall == "fail" and "unknown capability status" in rows[0]["why"]

@@ -4,7 +4,8 @@
 license envelope or serving-unit band is required. All catalog entitlements are
 active; serving-unit bands are neither measured nor enforced. Authentication,
 authorization, resource safety limits and capability maturity still apply.
-Multi-tenancy, alerting and offline sync remain Preview.
+Alerting and offline sync remain Preview. Multi-tenancy is internal (ruling R29):
+it runs only on Honua's own demo stack and is not offered for customer deployment.
 
 Use the signed platform lock for the server image and component identities. The
 release bundle includes `compose.licensing-disabled.yml`; apply it with the

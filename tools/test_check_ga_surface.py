@@ -67,6 +67,21 @@ def test_experimental_only_key_excluded_from_corpus():
     assert {r["key"] for r in rows} == {"serve.wfs"}
 
 
+def test_internal_key_advertised_as_ga_fails():
+    matrix = {"capabilities": [_entry("serve.wfs"), _entry("admin.multi-tenancy")]}
+    rows, overall = ga.evaluate_ga_surface(matrix, internal_keys={"admin.multi-tenancy"})
+    assert overall == "fail"
+    assert [r["key"] for r in rows if r["status"] == "fail"] == ["admin.multi-tenancy"]
+
+
+def test_preview_internal_key_stays_out_of_the_denominator():
+    preview = {"key": "admin.multi-tenancy", "maturity": {"preview": 7}, "provingTestCount": 12,
+               "noSurface": None, "cite": []}
+    rows, overall = ga.evaluate_ga_surface({"capabilities": [_entry("serve.wfs"), preview]},
+                                           internal_keys={"admin.multi-tenancy"})
+    assert overall == "pass" and [r["key"] for r in rows] == ["serve.wfs"]
+
+
 def test_missing_matrix_is_blocked_never_pass():
     rows, overall = ga.evaluate_ga_surface(None, min_proving_tests=5)
     assert overall == "blocked" and rows == []
