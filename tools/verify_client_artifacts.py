@@ -122,12 +122,14 @@ def _verify_nuget(data: bytes, package: str, version: str) -> None:
         raise VerificationError(f"NuGet package metadata does not match {package}@{version}")
 
 
-def _verify_npm(name: str, artifact: dict) -> str:
+def _verify_npm(name: str, artifact: dict) -> tuple[str, str]:
     package = str(artifact["package"])
     version = str(artifact["version"])
     expected = str(artifact.get("integrity", ""))
     encoded = urllib.parse.quote(package, safe="")
     metadata = _request_json(f"https://registry.npmjs.org/{encoded}/{urllib.parse.quote(version, safe='')}")
+    if metadata.get("gitHead") != artifact.get("sourceSha"):
+        raise VerificationError(f"{name}: npm registry gitHead does not match the manifest sourceSha")
     dist = metadata.get("dist") or {}
     if dist.get("integrity") != expected:
         raise VerificationError(f"{name}: npm registry integrity does not match the manifest")
@@ -138,7 +140,7 @@ def _verify_npm(name: str, artifact: dict) -> str:
     if _sha512_sri(data) != expected:
         raise VerificationError(f"{name}: downloaded npm bytes do not match manifest integrity")
     _verify_npm_archive(data, package, version)
-    return f"npm:{package}@{version}"
+    return f"npm:{package}@{version}", _sha256_pin(data)
 
 
 def _verify_pypi(name: str, artifact: dict) -> str:
@@ -225,11 +227,19 @@ def _verify_nuget_package(name: str, artifact: dict, github_token: str | None) -
     return f"nuget:{package}@{version}"
 
 
-def verify_manifest(manifest: dict, *, github_token: str | None = None) -> list[str]:
+def verify_manifest(manifest: dict, *, github_token: str | None = None,
+                    include_identities: bool = False) -> list[str] | dict[str, dict]:
+    """Verify all required packages, optionally returning their lock artifact identities.
+
+    SHA-256 for npm is computed from the same downloaded bytes whose SHA-512 SRI
+    was checked. The other ecosystems' digest pins are checked against their bytes.
+    No identity is returned until every required package has passed verification.
+    """
     artifacts = manifest.get("clientArtifacts") or {}
     if not isinstance(artifacts, dict) or not artifacts:
         raise VerificationError("clientArtifacts must be a non-empty mapping")
     verified = []
+    identities = {}
     for name, artifact in sorted(artifacts.items()):
         if not isinstance(artifact, dict):
             raise VerificationError(f"{name}: client artifact must be a mapping")
@@ -237,16 +247,24 @@ def verify_manifest(manifest: dict, *, github_token: str | None = None) -> list[
             continue
         if artifact.get("publicationState") not in {"published", "promoted"}:
             raise VerificationError(f"{name}: required client artifact is not published/promoted")
+        source = artifact.get("sourceSha")
+        if not isinstance(source, str) or not re.fullmatch(r"[0-9a-f]{40}", source):
+            raise VerificationError(f"{name}: sourceSha must be an immutable revision")
         ecosystem = artifact.get("ecosystem")
         if ecosystem == "npm":
-            verified.append(_verify_npm(name, artifact))
+            coordinate, digest = _verify_npm(name, artifact)
+            verified.append(coordinate)
         elif ecosystem == "pypi":
             verified.append(_verify_pypi(name, artifact))
+            digest = artifact["digest"]
         elif ecosystem == "nuget":
             verified.append(_verify_nuget_package(name, artifact, github_token))
+            digest = artifact["digest"]
         else:
             raise VerificationError(f"{name}: unsupported ecosystem {ecosystem!r}")
-    return verified
+        identities[name] = {"version": str(artifact["version"]), "sourceRevision": source,
+                            "sha256": digest}
+    return identities if include_identities else verified
 
 
 def main(argv: list[str] | None = None) -> int:

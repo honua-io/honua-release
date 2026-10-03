@@ -119,3 +119,82 @@ def test_public_nuget_rejects_archive_source_drift(monkeypatch):
     catalog['repository']['commit'] = pin['sourceSha']
     with pytest.raises(vca.VerificationError, match='archive repository commit'):
         vca._verify_nuget_package('sdk', pin, None)
+
+
+RECORDED = vca.REPO_ROOT / 'tools' / 'fixtures' / 'client-artifacts'
+
+
+def recorded_registry(monkeypatch):
+    """Replay unedited HTTP response bodies; an unexpected URL is a test failure."""
+    urls = json.loads((RECORDED / 'urls.json').read_text())
+    responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
+    reads = []
+
+    def request(url, **kwargs):
+        assert not kwargs.get('token')
+        reads.append(url)
+        return responses[url]
+
+    monkeypatch.setattr(vca, '_request', request)
+    return reads
+
+
+# These expectations are transcribed from the captured registry responses and
+# independent sha256sum output, never computed by the verifier under test.
+RECORDED_PINS = json.loads((RECORDED / 'pins.json').read_text())
+
+
+def test_recorded_registries_return_verified_artifact_identities(monkeypatch):
+    reads = recorded_registry(monkeypatch)
+    assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}, include_identities=True) == {
+        'js': {'version': '0.1.12', 'sourceRevision': '1102d2d55916340edca13cb28411df8da8206f92',
+               'sha256': 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'},
+        'python': {'version': '0.1.12', 'sourceRevision': '12670676a1e8acb835e911c358adbf46a731120a',
+                   'sha256': 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'},
+        'dotnet': {'version': '1.10.1', 'sourceRevision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
+                   'sha256': 'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'},
+    }
+    assert len(reads) == 7  # metadata and package bytes, plus NuGet's catalog
+    assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}) == [
+        'nuget:Honua.Sdk@1.10.1', 'npm:@honua/sdk-js@0.1.12',
+        'pypi:honua-sdk==0.1.12:honua_sdk-0.1.12-py3-none-any.whl',
+    ]
+
+
+@pytest.mark.parametrize('name,field,value,message', [
+    ('js', 'sourceSha', 'b' * 40, 'gitHead'),
+    ('js', 'integrity', 'sha512-wrong', 'registry integrity'),
+    ('python', 'digest', 'sha256:' + '0' * 64, 'PyPI digest'),
+    ('dotnet', 'digest', 'sha256:' + '0' * 64, 'manifest digest'),
+    ('dotnet', 'sourceSha', 'b' * 40, 'repository commit'),
+    ('python', 'sourceSha', 'trunk', 'immutable revision'),
+    ('js', 'publicationState', 'pending', 'not published/promoted'),
+])
+def test_recorded_identity_drift_never_returns_an_identity(monkeypatch, name, field, value, message):
+    import copy
+    recorded_registry(monkeypatch)
+    pins = copy.deepcopy(RECORDED_PINS)
+    pins[name][field] = value
+    with pytest.raises(vca.VerificationError, match=message):
+        vca.verify_manifest({'clientArtifacts': pins}, include_identities=True)
+
+
+@pytest.mark.parametrize('name,filename,message', [
+    ('js', 'npm.tgz', 'npm bytes'),
+    ('python', 'pypi.whl', 'wheel bytes'),
+    ('dotnet', 'nuget.nupkg', 'NuGet bytes'),
+])
+def test_recorded_package_corruption_refuses_identity(monkeypatch, name, filename, message):
+    recorded_registry(monkeypatch)
+    request = vca._request
+    url = json.loads((RECORDED / 'urls.json').read_text())[filename]
+    monkeypatch.setattr(vca, '_request', lambda target, **kw:
+                        request(target, **kw) + (b'corrupted' if target == url else b''))
+    with pytest.raises(vca.VerificationError, match=message):
+        vca.verify_manifest({'clientArtifacts': {name: RECORDED_PINS[name]}}, include_identities=True)
+
+
+def test_recorded_nuget_index_does_not_publish_1_6_2():
+    assert json.loads((RECORDED / 'nuget-index.json').read_text())['versions'] == [
+        '1.6.4', '1.7.0', '1.8.0', '1.9.0', '1.10.0', '1.10.1',
+    ]

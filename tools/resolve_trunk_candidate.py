@@ -3,7 +3,7 @@
 
 A discovery tag is only a lookup key. Candidate images are repo@digest, with every
 linux architecture and its source revision checked against registry config bytes.
-Client publication pins remain independent of their newest green source snapshot.
+SDK source pins name the published primary package's source, never an unpublished head.
 """
 from __future__ import annotations
 
@@ -280,6 +280,38 @@ def select_component(name, component, github, registry, limit):
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
 
 
+SDK_COMPONENTS = {'honua-sdk-dotnet', 'honua-sdk-js', 'honua-sdk-python'}
+
+
+def select_sdk(name, component, artifacts, identities, github):
+    """Bind a primary package by coordinate and repository, not by client row name.
+
+    Companion packages can have different published source revisions. Their identities
+    remain in clientArtifacts; they cannot choose the source checkout for the primary SDK.
+    """
+    repository = component['repository'].removeprefix('https://github.com/')
+    ecosystem, separator, package = str(component.get('artifact') or '').partition(':')
+    if not separator or ecosystem not in {'npm', 'pypi', 'nuget'} or not package:
+        raise ResolutionError(f'{name}: no primary published package coordinate')
+    matches = [(client, artifact) for client, artifact in artifacts.items()
+               if isinstance(artifact, dict) and artifact.get('ecosystem') == ecosystem
+               and artifact.get('package') == package]
+    if len(matches) != 1:
+        raise ResolutionError(f'{name}: primary package {ecosystem}:{package} must have exactly one clientArtifacts row')
+    client, artifact = matches[0]
+    if str(artifact.get('repository') or '').removeprefix('https://github.com/') != repository:
+        raise ResolutionError(f'{name}: primary package repository does not match the component')
+    identity = identities.get(client)
+    if not identity:
+        raise ResolutionError(f'{name}: primary package {client} was not verified as published')
+    sha = identity['sourceRevision']
+    green, why = github.green(name, repository, sha)
+    if not green:
+        raise ResolutionError(f'{name}: published source {sha}: CI {why}')
+    return {**component, 'sha': sha, 'artifactVersion': identity['version'],
+            'artifactSourceRevision': sha, 'artifactSha256': identity['sha256']}
+
+
 # Each component repository declares its own contract and schema versions in this file
 # (schemas/component-versions.v1.schema.json, docs/COMPONENT-VERSION-DECLARATIONS.md). It is read
 # at the revision the candidate pins, so a version map in the manifest is never a hand value.
@@ -388,6 +420,10 @@ def migration_journal(github, paths, repository, sha):
 def resolve(manifest, matrix, github, registry, limit=100):
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
+    # Verify once, before selecting SDK checkouts or reading declarations. A component
+    # identity must come from verified package bytes, even when another gate later refuses.
+    identities = verify_manifest(candidate, include_identities=True,
+        github_token=os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN'))
 
     def declare(name, selected):
         # A version map carried in the manifest never survives: the declaration at the pinned
@@ -401,7 +437,9 @@ def resolve(manifest, matrix, github, registry, limit=100):
 
     for name, component in manifest['components'].items():
         try:
-            candidate['components'][name] = select_component(name, component, github, registry, limit)
+            candidate['components'][name] = (
+                select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
+                if name in SDK_COMPONENTS else select_component(name, component, github, registry, limit))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))
@@ -464,8 +502,6 @@ def resolve(manifest, matrix, github, registry, limit=100):
         findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True)
         failures.extend(findings.errors)
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
-    # Client sourceSha describes already-published bytes; never advance it with source CI.
-    verify_manifest(candidate, github_token=os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN'))
     findings = validate_platform.validate(candidate, candidate_matrix, None,
         exact_candidate=True, reachability_client=github)
     evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
