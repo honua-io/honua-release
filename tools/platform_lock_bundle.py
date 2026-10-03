@@ -129,6 +129,10 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
             or ".contractVersions:" in fact
             or ".schemaVersions" in fact
             or ".platformDigests:" in fact
+            # An unstamped or non-platform artifact version is a refusal the generator already
+            # made. Ignoring it let a hand-authored lock add any schema-valid version (R22).
+            or (".artifacts[" in fact and ".version:" in fact)
+            or ".releaseVersion:" in fact
         ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
@@ -150,13 +154,21 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
         for group in ("contractVersions", "schemaVersions"):
             if lock["components"][name].get(group) != expected[group]:
                 raise ValueError(f"components.{name}.{group}: lock differs from frozen input")
+        actual_component = lock["components"][name]
         _declared({k: v for k, v in expected.items() if k != "artifacts"},
-                  lock["components"][name], f"components.{name}")
-        artifacts = lock["components"][name]["artifacts"]
+                  actual_component, f"components.{name}")
+        if "releaseVersion" not in expected and actual_component.get("releaseVersion") is not None:
+            raise ValueError(
+                f"components.{name}.releaseVersion: lock adds a release version the frozen inputs do not release")
+        artifacts = actual_component["artifacts"]
         if len(artifacts) < len(expected["artifacts"]):
             raise ValueError(f"{name}: artifact denominator differs from manifest")
         for index, artifact in enumerate(expected["artifacts"]):
             _declared(artifact, artifacts[index], f"components.{name}.artifacts[{index}]")
+            if "version" not in artifact and "version" in artifacts[index]:
+                raise ValueError(
+                    f"components.{name}.artifacts[{index}].version: lock adds a version the frozen "
+                    "inputs do not release")
             matched.add((name, index))
     # clientArtifacts is the registry-verification denominator. It can include a
     # second package from the same component (notably @honua/mcp-server). Joining

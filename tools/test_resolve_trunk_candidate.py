@@ -366,9 +366,9 @@ def test_migration_journal_refuses_instead_of_guessing(source, message):
         resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
 
 
-def resolve_fixture(monkeypatch, source, stale_journal, extra=None):
+def resolve_fixture(monkeypatch, source, stale_journal, extra=None, **server_fields):
     server = {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1',
-              'migrationJournalSha256': stale_journal}
+              'migrationJournalSha256': stale_journal, **server_fields}
     manifest = {'components': {'honua-server': server},
                 'protocolCertification': {'ledger': {'status': 'bound'}}}
     manifest.update(extra or {})
@@ -387,6 +387,47 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
     assert server['migrationJournalSha256'] == FIXTURE_JOURNAL_SHA256
     assert server['dbSchema'] == '109'
     assert matrix['data']['honua-server']['requiresDbSchema'] == '109'
+
+
+def test_a_chart_identity_from_another_sha_cannot_take_tonights_version():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                       'artifactSourceRevision': OLD, 'artifactSha256': package,
+                       'artifactVersion': '2026.1.0-rc.2'},
+        'honua-server': {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'sha': NEW,
+                         'artifactSourceRevision': NEW, 'digest': 'sha256:' + 'e' * 64,
+                         'artifactVersion': '2026.1.0-rc.2', 'releaseVersion': '2026.1.0-rc.2'},
+    }
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert 'digest' not in helm and 'artifactSourceRevision' not in helm and 'artifactSha256' not in helm
+    assert 'artifactVersion' not in helm
+    assert components['honua-server']['digest'] == 'sha256:' + 'e' * 64
+    assert components['honua-server']['artifactSourceRevision'] == NEW
+    assert 'artifactVersion' not in components['honua-server']
+    assert 'releaseVersion' not in components['honua-server']
+
+
+def test_a_chart_identity_bound_to_the_selected_sha_is_kept_for_the_stamp():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                                 'artifactSourceRevision': NEW, 'artifactSha256': package,
+                                 'artifactVersion': '2026.1.0-rc.2'}}
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert (helm['digest'], helm['artifactSourceRevision'], helm['artifactSha256']) == (digest, NEW, package)
+    assert 'artifactVersion' not in helm
+
+
+def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(monkeypatch):
+    # R22 (#231 WI-2): mint stamps the platform version of tonight's label beside tonight's image.
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   version='pre-release', artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2')
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+    assert server['version'] == 'pre-release'
 
 
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):

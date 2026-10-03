@@ -94,6 +94,31 @@ def test_finalize_sets_released_status_and_base_label():
     assert m["releasedDate"] == "2026-07-01T00:00:00Z"
 
 
+def test_finalize_restamps_bound_imaged_components_to_the_ga_version():
+    import copy
+    revision, digest = "a" * 40, "sha256:" + "b" * 64
+    image = {"version": "pre-release", "digest": digest, "artifactSourceRevision": revision,
+             "platformDigests": {"amd64": digest, "arm64": digest},
+             "artifactVersion": "2026.1.0-rc.3"}
+    manifest = {"platformRelease": "2026.1-rc.3", "status": "rc", "components": {
+        "honua-server": {**image, "releaseVersion": "2026.1.0-rc.3"},
+        "honua-console": dict(image),
+        "honua-helm": {"version": "pre-release", "artifact": "oci-chart:honua", "digest": digest,
+                       "artifactSourceRevision": revision, "artifactSha256": digest,
+                       "artifactVersion": "2026.1.0-rc.3"},
+        "honua-sdk-js": {"version": "0.1.12", "artifactVersion": "0.1.12"},
+    }}
+    original = copy.deepcopy(manifest)
+    finalized = fr.finalize_manifest(manifest, "2026.1-rc.3", "2026-07-01T00:00:00Z")
+    assert manifest == original
+    assert finalized["platformRelease"] == "2026.1"
+    for name in ("honua-server", "honua-console", "honua-helm"):
+        assert finalized["components"][name]["artifactVersion"] == "2026.1.0"
+        assert finalized["components"][name]["version"] == "pre-release"
+    assert finalized["components"]["honua-server"]["releaseVersion"] == "2026.1.0"
+    assert finalized["components"]["honua-sdk-js"]["artifactVersion"] == "0.1.12"
+
+
 def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_path):
     certified = tmp_path / "certified"
     certified.mkdir()
@@ -154,6 +179,18 @@ def _real():
     import yaml
     return (yaml.safe_load((REPO_ROOT / "platform-manifest.yaml").read_text(encoding="utf-8")),
             yaml.safe_load((REPO_ROOT / "compatibility-matrix.yaml").read_text(encoding="utf-8")))
+
+
+def test_release_notes_render_the_stamped_artifact_version():
+    manifest = {"components": {
+        "honua-server": {"version": "pre-release", "artifactVersion": "2026.1.0", "sha": "a" * 40,
+                         "image": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64},
+        "honua-sdk-js": {"version": "0.1.12", "sha": "c" * 40, "artifact": "npm:@honua/sdk-js"},
+    }}
+    notes = fr.render_release_notes(manifest, {}, "2026.1", _report("pass"))
+    assert "| honua-server | 2026.1.0 |" in notes
+    assert "| honua-sdk-js | 0.1.12 |" in notes
+    assert "pre-release" not in notes
 
 
 def test_release_notes_include_every_component_and_header():

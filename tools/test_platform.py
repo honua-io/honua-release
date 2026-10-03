@@ -118,6 +118,10 @@ def _bound_sdk_fixture():
         manifest["components"]["honua-" + source]["sha"] = sha
         requirements["source_revisions"][source] = {"commit": sha}
         manifest["clientArtifacts"][SDK_ARTIFACTS[source]]["sourceSha"] = sha
+    # Identity-bound imaged components (console, today) carry the label's platform version.
+    # An exact candidate refuses a bound image that is still unstamped (R22).
+    from platform_version import stamp_platform_version
+    stamp_platform_version(manifest, manifest["platformRelease"])
     return manifest, matrix, requirements
 
 
@@ -566,6 +570,16 @@ def test_exact_candidate_accepts_bound_coherent_pins():
     assert f.ok, f.errors
 
 
+def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
+    manifest, _, _ = _bound_sdk_fixture()
+    del manifest["components"]["honua-console"]["artifactVersion"]
+    f = vp.Findings()
+    vp.check_exact_candidate(manifest, f)
+    assert any(
+        "exact-candidate: honua-console.artifactVersion None must be the platform version '2026.1.0-rc.2'"
+        in error for error in f.errors), f.errors
+
+
 def test_legacy_evidence_pin_cannot_drift_from_manifest():
     manifest, _ = _real_files()
     config = {"esri": {"evidenceRef": "f" * 40}}
@@ -796,3 +810,74 @@ def test_capability_lifecycle_rejects_unknown_status_and_vocabulary_drift():
     f = vp.Findings()
     vp.check_capability_lifecycle(matrix, f)
     assert any("lifecycle must define exactly" in e for e in f.errors), f.errors
+
+
+# ---- R22: imaged components carry the label's platform version (#231 WI-2) -----------------------
+def _stamped_manifest():
+    from platform_version import stamp_platform_version
+    manifest, matrix = _real_files()
+    manifest = copy.deepcopy(manifest)
+    manifest["platformRelease"] = "2026.1-rc.3"
+    server = manifest["components"]["honua-server"]
+    server.setdefault("artifactSourceRevision", server["sha"])
+    stamp_platform_version(manifest, "2026.1-rc.3")
+    return manifest, matrix
+
+
+def _r22_errors(manifest, matrix):
+    f = vp.Findings()
+    vp.check_structure(manifest, matrix, f)
+    return [error for error in f.errors if "(R22)" in error or "artifactVersion cannot be checked" in error]
+
+
+def test_a_stamped_candidate_agrees_with_its_platform_version():
+    manifest, matrix = _stamped_manifest()
+    assert manifest["components"]["honua-server"]["artifactVersion"] == "2026.1.0-rc.3"
+    assert manifest["components"]["honua-console"]["artifactVersion"] == "2026.1.0-rc.3"
+    assert _r22_errors(manifest, matrix) == []
+
+
+@pytest.mark.parametrize("name", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1-rc.3", "pre-release", "1.0.0"])
+def test_validator_refuses_an_imaged_version_other_than_the_platform_version(name, version):
+    manifest, matrix = _stamped_manifest()
+    manifest["components"][name]["artifactVersion"] = version
+    if name == "honua-server":
+        manifest["components"][name]["releaseVersion"] = version
+    assert _r22_errors(manifest, matrix) == [
+        f"manifest: {name}.artifactVersion {version!r} must be the platform version '2026.1.0-rc.3' "
+        "of platformRelease '2026.1-rc.3' (R22)"]
+
+
+@pytest.mark.parametrize("field", ["digest", "artifactSourceRevision", "platformDigests"])
+def test_validator_refuses_a_platform_version_stamped_without_bound_bytes(field):
+    manifest, matrix = _stamped_manifest()
+    del manifest["components"]["honua-console"][field]
+    assert f"manifest: honua-console.artifactVersion is stamped but {field} is not bound (R22)" in \
+        _r22_errors(manifest, matrix)
+
+
+def test_validator_refuses_a_chart_version_without_its_package_checksum():
+    manifest, matrix = _stamped_manifest()
+    manifest["components"]["honua-helm"]["artifactVersion"] = "2026.1.0-rc.3"
+    assert _r22_errors(manifest, matrix) == [
+        "manifest: honua-helm.artifactVersion is stamped but digest, artifactSourceRevision, "
+        "artifactSha256 are not bound (R22)"]
+
+
+@pytest.mark.parametrize("release_version", ["2026.1.0-rc.2", "2026.1.0"])
+def test_validator_refuses_a_server_release_version_beside_another_artifact_version(release_version):
+    manifest, matrix = _stamped_manifest()
+    manifest["components"]["honua-server"]["releaseVersion"] = release_version
+    assert _r22_errors(manifest, matrix) == [
+        f"manifest: honua-server.releaseVersion {release_version!r} must equal its stamped artifactVersion "
+        "'2026.1.0-rc.3' (R22)"]
+    del manifest["components"]["honua-server"]["artifactVersion"]
+    assert len(_r22_errors(manifest, matrix)) == 1
+
+
+def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
+    manifest, matrix = _stamped_manifest()
+    manifest["platformRelease"] = "snapshot"
+    errors = _r22_errors(manifest, matrix)
+    assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
