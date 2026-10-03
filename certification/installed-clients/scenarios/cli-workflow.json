@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "cli-workflow",
+  "title": "Terminal workflow: discover, create and test a datasource, publish, query, propose, approve as a separate principal, unpublish",
+  "promise": "An operator runs the whole publication workflow from the installed command-line clients. The proposal comes from the agent surface (the installed MCP proxy, as in the terminal journey) and a different principal approves it with the typed approval command. The server's state after every command matches the fixture.",
+  "steps": [
+    {
+      "id": "discover",
+      "oracle": "contains-service",
+      "description": "List the published services; the fixture's sites service is listed."
+    },
+    {
+      "id": "create-datasource",
+      "oracle": "datasource-created",
+      "description": "Create a PostGIS datasource for the fixture database."
+    },
+    {
+      "id": "test-datasource",
+      "oracle": "datasource-healthy",
+      "description": "Test the stored datasource; the connection is healthy."
+    },
+    {
+      "id": "publish",
+      "oracle": "layer-published",
+      "description": "Publish the client's lifecycle table as a new service and layer."
+    },
+    {
+      "id": "list",
+      "oracle": "layer-listed",
+      "description": "List the datasource's layers for the service; the published layer is enabled."
+    },
+    {
+      "id": "query",
+      "oracle": "features",
+      "description": "Query the sites layer with the fixture filter; the features equal the filtered fixture rows with exact ordinates."
+    },
+    {
+      "id": "served",
+      "oracle": "count",
+      "description": "Count the published lifecycle layer's features; the count is the number of fixture rows."
+    },
+    {
+      "id": "propose-publication",
+      "oracle": "proposal-pending",
+      "description": "As the proposer principal, propose publishing the client's proposal table; the server records a proposal awaiting approval instead of publishing."
+    },
+    {
+      "id": "self-approval-refused",
+      "oracle": "self-approval-refused",
+      "description": "The proposer tries to approve its own proposal; the command fails with 403 and the proposal is still awaiting approval."
+    },
+    {
+      "id": "approve",
+      "oracle": "proposal-approved",
+      "description": "The separate approver principal approves the proposal with the typed approval command."
+    },
+    {
+      "id": "proposal-resolved",
+      "oracle": "proposal-resolved",
+      "description": "Read the proposal: it succeeded, was requested by the proposer and resolved by the approver."
+    },
+    {
+      "id": "approved-served",
+      "oracle": "approved-features",
+      "description": "Query the layer the approval published; the features equal the proposal fixture rows with exact ordinates."
+    },
+    {
+      "id": "unpublish",
+      "oracle": "layer-disabled",
+      "description": "Unpublish (disable) the lifecycle layer."
+    },
+    {
+      "id": "unpublished-refused",
+      "oracle": "not-found",
+      "description": "Query the unpublished layer; the command fails with not found (404)."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-js": {
+      "discover": "honua services --json",
+      "create-datasource": "honua admin connect createConnection --yes",
+      "test-datasource": "honua connection test --yes",
+      "publish": "honua admin publish publishLayer --yes",
+      "list": "honua admin publish getPublishedLayers",
+      "query": "honua query --where --format geojson",
+      "served": "honua query --count",
+      "propose-publication": "honua-mcp-proxy tools/call honua_publish_service (proposer)",
+      "self-approval-refused": "honua admin operate approveOperationProposal --profile proposer --yes",
+      "approve": "honua admin operate approveOperationProposal --profile approver --yes",
+      "proposal-resolved": "honua admin operate getOperationProposal --profile approver",
+      "approved-served": "honua query --format geojson",
+      "unpublish": "honua admin publish setLayerEnabled --yes",
+      "unpublished-refused": "honua query --format geojson"
+    },
+    "honua-sdk-python-wheel": {
+      "discover": "honua services --format json",
+      "create-datasource": "(no datasource command in the PyPI honua CLI)",
+      "test-datasource": "(no datasource command in the PyPI honua CLI)",
+      "publish": "(no publish command in the PyPI honua CLI)",
+      "list": "(no published-layer listing command in the PyPI honua CLI)",
+      "query": "(no query command in the PyPI honua CLI)",
+      "served": "(no query command in the PyPI honua CLI)",
+      "propose-publication": "(no proposal command in the PyPI honua CLI)",
+      "self-approval-refused": "(no approval command in the PyPI honua CLI)",
+      "approve": "(no approval command in the PyPI honua CLI)",
+      "proposal-resolved": "(no proposal command in the PyPI honua CLI)",
+      "approved-served": "(no query command in the PyPI honua CLI)",
+      "unpublish": "(no unpublish command in the PyPI honua CLI)",
+      "unpublished-refused": "(no query command in the PyPI honua CLI)"
+    }
+  }
+}

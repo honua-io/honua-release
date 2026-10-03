@@ -6,6 +6,10 @@
 # - The base db healthcheck probes the Unix socket, which answers while PostgreSQL's temporary
 #   initialization server is still running. The candidate's migrations need the TCP listener,
 #   so probe it; otherwise the server can boot against a database that is not accepting TCP yet.
+# - The cli-workflow scenario proves the governed publication path: a proposer's service.publish
+#   becomes a proposal that only a separate principal can approve. The candidate's operation policy
+#   is off by default (every operation is allowed), so this one rule requires approval for
+#   service.publish and leaves every other operation, and the admin REST publish, unchanged.
 services:
   db:
     healthcheck:
@@ -17,3 +21,7 @@ services:
       Oidc__Generic__Authority: "https://sdk-regression.invalid"
       Oidc__Generic__ClientId: "sdk-regression"
       Oidc__TokenValidation__SymmetricSigningKey: "${SDKREG_SIGNING_KEY:?run.py mints a per-run signing key}"
+      Operations__Policy__Enabled: "true"
+      Operations__Policy__Rules__0__OperationId: "service.publish"
+      Operations__Policy__Rules__0__Decision: "RequireApproval"
+      Operations__Policy__Rules__0__Reason: "installed-client regression: publication needs a separate approver"

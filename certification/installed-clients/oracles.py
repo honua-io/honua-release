@@ -480,3 +480,132 @@ def oracle_empty_tile(observed: dict[str, Any]) -> tuple[bool, str]:
     empty, size = observed.get("empty"), observed.get("size")
     ok = empty is True or size == 0
     return ok, f"empty={empty!r}, {size!r} bytes; the fixture has no feature in this tile"
+
+
+# ── command-line and MCP workflows ───────────────────────────────────────────────────────────
+
+
+def oracle_proposal_pending(observed: dict[str, Any]) -> tuple[bool, str]:
+    status, proposal = observed.get("status"), observed.get("proposalId")
+    ok = status == "RequiresApproval" and observed.get("requiresApproval") is True and isinstance(proposal, str) and bool(proposal)
+    return ok, (f"publication recorded as a proposal awaiting approval (status {status!r})" if ok
+                else f"status {status!r}, requiresApproval {observed.get('requiresApproval')!r}, proposal id present: {bool(proposal)}; "
+                     "the fixture's approval policy requires a proposal")
+
+
+def oracle_self_approval_refused(observation: dict[str, Any]) -> tuple[bool, str]:
+    if "error" not in observation:
+        return False, "the proposer approved its own proposal; separation of duties requires a refusal"
+    status = observation["error"].get("status")
+    after = (observation.get("observed") or {}).get("status")
+    ok = status == 403 and after == "AwaitingApproval"
+    return ok, f"{_error_summary(observation)}; the proposal is {after!r} afterwards (expected 403 and 'AwaitingApproval')"
+
+
+def oracle_proposal_approved(observed: dict[str, Any]) -> tuple[bool, str]:
+    status = observed.get("status")
+    return status in {"Succeeded", "Approved", "Applied"}, f"approval returned proposal status {status!r}"
+
+
+def oracle_proposal_resolved(observed: dict[str, Any], principals: dict[str, Any]) -> tuple[bool, str]:
+    """The proposal names the proposer as requester and the separate approver as resolver."""
+    proposer, approver = principals.get("proposerId"), principals.get("approverId")
+    requested, resolved = str(observed.get("requestedBy") or ""), str(observed.get("resolvedBy") or "")
+    checks = {
+        "status Succeeded": observed.get("status") == "Succeeded",
+        "kind ServicePublish": observed.get("kind") == "ServicePublish",
+        "requested by the proposer": bool(proposer) and requested.endswith(str(proposer)),
+        "resolved by the approver": bool(approver) and resolved.endswith(str(approver)),
+        "two principals": bool(requested) and bool(resolved) and requested != resolved,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, ("proposal succeeded, requested by the proposer and resolved by the separate approver" if not failed
+                        else f"proposal status {observed.get('status')!r} kind {observed.get('kind')!r}; failed: {', '.join(failed)}")
+
+
+def oracle_mcp_initialized(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
+    version = observed.get("protocolVersion")
+    named = all(isinstance(observed.get(key), str) and observed[key] for key in ("serverName", "serverVersion"))
+    want = fixture["mcp"]["protocolVersion"]
+    return version == want and named, f"protocol {version!r} (fixture {want!r}), server identity present: {named}"
+
+
+def oracle_mcp_view(observed: dict[str, Any], fixture: dict[str, Any], view: str) -> tuple[bool, str]:
+    count = fixture["mcp"]["views"][view]["toolCount"]
+    names = observed.get("names") if isinstance(observed.get("names"), list) else []
+    got_view, revision, meta_count = observed.get("view"), observed.get("revision"), observed.get("toolCount")
+    ok = (got_view == view and isinstance(revision, str) and bool(revision) and meta_count == count
+          and len(names) == count == len(set(names)) and observed.get("nextCursor") is None)
+    return ok, (f"selector-free tools/list returned view {got_view!r} ({revision}) with {len(names)} tools "
+                f"(metadata {meta_count}); the fixture expects the complete {view!r} view with {count}")
+
+
+def oracle_mcp_permission_denied(observation: dict[str, Any]) -> tuple[bool, str]:
+    if "error" not in observation:
+        return False, "an anonymous session received the full catalog"
+    kind = observation["error"].get("type")
+    return kind == "permission_denied", f"anonymous full-view request refused with {kind!r} (expected 'permission_denied')"
+
+
+def oracle_mcp_full_catalog(observed: dict[str, Any], fixture: dict[str, Any], default_names: list[str] | None) -> tuple[bool, str]:
+    names = observed.get("names") if isinstance(observed.get("names"), list) else []
+    setup = fixture["mcp"]["views"]["setup"]["toolCount"]
+    missing = sorted(set(default_names or []) - set(names))
+    checks = {
+        "unique": len(names) == len(set(names)),
+        f"more than the {setup} setup tools": len(names) > setup,
+        "includes the default view": bool(default_names) and not missing,
+        "selector-free list restores the default view": observed.get("restoredView") == "default",
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, (f"full catalog drained over {observed.get('pages')} pages: {len(names)} tools"
+                        + (f"; failed: {', '.join(failed)}" if failed else "; includes the default view, unique, view restored"))
+
+
+def render_expectations(fixture: dict[str, Any]) -> list[tuple[int, int, bool]]:
+    """(x, y, painted) per render sample, from the area envelopes; pixels near an edge are skipped."""
+    spec = fixture["mcp"]["render"]
+    minx, miny, maxx, maxy = spec["bbox"]
+    sx, sy = (maxx - minx) / spec["width"], (maxy - miny) / spec["height"]
+    margin = spec["edgeMarginPixels"]
+    boxes = [((e[0] - minx) / sx, (maxy - e[3]) / sy, (e[2] - minx) / sx, (maxy - e[1]) / sy)
+             for e in (feature["envelope"] for feature in fixture["area"]["features"])]
+    result = []
+    for x, y in spec["samples"]:
+        cx, cy = x + 0.5, y + 0.5
+        inside = any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in boxes)
+        near = any(x0 - margin <= cx <= x1 + margin and y0 - margin <= cy <= y1 + margin
+                   and not (x0 + margin <= cx <= x1 - margin and y0 + margin <= cy <= y1 - margin) for x0, y0, x1, y1 in boxes)
+        if not near:
+            result.append((x, y, inside))
+    return result
+
+
+def oracle_map_render(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
+    spec = fixture["mcp"]["render"]
+    try:
+        width, height, pixel = decode_png(base64.b64decode(observed.get("png") or "", validate=True))
+    except (ValueError, zlib.error, struct.error) as exc:
+        return False, f"the rendered map is not a decodable PNG ({type(exc).__name__}); mime type {observed.get('mimeType')!r}"
+    if (width, height) != (spec["width"], spec["height"]):
+        return False, f"rendered map is {width}x{height}, the fixture requested {spec['width']}x{spec['height']}"
+    samples = render_expectations(fixture)
+    mismatches = [f"({x},{y}) alpha {pixel(x, y)[3]} expected {'painted' if painted else 'transparent'}"
+                  for x, y, painted in samples if (pixel(x, y)[3] > 0) != painted]
+    painted = sum(1 for *_, inside in samples if inside)
+    if not samples or not painted or painted == len(samples):
+        return False, "the fixture needs painted and transparent sample pixels away from the polygon edge"
+    if mismatches:
+        return False, f"{len(mismatches)} of {len(samples)} sample pixels disagree with the fixture polygon: {mismatches}"
+    return True, f"{painted} painted and {len(samples) - painted} transparent sample pixels match the fixture polygon"
+
+
+def oracle_mcp_job_accepted(observed: dict[str, Any]) -> tuple[bool, str]:
+    job_id, status = observed.get("jobId"), observed.get("status")
+    ok = isinstance(job_id, str) and bool(job_id) and status in {"Queued", "Provisioning", "Running", "Succeeded"}
+    return ok, f"job submitted with status {status!r}" if ok else f"no job (status {status!r})"
+
+
+def oracle_mcp_job_succeeded(observed: dict[str, Any]) -> tuple[bool, str]:
+    status = observed.get("status")
+    return status == "Succeeded", f"terminal job status {status!r}"
