@@ -51,6 +51,29 @@ jobs:
           repository: honua-io/honua-server
           ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate gate-dr --job contract
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-server=gp-qualification"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-gate-dr-contract
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
       - name: Prove GP repins and incomplete crash receipts are rejected
         run: python -m unittest discover -s gp-qualification/scripts/qualification -p test_gp_candidate_binding.py
       - name: Prove incomplete receipts are rejected
@@ -124,6 +147,29 @@ jobs:
           repository: honua-io/honua-server
           ref: 6937fcee585240ce49e36de726d131e9abb13d4a
           path: gp-qualification
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate gate-dr --job receipt
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-server=gp-qualification"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-gate-dr-receipt
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
       - name: Require candidate-bound staged-output restore and crash proof
         env:
           CANDIDATE_BUNDLE: ${{ inputs.candidate_bundle }}

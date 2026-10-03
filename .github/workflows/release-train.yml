@@ -406,6 +406,10 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
 
+  gate_terminal_journey_contract:  # the terminal journey contract lane, unchanged; its fixture revision
+    needs: freeze                  # record is one of the inputs to the nightly lock's $.fixtures (#231 WI-8)
+    uses: ./.github/workflows/terminal-journey-contract.yml
+
   gate_journey:                 # promise journeys (#381): every GA cloud cell has a passing receipt
     needs: [freeze, gate_cloud_parity]
     # The per-cell receipts are judged even when the cloud aggregate is red: Preview cells cannot

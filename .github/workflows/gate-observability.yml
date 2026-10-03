@@ -132,6 +132,7 @@ jobs:
       - name: Clone the alert-rule consumers
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          DEVOPS_REVISION: 694514001ef6b05dc8f3c0479b6e14cf222bc7e7
         run: |
           set -uo pipefail
           ROOT="$RUNNER_TEMP/components"; mkdir -p "$ROOT"; echo "REPOS_ROOT=$ROOT" >> "$GITHUB_ENV"
@@ -149,16 +150,39 @@ jobs:
             echo "::endgroup::"
           done
           # honua-devops is operator tooling, not a shipped platform component, so it has no
-          # manifest pin — take its default branch. If the token cannot reach it (private repo),
+          # manifest pin — freeze its rules at the reviewed revision above. If the token cannot reach it,
           # its rules stay UNVERIFIED and the checker reports blocked rather than a partial pass.
-          echo "::group::checkout honua-devops (default branch)"
-          if git clone --quiet --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/honua-io/honua-devops.git" "$ROOT/honua-devops" 2>/tmp/devops.log; then
-            git -C "$ROOT/honua-devops" remote set-url origin "https://github.com/honua-io/honua-devops.git"
+          echo "::group::checkout honua-devops @ $DEVOPS_REVISION"
+          if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-devops "$DEVOPS_REVISION" "$ROOT/honua-devops" 2>/tmp/devops.log; then
             echo "honua-devops checkout: $(git -C "$ROOT/honua-devops" rev-parse HEAD)"
           else
             echo "note: honua-devops checkout unavailable"; tail -n 3 /tmp/devops.log || true
           fi
           echo "::endgroup::"
+
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate gate-observability --job slo
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-devops=$REPOS_ROOT/honua-devops"
+          "honua-io/honua-server=$REPOS_ROOT/honua-server"
+          "honua-io/honua-helm=$REPOS_ROOT/honua-helm"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-gate-observability-slo
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
 
       - name: Cross-repo metric-name contract
         id: contract

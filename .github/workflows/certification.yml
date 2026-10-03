@@ -162,6 +162,30 @@ jobs:
             echo "why=$WHY"
           } >> "$GITHUB_ENV"
 
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate certification --job conformance-mcp
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/geospatial-mcp=$RUNNER_TEMP/mcp/mcp"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-certification-conformance-mcp
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
+
       - name: Emit fragment
         if: always()
         uses: ./.github/actions/gate-fragment
@@ -228,6 +252,31 @@ jobs:
           ref: ${{ steps.pin.outputs.sha }}
           path: _conformance/esri-compat
           token: ${{ secrets.HONUA_ESRI_COMPAT_TOKEN || secrets.RELEASE_GH_TOKEN || github.token }}
+
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVIDENCE_REPO: ${{ steps.pin.outputs.repo }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate certification --job conformance-esri-geoservices
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "$EVIDENCE_REPO=_conformance/esri-compat"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-certification-conformance-esri-geoservices
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
 
       - name: Federate Esri GeoServices certification evidence
         run: |

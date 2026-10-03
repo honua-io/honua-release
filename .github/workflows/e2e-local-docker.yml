@@ -93,6 +93,30 @@ jobs:
           path: _e2e-sdk-dotnet
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate e2e-local-docker --job seam
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-sdk-python=_e2e-sdk-python" "honua-io/honua-sdk-dotnet=_e2e-sdk-dotnet"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-e2e-local-docker-seam
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
+
       - name: Install runner deps
         run: python -m pip install -r e2e/requirements.txt pytest
 
@@ -292,6 +316,30 @@ jobs:
           repository: honua-io/honua-site
           ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
           path: _site
+
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate e2e-local-docker --job slice1
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-console=_console" "honua-io/honua-site=_site"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-e2e-local-docker-slice1
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
 
       - name: Authenticate and restore the pinned honua-console
         if: steps.console.outcome == 'success'

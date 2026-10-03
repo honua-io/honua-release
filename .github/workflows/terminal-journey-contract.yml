@@ -24,12 +24,16 @@ on:
         required: false
         default: ""
         type: string
+  # The nightly train calls the contract lane so its fixture revision record (#231 WI-8) is from
+  # the same run as the lock. The lane runs exactly the checks it runs on a pull request.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: terminal-journey-contract-${{ github.ref }}
+  # In a reusable run github.workflow is the caller; keep standalone dispatches separate.
+  group: terminal-journey-contract-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -78,6 +82,30 @@ jobs:
         with:
           node-version: "22"
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+
+      # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
+      # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
+      - name: Record the fixture revisions this job checked out
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: >-
+          python "$GITHUB_WORKSPACE/tools/fixture_revisions.py" emit --gate terminal-journey-contract --job terminal-contract
+          --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
+          "honua-io/honua-release=.=certification/terminal-journey/fixtures"
+      - name: Upload the fixture revision record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixture-revisions-terminal-journey-contract-terminal-contract
+          path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
+          if-no-files-found: error
+          overwrite: true
 
       # No live stack, no Docker, no network: schema validity, fail-closed roster,
       # and the stage-outcome discipline that stops a blocked journey reading as pass.
