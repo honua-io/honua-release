@@ -37,6 +37,9 @@ init system or Windows, so a container cannot stand in for the clean machine.
 `e2e/harness/boot.sh`, the same local-Docker stack that `e2e-local-docker` uses (licensing disabled,
 asserted by `e2e/licensing.py`), and seeds it with `e2e/harness/seed`. A `HONUA_SERVER_IMAGE`
 override that differs from the manifest is refused.
+The executable-docs stack adds `compose.readiness.yml` so PostgreSQL must accept TCP connections
+before the candidate starts migrations. Its init-time Unix socket cannot satisfy that probe.
+The normal server readiness and licensing checks still decide whether boot succeeded.
 
 **Clean machines.** Each document (or each `session` of documents that continue one another, such
 as the server quickstart → first dataset → first map) gets fresh containers from the digest-pinned

@@ -664,3 +664,34 @@ def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch)
     assert session.installed_honua("python") == {"honua-sdk": "0.1.11"}
     assert "importlib.metadata" in calls[0][0][-1]
     assert calls[0][1]["check"] is True
+
+
+def test_candidate_database_probe_requires_tcp():
+    import yaml
+    overlay = yaml.safe_load((HERE / "compose.readiness.yml").read_text())
+    assert overlay == {"services": {"db": {"healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]}}}}
+
+
+@pytest.mark.parametrize("failure_step,expected_calls", [(0, 1), (1, 2), (2, 3), (None, 3)])
+def test_boot_keeps_health_licensing_and_seed_failures_fatal(monkeypatch, failure_step, expected_calls):
+    import subprocess
+    import run
+    calls = []
+    def execute(command, **kwargs):
+        index = len(calls)
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1 if failure_step == index else 0)
+    monkeypatch.setattr(subprocess, "run", execute)
+    if failure_step is None:
+        assert run.boot_candidate() is None
+    else:
+        with pytest.raises(run.RunError):
+            run.boot_candidate()
+    assert len(calls) == expected_calls
+    assert calls[0] == ["docker", "compose", "-f", str(run.ROOT / "e2e/harness/compose.candidate.yml"),
+                        "-f", str(HERE / "compose.readiness.yml"), "up", "-d"]
+    if len(calls) > 1:
+        assert calls[1] == ["bash", str(run.ROOT / "e2e/harness/boot.sh"), "wait"]
+    if len(calls) > 2:
+        assert calls[2] == ["bash", str(run.ROOT / "e2e/harness/seed/seed.sh")]

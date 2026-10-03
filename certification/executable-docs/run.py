@@ -961,6 +961,18 @@ def candidate_container() -> str:
     return cid[0]
 
 
+def boot_candidate() -> None:
+    """Use the canonical stack with a TCP database probe, then its normal health/licensing oracle."""
+    command = ["docker", "compose", "-f", str(ROOT / "e2e/harness/compose.candidate.yml"),
+               "-f", str(HERE / "compose.readiness.yml"), "up", "-d"]
+    if subprocess.run(command, cwd=ROOT).returncode:
+        raise RunError("the candidate stack could not start")
+    if subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "wait"], cwd=ROOT).returncode:
+        raise RunError("the candidate server did not become ready (see e2e/out/boot.json)")
+    if subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT).returncode:
+        raise RunError("the candidate fixture could not be seeded")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, default=ROOT / "platform-manifest.yaml")
@@ -1083,10 +1095,7 @@ def main() -> int:
             if args.boot:
                 os.environ["HONUA_SERVER_IMAGE"] = image
                 booted = True   # tear down whatever `up` started, even when it never became ready
-                if subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "up"], cwd=ROOT).returncode:
-                    raise RunError("the candidate server did not become ready (see e2e/out/boot.json)")
-                if subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT).returncode:
-                    raise RunError("the candidate fixture could not be seeded")
+                boot_candidate()
             network = "host" if args.network == "host" else f"container:{candidate_container()}"
             run_phase(client_docs, network, tools)
     except Exception:
@@ -1123,7 +1132,7 @@ def main() -> int:
             report_docs.append(row)
     committed = json.loads(args.inventory.read_text(encoding="utf-8")) if args.inventory.exists() else {}
     drift_lines: list[str] = []
-    if not args.only and committed:
+    if not args.only and committed and len(live_docs) == len(selected):
         current_docs = []
         session_env: dict[str, set[str]] = {}
         for document, revision, text in live_docs:
