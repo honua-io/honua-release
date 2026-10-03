@@ -220,6 +220,7 @@ class Session:
     prerequisites: set[str] = field(default_factory=set)  # tools the session's documents say to have
     teardowns: list[tuple[dict[str, Any], str, str, dict[str, Any]]] = field(default_factory=list)
     dotnet_project: bool = False
+    servers_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     counter: int = 0
 
     def __post_init__(self) -> None:
@@ -345,12 +346,12 @@ class Session:
         ready = False
         deadline = started + window + 60
         while proc.poll() is None and time.monotonic() < deadline:
-            if serve and readiness and not ready:
+            if serve and readiness:
                 if readiness.get("url"):
                     probe = docker("exec", name, "curl", "-fsS", "--max-time", "2", readiness["url"], timeout=10)
                     ready = probe.returncode == 0
                 elif readiness.get("log"):
-                    ready = readiness["log"] in out.read_text(errors="replace") + err.read_text(errors="replace")
+                    ready = readiness["log"] in (out.read_text(errors="replace") + err.read_text(errors="replace")).splitlines()
             time.sleep(0.2)
         if proc.poll() is None:
             proc.kill()
@@ -497,14 +498,11 @@ class Session:
         name = self.containers[runtime]
         found: dict[str, str] = {}
         if runtime == "python" or "python" in self.runtimes.get(runtime, ""):
-            out = docker("exec", *self.exec_env(runtime), name, "python3", "-m", "pip", "list", "--format",
-                         "json").stdout
-            try:
-                for row in json.loads(out or "[]"):
-                    if row["name"].lower().startswith("honua"):
-                        found[pypi_normalize(row["name"])] = row["version"]
-            except (json.JSONDecodeError, KeyError):
-                pass
+            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version} for d in m.distributions()]))"
+            out = docker("exec", *self.exec_env(runtime), name, "python3", "-c", metadata, check=True).stdout
+            for row in json.loads(out):
+                if row["name"].lower().startswith("honua"):
+                    found[pypi_normalize(row["name"])] = row["version"]
         modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules"]
         for package_json in (p for root in modules for p in root.rglob("package.json")):
             try:
@@ -673,7 +671,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     deferred: list[Block] = []
     pinned_versions = {k.lower() if not k.startswith("@") else k: v for k, v in (context.get("_pins") or {}).items()}
     before = snapshot_containers() if doc.get("docker") else set()
-    servers_seen: dict[str, dict[str, Any]] = {}
+    servers_seen = {cid: meta for cid, meta in getattr(session, "servers_seen", {}).items() if cid in before}
     later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]) for b in blocks}
 
     def record(block: Block, outcome: Outcome | None, status: str, detail: str, extra: dict | None = None) -> None:
@@ -698,6 +696,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     def audit(outcome: Outcome, runtime: str) -> Outcome:
         installed = session.installed_honua(runtime)
         allowed = {**context.get("_closure", lambda: {})(), **pinned_versions}
+        # The registry guard already admits Honua.Sdk.* at the root SDK's exact release version.
+        for name in installed:
+            if name.startswith("honua.sdk.") and "honua.sdk" in allowed:
+                allowed.setdefault(name, allowed["honua.sdk"])
         wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
                        for name, version in installed.items() if allowed.get(name) not in {version, "*"})
         if wrong:
@@ -817,6 +819,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     checks = []
     if doc.get("docker"):
         check = server_container_check(servers_seen, candidate_digest)
+        active = snapshot_containers()
+        session.servers_seen = {cid: meta for cid, meta in servers_seen.items() if cid in active}
         checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
                                 "detail": f"no honua-server container was started from this document's directory "
                                           f"({len(servers_seen)} container(s) started there)"})

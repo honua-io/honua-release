@@ -604,3 +604,63 @@ def test_readiness_url_requires_successful_http_response(tmp_path, monkeypatch, 
     outcome = session.run_shell("npm run dev", "node", 600, True, {"url": "http://localhost:3000/ready"})
     assert outcome.status == status
     assert probes == [("exec", "url-container", "curl", "-fsS", "--max-time", "2", "http://localhost:3000/ready")]
+
+
+@pytest.mark.parametrize("candidate,status", [(True, "pass"), (False, "fail")])
+def test_docker_continuation_checks_the_existing_session_stack(tmp_path, monkeypatch, candidate, status):
+    from types import SimpleNamespace
+    import run
+    server = {"container": "server", "service": "honua", "image": "candidate" if candidate else "old-image",
+              "isCandidate": candidate}
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, servers_seen={"server": server},
+                              run_shell=lambda *args: run.Outcome("pass", "exit code 0", exit_code=0),
+                              installed_honua=lambda runtime: {})
+    monkeypatch.setattr(run, "snapshot_containers", lambda: {"server"})
+    result, _ = run.run_document({"runtime": "node", "docker": True}, "```sh\ntrue\n```", session, {},
+                                 {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == status
+    assert result["checks"][0]["status"] == status
+    assert result["checks"][0]["check"] == "boots-candidate-image"
+
+
+def test_stopped_session_stack_cannot_satisfy_candidate_check(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import run
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={},
+                              servers_seen={"stopped": {"isCandidate": True}},
+                              run_shell=lambda *args: run.Outcome("pass", "exit code 0", exit_code=0),
+                              installed_honua=lambda runtime: {})
+    monkeypatch.setattr(run, "snapshot_containers", lambda: set())
+    result, _ = run.run_document({"runtime": "node", "docker": True}, "```sh\ntrue\n```", session, {},
+                                 {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert result["checks"][0]["status"] == "not-evaluated"
+
+
+@pytest.mark.parametrize("version,status", [("1.10.1", "pass"), ("1.9.0", "fail")])
+def test_dotnet_family_audit_matches_registry_guard_exact_version(tmp_path, version, status):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, ensure_dotnet_project=lambda: None,
+                              run_csharp=lambda *args: Outcome("pass", "completed", exit_code=0),
+                              installed_honua=lambda runtime: {"honua.sdk.cli": version})
+    result, _ = run_document({"runtime": "dotnet"}, "```csharp\nConsole.WriteLine(1);\n```", session,
+                             {"_pins": {"Honua.Sdk": "1.10.1"}}, {"env": {}, "substitute": {}},
+                             "sha256:test", [], set())
+    assert result["status"] == status
+
+
+def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, '[{"name":"Honua_Sdk","version":"0.1.11"}]', "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("metadata", tmp_path, {"python": "python-pinned"}, "http://guard", tmp_path,
+                          False, "host", "metadata", "5.9.3")
+    session.containers["python"] = "python-container"
+    assert session.installed_honua("python") == {"honua-sdk": "0.1.11"}
+    assert "importlib.metadata" in calls[0][0][-1]
+    assert calls[0][1]["check"] is True
