@@ -52,8 +52,10 @@ whose stack ran a server image other than the candidate. A README inside a repos
 runs from a clone of that repository at the document's revision. When a document states a
 prerequisite tool beyond its runtime ("Python with `honua-admin`, and Node.js with `npx`"),
 `prerequisites` in `sources.json` records it with the citation. The pinned node runtime's
-`node`/`npm`/`npx` are mounted into the session's other containers, and `jq` is installed from the
-image's Debian archive. A tool that a document uses but does not list (for example `jq` in
+`node`/`npm`/`npx` are mounted into the session's other containers; `jq` and `python` (as
+`python-is-python3`) are installed from the image's Debian archive; and `sudo` (the reader can
+administer their machine, for example for `npx playwright install --with-deps`) gives the reader a
+passwordless `sudo`. A tool that a document uses but does not list (for example `jq` in
 `INSTALL-2026.1.md`) is not provided: the clean machine does not have it, and that is a finding.
 
 **Only pinned packages.** npm, pip and NuGet in those containers point at the registry guard
@@ -69,8 +71,8 @@ fails at install, and the report lists the refusal under `guardRefusals`.
 
 ## Results
 
-Per block: `pass`, `fail` (with the stdout and stderr tails), or `needs-input`. Blocks that are not
-meant to run are reported as `not-run` with their intent.
+Per block: `pass`, `fail` (with the stdout and stderr tails), `needs-input`, or `blocked`. Blocks that
+are not meant to run are reported as `not-run` with their intent.
 
 - **Oracle.** The exit code. Python blocks pass when they raise no exception. When the document
   shows the output (a following `text`/`output`/`json` block introduced by "prints", "returns",
@@ -93,11 +95,17 @@ meant to run are reported as `not-run` with their intent.
   document's variables file has no value for it. The document gives the reader no way to run the
   block.
 
+- **blocked.** The document marks the block `<!-- doc-run: blocked <issue> -->`: the command is
+  right and the product (or another repository) misbehaves, tracked in the linked issue. The block
+  still runs. A failure is recorded as `blocked` with the issue (`blockedBy`) and the output tails; a
+  pass is recorded as `pass` with `staleBlockedMarker`, so the marker can be removed.
+
 Document status is `fail` when any block or check fails, zero blocks execute, or a Docker document's
 candidate-image check is unevaluated; otherwise it is `needs-input` when a block needs a value,
-and `pass` otherwise. The gate (`overall_status`) is `fail` when any document fails, `blocked` when
-any document needs input, and `pass` only when every declared document runs. There is no waiver
-list.
+`blocked` when a marked block failed, and `pass` otherwise. The gate (`overall_status`) is `fail`
+when any document fails, `blocked` when any document needs input or is blocked, and `pass` only when
+every declared document runs. There is no waiver list: a blocked block keeps the gate red until the
+linked issue is fixed.
 
 Containers run as the host UID with a writable home. Unexpected exceptions become failures with
 the traceback tail, and later blocks and documents still run. The installed-package audit covers
@@ -146,6 +154,7 @@ the fence (only blank lines may separate them). The comment is invisible when re
 | `<!-- doc-run: skip reason="..." -->` | Deliberately illustrative. The block is not run, and the inventory records it as `excluded` with the reason. **A skip without a reason is ignored and the block still runs.** |
 | `<!-- doc-run: file=path/name.ext -->` | Save the block as this file (relative to the reader's current directory). Later blocks run it. If none mentions it, a runnable file is also run. |
 | `<!-- doc-run: output -->` | This block is the expected output of the preceding runnable block. |
+| `<!-- doc-run: blocked https://github.com/<owner>/<repo>/issues/<n> -->` | The command is right and the linked issue tracks why it fails against the candidate. The block still runs; a failure is `blocked`, not `fail`, and the gate stays blocked. Also accepts `<owner>/<repo>#<n>`. **A blocked marker without an issue is ignored and the block still runs.** |
 | `<!-- doc-run: expect-fail -->` | The command is meant to fail (for example, a validator shown rejecting a bad input): a non-zero exit passes, and exit 0 fails. Prose that says "deliberately broken" or "to see it catch/fail/reject" right above the block means the same. |
 | `<!-- doc-run: teardown -->` | This block stops what the reader started. It runs when the reader is done, after the last document of the session. A shell block made only of `docker compose down/stop/rm` lines is treated this way without a marker. |
 | `<!-- doc-run: run -->` | Run this block even though no heuristic says so (for example, an unlabelled fence). |
