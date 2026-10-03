@@ -1,0 +1,10 @@
+{
+  "document": "honua-server-docs-sdks-javascript-javascript-getting-started",
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/sdks/javascript/javascript-getting-started.md:74 — \"Confirm `HONUA_API_KEY` is set\""
+    }
+  },
+  "substitute": {}
+}

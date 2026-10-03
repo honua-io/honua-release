@@ -1,0 +1,14 @@
+{
+  "document": "honua-sdk-dotnet-install",
+  "env": {},
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:109 — `options.BaseAddress = new Uri(\"https://your-honua-server.com\")` placeholder"
+    },
+    "https://honua.example.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:184-193 — loopback/localhost is the documented local-development exception to the HTTPS rule"
+    }
+  }
+}

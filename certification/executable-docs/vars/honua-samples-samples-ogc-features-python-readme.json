@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-ogc-features-python-readme",
+  "env": {
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "samples/ogc-features-python/README.md:16 — \"Set `HONUA_BASE_URL` to use another Honua OGC API Features deployment\""
+    }
+  },
+  "substitute": {}
+}

@@ -1,0 +1,10 @@
+{
+  "document": "honua-site-docs-playbooks-publish-a-service-index",
+  "env": {},
+  "substitute": {
+    "quickstart-admin-password": {
+      "value": "{candidate.adminPassword}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:20 — \"the admin password is `HONUA_ADMIN_PASSWORD`, which the root compose file defaults to `quickstart-admin-password` — a placeholder\""
+    }
+  }
+}

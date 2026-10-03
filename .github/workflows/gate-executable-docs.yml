@@ -1,0 +1,149 @@
+# Executable-docs gate (honua-release#379, #381): every getting-started script and snippet in the
+# public docs runs against the candidate.
+#
+# gate-docs checks what the docs CLAIM against the capability matrix; nothing executed the docs. This
+# gate does. certification/executable-docs/sources.json names the public getting-started documents
+# (SDK READMEs/INSTALL/quickstarts, the MCP server and create-honua-app READMEs, the server's
+# get-started pages, the release install docs, the honua-samples READMEs and the site's
+# getting-started pages) and the revision each is read at: the manifest's published client pin, the
+# server pin, or the default branch the public site/samples serve. run.py executes every fenced block
+# a reader is meant to run in clean digest-pinned node/python/dotnet containers, with ONLY the
+# manifest-pinned Honua packages installable (registry guard), against the candidate image@digest
+# booted exactly as e2e-local-docker boots it (licensing disabled).
+#
+# Verdict per block: pass | fail | needs-input. A document is red when any block fails or its stack
+# did not run the candidate image. Gate status: fail when any document fails, blocked when a block
+# has no way to be given a value it needs, pass otherwise. Nothing can be waived here: the only
+# exclusion is an author's `<!-- doc-run: skip reason="..." -->` in the document itself, recorded in
+# the report (docs/EXECUTABLE-DOCS.md).
+#
+# Triggers
+#   schedule / workflow_dispatch / workflow_call (release train)  - THE GATE: red unless every
+#     declared document runs.
+#   pull_request (changes to the gate itself)                     - harness proof: the self-tests,
+#     and a full live run whose report must cover every declared document. Its documents may be red
+#     (that is the docs' state, not the harness's); the job summary shows them.
+
+name: gate-executable-docs
+
+on:
+  schedule:
+    - cron: "40 9 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "certification/executable-docs/**"
+      - ".github/workflows/gate-executable-docs.yml"
+      - "e2e/harness/boot.sh"
+      - "e2e/harness/compose.candidate.yml"
+  workflow_call:
+    inputs:
+      candidate_ref: { required: false, type: string, default: "" }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.run.outputs.overall_status }}
+
+permissions:
+  contents: read
+  packages: read          # pull the pinned honua-server image from ghcr
+
+concurrency:
+  group: gate-executable-docs-${{ github.ref }}-${{ inputs.candidate_ref || 'manifest' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" pytest
+      # An untested gate can stop gating silently: extraction, classification, needs-input
+      # detection, the output oracle and the registry guard's pin filters are unit-tested offline.
+      - name: Self-test the executable-docs runner
+        run: python -m pytest certification/executable-docs -q
+      # Drift is reported, not enforced: the live run reads each document at its release revision
+      # whether or not the committed inventory has caught up.
+      - name: Inventory drift against the documents' release revisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python certification/executable-docs/inventory.py --check || echo "::notice::inventory.json is stale; regenerate with inventory.py --write"
+
+  run:
+    needs: self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    outputs:
+      overall_status: ${{ steps.verdict.outputs.overall_status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
+      - name: Log in to ghcr
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Run every getting-started block against the candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python certification/executable-docs/run.py --boot --network candidate \
+            --evidence-uri "$EVIDENCE_URI" \
+            --workdir "$RUNNER_TEMP/executable-docs" \
+            --output artifacts/executable-docs/report.json \
+            --summary artifacts/executable-docs/summary.md || code=$?
+          echo "runner exit: ${code:-0}"
+          test -f artifacts/executable-docs/report.json
+      - name: Verdict
+        id: verdict
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          report=artifacts/executable-docs/report.json
+          if [ ! -f "$report" ]; then
+            echo "overall_status=fail" >> "$GITHUB_OUTPUT"
+            echo "::error::the runner produced no report"; exit 1
+          fi
+          cat artifacts/executable-docs/summary.md >> "$GITHUB_STEP_SUMMARY"
+          status="$(jq -r .status "$report")"
+          echo "overall_status=${status}" >> "$GITHUB_OUTPUT"
+          # Every declared document has a row; a harness that silently dropped one cannot pass.
+          declared="$(jq '.documents | length' certification/executable-docs/sources.json)"
+          reported="$(jq '[.documents[] | select(.id != "candidate")] | length' "$report")"
+          if [ "$declared" != "$reported" ]; then
+            echo "::error::report covers ${reported} of ${declared} declared documents"; exit 1
+          fi
+          if jq -e '.documents[] | select(.id == "candidate")' "$report" >/dev/null; then
+            echo "::error::the candidate did not boot; no document ran against it"; exit 1
+          fi
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "::notice::harness proof: ${reported} documents ran; documents' status ${status} (the nightly gate enforces it)"
+            exit 0
+          fi
+          if [ "$status" != "pass" ]; then
+            echo "::error::executable docs ${status}: see the job summary for each failing block"; exit 1
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: executable-docs-report
+          path: |
+            artifacts/executable-docs/
+            e2e/out/boot.json
+          if-no-files-found: warn

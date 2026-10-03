@@ -407,6 +407,12 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
 
+  gate_executable_docs:        # every getting-started block of the public docs runs against the candidate (#379)
+    needs: freeze
+    uses: ./.github/workflows/gate-executable-docs.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
+
   gate_terminal_journey_contract:  # the terminal journey contract lane, unchanged; its fixture revision
     needs: freeze                  # record is one of the inputs to the nightly lock's $.fixtures (#231 WI-8)
     uses: ./.github/workflows/terminal-journey-contract.yml
@@ -446,6 +452,7 @@ jobs:
       - gate_capacity_soak
       - gate_dr
       - gate_journey
+      - gate_executable_docs
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -495,6 +502,7 @@ jobs:
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
           S_DR: ${{ needs.gate_dr.result }}
           S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
+          S_EXEC_DOCS: ${{ needs.gate_executable_docs.outputs.overall_status || needs.gate_executable_docs.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -520,6 +528,7 @@ jobs:
           capacity-soak|$S_CAPACITY
           dr|$S_DR
           journey|$S_JOURNEY
+          executable-docs|$S_EXEC_DOCS
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}

@@ -657,7 +657,8 @@ def test_cli_refuses_to_stamp_or_mint_without_synced_history(inputs, tmp_path):
 
 
 NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                    'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+                    'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                    'executable-docs')
 QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
 
 
@@ -682,7 +683,7 @@ def test_minted_layout_retains_every_declared_receipt_and_no_qualifying_receipt(
     for name in QUALIFYING_EXPECTED:
         assert retained['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert not (output / 'promotion-receipts' / name).exists()
-    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == 11
+    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == 12
 
 
 @pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'missing-model', 'forged-qualifying', 'expiry'])
