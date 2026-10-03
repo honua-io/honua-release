@@ -58,12 +58,99 @@ def artifact_subject(artifact: dict) -> str:
     return artifact.get('digest') or artifact.get('sha256') or ''
 
 
+# Repository/package-scoped producing workflows. Unlisted publishers must declare the
+# exact signer workflow in the candidate manifest; a repository alone is never policy.
+PUBLISHER_WORKFLOWS = {
+    'honua-io/honua-server': 'nightly-container-build.yml',
+    'honua-io/honua-console': 'container-publish.yml',
+    'honua-io/honua-sdk-dotnet': 'publish-dotnet-sdk.yml',
+    'honua-io/honua-sdk-python': 'publish-python-sdk.yml',
+    'honua-io/honua-helm': 'release.yml',
+    'honua-io/geospatial-grpc': 'publish-dotnet-protocol.yml',
+}
+JS_WORKFLOWS = {'@honua/sdk-js': 'publish-js-sdk.yml',
+                '@honua/mcp-server': 'publish-mcp-server.yml',
+                'create-honua-app': 'publish-create-honua-app.yml'}
+
+
+def signer_workflow(component: dict, artifact: dict, repository: str) -> str:
+    declared = component.get('attestationWorkflow')
+    workflow = (JS_WORKFLOWS.get(artifact.get('coordinate')) if repository == 'honua-io/honua-sdk-js'
+                else PUBLISHER_WORKFLOWS.get(repository))
+    value = declared or (f'{repository}/.github/workflows/{workflow}' if workflow else None)
+    if not isinstance(value, str) or not re.fullmatch(
+            r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml', value):
+        raise ValueError(f'{repository}: exact producing attestationWorkflow is not declared or allowlisted')
+    return value
+
+
+def predicate_valid(kind: str, predicate) -> bool:
+    """Require document/build contents, rather than accepting a predicate-type label."""
+    from jsonschema import Draft202012Validator, FormatChecker
+    text = {'type': 'string', 'minLength': 1}
+    uri = {**text, 'format': 'uri', 'pattern': r'^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$'}
+    def obj(required, properties):
+        return {'type': 'object', 'required': required, 'properties': properties}
+    if kind == 'https://spdx.dev/Document':
+        schema = obj(['spdxVersion', 'SPDXID', 'name', 'documentNamespace', 'dataLicense',
+                      'creationInfo', 'packages'], {
+            'spdxVersion': {'enum': ['SPDX-2.2', 'SPDX-2.3']},
+            'SPDXID': {'const': 'SPDXRef-DOCUMENT'}, 'name': text,
+            'documentNamespace': uri, 'dataLicense': {'const': 'CC0-1.0'},
+            'creationInfo': obj(['creators', 'created'], {
+                'creators': {'type': 'array', 'minItems': 1, 'items': {**text, 'pattern': '^(Person|Organization|Tool): .+'}},
+                'created': {'type': 'string', 'format': 'date-time'}}),
+            'packages': {'type': 'array', 'minItems': 1, 'items': obj(['SPDXID', 'name'], {
+                'SPDXID': {'type': 'string', 'pattern': '^SPDXRef-[A-Za-z0-9.-]+$'}, 'name': text})}})
+    elif kind == 'https://cyclonedx.org/bom':
+        component = obj(['type', 'name'], {'type': {'enum': ['application', 'framework', 'library',
+            'container', 'platform', 'operating-system', 'device', 'firmware', 'file', 'data',
+            'machine-learning-model']}, 'name': text})
+        schema = obj(['bomFormat', 'specVersion', 'version', 'components'], {
+            'bomFormat': {'const': 'CycloneDX'}, 'specVersion': {'enum': ['1.4', '1.5', '1.6', '1.7']},
+            'version': {'type': 'integer', 'minimum': 1},
+            'components': {'type': 'array', 'minItems': 1, 'items': component}})
+    elif kind == 'https://slsa.dev/provenance/v1':
+        schema = obj(['buildDefinition', 'runDetails'], {
+            'buildDefinition': obj(['buildType', 'externalParameters'], {
+                'buildType': uri, 'externalParameters': {'type': 'object'},
+                'internalParameters': {'type': 'object'}, 'resolvedDependencies': {'type': 'array',
+                    'items': {'type': 'object'}}}),
+            'runDetails': obj(['builder'], {'builder': obj(['id'], {'id': uri}),
+                'metadata': obj([], {'invocationId': text, 'startedOn': {'type': 'string',
+                    'format': 'date-time'}, 'finishedOn': {'type': 'string', 'format': 'date-time'}})})})
+    elif kind == 'https://slsa.dev/provenance/v0.2':
+        # BuildKit emits the prior SLSA version: its equivalent build/run structures
+        # are invocation and builder/metadata, not v1's buildDefinition/runDetails.
+        schema = obj(['builder', 'buildType', 'invocation', 'metadata'], {
+            'builder': obj(['id'], {'id': uri}), 'buildType': uri,
+            'invocation': obj(['parameters'], {'parameters': {'type': 'object'},
+                'configSource': {'type': 'object'}}),
+            'metadata': obj(['buildInvocationId'], {'buildInvocationId': text})})
+    else:
+        return False
+    return Draft202012Validator(schema, format_checker=FormatChecker()).is_valid(predicate)
+
+
 def statement_field(statement: dict, subjects: set[str]) -> str | None:
-    """Keep only SBOM/provenance statements naming these exact published bytes."""
-    field = PREDICATES.get(statement.get('predicateType'))
-    named = {f'{algorithm}:{digest}' for row in statement.get('subject', [])
-             for algorithm, digest in (row.get('digest') or {}).items()}
-    return field if field and named & subjects else None
+    """Keep well-formed SBOM/provenance statements naming exact published bytes."""
+    if not isinstance(statement, dict):
+        return None
+    kind = statement.get('predicateType')
+    field = PREDICATES.get(kind) if isinstance(kind, str) else None
+    rows = statement.get('subject')
+    if not field or not isinstance(rows, list) or not rows:
+        return None
+    named = set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get('digest'), dict) or not row['digest']:
+            return None
+        for algorithm, digest in row['digest'].items():
+            length = {'sha256': 64, 'sha512': 128}.get(algorithm)
+            if length is None or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{%d}' % length, digest):
+                return None
+            named.add(f'{algorithm}:{digest}')
+    return field if named & subjects and predicate_valid(kind, statement.get('predicate')) else None
 
 
 def publisher_attestations(repository: str, digest: str) -> list[dict]:
@@ -117,6 +204,10 @@ def published_artifact_bytes(artifact: dict) -> bytes:
 
 def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repository: str, predicate: str) -> None:
     from resolve_trunk_candidate import retry
+    workflow = artifact.get('signerWorkflow')
+    if not isinstance(workflow, str) or not re.fullmatch(
+            r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml', workflow):
+        raise ValueError('exact producing signer workflow is required')
     with tempfile.TemporaryDirectory(prefix='verify-publisher-') as directory:
         package = Path(directory) / 'artifact.bin'
         document = Path(directory) / 'attestation.json'
@@ -128,7 +219,7 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
         document.write_text(json.dumps(bundle))
         retry(lambda: subprocess.run(['gh', 'attestation', 'verify', target, '--bundle', str(document),
             '--repo', repository, '--source-digest', artifact['sourceRevision'],
-            '--predicate-type', predicate, '--format', 'json'], capture_output=True, text=True, check=True))
+            '--signer-workflow', workflow, '--predicate-type', predicate, '--format', 'json'], capture_output=True, text=True, check=True))
 
 
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
@@ -154,7 +245,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     references = {'sbom': [], 'provenance': []}
     documents, pending = {}, []
 
-    def oci(name, coordinate, digest, context, source_repository, source_revision):
+    def oci(name, coordinate, digest, context, source_repository, source_revision, component):
         parsed = urllib.parse.urlsplit('oci://' + coordinate)
         if (parsed.netloc != 'ghcr.io' or parsed.query or parsed.fragment
                 or not re.fullmatch(r'/[a-z0-9._/-]+', parsed.path)
@@ -198,7 +289,9 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                     if not field or coverage[field] == subjects:
                         continue
                     verifier(f'oci://{coordinate}@{digest}', bundle,
-                             {'sourceRevision': source_revision}, source_repo, statement['predicateType'])
+                             {'sourceRevision': source_revision, 'signerWorkflow': signer_workflow(
+                                 component, {'coordinate': coordinate}, source_repo)},
+                             source_repo, statement['predicateType'])
                     path = f'attestations/{name}/{digest.replace(":", "-")}/{field}-oci-{number}.json'
                     documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
                     pending.append((field, name, path))
@@ -216,10 +309,15 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
 
     data = yaml.safe_load(manifest.read_text())
     server = (data.get('components') or {}).get('honua-server') or {}
-    if server.get('awsLambdaImage'):
+    deploy = yaml.safe_load(matrix.read_text()).get('deploy') or {}
+    lambda_target = 'awsLambda' in (deploy.get('honua-server') or {})
+    if lambda_target and not (server.get('awsLambdaImage') and re.fullmatch(
+            r'sha256:[0-9a-f]{64}', str(server.get('awsLambdaDigest', '')))):
+        errors.append('honua-server Lambda: declared deployment target requires an exact image and digest')
+    elif lambda_target or server.get('awsLambdaImage'):
         coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
         oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda',
-            server.get('repository', ''), server.get('sha', ''))
+            server.get('repository', ''), server.get('sha', ''), server)
     for name, component in sorted(draft.lock['components'].items()):
         for number, artifact in enumerate(component['artifacts']):
             context = f'{name}.artifacts[{number}]'
@@ -229,7 +327,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 continue
             if artifact['kind'] in {'image', 'oci-chart'}:
                 oci(name, artifact['coordinate'], digest, context,
-                    component['source']['repository'], artifact.get('sourceRevision', ''))
+                    component['source']['repository'], artifact.get('sourceRevision', ''),
+                    data['components'][name])
                 continue
             repo = component['source']['repository'].removeprefix('https://github.com/')
             try:
@@ -249,7 +348,9 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 if not field:
                     continue
                 try:
-                    verifier(raw, bundle, artifact, repo, statement['predicateType'])
+                    verified_artifact = {**artifact, 'signerWorkflow': signer_workflow(
+                        data['components'][name], artifact, repo)}
+                    verifier(raw, bundle, verified_artifact, repo, statement['predicateType'])
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     errors.append(f'{context}: {field} attestation verification refused: '
                                   + str(getattr(exc, 'stderr', None) or exc).strip())
@@ -272,15 +373,35 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     return result
 
 
+def attach_post_gate(source: Path, references: dict, declarations: dict, scratch: Path) -> Path:
+    """Persist produced facts in the shipped root manifest before regenerating its lock."""
+    if set(references) != POST_GATE_FIELDS:
+        raise ValueError('post-gate regeneration may supply only sbom, provenance and notes')
+    data = yaml.safe_load(source.read_text())
+    data.setdefault('platformLockEvidence', {}).update(references)
+    data['platformLockEvidence']['evidenceDeclarations'] = declarations
+    destination = scratch / source.name
+    destination.write_text(yaml.safe_dump(data, sort_keys=True), encoding='utf-8')
+    return destination
+
+
 def regenerate_post_gate(source: Path, matrix: Path, frozen: dict, references: dict):
-    """Regenerate from frozen inputs and prove the only delta is the three produced fields."""
-    draft = generate(source, matrix, post_gate_evidence=references)
+    """Regenerate persisted facts; permit only produced fields and their source-input hash."""
+    from platform_lock_bundle import canonical_bytes
+    draft = generate(source, matrix)
     if draft.unresolved:
         raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
-    before = {key: value for key, value in frozen.items() if key not in POST_GATE_FIELDS}
-    after = {key: value for key, value in draft.lock.items() if key not in POST_GATE_FIELDS}
-    if before != after:
-        raise ValueError('no lock minted: regeneration changed facts outside sbom, provenance and notes')
+    allowed = POST_GATE_FIELDS | {'fixtures'}
+    before = copy.deepcopy({key: value for key, value in frozen.items() if key not in allowed})
+    after = {key: value for key, value in draft.lock.items() if key not in allowed}
+    # Only the root manifest's hash is recomputed. The matrix and the source-input
+    # denominator must still equal the qualification draft exactly.
+    before['sourceInputs']['platformManifest'] = draft.lock['sourceInputs']['platformManifest']
+    if canonical_bytes(before) != canonical_bytes(after):
+        raise ValueError('no lock minted: regeneration changed facts outside sbom, provenance and notes, '
+                         'fixtures and evidence declarations')
+    if canonical_bytes({key: draft.lock[key] for key in POST_GATE_FIELDS}) != canonical_bytes(references):
+        raise ValueError('no lock minted: shipped manifest differs from post-gate references')
     for field in ('sbom', 'provenance'):
         for row in draft.lock[field]:
             uri = row['uri']
@@ -634,27 +755,28 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
     if not lock_ref_protected(rulesets, LOCK_REFS + label):
         raise ValueError(f'no lock minted: no active tag ruleset forbids deleting or moving {LOCK_REFS}{label}')
     with tempfile.TemporaryDirectory(prefix='.fixtures-') as scratch:
-        source = declared_manifest(manifest, fixtures, Path(scratch))
-        draft = generate(source, matrix)
-        if draft.unresolved:
-            raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
-        bind(draft.lock, source, matrix, label)
+        from platform_lock_bundle import bind_qualification
         if qualification_lock is None or post_gate_evidence is None:
             raise ValueError('no lock minted: qualification lock and post-gate references are required')
         frozen = json.loads(qualification_lock.read_bytes())
-        if frozen != draft.lock:
-            raise ValueError('no lock minted: qualification lock differs from frozen inputs')
+        bind_qualification(frozen, manifest, matrix, label)
+        if qualification_lock.read_bytes() != canonical_bytes(frozen):
+            raise ValueError('no lock minted: qualification lock must use canonical bytes')
+        source = declared_manifest(manifest, fixtures, Path(scratch))
         errors = evidence_failures(report, 'sha256:' + _sha256(qualification_lock))
         if errors:
             raise ValueError('no lock minted:\n' + '\n'.join(errors))
-        if post_gate_evidence.get('candidate') != report['candidate']:
+        if canonical_bytes(post_gate_evidence.get('candidate')) != canonical_bytes(report['candidate']):
             raise ValueError('no lock minted: post-gate references belong to another candidate or run')
+        source = attach_post_gate(source, post_gate_evidence['references'],
+                                  report['evidenceDeclarations'], Path(scratch))
         draft = regenerate_post_gate(source, matrix, frozen, post_gate_evidence['references'])
+        bind(draft.lock, source, matrix, label)
         if notes_bundle is None:
             raise ValueError('no lock minted: retained notes bundle is required')
         verify_reference_bundle(post_gate_evidence, notes_bundle, manifest, matrix, report)
         # The green receipts described the freeze lock. Only after checking that binding and the
-        # three-field delta can their lock digest be retargeted. No status/time/class is changed.
+        # allowed post-gate delta can their lock digest be retargeted. No status/time/class is changed.
         qualification_report = report
         report = copy.deepcopy(report)
         digest = 'sha256:' + hashlib.sha256(canonical_bytes(draft.lock)).hexdigest()
@@ -683,7 +805,7 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
             retained_report = copy.deepcopy(report)
             if source != manifest:
                 # Promotion consumes the root manifest and verifies its report binding. Preserve
-                # the qualified inputs before adding only the gates' observed fixture declaration.
+                # the qualified inputs before adding the gates' observed declarations.
                 qualified = staging / 'qualification-inputs'
                 qualified.mkdir()
                 (qualified / manifest.name).write_bytes(manifest.read_bytes())

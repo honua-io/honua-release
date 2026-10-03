@@ -21,9 +21,9 @@ def inputs(candidate, tmp_path):
     return build_inputs(candidate, tmp_path)
 
 
-def build_inputs(candidate, tmp_path, *, gate_fixtures=None):
+def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=False):
     """The certified candidate and its report. With `gate_fixtures` the candidate declares no
-    fixtures itself; its qualification lock is the one generated from the gates' declaration."""
+    fixtures itself; freeze always uses the original manifest before the gates run."""
     _, paths, _ = candidate
     manifest = yaml.safe_load(paths[0].read_text())
     manifest['platformRelease'] = '2026.1-rc.3'
@@ -36,6 +36,13 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None):
     real_paths = [tmp_path / 'platform-manifest.yaml', tmp_path / 'compatibility-matrix.yaml']
     if gate_fixtures is not None:
         del manifest['platformLockEvidence']['fixtures']
+    (tmp_path / 'publisher-references.json').write_text(json.dumps(
+        {field: manifest['platformLockEvidence'][field] for field in nightly.POST_GATE_FIELDS}))
+    if missing_post_gate:
+        for field in nightly.POST_GATE_FIELDS:
+            del manifest['platformLockEvidence'][field]
+    for component in manifest['components'].values():
+        component['attestationWorkflow'] = 'honua-io/publisher/.github/workflows/publish.yml'
     real_paths[0].write_text(yaml.safe_dump(manifest))
     real_paths[1].write_bytes(paths[1].read_bytes())
     report = {'dry_run': False, 'overallStatus': 'pass', 'platform_label': '2026.1-rc.3',
@@ -58,15 +65,12 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None):
                     ('deterministic', ('aws-ecs/redis-off', 'aws-ecs/redis-on',
                                        'aws-serverless/redis-off', 'aws-serverless/redis-on')),
                     ('genuine-model', ('aws-ecs/redis-off',))) for cell in cells]
-    lock_inputs = real_paths
-    if gate_fixtures is not None:
-        (tmp_path / 'declared').mkdir()
-        lock_inputs = [nightly.declared_manifest(real_paths[0], gate_fixtures, tmp_path / 'declared'),
-                       real_paths[1]]
-    draft = nightly.generate(*lock_inputs)
-    nightly.bind(draft.lock, *lock_inputs, '2026.1-rc.3')
+    # Real freeze path: never derive fixtures or references before qualification.
+    from platform_lock_bundle import canonical_bytes, bind_qualification
+    draft = nightly.generate(*real_paths, qualification=True)
+    bind_qualification(draft.lock, *real_paths, '2026.1-rc.3')
     qualification_lock = tmp_path / 'qualification-lock.json'
-    qualification_lock.write_bytes(nightly.bundle_files(draft.lock)['platform-lock.json'])
+    qualification_lock.write_bytes(canonical_bytes(draft.lock))
     report = nightly.declare_evidence(report, qualification_lock, journeys)
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
@@ -91,7 +95,7 @@ PROTECTED = [{'id': 7, 'target': 'tag', 'enforcement': 'active',
 
 def mint(report, paths, history, output, *, signer, **overrides):
     """The production call shape: trusted identity, complete published history, protected lock refs."""
-    declared = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
+    declared = json.loads((paths[0].parent / 'publisher-references.json').read_text())
     options = {'rulesets': PROTECTED, 'published': {}, 'source_sha': SOURCE, 'run_id': RUN,
                'fixture_records': records(), 'qualification_lock': paths[0].parent / 'qualification-lock.json',
                'notes_bundle': paths[0].parent / 'notes/release-notes.bundle',
@@ -116,14 +120,14 @@ def test_all_green_generates_binds_and_signs_lock(inputs, tmp_path):
     assert mint(report, paths, tmp_path / 'history', output, signer=signer) == '2026.1-rc.3'
     lock = json.loads((output / 'platform-lock.json').read_bytes())
     assert lock['platform']['status'] == 'rc'
-    assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(paths[0])
+    assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(output / paths[0].name)
     assert (output / 'platform-lock.sigstore.json').exists()
     assert (output / 'bom.cdx.json').exists()
     assert nightly.CHANNEL_TAG.search((output / 'platform-lock.json').read_text()) is None
 
 
 def fresh_references(report, paths):
-    evidence = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
+    evidence = json.loads((paths[0].parent / 'publisher-references.json').read_text())
     references = copy.deepcopy({key: evidence[key] for key in nightly.POST_GATE_FIELDS})
     for field in ('sbom', 'provenance'):
         for row in references[field]:
@@ -142,7 +146,10 @@ def test_post_gate_lock_differs_from_freeze_only_in_three_fields(inputs, tmp_pat
     output = tmp_path / 'minted'
     mint(report, paths, tmp_path / 'history', output, signer=signer, post_gate_evidence=refs)
     regenerated = json.loads((output / 'platform-lock.json').read_bytes())
-    assert {key for key in frozen if frozen[key] != regenerated[key]} == nightly.POST_GATE_FIELDS
+    assert {key for key in frozen if frozen[key] != regenerated[key]} == nightly.POST_GATE_FIELDS | {'sourceInputs'}
+    assert regenerated['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(output / paths[0].name)
+    shipped = yaml.safe_load((output / paths[0].name).read_text())
+    assert {field: shipped['platformLockEvidence'][field] for field in nightly.POST_GATE_FIELDS} == refs['references']
     assert set(regenerated) == set(frozen)
     assert {field: regenerated[field] for field in nightly.POST_GATE_FIELDS} == refs['references']
     assert report == original_report
@@ -185,16 +192,32 @@ def test_regeneration_refuses_non_evidence_drift(inputs, tmp_path):
     _, paths = inputs
     frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
     frozen['components']['sdk']['artifacts'][0]['version'] = '9.9.9'
-    evidence = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
+    evidence = json.loads((paths[0].parent / 'publisher-references.json').read_text())
     with pytest.raises(ValueError, match='outside sbom, provenance and notes'):
         nightly.regenerate_post_gate(*paths, frozen, {field: evidence[field] for field in nightly.POST_GATE_FIELDS})
+
+
+def valid_predicate(kind):
+    if kind == 'https://spdx.dev/Document':
+        return {'spdxVersion': 'SPDX-2.3', 'SPDXID': 'SPDXRef-DOCUMENT', 'name': 'package',
+                'dataLicense': 'CC0-1.0', 'documentNamespace': 'https://publisher.test/bom/123',
+                'creationInfo': {'creators': ['Tool: scanner'], 'created': '2026-10-02T00:00:00Z'},
+                'packages': [{'SPDXID': 'SPDXRef-package', 'name': 'published-package'}]}
+    if kind == 'https://cyclonedx.org/bom':
+        return {'bomFormat': 'CycloneDX', 'specVersion': '1.6', 'version': 1,
+                'components': [{'type': 'library', 'name': 'published-package'}]}
+    if kind.endswith('/v0.2'):
+        return {'builder': {'id': 'https://builder.test'}, 'buildType': 'https://builder.test/build',
+                'invocation': {'parameters': {}}, 'metadata': {'buildInvocationId': 'run-123'}}
+    return {'buildDefinition': {'buildType': 'https://builder.test/build', 'externalParameters': {}},
+            'runDetails': {'builder': {'id': 'https://builder.test'}}}
 
 
 def publisher_bundles(repository, digest):
     return [{'bundle': {'dsseEnvelope': {'payload': base64.b64encode(json.dumps({
         'predicateType': predicate, 'subject': [{'name': 'published-package',
                                                 'digest': {'sha256': digest.split(':')[1]}}],
-        'predicate': {}}).encode()).decode(), 'signatures': [{'sig': 'test-seam'}]}}}
+        'predicate': valid_predicate(predicate)}).encode()).decode(), 'signatures': [{'sig': 'test-seam'}]}}}
         for predicate in ('https://slsa.dev/provenance/v1', 'https://spdx.dev/Document')]
 
 
@@ -286,7 +309,8 @@ def oci_candidate(report, paths, *, partial=False):
     child = store({'schemaVersion': 2, 'layers': []})
     layers = []
     for predicate in ('https://slsa.dev/provenance/v1', 'https://spdx.dev/Document'):
-        digest = store({'predicateType': predicate, 'subject': [{'digest': {'sha256': child.split(':')[1]}}]})
+        digest = store({'predicateType': predicate, 'predicate': valid_predicate(predicate),
+                        'subject': [{'digest': {'sha256': child.split(':')[1]}}]})
         layers.append({'mediaType': 'application/vnd.in-toto+json', 'digest': digest})
     attestation = store({'schemaVersion': 2, 'layers': layers})
     children = [{'digest': child, 'platform': {'os': 'linux', 'architecture': 'amd64'}},
@@ -361,12 +385,12 @@ def test_promotion_bundle_verification_accepts_only_the_retained_delta(inputs, t
     mint(report, paths, tmp_path / 'history', output, signer=signer,
          post_gate_evidence=fresh_references(report, paths))
     lock = json.loads((output / 'platform-lock.json').read_bytes())
-    bundle.bind_post_gate(lock, *paths, '2026.1-rc.3', output)
+    bundle.bind_post_gate(lock, output / paths[0].name, paths[1], '2026.1-rc.3', output)
     frozen = json.loads((output / 'qualification-lock.json').read_bytes())
     frozen['provenance'] = []
     (output / 'qualification-lock.json').write_text(json.dumps(frozen))
     with pytest.raises(ValueError):
-        bundle.bind_post_gate(lock, *paths, '2026.1-rc.3', output)
+        bundle.bind_post_gate(lock, output / paths[0].name, paths[1], '2026.1-rc.3', output)
 
 
 @pytest.mark.parametrize('kind', ['npm', 'nuget', 'wheel', 'spec', 'archive'])
@@ -760,7 +784,7 @@ def test_a_candidate_that_declares_the_gate_fixtures_keeps_its_exact_bytes(input
     mint(report, paths, tmp_path / 'history', output, signer=signer)
     lock = json.loads((output / 'platform-lock.json').read_bytes())
     assert lock['fixtures'] == [DECLARED]
-    assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(paths[0])
+    assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(output / paths[0].name)
     assert not (output / 'fixture-declaration').exists()
 
 
@@ -962,3 +986,187 @@ def test_cli_mint_requires_fixture_revisions(inputs, tmp_path):
                              '--rulesets', str(tmp_path / 'rules.json'), '--expected-source-sha', SOURCE,
                              '--expected-run-id', RUN], capture_output=True, text=True)
     assert minted.returncode == 1 and 'fixture revisions are required' in minted.stderr
+
+
+@pytest.mark.parametrize('kind', list(nightly.PREDICATES))
+def test_statement_requires_real_predicate_and_exact_subject(kind):
+    subject = 'sha256:' + 'a' * 64
+    statement = {'predicateType': kind, 'subject': [{'digest': {'sha256': 'a' * 64}}],
+                 'predicate': valid_predicate(kind)}
+    assert nightly.statement_field(statement, {subject}) == nightly.PREDICATES[kind]
+    assert nightly.statement_field(statement, {'sha256:' + 'b' * 64}) is None
+    for malformed in (None, {}, [], 'document', {'buildDefinition': {}, 'runDetails': {}},
+                      {'bomFormat': 'CycloneDX', 'components': []}):
+        statement['predicate'] = malformed
+        assert nightly.statement_field(statement, {subject}) is None
+
+
+@pytest.mark.parametrize('kind,mutation', [
+    ('https://spdx.dev/Document', lambda p: p.pop('creationInfo')),
+    ('https://spdx.dev/Document', lambda p: p.update(packages=[{}])),
+    ('https://spdx.dev/Document', lambda p: p.update(documentNamespace='not-a-uri')),
+    ('https://cyclonedx.org/bom', lambda p: p.update(version=True)),
+    ('https://cyclonedx.org/bom', lambda p: p.update(components=[{'name': 'missing-type'}])),
+    ('https://slsa.dev/provenance/v1', lambda p: p['buildDefinition'].update(buildType='')),
+    ('https://slsa.dev/provenance/v1', lambda p: p['buildDefinition'].update(externalParameters=[])),
+    ('https://slsa.dev/provenance/v1', lambda p: p['runDetails'].update(builder={})),
+    ('https://slsa.dev/provenance/v0.2', lambda p: p.update(invocation=[])),
+])
+def test_statement_rejects_malformed_document_build_and_run_structures(kind, mutation):
+    predicate = valid_predicate(kind)
+    mutation(predicate)
+    assert nightly.statement_field({'predicateType': kind, 'predicate': predicate,
+        'subject': [{'digest': {'sha256': 'a' * 64}}]}, {'sha256:' + 'a' * 64}) is None
+
+
+def test_collection_refuses_empty_publisher_predicates(inputs, candidate, tmp_path):
+    report, paths = inputs
+    def empty_bundles(repository, digest):
+        rows = publisher_bundles(repository, digest)
+        for row in rows:
+            envelope = row['bundle']['dsseEnvelope']
+            statement = json.loads(base64.b64decode(envelope['payload']))
+            statement['predicate'] = {}
+            envelope['payload'] = base64.b64encode(json.dumps(statement).encode()).decode()
+        return rows
+    verified = []
+    with pytest.raises(ValueError, match='publisher has no .* attestation'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', attestations=empty_bundles,
+            artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: verified.append(args))
+    assert verified == []
+
+
+@pytest.mark.parametrize('presented', ['publish-python-sdk.yml', 'unrelated.yml'])
+def test_publisher_verification_enforces_producing_workflow(monkeypatch, presented):
+    repository = 'honua-io/honua-sdk-python'
+    artifact = {'sourceRevision': 'c' * 40, 'coordinate': 'honua-sdk'}
+    artifact['signerWorkflow'] = nightly.signer_workflow({}, artifact, repository)
+    calls = []
+    def verify(command, **kwargs):
+        calls.append(command)
+        expected = command[command.index('--signer-workflow') + 1]
+        if expected != f'{repository}/.github/workflows/{presented}':
+            raise subprocess.CalledProcessError(1, command, stderr='certificate signer workflow mismatch')
+        return subprocess.CompletedProcess(command, 0, stdout='[]')
+    monkeypatch.setattr(nightly.subprocess, 'run', verify)
+    if presented == 'unrelated.yml':
+        with pytest.raises(subprocess.CalledProcessError, match='exit status 1'):
+            nightly.verify_publisher_bundle(b'package', {}, artifact, repository, 'https://spdx.dev/Document')
+    else:
+        nightly.verify_publisher_bundle(b'package', {}, artifact, repository, 'https://spdx.dev/Document')
+    assert calls[0][calls[0].index('--source-digest') + 1] == 'c' * 40
+    assert calls[0][calls[0].index('--signer-workflow') + 1] == artifact['signerWorkflow']
+
+
+def test_unlisted_publisher_requires_explicit_workflow():
+    with pytest.raises(ValueError, match='not declared or allowlisted'):
+        nightly.signer_workflow({}, {}, 'honua-io/unlisted')
+    assert nightly.signer_workflow({'attestationWorkflow':
+        'honua-io/trusted-builder/.github/workflows/publish.yml'}, {}, 'honua-io/unlisted') == (
+        'honua-io/trusted-builder/.github/workflows/publish.yml')
+    assert nightly.signer_workflow({}, {'coordinate': '@honua/mcp-server'}, 'honua-io/honua-sdk-js').endswith(
+        '/publish-mcp-server.yml')
+
+
+@pytest.mark.parametrize('missing', ['awsLambdaImage', 'awsLambdaDigest', 'both'])
+def test_lambda_target_requires_image_even_when_field_is_absent(inputs, candidate, tmp_path, missing):
+    report, paths = inputs
+    data = yaml.safe_load(paths[0].read_text())
+    data['components']['honua-server'] = {**data['components']['sdk'],
+        'awsLambdaImage': 'ghcr.io/honua-io/honua-server@sha256:' + '6' * 64,
+        'awsLambdaDigest': 'sha256:' + '6' * 64}
+    for field in (['awsLambdaImage', 'awsLambdaDigest'] if missing == 'both' else [missing]):
+        del data['components']['honua-server'][field]
+    paths[0].write_text(yaml.safe_dump(data))
+    paths[1].write_text('contracts: {}\ndeploy:\n  honua-server:\n    awsLambda:\n      target: aws-serverless\n')
+    for path in paths:
+        report['candidate']['artifacts'][path.name] = {'sha256': _sha256(path), 'size': path.stat().st_size}
+    with pytest.raises(ValueError, match='declared deployment target requires an exact image and digest'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+            attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None)
+
+
+def test_freeze_gates_mint_real_generator_clears_rows_36_to_38(candidate, tmp_path):
+    from platform_lock_bundle import bind, bind_post_gate, canonical_bytes
+    from generate_platform_lock import pending
+    from validate_platform_lock import validate
+    gate_records = records(GATE_USES)
+    fixtures = fixture_revisions.declare(gate_records, run_id=RUN)
+    report, paths = build_inputs(candidate, tmp_path, gate_fixtures=fixtures, missing_post_gate=True)
+    original = yaml.safe_load(paths[0].read_text())
+    assert not nightly.POST_GATE_FIELDS & original['platformLockEvidence'].keys()
+    frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
+    assert all(frozen[field] == pending(field) for field in nightly.POST_GATE_FIELDS | {'fixtures'})
+    with pytest.raises(ValueError):
+        bind(frozen, *paths, '2026.1-rc.3')
+    references = nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None)
+    output = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', output, signer=signer, fixture_records=gate_records,
+         post_gate_evidence=references, notes_bundle=tmp_path / 'collected/release-notes.bundle')
+    shipped = output / paths[0].name
+    final = nightly.generate(shipped, paths[1])
+    assert final.unresolved == []
+    assert not validate(final.lock).errors
+    assert canonical_bytes(final.lock) == (output / 'platform-lock.json').read_bytes()
+    assert {key for key in frozen if canonical_bytes(frozen[key]) != canonical_bytes(final.lock[key])} == (
+        nightly.POST_GATE_FIELDS | {'fixtures', 'sourceInputs'})
+    original['platformLockEvidence'].update(references['references'], fixtures=fixtures,
+        evidenceDeclarations=report['evidenceDeclarations'])
+    assert canonical_bytes(original) == canonical_bytes(yaml.safe_load(shipped.read_text()))
+    assert final.lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(shipped)
+    assert final.lock['sourceInputs']['compatibilityMatrix'] == frozen['sourceInputs']['compatibilityMatrix']
+    assert (output / 'qualification-lock.json').read_bytes() == (tmp_path / 'qualification-lock.json').read_bytes()
+    bind_post_gate(final.lock, shipped, paths[1], '2026.1-rc.3', output)
+
+
+def test_boolean_integer_drift_in_qualification_is_refused_before_signing(inputs, tmp_path):
+    from platform_lock_bundle import canonical_bytes
+    report, paths = inputs
+    lock_path = tmp_path / 'qualification-lock.json'
+    lock = json.loads(lock_path.read_bytes())
+    assert lock['disasterRecovery']['substrates']['postgresql'] is True
+    lock['disasterRecovery']['substrates']['postgresql'] = 1
+    lock_path.write_bytes(canonical_bytes(lock))
+    refuses_before_signing(report, paths, tmp_path, 'qualification lock differs')
+
+
+def test_boolean_integer_drift_outside_post_gate_fields_is_refused(inputs, tmp_path):
+    report, paths = inputs
+    frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
+    frozen['disasterRecovery']['substrates']['postgresql'] = 1
+    source = nightly.attach_post_gate(paths[0], fresh_references(report, paths)['references'],
+                                      report['evidenceDeclarations'], tmp_path)
+    with pytest.raises(ValueError, match='changed facts outside'):
+        nightly.regenerate_post_gate(source, paths[1], frozen, fresh_references(report, paths)['references'])
+
+
+def test_collection_token_and_unsigned_freeze_are_fail_closed():
+    jobs = _workflow('release-train.yml')['jobs']
+    freeze = next(s for s in jobs['freeze']['steps'] if s.get('name') == 'Generate the unsigned nightly qualification lock')
+    assert freeze['run'].count('--qualification') == 2
+    collection = next(s for s in jobs['report']['steps'] if '--collect-post-gate' in s.get('run', ''))
+    assert collection['env']['GH_TOKEN'] == '${{ secrets.RELEASE_GH_TOKEN }}'
+    assert '[ -z "${GH_TOKEN:-}" ]' in collection['run']
+    assert 'exit 1' in collection['run']
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda data: data['disasterRecovery']['substrates'].update(postgresql=1),
+    lambda data: data['components']['sdk'].update(version='9.9.9'),
+    lambda data: data['platformLockEvidence']['contentDigests'].clear(),
+    lambda data: data['platformLockEvidence']['fixtures'][0].update(revision='b' * 40),
+    lambda data: data['platformLockEvidence']['evidenceDeclarations']['cite'].update(receipt='hand.json'),
+])
+def test_promotion_rejects_any_manifest_change_outside_observed_declarations(inputs, tmp_path, mutation):
+    from platform_lock_bundle import bind_post_gate
+    report, paths = inputs
+    output = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', output, signer=signer)
+    shipped = output / paths[0].name
+    data = yaml.safe_load(shipped.read_text())
+    mutation(data)
+    shipped.write_text(yaml.safe_dump(data, sort_keys=True))
+    with pytest.raises(ValueError, match='shipped manifest changed facts outside'):
+        bind_post_gate(json.loads((output / 'platform-lock.json').read_bytes()), shipped,
+                       paths[1], '2026.1-rc.3', output, image_inspector=None)

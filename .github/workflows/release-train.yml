@@ -114,10 +114,10 @@ jobs:
         run: |
           set -euo pipefail
           python tools/generate_platform_lock.py --manifest platform-manifest.yaml \
-            --matrix compatibility-matrix.yaml --output platform-lock.json
+            --matrix compatibility-matrix.yaml --output platform-lock.json --qualification
           python tools/platform_lock_bundle.py platform-lock.json \
             --manifest platform-manifest.yaml --matrix compatibility-matrix.yaml \
-            --label "$PLATFORM_LABEL" --out-dir frozen-lock
+            --label "$PLATFORM_LABEL" --out-dir frozen-lock --qualification
 
       # A dry run still feeds certification gates. Every generator refusal stops freeze;
       # partial drafts must never be relabelled as gate inputs. Successful drafts are labelled
@@ -664,11 +664,13 @@ jobs:
       - name: Collect immutable post-gate SBOM, provenance and notes references
         if: inputs.nightly && inputs.dry_run == false && steps.assemble.outputs.overall == 'pass'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
           set -euo pipefail
-          # Freeze still requires a complete lock. Only a green gate_sbom and complete train
-          # reach collection; none of the pre-gate hand-declared references is reused.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::RELEASE_GH_TOKEN is required to read publisher evidence"; exit 1
+          fi
+          # Only the complete green train may fill the unsigned pending draft.
           python tools/mint_nightly_lock.py --collect-post-gate \
             --report out/certified-candidate/gate-report.json \
             --manifest out/certified-candidate/platform-manifest.yaml \

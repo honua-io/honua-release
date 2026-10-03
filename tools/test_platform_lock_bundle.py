@@ -482,3 +482,36 @@ def test_bind_refuses_image_architectures_the_registry_disagrees_with(candidate,
     lock, paths = _image_candidate(candidate, image, declared)
     with pytest.raises(ValueError, match="platformDigests do not match registry Linux architecture identities"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_pending_qualification_is_checked_exactly_and_never_signable(candidate):
+    lock, paths, _ = candidate
+    data = yaml.safe_load(paths[0].read_text())
+    for field in ('sbom', 'provenance', 'notes', 'fixtures'):
+        del data['platformLockEvidence'][field]
+    # This candidate has no deployment-owned denominator; declare the tested one explicitly.
+    data['disasterRecovery'] = {'substrates': {'postgresql': True}}
+    paths[0].write_text(yaml.safe_dump(data))
+    draft = bundle.generate(*paths, qualification=True)
+    assert draft.unresolved == []
+    bundle.bind_qualification(draft.lock, *paths, '2026.1-rc.1', image_inspector=None)
+    with pytest.raises(ValueError):
+        bundle.bind(draft.lock, *paths, '2026.1-rc.1', image_inspector=None)
+    forged = copy.deepcopy(draft.lock)
+    forged['notes'] = lock['notes']
+    with pytest.raises(ValueError, match='qualification lock differs'):
+        bundle.bind_qualification(forged, *paths, '2026.1-rc.1', image_inspector=None)
+
+
+def test_qualification_binding_rejects_boolean_integer_and_input_hash_drift(candidate):
+    _, paths, _ = candidate
+    data = yaml.safe_load(paths[0].read_text())
+    data['disasterRecovery'] = {'substrates': {'postgresql': True}}
+    paths[0].write_text(yaml.safe_dump(data))
+    draft = bundle.generate(*paths, qualification=True)
+    for mutate in (lambda lock: lock['disasterRecovery']['substrates'].update(postgresql=1),
+                   lambda lock: lock['sourceInputs']['platformManifest'].update(sha256='sha256:' + '0' * 64)):
+        forged = copy.deepcopy(draft.lock)
+        mutate(forged)
+        with pytest.raises(ValueError, match='qualification lock differs'):
+            bundle.bind_qualification(forged, *paths, '2026.1-rc.1', image_inspector=None)

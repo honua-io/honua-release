@@ -582,25 +582,27 @@ def test_generator_emits_every_declared_release_fact(tmp_path):
                     ("$.contentDigests", "$.fixtures", "$.sbom", "$.provenance", "$.notes"))]
 
 
-def test_post_gate_override_does_not_change_freeze_refusal_or_source_identity(tmp_path):
+def test_qualification_records_pending_without_changing_default_signing_refusals(tmp_path):
     manifest = evidence_manifest()
-    references = {key: manifest['platformLockEvidence'].pop(key) for key in ('sbom', 'provenance', 'notes')}
+    for key in ('sbom', 'provenance', 'notes', 'fixtures'):
+        del manifest['platformLockEvidence'][key]
     frozen = draft_of(tmp_path, manifest)
-    regenerated = generator.generate(tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml',
-                                     post_gate_evidence=references)
-    assert all(any(f'$.{field}:' in refusal for refusal in frozen.unresolved)
-               for field in ('sbom', 'provenance', 'notes'))
-    assert not any(any(f'$.{field}:' in refusal for field in references) for refusal in regenerated.unresolved)
-    assert regenerated.lock['sourceInputs'] == frozen.lock['sourceInputs']
+    qualified = generator.generate(tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml', qualification=True)
+    for field in ('sbom', 'provenance', 'notes', 'fixtures'):
+        assert any(f'$.{field}:' in refusal for refusal in frozen.unresolved)
+        assert not any(f'$.{field}:' in refusal for refusal in qualified.unresolved)
+        assert qualified.lock[field] == {'status': 'post-gate pending', 'field': field}
+    assert qualified.lock['sourceInputs'] == frozen.lock['sourceInputs']
     again = generator.generate(tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml')
     assert again.unresolved == frozen.unresolved and again.lock == frozen.lock
 
 
-def test_post_gate_override_cannot_supply_component_or_fixture_facts(tmp_path):
-    draft_of(tmp_path, evidence_manifest())
-    with pytest.raises(ValueError, match='only sbom, provenance and notes'):
-        generator.generate(tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml',
-                           post_gate_evidence={'sbom': [], 'provenance': [], 'notes': NOTES, 'fixtures': []})
+def test_qualification_never_defers_other_missing_facts(tmp_path):
+    manifest = evidence_manifest()
+    del manifest['platformLockEvidence']['contentDigests']
+    draft_of(tmp_path, manifest)
+    qualified = generator.generate(tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml', qualification=True)
+    assert any('$.contentDigests' in refusal for refusal in qualified.unresolved)
 
 
 def test_generator_refuses_content_digest_at_a_moving_revision(tmp_path):
