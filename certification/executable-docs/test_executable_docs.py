@@ -508,3 +508,71 @@ def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     assert invocation[invocation.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert f"HOME={session.home}" in invocation
     assert (session.home / ".nuget/NuGet/NuGet.Config").exists()
+
+
+def test_inventory_check_exits_one_on_revision_drift(tmp_path, monkeypatch):
+    import inventory
+    committed = {"documents": [{"id": "doc", "revision": "a" * 40, "blocks": []}]}
+    current = {"documents": [{"id": "doc", "revision": "b" * 40, "blocks": []}]}
+    (tmp_path / "inventory.json").write_text(json.dumps(committed))
+    (tmp_path / "sources.json").write_text('{"documents":[]}')
+    (tmp_path / "manifest.yaml").write_text("platformRelease: 2026.1")
+    monkeypatch.setattr(inventory, "build", lambda *args: current)
+    monkeypatch.setattr(sys, "argv", ["inventory.py", "--check", "--sources", str(tmp_path / "sources.json"),
+                                     "--manifest", str(tmp_path / "manifest.yaml"),
+                                     "--inventory", str(tmp_path / "inventory.json")])
+    assert inventory.main() == 1
+
+
+def test_session_setup_exception_still_writes_complete_report(tmp_path, monkeypatch):
+    import run
+    documents = [{"repo": "honua-io/example", "path": path, "runtime": "node", "revision": {"checkout": True}}
+                 for path in ("first.md", "second.md")]
+    (tmp_path / "sources.json").write_text(json.dumps({"documents": documents, "runtimes": {"python": "pinned"}}))
+    (tmp_path / "manifest.yaml").write_text("components:\n  honua-server:\n    image: candidate\n    digest: sha256:" + "a" * 64)
+    class Resolver:
+        def __init__(self, *args, **kwargs):
+            pass
+        def revision(self, doc):
+            return "b" * 40
+        def read(self, *args):
+            return "```sh\ntrue\n```"
+    class Guards:
+        def __init__(self, *args):
+            pass
+        def base(self, network):
+            raise PermissionError("container-created directory")
+        def closure(self):
+            return {}
+        def refusals(self):
+            return []
+        def stop(self):
+            pass
+    monkeypatch.setattr(run, "Resolver", Resolver)
+    monkeypatch.setattr(run, "Guards", Guards)
+    monkeypatch.setattr(run, "prepare_tools", lambda *args: tmp_path)
+    monkeypatch.delenv("HONUA_SERVER_IMAGE", raising=False)
+    monkeypatch.setattr(sys, "argv", ["run.py", "--evidence-uri", "local", "--sources", str(tmp_path / "sources.json"),
+                                     "--manifest", str(tmp_path / "manifest.yaml"), "--inventory", str(tmp_path / "missing"),
+                                     "--workdir", str(tmp_path / "work"), "--output", str(tmp_path / "report.json"),
+                                     "--summary", str(tmp_path / "summary.md")])
+    assert run.main() == 1
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["status"] == "fail"
+    assert [d["path"] for d in report["documents"]] == ["first.md", "second.md"]
+    assert [d["blocks"][0]["status"] for d in report["documents"]] == ["fail", "fail"]
+    assert all("PermissionError" in d["blocks"][0]["stderrTail"] for d in report["documents"])
+    assert (tmp_path / "summary.md").exists()
+
+
+def test_typecheck_audits_package_installs(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={},
+                              run_compile=lambda *args: Outcome("pass", "typechecked", exit_code=0),
+                              installed_honua=lambda runtime: {"@honua/old": "0.0.1"})
+    result, _ = run_document({"runtime": "node"}, "```ts doc-test=compile\nconst value = 1;\n```", session, {},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert result["blocks"][0]["status"] == "fail"
+    assert "@honua/old 0.0.1 (admitted version: none)" in result["blocks"][0]["detail"]
