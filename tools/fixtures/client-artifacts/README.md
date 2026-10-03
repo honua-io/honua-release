@@ -17,8 +17,11 @@ dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa  nuget-1.10.0.n
 npm's `gitHead` is `1102d2d55916340edca13cb28411df8da8206f92`.
 NuGet's catalog and nuspec bind 1.10.1 to
 `8a0a06c815baefd49e7398d38a9f22642a8c80c5` and 1.10.0 to
-`d81067a035854a1bc4c396ed763ba0de6b18864e`. The PyPI wheel digest is
-registry-checked; its source pin is the published pin from the platform manifest.
+`d81067a035854a1bc4c396ed763ba0de6b18864e`. The recorded PyPI publish attestation binds the wheel digest to its signing
+certificate. Fulcio source repository digest extension `1.3.6.1.4.1.57264.1.13`
+is `12670676a1e8acb835e911c358adbf46a731120a`; the verifier requires this to match
+the manifest pin and checks the source repository and envelope signature.
+Certificate chain and transparency validation are trusted to PyPI over HTTPS.
 
 NuGet's recorded flat-container index lists 1.6.4 through 1.10.1 and omits 1.6.2.
 An anonymous request to
