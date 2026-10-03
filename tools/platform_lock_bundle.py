@@ -301,7 +301,9 @@ def main(argv=None) -> int:
             bind_post_gate(lock, args.manifest, args.matrix, args.label, args.lock.parent)
         else:
             bind(lock, args.manifest, args.matrix, args.label)
-        files = {"platform-lock.json": canonical_bytes(lock)} if args.qualification else bundle_files(lock)
+        files = ({"platform-lock.json": canonical_bytes(lock),
+                  "bom.cdx.json": canonical_bytes(build_bom(lock))}
+                 if args.qualification else bundle_files(lock))
         if args.check:
             for name, expected in files.items():
                 if (args.out_dir / name).read_bytes() != expected:

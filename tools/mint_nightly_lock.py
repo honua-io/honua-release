@@ -126,7 +126,8 @@ def predicate_valid(kind: str, predicate) -> bool:
             'builder': obj(['id'], {'id': uri}), 'buildType': uri,
             'invocation': obj(['parameters'], {'parameters': {'type': 'object'},
                 'configSource': {'type': 'object'}}),
-            'metadata': obj(['buildInvocationId'], {'buildInvocationId': text})})
+            'metadata': {**obj([], {'buildInvocationId': text, 'buildInvocationID': text}),
+                         'anyOf': [{'required': ['buildInvocationId']}, {'required': ['buildInvocationID']}]}})
     else:
         return False
     return Draft202012Validator(schema, format_checker=FormatChecker()).is_valid(predicate)

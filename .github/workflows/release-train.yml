@@ -313,6 +313,7 @@ jobs:
     needs: freeze
     uses: ./.github/workflows/gate-sbom.yml
     with:
+      candidate_snapshot: ${{ inputs.nightly }}
       candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}

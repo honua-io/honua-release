@@ -1170,3 +1170,15 @@ def test_promotion_rejects_any_manifest_change_outside_observed_declarations(inp
     with pytest.raises(ValueError, match='shipped manifest changed facts outside'):
         bind_post_gate(json.loads((output / 'platform-lock.json').read_bytes()), shipped,
                        paths[1], '2026.1-rc.3', output, image_inspector=None)
+
+
+def test_buildkit_invocation_id_spelling_is_validated():
+    kind = 'https://slsa.dev/provenance/v0.2'
+    predicate = valid_predicate(kind)
+    predicate['metadata']['buildInvocationID'] = predicate['metadata'].pop('buildInvocationId')
+    assert nightly.predicate_valid(kind, predicate)
+    predicate['metadata']['buildInvocationID'] = ''
+    assert not nightly.predicate_valid(kind, predicate)
+    predicate['metadata']['buildInvocationID'] = 'run-123'
+    predicate['builder']['id'] = ''
+    assert not nightly.predicate_valid(kind, predicate)
