@@ -78,7 +78,9 @@ services:
       # never receives it.
       HONUA_ADMIN_PASSWORD: "${S4_ADMIN_KEY:?minted per run by e2e/drivers/console/run.sh}"
       Security__ConnectionEncryption__MasterKey: "${S4_MASTER_KEY:?minted per run by e2e/drivers/console/run.sh}"
-      Licensing__DevGrantEdition: Enterprise
+      # Same 2026.1 contract as compose.candidate.yml. Disabled grants the full catalog (edition
+      # Enterprise, no metering). DevGrantEdition is development-only and is refused in Production.
+      Licensing__Mode: "Disabled"
       Oidc__Enabled: "true"
       Oidc__Generic__Enabled: "true"
       Oidc__Generic__DisplayName: "Keycloak (release S4)"

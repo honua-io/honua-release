@@ -122,23 +122,34 @@ stack_fail() { # stage detail
   exit 0
 }
 
+# Installed before render. render.sh can refuse (set -e would otherwise exit the driver with no
+# scenario row). run_all.sh keeps going after a non-zero driver, and assemble_report does not
+# require an S4 row, so that exit used to leave the gate green. stack_fail records the fail;
+# this trap still removes the realm dir on the way out.
+trap teardown EXIT
+
+# A previous honua-e2e-console-s4 run killed before its EXIT trap keeps these ports. The listener
+# check has to run AFTER this down: checking first exits before the project is removed, and every
+# later run on the same host stays red. Down also drops a half-initialised database and stale realm
+# state so this run's first migrate is actually a first migrate.
+"${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+
 port_free() { python3 -c 'import socket,sys;s=socket.socket();s.bind((sys.argv[1],int(sys.argv[2])));s.close()' "$1" "$2" 2>/dev/null; }
 for p in "0.0.0.0:$IDP_PORT" "127.0.0.1:$SERVER_PORT" "127.0.0.1:$LIVE_PORT"; do
   if ! port_free "${p%:*}" "${p##*:}"; then
-    rm -rf "$S4_RUN_DIR"
     emit_scenario "S4-console-studio" fail "S4 port ${p##*:} is already in use on this host (override HONUA_CONSOLE_E2E_IDP_HOST / E2E_CONSOLE_SERVER_PORT / HONUA_CONSOLE_E2E_LIVE_PORT)"
     exit 0
   fi
 done
 
-S4_IDP_HOSTNAME="$IDP_HOSTNAME" S4_CONSOLE_ORIGIN="$CONSOLE_ORIGIN" S4_CLIENT_SECRET="$S4_CLIENT_SECRET" \
-  S4_OPERATOR_USER="$OPERATOR_USER" S4_OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
-  bash "$HARNESS/keycloak/render.sh" "$S4_RUN_DIR"
-
-trap teardown EXIT
-# A stack left behind by an interrupted run would hand us an initialised database, whose first-run
-# restart never happens, and stale realm state. Start from nothing.
-"${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+RENDER_ERR="$E2E_OUT/console-s4-render.err"
+if ! S4_IDP_HOSTNAME="$IDP_HOSTNAME" S4_CONSOLE_ORIGIN="$CONSOLE_ORIGIN" S4_CLIENT_SECRET="$S4_CLIENT_SECRET" \
+     S4_OPERATOR_USER="$OPERATOR_USER" S4_OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
+     bash "$HARNESS/keycloak/render.sh" "$S4_RUN_DIR" 2>"$RENDER_ERR"; then
+  detail="$(head -n 1 "$RENDER_ERR" 2>/dev/null || true)"
+  [ -n "$detail" ] || detail="realm render failed"
+  stack_fail "realm" "$detail"
+fi
 
 echo "== S4: booting IdP + PostGIS + Redis (server image $HONUA_SERVER_IMAGE) ==" >&2
 "${COMPOSE[@]}" pull --quiet db redis keycloak server >/dev/null 2>&1 \
