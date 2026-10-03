@@ -108,28 +108,35 @@
       "moved": [
         "honua-release#423",
         "honua-release#424",
+        "honua-release#431",
         "honua-samples#59",
         "honua-samples#60",
         "honua-samples#61",
+        "honua-samples#62",
         "honua-sdk-dotnet#402",
         "honua-sdk-dotnet#403",
         "honua-sdk-dotnet#404",
+        "honua-sdk-dotnet#407",
         "honua-sdk-js#1886",
         "honua-sdk-js#1887",
         "honua-sdk-js#1888",
         "honua-sdk-js#1889",
+        "honua-sdk-js#1897",
         "honua-sdk-python#251",
         "honua-sdk-python#252",
         "honua-sdk-python#253",
         "honua-sdk-python#254",
+        "honua-sdk-python#257",
         "honua-server#5386",
         "honua-server#5387",
         "honua-server#5388",
         "honua-server#5389",
+        "honua-server#5411",
         "honua-site#286",
         "honua-site#287",
         "honua-site#288",
-        "honua-site#289"
+        "honua-site#289",
+        "honua-site#292"
       ]
     },
     "R29": {
@@ -726,6 +733,41 @@
       "bucket": "prove-against-candidate",
       "ruling": "R18",
       "reason": "Ruling R18 (2026-09-29, https://github.com/honua-io/honua-release/issues/376#issuecomment-5885024688) names this issue as its implementation: templates and samples follow the promoted channel instead of exact pins. Channels move only at promotion, so this must be proven on the promotion candidate before GA; it is not a prerequisite for minting a certified lock."
+    },
+    "honua-release#431": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-samples#62": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-dotnet#407": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1897": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-python#257": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-server#5411": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-site#292": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
     }
   },
   "admission_reviews": {
@@ -2443,6 +2485,41 @@
       "body_sha256": "f2b15ae3eeea8d599f1b19de632ff8aacade633c91217f0fd7fce665509a5ea4",
       "named_promise": false,
       "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-release#431": {
+      "body_sha256": "b51a55ab37ef9ac8cbbd1291c5a7ea0d1ec870aa4c8d757ef8f59fa30b734337",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-samples#62": {
+      "body_sha256": "ba74a65b9c7aa5e591812c2eba26f8867d62b205d09dd73d44a817a16fc1b5f3",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-dotnet#407": {
+      "body_sha256": "c910457c3c3d91edd61590b2c0fe365c374d5f205fa10e3c1c72d6d40ac7c12b",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-js#1897": {
+      "body_sha256": "23bfd93a47be9e78841e3ee991a122bba5c1b92aa2f4888464505fbf6491274a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-python#257": {
+      "body_sha256": "59d0ec17b4c14d55ecabaeb17957d2b0a8a1eb26759bea9cd882c788700f638a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5411": {
+      "body_sha256": "08177cbf851aae9bf174761eeb557cb8224d1eb935b4abd906cdafbad4766173",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-site#292": {
+      "body_sha256": "998a9301f2ef7626e2095bcd938ce33a68396314492a66d8b9ee29af5854473a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
     }
   }
 }
