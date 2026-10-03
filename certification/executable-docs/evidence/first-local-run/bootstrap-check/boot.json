@@ -1,0 +1,10 @@
+{
+  "booted": true,
+  "reason": null,
+  "detail": null,
+  "image": "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+  "healthUrl": "http://localhost:18180/healthz/ready",
+  "exitCode": 0,
+  "containerState": "running",
+  "errorLines": []
+}
