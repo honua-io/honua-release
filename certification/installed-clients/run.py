@@ -29,6 +29,8 @@ DRIVERS = {"npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget"
 # implements it; the MCP server bins are stdio servers that refuse to start without configuration.
 EXECUTABLE_CONTRACTS = {"help", "mcp-stdio", "mcp-proxy"}
 BLOCKER = re.compile(r"https://github\.com/honua-io/[A-Za-z0-9_.-]+/issues/[0-9]+")
+SETUP_BLOCKER = "https://github.com/honua-io/honua-sdk-js/issues/1875"
+IMPORT_BLOCKER = "https://github.com/honua-io/honua-release/issues/418"
 NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
 _IMPORT_FIDELITY = None
@@ -224,6 +226,30 @@ def _terminal_probes():
     return _PROBES
 
 
+class ExpectedBlocker(CertificationError):
+    pass
+
+
+def validate_initialize(payload: dict[str, Any]) -> None:
+    result = payload.get("result")
+    identity = result.get("serverInfo") if isinstance(result, dict) else None
+    if (
+        "error" in payload
+        or not isinstance(result, dict)
+        or result.get("protocolVersion") != "2025-06-18"
+        or not isinstance(identity, dict)
+        or any(not isinstance(identity.get(field), str) or not identity[field] for field in ("name", "version"))
+    ):
+        raise _terminal_probes().McpError("initialize omitted a supported protocol or valid server identity")
+
+
+def valid_tool_names(tools: list[Any]) -> bool:
+    return bool(tools) and all(
+        isinstance(tool, dict) and isinstance(tool.get("name"), str) and bool(tool["name"])
+        for tool in tools
+    ) and len({tool["name"] for tool in tools}) == len(tools)
+
+
 def mcp_tools_list(shim: Path, contract: str, server: str) -> tuple[bool, str]:
     """initialize + tools/list through the installed npm shim, exactly as a customer launches it."""
     probes = _terminal_probes()
@@ -234,15 +260,13 @@ def mcp_tools_list(shim: Path, contract: str, server: str) -> tuple[bool, str]:
     try:
         with probes.McpProxySession([str(shim)], remote, env=env) as session:
             initialized = session.initialize()
-            if "error" in initialized:
-                return False, f"initialize returned {initialized['error']}"
+            validate_initialize(initialized)
             tools = session.list_tools()
     except (probes.McpError, OSError) as exc:
         return False, f"live tools/list failed: {exc}"
-    names = [tool.get("name") for tool in tools if isinstance(tool, dict)]
-    if not names or len(names) != len(tools) or len(set(names)) != len(names):
+    if not valid_tool_names(tools):
         return False, "live tools/list returned an empty or malformed catalog"
-    return True, f"{len(names)} tools"
+    return True, f"{len(tools)} tools"
 
 
 def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tuple[bool, str]:
@@ -252,24 +276,32 @@ def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tu
     try:
         with probes.McpProxySession([str(proxy)], remote_url) as session:
             initialized = session.initialize(workflow_view=view)
-            if "error" in initialized:
-                return False, f"initialize returned {initialized['error']}"
+            validate_initialize(initialized)
             payload = session.request("tools/list")
     except (probes.McpError, OSError) as exc:
         return False, f"installed proxy setup-view exchange failed: {exc}"
     if "error" in payload:
         return False, f"selector-free tools/list returned {payload['error']}"
-    result = payload.get("result") or {}
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return False, "selector-free tools/list returned a malformed result"
     tools = result.get("tools") if isinstance(result.get("tools"), list) else []
     meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
-    names = [tool.get("name") for tool in tools if isinstance(tool, dict) and isinstance(tool.get("name"), str)]
     observed = f"view={meta.get('view')!r} revision={meta.get('revision')!r} tools={len(tools)}"
+    if (
+        view == "setup" and count == 25
+        and result.get("nextCursor") is None
+        and meta.get("view") == "default" and meta.get("revision") == "default.v2"
+        and meta.get("toolCount") == 12
+        and len(tools) == 12 and valid_tool_names(tools)
+    ):
+        raise ExpectedBlocker(f"selector-free tools/list dropped the setup selector: {observed}")
     if (
         result.get("nextCursor") is not None
         or meta.get("view") != view
         or meta.get("toolCount") != count
         or len(tools) != count
-        or len(set(names)) != count
+        or not valid_tool_names(tools)
     ):
         return False, (
             f"selector-free tools/list after initialize with workflow view {view!r} returned {observed}; "
@@ -467,12 +499,17 @@ def run_cell(
             ok, detail = False, "the setup-view exchange needs a live candidate (--live)"
         elif ok:
             proxy = work / "node_modules" / ".bin" / "honua-mcp-proxy"
-            ok, detail = probe_setup_view(proxy, f"{server}/mcp", cell["expect"])
+            try:
+                ok, detail = probe_setup_view(proxy, f"{server}/mcp", cell["expect"])
+            except ExpectedBlocker as exc:
+                return f"blocked:{SETUP_BLOCKER}", str(exc)
     elif driver in {"pypi", "pypi-admin"}:
         ok, detail = install_pypi(pin, work)
     elif driver == "nuget":
         ok, detail = install_nuget(pin, work)
     elif driver == "nuget-import-fidelity":
+        if import_fidelity_receipt is None:
+            return f"blocked:{IMPORT_BLOCKER}", "no published-.NET-SDK consumer receipt; missing evidence is not a pass"
         return evaluate_import_fidelity(manifest, import_fidelity_receipt)
     else:
         return "fail", f"no executor for driver {driver!r}"
@@ -482,13 +519,15 @@ def run_cell(
 def classify(cell: dict[str, Any], observed: str, detail: str) -> tuple[str, str]:
     """Map an observed outcome onto the matrix expectation. A blocked cell never passes silently."""
     if cell["status"] != "blocked":
-        return observed, detail
+        return ("fail" if observed.startswith("blocked:") else observed), detail
     if observed == "pass":
         return "fail", (
             f"matrix marks this cell blocked by {cell['blockedBy']}, but it passed ({detail}); "
             "set it active in matrix.json"
         )
-    return "blocked", f"blocked by {cell['blockedBy']}: {detail}"
+    if observed == f"blocked:{cell['blockedBy']}":
+        return "blocked", f"blocked by {cell['blockedBy']}: {detail}"
+    return "fail", detail
 
 
 def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]:

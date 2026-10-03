@@ -8,10 +8,13 @@ operation, target, and durable CI evidence URI.
 
 `matrix.json` is the only source of expected outcomes. A cell with `status: active` must pass. A
 cell with `status: blocked` must name the issue that blocks it in `blockedBy`. It still runs on
-every execution and is reported `blocked` with that issue, never as a pass. If a blocked cell starts
+every execution and is reported `blocked` only when its specific named blocker is observed.
+Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
+remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v2` catalog;
+the import-fidelity blocker requires an absent receipt because no producer exists yet. If a blocked cell starts
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
 observed rather than assumed. `run.py` exits 0 only when every active cell passes and no blocked
-cell passes silently. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
+cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
 the workflow asserts nothing else.
 
 Every cell is executable. Both npm lanes download the registry tarball and recompute its SHA-512

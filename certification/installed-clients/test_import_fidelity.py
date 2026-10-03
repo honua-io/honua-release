@@ -289,11 +289,11 @@ class ImportFidelityGateTests(unittest.TestCase):
 
     def _execute(self, matrix, receipt=None):
         manifest, _requirements = _inputs()
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
             installed, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(installed, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             installed, "install_nuget", return_value=(True, "ok")
-        ):
+        ), mock.patch.object(installed, "probe_setup_view", side_effect=installed.ExpectedBlocker("known selector loss")):
             result = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=receipt)
         row = next(item for item in result["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
         return result, row
@@ -319,6 +319,15 @@ class ImportFidelityGateTests(unittest.TestCase):
         self.assertEqual(row["blockedBy"], "https://github.com/honua-io/honua-release/issues/418")
         self.assertIn("missing evidence is not a pass", row["detail"])
         self.assertEqual(receipt["status"], "blocked")
+
+    def test_blocked_import_cell_rejects_supplied_invalid_evidence(self):
+        committed, _ = self._matrices()
+        for supplied in ({}, {"schemaVersion": 999}):
+            with self.subTest(receipt=supplied):
+                receipt, row = self._execute(committed, supplied)
+                self.assertEqual(row["status"], "fail")
+                self.assertEqual(receipt["status"], "fail")
+                self.assertEqual(len(installed.verify_receipt(committed, receipt)), 1)
 
     def test_installed_client_cell_accepts_only_a_matching_receipt(self):
         manifest, requirements = _inputs()

@@ -87,7 +87,7 @@ class InstalledCertificationTests(unittest.TestCase):
             {
                 "npm-node-geoservices-error": "pass",
                 "npm-mcp-tools-list": "pass",
-                "npm-mcp-setup-view-tools-list": "blocked",
+                "npm-mcp-setup-view-tools-list": "fail",
                 "pypi-python-geoservices-error": "fail",
                 "pypi-admin-clean-install": "fail",
                 "nuget-net10-geoservices-error": "pass",
@@ -99,7 +99,7 @@ class InstalledCertificationTests(unittest.TestCase):
         self.assertIn("needs a live candidate", setup["detail"])
         imported = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
         self.assertIn("missing evidence is not a pass", imported["detail"])
-        self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 2)
+        self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 3)
 
     def test_matrix_includes_mcp_consumer(self):
         _, matrix = inputs()
@@ -164,11 +164,11 @@ class MatrixExpectationTests(unittest.TestCase):
 
     def test_all_active_passing_exits_zero_with_blocked_cells_reported(self):
         manifest, matrix = inputs()
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
             mod, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             mod, "install_nuget", return_value=(True, "ok")
-        ):
+        ), mock.patch.object(mod, "probe_setup_view", side_effect=mod.ExpectedBlocker("known selector loss")):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(
@@ -180,11 +180,11 @@ class MatrixExpectationTests(unittest.TestCase):
 
     def test_failed_active_cell_exits_one(self):
         manifest, matrix = inputs()
-        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
             mod, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             mod, "install_nuget", return_value=(False, "restored NuGet package digest mismatch")
-        ):
+        ), mock.patch.object(mod, "probe_setup_view", side_effect=mod.ExpectedBlocker("known selector loss")):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(
@@ -207,6 +207,39 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertIn("set it active in matrix.json", setup["detail"])
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 1)
+
+    def test_unexpected_blocked_cell_failures_remain_fatal(self):
+        manifest, matrix = inputs()
+        setup_cell = matrix["cells"][2]
+        import_cell = matrix["cells"][-1]
+        for detail in ("npm download failed", "npm archive integrity mismatch", "npm install failed"):
+            with self.subTest(detail=detail), mock.patch.object(mod, "install_npm", return_value=(False, detail)):
+                observed, reason = mod.run_cell(setup_cell, manifest, Path("unused"), None)
+            self.assertEqual(mod.classify(setup_cell, observed, reason), ("fail", detail))
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(False, "invalid MCP evidence")):
+            observed, reason = mod.run_cell(setup_cell, manifest, Path("unused"), None)
+        self.assertEqual(mod.classify(setup_cell, observed, reason), ("fail", "invalid MCP evidence"))
+        for receipt in ({}, {"schemaVersion": 999}):
+            observed, reason = mod.run_cell(import_cell, manifest, Path("unused"), receipt)
+            self.assertEqual(mod.classify(import_cell, observed, reason)[0], "fail")
+        self.assertEqual(mod.classify(setup_cell, f"blocked:{mod.IMPORT_BLOCKER}", "wrong blocker")[0], "fail")
+
+    def test_unexpected_blocked_failure_exits_one(self):
+        manifest, matrix = inputs()
+        for failed_cell in (matrix["cells"][2], matrix["cells"][-1]):
+            def run(cell, *args):
+                if cell == failed_cell:
+                    return "fail", "unexpected infrastructure/evidence failure"
+                if cell["status"] == "blocked":
+                    return f"blocked:{cell['blockedBy']}", "expected blocker"
+                return "pass", "ok"
+            with self.subTest(cell=failed_cell["id"]), mock.patch.object(mod, "run_cell", side_effect=run):
+                receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+                self.assertEqual(receipt["status"], "fail")
+                self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 1)
+                self.assertEqual(self._main(receipt), 1)
 
     def test_verify_receipt_requires_every_matrix_cell(self):
         _, matrix = inputs()
@@ -262,6 +295,10 @@ for line in sys.stdin:
         result = {{"tools": tools, "_meta": {{"view": view, "revision": view + ".v2", "toolCount": count}}}}
     else:
         continue
+    if method == "initialize" and "FAKE_INITIALIZE" in os.environ:
+        result = json.loads(os.environ["FAKE_INITIALIZE"])
+    if method == "tools/list" and "FAKE_CATALOG" in os.environ:
+        result = json.loads(os.environ["FAKE_CATALOG"])
     sys.stdout.write(json.dumps({{"jsonrpc": "2.0", "id": message["id"], "result": result}}) + "\n")
     sys.stdout.flush()
 """
@@ -278,9 +315,8 @@ class McpExchangeTests(unittest.TestCase):
 
     def test_published_proxy_that_drops_the_setup_view_fails(self):
         with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "0"}):
-            ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
-        self.assertFalse(ok)
-        self.assertIn("view='default' revision='default.v2' tools=12", detail)
+            with self.assertRaisesRegex(mod.ExpectedBlocker, "view='default' revision='default.v2' tools=12"):
+                mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
 
     def test_proxy_that_preserves_the_setup_view_passes(self):
         with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "1"}):
@@ -302,6 +338,49 @@ class McpExchangeTests(unittest.TestCase):
             ok, detail = mod.mcp_tools_list(self.proxy, "mcp-proxy", "http://127.0.0.1:9")
         self.assertFalse(ok)
         self.assertIn("live tools/list failed", detail)
+
+    def test_invalid_initialize_results_fail_both_executables_and_setup_view(self):
+        valid = {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fake", "version": "1"}}
+        invalid = [None, {}, {**valid, "protocolVersion": "2024-11-05"},
+                   {**valid, "serverInfo": None}]
+        for field in ("name", "version"):
+            for value in (None, "", 7):
+                invalid.append({**valid, "serverInfo": {**valid["serverInfo"], field: value}})
+        for result in invalid:
+            for contract in ("mcp-proxy", "mcp-stdio", "setup"):
+                with self.subTest(result=result, contract=contract), mock.patch.dict(
+                    os.environ, {"FAKE_INITIALIZE": json.dumps(result),
+                                 "FAKE_CONTRACT": "stdio" if contract == "mcp-stdio" else "proxy"}
+                ):
+                    if contract == "setup":
+                        ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
+                    else:
+                        ok, detail = mod.mcp_tools_list(self.proxy, contract, "http://127.0.0.1:9")
+                    self.assertFalse(ok, detail)
+                    self.assertIn("proxy response result/error must be an object" if result is None else "initialize omitted", detail)
+
+    def test_invalid_tool_names_fail_live_catalog_validation(self):
+        for tool in ({}, {"name": None}, {"name": ""}, {"name": 7}, {"name": []},
+                     {"name": "valid"}, "not an object"):
+            for contract in ("mcp-proxy", "mcp-stdio"):
+                with self.subTest(tool=tool, contract=contract), mock.patch.dict(os.environ, {
+                    "FAKE_CATALOG": json.dumps({"tools": [{"name": "valid"}, tool]}),
+                    "FAKE_CONTRACT": "stdio" if contract == "mcp-stdio" else "proxy",
+                }):
+                    ok, detail = mod.mcp_tools_list(self.proxy, contract, "http://127.0.0.1:9")
+                    self.assertFalse(ok)
+                    self.assertIn("malformed catalog", detail)
+
+    def test_only_complete_known_default_view_is_an_expected_blocker(self):
+        default = {"tools": [{"name": f"tool_{i}"} for i in range(12)],
+                   "_meta": {"view": "default", "revision": "default.v2", "toolCount": 12}}
+        malformed = [None, {}, {**default, "nextCursor": "more"},
+                     {**default, "tools": default["tools"][:-1] + [{}]},
+                     {**default, "_meta": {**default["_meta"], "revision": "unknown"}}]
+        for result in malformed:
+            with self.subTest(result=result), mock.patch.dict(os.environ, {"FAKE_CATALOG": json.dumps(result)}):
+                ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
+            self.assertFalse(ok, detail)
 
     def test_installed_executables_must_match_the_matrix_contract(self):
         pin = inputs()[0]["clientArtifacts"]["honua-mcp-server"]
