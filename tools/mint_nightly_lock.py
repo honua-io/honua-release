@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 
 import yaml
 
@@ -75,8 +76,58 @@ def publisher_attestations(repository: str, digest: str) -> list[dict]:
     return [row for page in pages for row in page['attestations']]
 
 
+def published_artifact_bytes(artifact: dict) -> bytes:
+    """Fetch the public package and check its locked hash before attestation lookup."""
+    from resolve_trunk_candidate import retry
+    from verify_client_artifacts import _request, _request_json
+    kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact['version']
+    if kind == 'npm':
+        metadata = retry(lambda: _request_json('https://registry.npmjs.org/'
+            + urllib.parse.quote(coordinate, safe='') + '/' + urllib.parse.quote(version, safe='')))
+        url = str((metadata.get('dist') or {}).get('tarball', ''))
+        if urllib.parse.urlparse(url).hostname != 'registry.npmjs.org':
+            raise ValueError('npm returned an untrusted tarball URL')
+    elif kind == 'nuget':
+        package, release = urllib.parse.quote(coordinate.lower(), safe=''), urllib.parse.quote(version.lower(), safe='')
+        url = f'https://api.nuget.org/v3-flatcontainer/{package}/{release}/{package}.{release}.nupkg'
+    elif kind == 'wheel':
+        metadata = retry(lambda: _request_json('https://pypi.org/pypi/'
+            + urllib.parse.quote(coordinate, safe='') + '/' + urllib.parse.quote(version, safe='') + '/json'))
+        matches = [row for row in metadata.get('urls', [])
+                   if 'sha256:' + (row.get('digests') or {}).get('sha256', '') == artifact.get('sha256')]
+        if len(matches) != 1:
+            raise ValueError('PyPI does not publish exactly one wheel with the locked digest')
+        url = matches[0]['url']
+        if urllib.parse.urlparse(url).hostname not in {'pypi.org', 'files.pythonhosted.org'}:
+            raise ValueError('PyPI returned an untrusted wheel URL')
+    elif kind in {'spec', 'archive'} and coordinate.startswith('https://github.com/'):
+        url = coordinate.replace('/blob/', '/raw/', 1) if kind == 'spec' else coordinate
+    else:
+        raise ValueError(f'no published-byte reader for {kind}:{coordinate}')
+    raw = retry(lambda: _request(url))
+    expected = artifact_subject(artifact)
+    actual = ('sha512:' + hashlib.sha512(raw).hexdigest() if expected.startswith('sha512:')
+              else 'sha256:' + hashlib.sha256(raw).hexdigest())
+    if actual != expected:
+        raise ValueError('downloaded package does not match its locked hash')
+    return raw
+
+
+def verify_publisher_bundle(raw: bytes, bundle: dict, artifact: dict, repository: str, predicate: str) -> None:
+    from resolve_trunk_candidate import retry
+    with tempfile.TemporaryDirectory(prefix='verify-publisher-') as directory:
+        package = Path(directory) / 'artifact.bin'
+        document = Path(directory) / 'attestation.json'
+        package.write_bytes(raw)
+        document.write_text(json.dumps(bundle))
+        retry(lambda: subprocess.run(['gh', 'attestation', 'verify', str(package), '--bundle', str(document),
+            '--repo', repository, '--source-digest', artifact['sourceRevision'],
+            '--predicate-type', predicate, '--format', 'json'], capture_output=True, text=True, check=True))
+
+
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
-                      github=None, registry=None, attestations=publisher_attestations) -> dict:
+                      github=None, registry=None, attestations=publisher_attestations,
+                      artifact_bytes=published_artifact_bytes, verifier=verify_publisher_bundle) -> dict:
     """Collect actual registry statements/bundles; never reuse manifest evidence declarations.
 
     OCI indexes must cover each runnable child, including the separately deployed Lambda image.
@@ -149,8 +200,10 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 continue
             repo = component['source']['repository'].removeprefix('https://github.com/')
             try:
+                raw = artifact_bytes(artifact)
+                digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
                 rows = attestations(repo, digest)
-            except (ValueError, subprocess.CalledProcessError) as exc:
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                 errors.append(f'{context}: publisher attestations unavailable: '
                               + str(getattr(exc, 'stderr', None) or exc).strip())
                 continue
@@ -161,6 +214,12 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 statement = json.loads(base64.b64decode(envelope.get('payload', ''), validate=True))
                 field = statement_field(statement, {digest})
                 if not field:
+                    continue
+                try:
+                    verifier(raw, bundle, artifact, repo, statement['predicateType'])
+                except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                    errors.append(f'{context}: {field} attestation verification refused: '
+                                  + str(getattr(exc, 'stderr', None) or exc).strip())
                     continue
                 path = f'attestations/{name}/{digest.replace(":", "-")}/{field}-{number}.json'
                 documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
@@ -562,6 +621,7 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         verify_reference_bundle(post_gate_evidence, notes_bundle, manifest, matrix, report)
         # The green receipts described the freeze lock. Only after checking that binding and the
         # three-field delta can their lock digest be retargeted. No status/time/class is changed.
+        qualification_report = report
         report = copy.deepcopy(report)
         digest = 'sha256:' + hashlib.sha256(canonical_bytes(draft.lock)).hexdigest()
         for receipt in report['evidenceReceipts'].values():
@@ -593,13 +653,16 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
                 qualified = staging / 'qualification-inputs'
                 qualified.mkdir()
                 (qualified / manifest.name).write_bytes(manifest.read_bytes())
-                (qualified / 'gate-report.json').write_bytes(canonical_bytes(report))
+                (qualified / 'gate-report.json').write_bytes(canonical_bytes(qualification_report))
                 (staging / manifest.name).write_bytes(source.read_bytes())
                 retained_report['candidate']['artifacts'][manifest.name] = {
                     **pins[manifest.name], 'sha256': _sha256(source), 'size': source.stat().st_size}
             (staging / 'gate-report.json').write_bytes(canonical_bytes(retained_report))
             (staging / 'post-gate-references.json').write_bytes(canonical_bytes(post_gate_evidence))
             (staging / 'qualification-lock.json').write_bytes(qualification_lock.read_bytes())
+            (staging / 'qualification-gate-report.json').write_bytes(canonical_bytes(qualification_report))
+            (staging / 'release-notes.bundle').write_bytes(notes_bundle.read_bytes())
+            (staging / 'release-notes-revision.txt').write_text(post_gate_evidence['notesRevision'] + '\n')
             for name, receipt in report['evidenceReceipts'].items():
                 path = staging / 'promotion-receipts' / name / 'receipt.json'
                 path.parent.mkdir(parents=True)

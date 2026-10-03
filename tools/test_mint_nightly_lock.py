@@ -1,4 +1,6 @@
 import copy
+import base64
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -186,6 +188,91 @@ def test_regeneration_refuses_non_evidence_drift(inputs, tmp_path):
     evidence = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
     with pytest.raises(ValueError, match='outside sbom, provenance and notes'):
         nightly.regenerate_post_gate(*paths, frozen, {field: evidence[field] for field in nightly.POST_GATE_FIELDS})
+
+
+def publisher_bundles(repository, digest):
+    return [{'bundle': {'dsseEnvelope': {'payload': base64.b64encode(json.dumps({
+        'predicateType': predicate, 'subject': [{'name': 'published-package',
+                                                'digest': {'sha256': digest.split(':')[1]}}],
+        'predicate': {}}).encode()).decode(), 'signatures': [{'sig': 'test-seam'}]}}}
+        for predicate in ('https://slsa.dev/provenance/v1', 'https://spdx.dev/Document')]
+
+
+def test_collection_snapshots_verified_packages_and_discards_hand_refs(inputs, candidate, tmp_path):
+    report, paths = inputs
+    _, _, package = candidate
+    verified = []
+    evidence = nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: package,
+        verifier=lambda *args: verified.append(args))
+    published = {name for name, row in nightly.generate(*paths).lock['components'].items() if row['artifacts']}
+    assert len(verified) == 2 * len(published)
+    for field in ('sbom', 'provenance'):
+        assert {row['component'] for row in evidence['references'][field]} == published
+        assert all('@' + evidence['notesRevision'] + ':attestations/' in row['uri']
+                   for row in evidence['references'][field])
+        assert all(row['uri'].rsplit('#', 1)[1] == row['sha256'] for row in evidence['references'][field])
+    nightly.verify_reference_bundle(evidence, tmp_path / 'collected/release-notes.bundle', *paths, report)
+    assert evidence['candidate'] == report['candidate']
+
+
+@pytest.mark.parametrize('missing', ['sbom', 'provenance'])
+def test_collection_requires_both_publisher_predicates(inputs, candidate, tmp_path, missing):
+    report, paths = inputs
+    _, _, package = candidate
+    def bundles(repo, digest):
+        rows = publisher_bundles(repo, digest)
+        return rows[:1] if missing == 'sbom' else rows[1:]
+    with pytest.raises(ValueError, match=f'publisher has no {missing} attestation'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', attestations=bundles,
+                                  artifact_bytes=lambda artifact: package, verifier=lambda *args: None)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_collection_rejects_unverified_package_attestations(inputs, candidate, tmp_path):
+    report, paths = inputs
+    def refuse(*args):
+        raise ValueError('wrong source revision or signature')
+    with pytest.raises(ValueError, match='wrong source revision or signature'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', attestations=publisher_bundles,
+                                  artifact_bytes=lambda artifact: candidate[2], verifier=refuse)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_lambda_without_attestations_reports_the_exact_upstream_blocker(inputs, candidate, tmp_path):
+    report, paths = inputs
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest['components']['honua-server'] = {
+        **manifest['components']['sdk'], 'awsLambdaImage': 'ghcr.io/honua-io/honua-server:nightly-lambda-aot-abc-amd64',
+        'awsLambdaDigest': 'sha256:' + '6' * 64}
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    class Registry:
+        def document(self, repository, digest, **kwargs):
+            assert digest == 'sha256:' + '6' * 64
+            return {'schemaVersion': 2, 'layers': []}
+    with pytest.raises(ValueError) as refused:
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=Registry(),
+                                  attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+                                  verifier=lambda *args: None)
+    assert 'honua-server Lambda: missing sbom' in str(refused.value)
+    assert 'honua-server Lambda: missing provenance' in str(refused.value)
+    assert 'provenance: false at line 326; sbom: false at line 327' in str(refused.value)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_reference_bundle_rejects_changed_or_missing_notes_bytes(inputs, tmp_path):
+    report, paths = inputs
+    refs = fresh_references(report, paths)
+    refs['references']['notes'] = refs['references']['notes'].rsplit('#', 1)[0] + '#sha256:' + 'f' * 64
+    refuses_before_signing(report, paths, tmp_path, 'document hash differs', post_gate_evidence=refs)
+
+
+def test_missing_notes_ref_never_falls_back_to_freeze_notes(inputs, tmp_path):
+    report, paths = inputs
+    refs = fresh_references(report, paths)
+    refs['references']['notes'] = None
+    refuses_before_signing(report, paths, tmp_path, 'immutable release-notes', post_gate_evidence=refs)
 
 
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])
@@ -528,7 +615,14 @@ def test_mint_declares_fixtures_from_every_gate_record(candidate, tmp_path):
     retained_report = json.loads((output / 'gate-report.json').read_bytes())
     assert retained_report['candidate']['artifacts']['platform-manifest.yaml'] == {
         'sha256': _sha256(shipped), 'size': shipped.stat().st_size}
-    assert retained_report['evidenceReceipts'] == report['evidenceReceipts']
+    expected_receipts = copy.deepcopy(report['evidenceReceipts'])
+    for receipt in expected_receipts.values():
+        receipt['lockDigest'] = 'sha256:' + _sha256(output / 'platform-lock.json')
+        for cell in receipt.get('cells', []):
+            for attempt in cell.get('attempts', []):
+                attempt['lockDigest'] = receipt['lockDigest']
+    assert retained_report['evidenceReceipts'] == expected_receipts
+    assert json.loads((output / 'qualification-gate-report.json').read_bytes()) == report
     assert (output / 'qualification-inputs' / 'platform-manifest.yaml').read_bytes() == paths[0].read_bytes()
     assert json.loads((output / 'qualification-inputs' / 'gate-report.json').read_bytes()) == report
     (output / paths[1].name).write_bytes(paths[1].read_bytes())

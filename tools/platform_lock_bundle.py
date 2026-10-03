@@ -28,6 +28,46 @@ def canonical_bytes(value: dict) -> bytes:
                       ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
+def bind_post_gate(lock: dict, manifest: Path, matrix: Path, label: str, directory: Path, *,
+                   image_inspector=registry_image_platform_digests) -> None:
+    """Verify the retained nightly transformation after the caller verifies its signature.
+
+    Freeze continues to call bind with no post-gate channel. A nightly must retain its
+    complete qualification lock, original green report and reachable notes/evidence bytes.
+    """
+    from mint_nightly_lock import (failures, evidence_failures, regenerate_post_gate,
+                                   verify_reference_bundle)
+    from candidate_binding import _sha256
+    frozen_path = directory / 'qualification-lock.json'
+    frozen = load_lock(frozen_path)
+    bind(frozen, manifest, matrix, label, image_inspector=image_inspector)
+    report = json.loads((directory / 'qualification-gate-report.json').read_bytes())
+    errors = failures(report) + evidence_failures(report, 'sha256:' + _sha256(frozen_path))
+    if errors:
+        raise ValueError('; '.join(errors))
+    evidence = json.loads((directory / 'post-gate-references.json').read_bytes())
+    if evidence.get('candidate') != report.get('candidate'):
+        raise ValueError('post-gate references belong to another candidate or run')
+    qualification_manifest = directory / 'qualification-inputs' / manifest.name
+    if not qualification_manifest.exists():
+        qualification_manifest = manifest
+    for path in (qualification_manifest, matrix):
+        pin = report['candidate']['artifacts'].get(path.name) or {}
+        if pin.get('sha256') != _sha256(path) or pin.get('size') != path.stat().st_size:
+            raise ValueError('qualification report is not bound to its retained inputs')
+    if qualification_manifest != manifest:
+        # WI-8 may add only the gates' fixture declaration to the shipped manifest.
+        original = yaml.safe_load(qualification_manifest.read_text())
+        shipped = yaml.safe_load(manifest.read_text())
+        original.setdefault('platformLockEvidence', {})['fixtures'] = frozen['fixtures']
+        if original != shipped:
+            raise ValueError('shipped manifest changed facts outside the fixture declaration')
+    regenerated = regenerate_post_gate(manifest, matrix, frozen, evidence['references'])
+    if lock != regenerated.lock:
+        raise ValueError('signed lock differs from its post-gate regeneration')
+    verify_reference_bundle(evidence, directory / 'release-notes.bundle', qualification_manifest, matrix, report)
+
+
 def _declared(expected, actual, path: str) -> None:
     """Match every declared input fact; absent facts must be supplied by the lock."""
     if isinstance(expected, dict):
@@ -233,7 +273,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         lock = load_lock(args.lock)
-        bind(lock, args.manifest, args.matrix, args.label)
+        if args.check and (args.lock.parent / 'post-gate-references.json').exists():
+            bind_post_gate(lock, args.manifest, args.matrix, args.label, args.lock.parent)
+        else:
+            bind(lock, args.manifest, args.matrix, args.label)
         files = bundle_files(lock)
         if args.check:
             for name, expected in files.items():
