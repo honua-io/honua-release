@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-geoservices",
+  "title": "GeoServices FeatureServer query, ids, count, applyEdits and attachments",
+  "promise": "A customer queries a published layer and edits a managed layer through the SDK's FeatureServer client, and gets back exactly the fixture's features, ids and ordinates.",
+  "steps": [
+    {
+      "id": "query",
+      "oracle": "features",
+      "description": "Query the sites layer with the fixture filter; attributes and ordinates equal the fixture rows."
+    },
+    {
+      "id": "ids",
+      "oracle": "object-ids",
+      "description": "Query object ids with the fixture filter."
+    },
+    {
+      "id": "count",
+      "oracle": "count",
+      "description": "Count features matching the fixture filter."
+    },
+    {
+      "id": "resolve-edit-ids",
+      "oracle": "edit-ids",
+      "description": "Read the managed edits layer and map each fixture gid to its server object id."
+    },
+    {
+      "id": "apply-edits-add",
+      "oracle": "edit-success",
+      "description": "applyEdits: add the fixture's new feature."
+    },
+    {
+      "id": "apply-edits-update",
+      "oracle": "edit-success",
+      "description": "applyEdits: attribute-only update of the fixture's updated feature."
+    },
+    {
+      "id": "apply-edits-delete",
+      "oracle": "edit-success",
+      "description": "applyEdits: delete the fixture's deleted feature."
+    },
+    {
+      "id": "edits-state",
+      "oracle": "edited-features",
+      "description": "Query the edits layer; it holds exactly the fixture's post-edit features."
+    },
+    {
+      "id": "add-attachment",
+      "oracle": "edit-success",
+      "description": "Attach the fixture file to the fixture feature."
+    },
+    {
+      "id": "query-attachments",
+      "oracle": "attachments",
+      "description": "Query that feature's attachments; name, content type and size equal the fixture file."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "query": "honua_sdk.GeoServicesFeatureServerClient.query",
+      "ids": "honua_sdk.GeoServicesFeatureServerClient.query(extra_params returnIdsOnly)",
+      "count": "honua_sdk.HonuaClient.query(return_count_only=True)",
+      "resolve-edit-ids": "honua_sdk.GeoServicesFeatureServerClient.query",
+      "apply-edits-add": "honua_sdk.GeoServicesFeatureServerClient.apply_edits(adds)",
+      "apply-edits-update": "honua_sdk.GeoServicesFeatureServerClient.apply_edits(updates)",
+      "apply-edits-delete": "honua_sdk.GeoServicesFeatureServerClient.apply_edits(deletes)",
+      "edits-state": "honua_sdk.GeoServicesFeatureServerClient.query",
+      "add-attachment": "honua_sdk.GeoServicesFeatureServerClient.add_attachment",
+      "query-attachments": "honua_sdk.GeoServicesFeatureServerClient.list_attachments"
+    },
+    "honua-sdk-js": {
+      "query": "HonuaFeatureLayer.queryFeatures",
+      "ids": "HonuaFeatureLayer.queryObjectIds",
+      "count": "HonuaFeatureLayer.queryFeatureCount",
+      "resolve-edit-ids": "HonuaFeatureLayer.queryFeatures",
+      "apply-edits-add": "HonuaFeatureLayer.applyEdits(adds)",
+      "apply-edits-update": "HonuaFeatureLayer.applyEdits(updates)",
+      "apply-edits-delete": "HonuaFeatureLayer.applyEdits(deletes)",
+      "edits-state": "HonuaFeatureLayer.queryFeatures",
+      "add-attachment": "HonuaFeatureLayer.addAttachment",
+      "query-attachments": "HonuaFeatureLayer.queryAttachments"
+    },
+    "honua-sdk-dotnet": {
+      "query": "IHonuaFeatureServerClient.QueryAsync",
+      "ids": "IHonuaFeatureServerClient.QueryIdsAsync",
+      "count": "IHonuaFeatureServerClient.QueryCountAsync",
+      "resolve-edit-ids": "IHonuaFeatureServerClient.QueryAsync",
+      "apply-edits-add": "IHonuaFeatureServerEditClient.ApplyEditsAsync(adds)",
+      "apply-edits-update": "IHonuaFeatureServerEditClient.ApplyEditsAsync(updates)",
+      "apply-edits-delete": "IHonuaFeatureServerEditClient.ApplyEditsAsync(deletes)",
+      "edits-state": "IHonuaFeatureServerClient.QueryAsync",
+      "add-attachment": "IHonuaFeatureAttachmentClient.AddAttachmentAsync",
+      "query-attachments": "IHonuaFeatureServerClient.QueryAttachmentsAsync"
+    }
+  }
+}

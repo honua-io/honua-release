@@ -10,7 +10,7 @@ operation, target, and durable CI evidence URI.
 cell with `status: blocked` must name the issue that blocks it in `blockedBy`. It still runs on
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
-remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v2` catalog;
+remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;
 the import-fidelity blocker requires an absent receipt because no producer exists yet. If a blocked cell starts
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
 observed rather than assumed. `run.py` exits 0 only when every active cell passes and no blocked
@@ -71,3 +71,13 @@ Use `--live` for the certification run. It boots the manifest image by digest on
 candidate PostgreSQL service, applies the shared seed once, then runs every installed client probe
 against that same target before teardown. Omitting `--live` is an install-integrity preflight and
 cannot be used as release evidence.
+
+## SDK regression scenarios
+
+The matrix also holds one cell per published SDK (Python, JS, .NET) and scenario in `scenarios/*.json`:
+auth, admin lifecycle, GeoServices, OGC API Features/Tiles/Processes and STAC. Each scenario runs
+through the SDK's own client classes against the booted candidate, with oracles computed from
+`fixture.v1.json`. `run.py --subset fast` runs only the install and probe cells (the PR check);
+`--subset all` (the default) adds the scenarios, which `gate-installed-clients.yml` runs for the
+`installed-clients` nightly evidence class. See
+[docs/INSTALLED-CLIENT-REGRESSION.md](../../docs/INSTALLED-CLIENT-REGRESSION.md).

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-ogc-processes",
+  "title": "OGC API Processes: submit geometry.buffer asynchronously, poll, read the result",
+  "promise": "A customer runs a server-side buffer as an asynchronous job through the SDK's processes client and reads a result whose ring and centroid follow from the input.",
+  "steps": [
+    {
+      "id": "submit",
+      "oracle": "job-accepted",
+      "description": "Submit geometry.buffer for the fixture point asynchronously; a job id is returned."
+    },
+    {
+      "id": "poll",
+      "oracle": "job-succeeded",
+      "description": "Poll the job until it is terminal; it succeeds."
+    },
+    {
+      "id": "result",
+      "oracle": "buffer-result",
+      "description": "Read the job result; every ring vertex lies at the fixture distance from the fixture point and the centroid is the point."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "submit": "honua_sdk.HonuaGeoprocessing.submit_geometry",
+      "poll": "honua_sdk.HonuaGeoprocessing.job",
+      "result": "honua_sdk.HonuaGeoprocessing.results"
+    },
+    "honua-sdk-js": {
+      "submit": "HonuaClient.executeOgcProcess(mode async)",
+      "poll": "HonuaClient.getOgcProcessJob",
+      "result": "HonuaClient.getOgcProcessJobResults"
+    },
+    "honua-sdk-dotnet": {
+      "submit": "IHonuaProcessesClient.SubmitJobAsync",
+      "poll": "IHonuaProcessesClient.GetJobAsync",
+      "result": "IHonuaProcessesClient.GetJobResultsAsync"
+    }
+  }
+}

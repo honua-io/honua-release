@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-ogc-features",
+  "title": "OGC API Features items and a single item",
+  "promise": "A customer reads a published collection's items by bounding box and one item by id through the SDK's OGC API Features client.",
+  "steps": [
+    {
+      "id": "items-bbox",
+      "oracle": "items",
+      "description": "Read the sites collection's items inside the fixture bbox; ids and ordinates equal the fixture rows inside it."
+    },
+    {
+      "id": "item",
+      "oracle": "item",
+      "description": "Read one fixture item by id; its properties and ordinates equal the fixture row."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "items-bbox": "honua_sdk.HonuaOgcFeatures.items(bbox=)",
+      "item": "honua_sdk.HonuaOgcFeatures.item"
+    },
+    "honua-sdk-js": {
+      "items-bbox": "HonuaClient.listOgcItems",
+      "item": "HonuaClient.getOgcItem"
+    },
+    "honua-sdk-dotnet": {
+      "items-bbox": "IHonuaOgcFeaturesClient.GetItemsAsync(OgcItemsParams.Bbox)",
+      "item": "IHonuaOgcFeaturesClient.GetItemAsync"
+    }
+  }
+}
