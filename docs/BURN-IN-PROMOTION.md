@@ -127,7 +127,11 @@ Actions metadata: the minting train is a successful default-branch run of `relea
 scheduled `nightly-certification.yml`, and each recorded canary is a successful scheduled `demo-canary.yml`
 run. It downloads the minting train's `certified-candidate` artifact, which carries the selected lock's
 exact bytes, and each class receipt from the artifact `promotion-receipt-<class>` on the run the record
-names. It builds `canary-sequence.json` from every completed canary (scheduled or dispatched) since a day before
+names. That run must be a successful default-branch run of the class's allowlisted producer
+(`RECEIPT_PRODUCERS`): nightly classes come only from the minting workflows, and a class with no
+allowlisted producer refuses, so qualifying classes refuse until their producers are registered. Each
+artifact is extracted in isolation and only its expected file is kept (the whole candidate bundle for the
+train), so artifact contents never replace the Actions `run.json`. It builds `canary-sequence.json` from every completed canary (scheduled or dispatched) since a day before
 minting, reading each run's `candidateLock.digest`. A run that failed before binding a lock is recorded
 with a null digest. An earlier failed attempt of a re-run canary is kept as an unattributed failure, so a
 successful re-run cannot erase it. A missing receipt is left missing, and the checker refuses it.
@@ -153,7 +157,11 @@ and checker do not certify a live burn or move a channel.
 at or past hour 48 that have no published release and no promotion request that is pending or was made
 in the last 24 hours. For each one, the workflow fetches the evidence and runs the same readiness
 check. Only a passing record is dispatched to `promote.yml` as the scoped App identity, where readiness
-is checked again behind the protected environment.
+is checked again behind the protected environment. A record file that is not a readable JSON object is
+skipped with a warning rather than stopping the check of every other candidate. `promote.yml` verifies
+the lock signature against the validated minting workflow: `gh attestation verify` for a
+`release-train.yml` attestation, `cosign verify-blob` bound to `nightly-certification.yml` at the source
+commit for a nightly mint.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the
 minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua-2026.1.Z`) and moves
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.

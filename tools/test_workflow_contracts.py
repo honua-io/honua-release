@@ -471,6 +471,36 @@ def test_promotion_requires_committed_burn_evidence_and_retags_the_minting_rc():
     assert "npm pack" not in commands
 
 
+def test_promotion_verifies_the_lock_against_the_validated_minting_workflows_signer():
+    steps = _workflow("promote.yml")["jobs"]["promote"]["steps"]
+    names = [step.get("name") for step in steps]
+    verify = steps[names.index("Verify the frozen lock signature and all derived release records")]
+    assert names.index("Install cosign (Sigstore)") < steps.index(verify)
+    assert verify["env"]["TRAIN_WORKFLOW_PATH"] == "${{ steps.train.outputs.workflow_path }}"
+    run = verify["run"]
+    release_train, nightly = run.split(".github/workflows/release-train.yml)", 1)[1].split(
+        ".github/workflows/nightly-certification.yml)", 1)
+    # release-train.yml attests its lock; nightly-certification.yml's mint job cosign-signs it.
+    assert "gh attestation verify candidate/platform-lock.json" in release_train
+    assert "--signer-workflow honua-io/honua-release/.github/workflows/release-train.yml" in release_train
+    assert "--deny-self-hosted-runners" in release_train
+    nightly, unknown = nightly.split("*)", 1)
+    assert "cosign verify-blob candidate/platform-lock.json" in nightly
+    for flag in ('--certificate-identity "https://github.com/honua-io/honua-release/.github/workflows/'
+                 'nightly-certification.yml@refs/heads/$TRAIN_SOURCE_BRANCH"',
+                 "--certificate-oidc-issuer https://token.actions.githubusercontent.com",
+                 "--certificate-github-workflow-repository honua-io/honua-release",
+                 '--certificate-github-workflow-sha "$TRAIN_SOURCE_SHA"',
+                 '--certificate-github-workflow-ref "refs/heads/$TRAIN_SOURCE_BRANCH"'):
+        assert flag in nightly
+    assert "exit 1" in unknown
+    # The mint job signs with exactly the identity promotion verifies.
+    mint = _workflow("nightly-certification.yml")["jobs"]["mint"]
+    signing = next(step for step in mint["steps"] if step.get("id") == "mint")
+    assert signing["env"]["CERTIFICATE_IDENTITY"] == "https://github.com/${{ github.workflow_ref }}"
+    assert "platform-lock.sigstore.json" in (REPO_ROOT / "tools" / "mint_nightly_lock.py").read_text()
+
+
 def test_promotion_verifies_current_trust_and_never_creates_a_lightweight_tag():
     steps = _workflow("promote.yml")["jobs"]["promote"]["steps"]
     preserve = next(i for i, s in enumerate(steps)

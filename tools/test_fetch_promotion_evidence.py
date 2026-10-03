@@ -15,6 +15,15 @@ from test_platform_lock_bundle import candidate
 from test_check_promotion_readiness import NOW, OTHER_LOCK, _fixture, _stamp
 
 REPO = "honua-io/honua-release"
+QUALIFY = ".github/workflows/qualify.yml"
+QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
+
+
+@pytest.fixture(autouse=True)
+def qualifying_producers(monkeypatch):
+    """No qualifying producer has landed yet (#386/#381); register a stand-in for these tests."""
+    for name in QUALIFYING_CLASSES:
+        monkeypatch.setitem(fetcher.RECEIPT_PRODUCERS, name, ((QUALIFY,), ("workflow_dispatch",)))
 
 
 class FakeGitHub(fetcher.GitHub):
@@ -32,7 +41,7 @@ class FakeGitHub(fetcher.GitHub):
             path for path in (evidence / "trains" / train["runId"]).iterdir() if path.name != "run.json"]
         for row in record["evidence"]:
             if row["runId"] not in self.runs:
-                self.add_run(row["runId"], row["completedAt"], path=".github/workflows/qualify.yml",
+                self.add_run(row["runId"], row["completedAt"], path=QUALIFY,
                              event="workflow_dispatch")
             self.artifacts[(row["runId"], f"promotion-receipt-{row['class']}")] = [
                 evidence / "evidence" / row["class"] / row["runId"] / "receipt.json"]
@@ -148,6 +157,70 @@ def test_qualifying_receipt_from_a_failed_or_foreign_run_refuses(tmp_path):
         fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
 
 
+@pytest.mark.parametrize("field,value", [("path", ".github/workflows/other.yml"), ("event", "push")])
+def test_qualifying_receipt_from_a_run_outside_its_producer_allowlist_refuses(tmp_path, field, value):
+    fixture = _fixture(tmp_path / "source")
+    gh = FakeGitHub(fixture)
+    row = next(row for row in fixture[0]["evidence"] if row["class"] == "cite")
+    gh.runs[row["runId"]][field] = value
+    with pytest.raises(fetcher.FetchError, match="identity"):
+        fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
+
+
+def test_class_without_an_allowlisted_producer_refuses(tmp_path, monkeypatch):
+    fixture = _fixture(tmp_path / "source")
+    gh = FakeGitHub(fixture)
+    monkeypatch.delitem(fetcher.RECEIPT_PRODUCERS, "esri-bundle")
+    with pytest.raises(fetcher.FetchError, match="esri-bundle has no allowlisted producer"):
+        fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
+
+
+def test_qualifying_classes_have_no_producer_until_one_lands():
+    # Fail closed: the shipped allowlist names only the minting workflows, for nightly classes.
+    assert set(readiness.EVIDENCE_CLASSES) - set(QUALIFYING_CLASSES) == set(fetcher.NIGHTLY_CLASSES)
+    with pytest.MonkeyPatch.context() as patch:
+        for name in QUALIFYING_CLASSES:
+            patch.delitem(fetcher.RECEIPT_PRODUCERS, name)
+        assert fetcher.RECEIPT_PRODUCERS == dict.fromkeys(
+            fetcher.NIGHTLY_CLASSES, (fetcher.MINTING_WORKFLOWS, fetcher.MINTING_EVENTS))
+
+
+def test_nightly_receipt_must_come_from_a_minting_workflow(tmp_path):
+    fixture = _fixture(tmp_path / "source")
+    gh = FakeGitHub(fixture)
+    row = next(row for row in fixture[0]["evidence"] if row["class"] == "build-test")
+    row["runId"] = "777"
+    gh.add_run("777", row["completedAt"], path=QUALIFY, event="workflow_dispatch")
+    gh.artifacts[("777", "promotion-receipt-build-test")] = [tmp_path / "unused.json"]
+    with pytest.raises(fetcher.FetchError, match="identity"):
+        fetcher.fetch(fixture[0], gh, tmp_path / "fetched")
+
+
+def test_artifact_contents_cannot_replace_actions_run_metadata(tmp_path):
+    fixture = _fixture(tmp_path / "source")
+    gh = FakeGitHub(fixture)
+    forged = tmp_path / "forged" / "run.json"
+    forged.parent.mkdir()
+    forged.write_text(json.dumps({"updated_at": "2020-01-01T00:00:00Z", "conclusion": "success"}))
+    extra = tmp_path / "forged" / "notes.txt"
+    extra.write_text("not part of the receipt")
+    rows = [row for row in fixture[0]["evidence"] if row["class"] == "cite"]
+    for key in [(rows[0]["runId"], "promotion-receipt-cite"), ("101", "certified-candidate"),
+                (fixture[0]["demoCanaries"][0]["runId"], "live-canary-evidence")]:
+        gh.artifacts[key] = [*gh.artifacts[key], forged, extra]
+    out = tmp_path / "fetched"
+    fetcher.fetch(fixture[0], gh, out)
+    canary = fixture[0]["demoCanaries"][0]["runId"]
+    for root, run_id in ((out / "evidence/cite" / rows[0]["runId"], rows[0]["runId"]),
+                         (out / "trains/101", "101"), (out / "canaries" / canary, canary)):
+        assert json.loads((root / "run.json").read_text()) == gh.runs[run_id]
+    # Receipts and canaries keep only their named file; the candidate keeps its bundle files.
+    assert sorted(p.name for p in (out / "evidence/cite" / rows[0]["runId"]).iterdir()) == ["receipt.json", "run.json"]
+    assert sorted(p.name for p in (out / "canaries" / canary).iterdir()) == ["live-canary-evidence.json", "run.json"]
+    assert (out / "trains/101/notes.txt").is_file()
+    assert _fetch_and_check(tmp_path / "again", fixture, gh)["status"] == "pass"
+
+
 @pytest.mark.parametrize("field,value", [("event", "workflow_dispatch"), ("path", ".github/workflows/other.yml"),
                                          ("conclusion", "failure")])
 def test_recorded_canary_must_be_a_successful_scheduled_demo_canary(tmp_path, field, value):
@@ -253,6 +326,19 @@ def test_candidates_skip_records_whose_label_disagrees_with_their_path(tmp_path)
     _record(tmp_path / "promotions", "2026.1-rc.3", burn_hours=60, platform_label="2026.1-rc.4")
     _record(tmp_path / "promotions", "2026.1-rc.5", burn_hours=60, rc="not-a-run")
     assert _candidates(tmp_path, gh) == []
+
+
+@pytest.mark.parametrize("content", ["{not json", "[]", "null", "\udcff"])
+def test_candidates_skip_a_malformed_record_and_check_the_rest(tmp_path, content):
+    gh = FakeGitHub(_fixture(tmp_path / "source"))
+    _record(tmp_path / "promotions", "2026.1-rc.3", burn_hours=60)
+    _record(tmp_path / "promotions", "2026.1-rc.5", burn_hours=60)
+    broken = tmp_path / "promotions" / "2026.1-rc.4.json"
+    if content == "\udcff":
+        broken.write_bytes(b"\xff\xfe{")
+    else:
+        broken.write_text(content)
+    assert _candidates(tmp_path, gh) == ["2026.1-rc.3", "2026.1-rc.5"]
 
 
 def test_gh_calls_are_read_only_and_scoped_to_the_repository(tmp_path):

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,16 @@ CANARY_ARTIFACT = "live-canary-evidence"
 CANDIDATE_ARTIFACT = "certified-candidate"
 # Each producer uploads its class receipt as `promotion-receipt-<class>` containing receipt.json.
 RECEIPT_ARTIFACT = "promotion-receipt-{}"
+NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",
+                   "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey")
+# The workflows (and triggering events) allowed to produce each class receipt. The checker trusts
+# the class and lock a receipt names, so only an allowlisted producer's run may supply it. Nightly
+# receipts come from the minting run itself. Qualifying producers (genuine-model-journey,
+# update-rollback, esri-bundle, cite) are added here as they land (#386/#381); until then those
+# classes, and any other declared class, have no producer and refuse.
+RECEIPT_PRODUCERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    **dict.fromkeys(NIGHTLY_CLASSES, (MINTING_WORKFLOWS, MINTING_EVENTS)),
+}
 RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
 CLASS_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 # Labels promotion may request: 2026.1 RCs and patch RCs (x.y.z), as before this schedule.
@@ -111,6 +122,26 @@ def _write(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def _retain(gh: GitHub, run_id: str, artifact: str, root: Path, run: dict[str, Any],
+            names: tuple[str, ...] | None = None) -> bool:
+    """Extract an artifact in isolation, copy only `names` (or every file but run.json), then
+    write the Actions run metadata, so artifact contents can never replace the API record."""
+    with tempfile.TemporaryDirectory() as scratch:
+        downloaded = gh.download(run_id, artifact, Path(scratch))
+        root.mkdir(parents=True, exist_ok=True)
+        if downloaded:
+            for path in sorted(Path(scratch).rglob("*")):
+                relative = path.relative_to(scratch)
+                if path.is_symlink() or not path.is_file() or relative == Path("run.json"):
+                    continue
+                if names is not None and relative.as_posix() not in names:
+                    continue
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, root / relative)
+    _write(root / "run.json", run)
+    return downloaded
+
+
 def _canary_lock(gh: GitHub, run_id: str) -> str | None:
     """The lock digest a canary recorded, or None when it failed before binding one."""
     with tempfile.TemporaryDirectory() as scratch:
@@ -163,8 +194,7 @@ def fetch(record: dict[str, Any], gh: GitHub, out: Path) -> None:
     train = gh.api(f"actions/runs/{rc}")
     _identity(train, gh.repository, default_branch, rc, MINTING_WORKFLOWS, MINTING_EVENTS)
     root = out / "trains" / rc
-    _write(root / "run.json", train)
-    if not gh.download(rc, CANDIDATE_ARTIFACT, root) or not (root / "platform-lock.json").is_file():
+    if not _retain(gh, rc, CANDIDATE_ARTIFACT, root, train) or not (root / "platform-lock.json").is_file():
         raise FetchError(f"minting train {rc} has no retained certified candidate lock")
 
     runs: dict[str, dict[str, Any]] = {rc: train}
@@ -173,24 +203,21 @@ def fetch(record: dict[str, Any], gh: GitHub, out: Path) -> None:
         if not isinstance(name, str) or not CLASS_RE.fullmatch(name):
             raise FetchError("evidence row has no valid class")
         run_id = _run_id(row.get("runId"), f"{name} runId")
+        if name not in RECEIPT_PRODUCERS:
+            raise FetchError(f"evidence class {name} has no allowlisted producer workflow")
         if run_id not in runs:
             runs[run_id] = gh.api(f"actions/runs/{run_id}")
-            run = runs[run_id]
-            # Qualifying producers are not fixed to one workflow; the receipt names its class
-            # and lock, and the run must still be a successful default-branch run here.
-            _identity(run, gh.repository, default_branch, run_id)
-        root = out / "evidence" / name / run_id
-        _write(root / "run.json", runs[run_id])
+        # The run must be a successful default-branch run of this class's producer.
+        _identity(runs[run_id], gh.repository, default_branch, run_id, *RECEIPT_PRODUCERS[name])
         # A missing receipt is left missing: the checker refuses it.
-        gh.download(run_id, RECEIPT_ARTIFACT.format(name), root)
+        _retain(gh, run_id, RECEIPT_ARTIFACT.format(name), out / "evidence" / name / run_id, runs[run_id],
+                ("receipt.json",))
 
     for row in record.get("demoCanaries") or []:
         run_id = _run_id(row.get("runId") if isinstance(row, dict) else None, "canary runId")
         run = gh.api(f"actions/runs/{run_id}")
         _identity(run, gh.repository, default_branch, run_id, (CANARY_WORKFLOW,), ("schedule",))
-        root = out / "canaries" / run_id
-        _write(root / "run.json", run)
-        gh.download(run_id, CANARY_ARTIFACT, root)
+        _retain(gh, run_id, CANARY_ARTIFACT, out / "canaries" / run_id, run, ("live-canary-evidence.json",))
 
     _write(out / "canary-sequence.json",
            canary_sequence(gh, lock_digest=digest, minted_at=_time(train.get("updated_at"))))
@@ -205,8 +232,13 @@ def candidates(promotions: Path, gh: GitHub, *, now: datetime,
         label = path.name[:-len(".json")]
         if not PROMOTABLE_LABEL_RE.fullmatch(label):
             continue
-        record = json.loads(path.read_text(encoding="utf-8"))
-        if record.get("platformLabel") != label:
+        # One unreadable or malformed record must not stop every other candidate's check.
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            print(f"::warning::{path} is not readable JSON; skipped", file=sys.stderr)
+            continue
+        if not isinstance(record, dict) or record.get("platformLabel") != label:
             continue
         try:
             burn_start = _time((record.get("lock") or {}).get("burnStartedAt"))
