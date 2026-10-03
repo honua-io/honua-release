@@ -1,0 +1,36 @@
+{
+  "format": "honua.sdk-capability-baseline/v1",
+  "component": "honua-sdk-js",
+  "minimumServerVersion": "first-release",
+  "requiredCapabilities": [
+    "discovery.capability-manifest",
+    "serve.geoservices-featureserver",
+    "serve.ogc-api-features"
+  ],
+  "capabilities": {
+    "discovery.capability-manifest": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    },
+    "serve.geoservices-featureserver": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    },
+    "serve.ogc-api-features": {
+      "versionModel": "semver",
+      "introductionModel": "first-release",
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json",
+        "sha256": "sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1"
+      }
+    }
+  }
+}

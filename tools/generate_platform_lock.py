@@ -151,10 +151,6 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
             continue
         coordinate_owner[coordinate_key] = name
         published_by_component[name].append(identity)
-    # Read the publisher's first-release facts from the manifest, not from a partially
-    # built lock: component order must never decide whether a floor resolves.
-    publisher_source = dict(combined).get(PUBLISHER) or {}
-    release_ctx = release_context({"components": {PUBLISHER: publisher_source}})
     for name, component in combined:
         cpath = f"$.components.{name}"
         if "sourcePinnedOnly" in component and not isinstance(component["sourcePinnedOnly"], bool):
@@ -289,14 +285,19 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
         for published in published_by_component[name]:
             if not seed or (published["kind"], published["coordinate"]) != (seed["kind"], seed["coordinate"]):
                 entry["artifacts"].append(published)
-        if name in SDK_COMPONENTS:
-            try:
-                check_component(entry, release_ctx)
-            except (ValueError, TypeError, KeyError, AttributeError) as exc:
-                refuse(f"{cpath}.serverCompatibility: {exc}", "PUBLISH")
-
         for client, blocker in (component.get("pendingPublishedClients") or {}).items():
             refuse(f"{cpath}.artifacts[{client}]: published package coordinate is pending {blocker}", "PUBLISH")
+
+    # SDK floors are checked once every component is built: the first-release floor is the lock's
+    # platform version (R22) and must be a locked honua-server artifact's version, so component
+    # order must never decide whether a floor resolves.
+    release_ctx = release_context(lock)
+    for name in SDK_COMPONENTS:
+        if name in lock["components"]:
+            try:
+                check_component(lock["components"][name], release_ctx)
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                refuse(f"$.components.{name}.serverCompatibility: {exc}", "PUBLISH")
 
     # The matrix is consumed for contract coherence, but it does not manufacture missing versions.
     for contract, body in (matrix.get("contracts") or {}).items():

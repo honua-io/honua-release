@@ -285,6 +285,20 @@ ADOPTION_DECLARATION = b'''internal static class ServerCoreSchemaMigrations
 '''
 
 
+# The selected server's capability-key vocabulary (docs/gis/data/capability-keys.v1.json), trimmed to
+# the keys the SDK baselines name plus one they do not.
+SERVER_CAPABILITY_KEYS = json.dumps({'schemaVersion': '1.1.0', 'capabilities': [
+    {'key': key, 'edition': 'Community'} for key in (
+        'ai.mcp-discovery', 'discovery.capability-manifest', 'serve.geoservices-featureserver',
+        'serve.ogc-api-features', 'serve.wms')]}).encode()
+# The exact release/sdk-capability-baseline.json each SDK repository commits (#231 WI-5).
+SDK_BASELINES = resolver.ROOT / 'tools' / 'fixtures' / 'sdk-capability-baselines'
+
+
+def baseline_bytes(name):
+    return (SDK_BASELINES / f'{name}.json').read_bytes()
+
+
 # The bytes the selected server tree carries at the content-digest paths (#231 WI-7).
 CONTENT_FILES = {resolver.OKF_CONTENT_SOURCE[1]: b'{"version": "honua.okf-bundle/v1"}\n',
                  resolver.CATALOG_CONTENT_SOURCE[1]: b'{"schemaVersion": "1.1.0"}\n'}
@@ -317,6 +331,8 @@ class MigrationSource:
             return declaration_bytes('honua-server', schemaVersions={})
         if path in CONTENT_FILES:
             return CONTENT_FILES[path]
+        if path == resolver.SERVER_CAPABILITY_KEYS[1]:
+            return SERVER_CAPABILITY_KEYS
         assert path == 'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs'
         return self.declaration
 
@@ -575,6 +591,8 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
         return declared
 
     monkeypatch.setattr(resolver, 'component_versions', versions)
+    monkeypatch.setattr(resolver, 'advertised_capabilities', lambda *a: frozenset())
+    monkeypatch.setattr(resolver, 'sdk_capability_baseline', lambda *a: {})
     monkeypatch.setattr(resolver, 'migration_tree', lambda *a: [])
     monkeypatch.setattr(resolver, 'migration_floor', lambda *a: server['dbSchema'])
     monkeypatch.setattr(resolver, 'migration_journal', lambda *a: ['001_CreateHonuaSchema.sql'])
@@ -836,6 +854,8 @@ class PublishedSource(TreeAndDeclarations):
         files = {(pin['repository'], pin['sourceSha'], resolver.COMPONENT_VERSIONS_PATH):
                  declaration_bytes('honua-sdk-' + name)
                  for name, pin in pins.items()}
+        files.update({(pin['repository'], pin['sourceSha'], resolver.SDK_BASELINE_PATH):
+                      baseline_bytes('honua-sdk-' + name) for name, pin in pins.items()})
         super().__init__(files)
         self.checked, self.red = [], red
 
@@ -978,3 +998,289 @@ def test_companion_publication_cannot_choose_the_sdk_source(monkeypatch):
     selected = resolver.select_sdk('honua-sdk-js', component, pins, identities, PublishedSource(recorded_pins()))
     assert selected['sha'] == '1102d2d55916340edca13cb28411df8da8206f92'
     assert pins['companion']['sourceSha'] == NEW
+
+
+# --- SDK capability baselines (honua-release#231 WI-5) ---
+DOTNET_PUBLISHED = '8a0a06c815baefd49e7398d38a9f22642a8c80c5'
+RECEIPT_EVIDENCE = {
+    'uri': 'https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/'
+           'certification/sources/server-publication-history.v1.json',
+    'sha256': 'sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1',
+}
+ADVERTISED = frozenset(row['key'] for row in json.loads(SERVER_CAPABILITY_KEYS)['capabilities'])
+SDK_REQUIRED = ['discovery.capability-manifest', 'serve.geoservices-featureserver', 'serve.ogc-api-features']
+
+
+def sdk_row(name, revision=DOTNET_PUBLISHED):
+    return {'repository': f'https://github.com/honua-io/{name}', 'sha': revision, 'artifactSourceRevision': revision}
+
+
+def read_baseline(name, raw=None, revision=DOTNET_PUBLISHED, advertised=ADVERTISED, artifacts=None, files=None):
+    source = Declarations(files if files is not None else {
+        (f'honua-io/{name}', revision, resolver.SDK_BASELINE_PATH): baseline_bytes(name) if raw is None else raw})
+    return resolver.sdk_capability_baseline(source, name, sdk_row(name, revision), artifacts or {}, advertised), source
+
+
+def edited(name, change):
+    body = json.loads(baseline_bytes(name))
+    change(body)
+    return json.dumps(body).encode()
+
+
+def test_the_dotnet_baseline_is_recorded_at_its_published_revision():
+    compatibility, source = read_baseline('honua-sdk-dotnet')
+    first_release = {'versionModel': 'semver', 'introductionModel': 'first-release', 'evidence': RECEIPT_EVIDENCE}
+    assert compatibility == {
+        'minimumServerVersion': 'first-release',
+        'manifests': [{
+            'source': {'repository': 'https://github.com/honua-io/honua-sdk-dotnet',
+                       'revision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
+                       'path': 'release/sdk-capability-baseline.json'},
+            'sha256': 'sha256:b0da605db407df1efd3ec14ca7b2b156b94cdfc7f6176de7f751cef167e4819f',
+            'content': {
+                'format': 'honua.sdk-capability-baseline/v1',
+                'component': 'honua-sdk-dotnet',
+                'minimumServerVersion': 'first-release',
+                'requiredCapabilities': ['discovery.capability-manifest', 'serve.geoservices-featureserver',
+                                         'serve.ogc-api-features'],
+                'capabilities': {'discovery.capability-manifest': first_release,
+                                 'serve.geoservices-featureserver': first_release,
+                                 'serve.ogc-api-features': first_release},
+            },
+            'requiredCapabilities': ['discovery.capability-manifest', 'serve.geoservices-featureserver',
+                                     'serve.ogc-api-features'],
+        }],
+        'declarations': [{'revision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
+                          'path': 'release/sdk-capability-baseline.json',
+                          'sha256': 'sha256:525159b5140fb0d606f5be2db9b3751cb44d98ea6b05a4c9ce2edc0d0dd92378',
+                          'minimumServerVersion': 'first-release'}],
+    }
+    assert source.reads == [('honua-io/honua-sdk-dotnet', DOTNET_PUBLISHED, 'release/sdk-capability-baseline.json')]
+
+
+@pytest.mark.parametrize('name,required,content,raw', [
+    ('honua-sdk-dotnet', SDK_REQUIRED,
+     'sha256:b0da605db407df1efd3ec14ca7b2b156b94cdfc7f6176de7f751cef167e4819f',
+     'sha256:525159b5140fb0d606f5be2db9b3751cb44d98ea6b05a4c9ce2edc0d0dd92378'),
+    ('honua-sdk-js', SDK_REQUIRED,
+     'sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486',
+     'sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325'),
+    ('honua-sdk-python', SDK_REQUIRED,
+     'sha256:8ab57cc64c1b4f71486e97c0a44b718d1dae84982414c09a944b4ac3bd02da38',
+     'sha256:ae0711439652ac14c847e4ce6d80d692a0d7c92f0b4da6309e6e6032fe282252'),
+    ('geospatial-mcp', ['ai.mcp-discovery', 'discovery.capability-manifest'],
+     'sha256:6b28e7e6997f8eb69ec1e4e2f0e5c874697a0ea7ba9ea2ef3c29f5bb2888c825',
+     'sha256:bd286450cb67d429eaf122eaf81aef5b5f015207bebeb4666194b5112b0311b9'),
+])
+def test_each_repository_baseline_resolves_to_its_literal_lock_entry(name, required, content, raw):
+    compatibility, _ = read_baseline(name)
+    manifest, = compatibility['manifests']
+    declaration, = compatibility['declarations']
+    assert compatibility['minimumServerVersion'] == declaration['minimumServerVersion'] == 'first-release'
+    assert manifest['requiredCapabilities'] == manifest['content']['requiredCapabilities'] == required
+    assert all(entry == {'versionModel': 'semver', 'introductionModel': 'first-release',
+                         'evidence': RECEIPT_EVIDENCE} for entry in manifest['content']['capabilities'].values())
+    assert (manifest['sha256'], declaration['sha256']) == (content, raw)
+    assert manifest['source'] == {'repository': f'https://github.com/honua-io/{name}', 'revision': DOTNET_PUBLISHED,
+                                  'path': 'release/sdk-capability-baseline.json'}
+
+
+def test_a_capability_the_candidate_server_does_not_advertise_is_refused():
+    with pytest.raises(resolver.ResolutionError,
+                       match=r'^honua-sdk-python: .*the candidate honua-server does not advertise required '
+                             r'capability serve\.ogc-api-features$'):
+        read_baseline('honua-sdk-python', advertised=ADVERTISED - {'serve.ogc-api-features'})
+
+
+def test_a_missing_baseline_refuses_the_sdk():
+    with pytest.raises(resolver.ResolutionError,
+                       match=rf'^honua-sdk-dotnet: honua-io/honua-sdk-dotnet@{DOTNET_PUBLISHED}:'
+                             r'release/sdk-capability-baseline\.json is missing or unreadable: .*HTTP 404'):
+        read_baseline('honua-sdk-dotnet', files={})
+
+
+def _numeric(body, floors=('1.0.0', '1.2.0', '1.1.0'), top='1.2.0'):
+    body['minimumServerVersion'] = top
+    for key, floor in zip(body['requiredCapabilities'], floors):
+        body['capabilities'][key] = {'versionModel': 'semver', 'minimumServerVersion': floor,
+                                     'evidence': RECEIPT_EVIDENCE}
+
+
+@pytest.mark.parametrize('raw,message', [
+    (b'{"format": ', 'is not a JSON document'),
+    (b'{"format": "honua.sdk-capability-baseline/v1", "format": "x"}', "duplicate key 'format'"),
+    (b'[]', 'does not match'),
+    (edited('honua-sdk-js', lambda b: b.update(format='honua.sdk-capability-baseline/v2')), 'format'),
+    (edited('honua-sdk-js', lambda b: b.update(component='honua-sdk-python')),
+     "declares component 'honua-sdk-python', not 'honua-sdk-js'"),
+    (edited('honua-sdk-js', lambda b: b.update(extra=1)), 'Additional properties'),
+    (edited('honua-sdk-js', lambda b: b.update(requiredCapabilities=[])), 'requiredCapabilities'),
+    (edited('honua-sdk-js', lambda b: b.update(minimumServerVersion='latest')), 'minimumServerVersion'),
+    (edited('honua-sdk-js', lambda b: b.update(minimumServerVersion='2026.3')), 'minimumServerVersion'),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features'].pop('evidence')),
+     "'evidence' is a required property"),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features']['evidence'].update(
+        uri='http://insecure')), 'evidence/uri'),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features']['evidence'].update(
+        sha256='sha256:short')), 'evidence/sha256'),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features'].update(versionModel='calver')),
+     'versionModel'),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features'].update(
+        minimumServerVersion='1.0.0')), 'serve.ogc-api-features'),
+    (edited('honua-sdk-js', lambda b: b['capabilities']['serve.ogc-api-features'].pop('introductionModel')),
+     'serve.ogc-api-features'),
+    (edited('honua-sdk-js', lambda b: b['capabilities'].pop('serve.ogc-api-features')),
+     'one introduction per required capability'),
+    (edited('honua-sdk-js', lambda b: b['requiredCapabilities'].remove('serve.ogc-api-features')),
+     'one introduction per required capability'),
+    (edited('honua-sdk-js', lambda b: b.update(minimumServerVersion='1.0.0')),
+     "minimumServerVersion '1.0.0' is not the maximum of its required capabilities ('first-release')"),
+    (edited('honua-sdk-js', lambda b: _numeric(b, top='1.1.0')),
+     "minimumServerVersion '1.1.0' is not the maximum of its required capabilities ('1.2.0')"),
+    (edited('honua-sdk-js', lambda b: _numeric(b, top='first-release')),
+     "minimumServerVersion 'first-release' is not the maximum of its required capabilities ('1.2.0')"),
+])
+def test_an_invalid_baseline_refuses_the_sdk(raw, message):
+    with pytest.raises(resolver.ResolutionError, match=r'^honua-sdk-js: .*' + re.escape(message)):
+        read_baseline('honua-sdk-js', raw)
+
+
+def test_a_numeric_baseline_records_its_maximum_floor():
+    compatibility, _ = read_baseline('honua-sdk-js', edited('honua-sdk-js', _numeric))
+    assert compatibility['minimumServerVersion'] == '1.2.0'
+    assert compatibility['declarations'][0]['minimumServerVersion'] == '1.2.0'
+
+
+@pytest.mark.parametrize('revision', ['trunk', 'pending', '', None])
+def test_a_baseline_is_never_read_at_a_moving_or_missing_revision(revision):
+    class Guard:
+        def file(self, *a):
+            raise AssertionError('baseline read without a published revision')
+
+    row = {'repository': 'https://github.com/honua-io/honua-sdk-js', 'sha': NEW, 'artifactSourceRevision': revision}
+    with pytest.raises(resolver.ResolutionError, match='honua-sdk-js: no published source revision'):
+        resolver.sdk_capability_baseline(Guard(), 'honua-sdk-js', row, {}, ADVERTISED)
+
+
+def companion_artifacts(revision):
+    return {'honua-sdk-js': {'repository': 'honua-io/honua-sdk-js', 'package': '@honua/sdk-js',
+                             'sourceSha': DOTNET_PUBLISHED},
+            'honua-mcp-server': {'repository': 'honua-io/honua-sdk-js', 'package': '@honua/mcp-server',
+                                 'sourceSha': revision},
+            'honua-sdk-dotnet': {'repository': 'honua-io/honua-sdk-dotnet', 'sourceSha': OLD}}
+
+
+def test_a_companion_package_revision_is_declared_too():
+    path = resolver.SDK_BASELINE_PATH
+    files = {('honua-io/honua-sdk-js', revision, path): baseline_bytes('honua-sdk-js')
+             for revision in (DOTNET_PUBLISHED, NEW)}
+    compatibility, source = read_baseline('honua-sdk-js', files=files, artifacts=companion_artifacts(NEW))
+    assert [d['revision'] for d in compatibility['declarations']] == [DOTNET_PUBLISHED, NEW]
+    assert [m['source']['revision'] for m in compatibility['manifests']] == [DOTNET_PUBLISHED, NEW]
+    # Another repository's package never contributes a revision.
+    assert all(read[0] == 'honua-io/honua-sdk-js' for read in source.reads)
+
+
+def test_a_companion_revision_without_the_baseline_refuses():
+    files = {('honua-io/honua-sdk-js', DOTNET_PUBLISHED, resolver.SDK_BASELINE_PATH): baseline_bytes('honua-sdk-js')}
+    with pytest.raises(resolver.ResolutionError, match=rf'^honua-sdk-js: honua-io/honua-sdk-js@{NEW}:.*missing'):
+        read_baseline('honua-sdk-js', files=files, artifacts=companion_artifacts(NEW))
+
+
+def test_published_revisions_that_declare_different_floors_refuse():
+    path = resolver.SDK_BASELINE_PATH
+    files = {('honua-io/honua-sdk-js', DOTNET_PUBLISHED, path): baseline_bytes('honua-sdk-js'),
+             ('honua-io/honua-sdk-js', NEW, path): edited('honua-sdk-js', _numeric)}
+    with pytest.raises(resolver.ResolutionError, match="declare different minimumServerVersion values"):
+        read_baseline('honua-sdk-js', files=files, artifacts=companion_artifacts(NEW))
+
+
+def test_resolve_records_every_sdk_baseline_at_its_published_revision(monkeypatch, tmp_path):
+    import generate_platform_lock as generator
+    pins = recorded_pins()
+    candidate, matrix, source = resolve_published(monkeypatch, pins)
+    for name, pin in pins.items():
+        sdk = candidate['components']['honua-sdk-' + name]
+        declaration, = sdk['serverCompatibility']['declarations']
+        assert declaration['revision'] == pin['sourceSha'] == sdk['artifactSourceRevision']
+        assert declaration['sha256'] == 'sha256:' + hashlib.sha256(baseline_bytes('honua-sdk-' + name)).hexdigest()
+        assert (pin['repository'], pin['sourceSha'], resolver.SDK_BASELINE_PATH) in source.declarations.reads
+    # The advertised vocabulary is the selected server's (MigrationSource asserts the sha).
+    assert resolver.SERVER_CAPABILITY_KEYS[1] in source.reads
+    manifest_path, matrix_path = tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml'
+    manifest_path.write_text(yaml.safe_dump(candidate))
+    matrix_path.write_text(yaml.safe_dump(matrix))
+    rows = [row for row in generator.generate(manifest_path, matrix_path).unresolved if 'serverCompatibility' in row]
+    # The manifest is pinned now; what remains is the first-release lock fact, not a missing manifest.
+    assert len(rows) == 3 and not any('no consumed protocol/capability manifest' in row for row in rows)
+    assert all('publication-history receipt' in row for row in rows), rows
+
+
+def test_resolve_refuses_an_sdk_without_a_baseline_and_keeps_no_hand_value(monkeypatch):
+    pins = recorded_pins()
+    source = PublishedSource(pins)
+    del source.declarations.files[(pins['python']['repository'], pins['python']['sourceSha'],
+                                   resolver.SDK_BASELINE_PATH)]
+    seen = {}
+
+    def capture(candidate, *a, **k):
+        seen.update(candidate['components'])
+        return type('Findings', (), {'errors': []})()
+
+    replay_registry(monkeypatch)
+    components = {'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW}}
+    for name, pin in pins.items():
+        components['honua-sdk-' + name] = {
+            'repository': 'https://github.com/' + pin['repository'], 'artifact': pin['ecosystem'] + ':' + pin['package'],
+            'sha': NEW, 'serverCompatibility': {'minimumServerVersion': '1.0.0', 'manifests': [], 'declarations': []}}
+    monkeypatch.setattr(resolver.validate_platform, 'validate', capture)
+    with pytest.raises(resolver.ResolutionError) as refused:
+        resolver.resolve({'components': components, 'clientArtifacts': pins,
+                          'protocolCertification': {'ledger': {'status': 'bound'}}}, {}, source, None, limit=1)
+    lines = str(refused.value).splitlines()
+    assert any(line.startswith('honua-sdk-python: ') and 'sdk-capability-baseline.json is missing' in line
+               for line in lines), lines
+    assert not any(line.startswith(('honua-sdk-js: ', 'honua-sdk-dotnet: ')) for line in lines), lines
+    assert 'serverCompatibility' not in seen['honua-sdk-python']
+    assert seen['honua-sdk-js']['serverCompatibility']['minimumServerVersion'] == 'first-release'
+
+
+def test_an_unadvertised_capability_refuses_the_night(monkeypatch):
+    pins = recorded_pins()
+
+    class Narrow(PublishedSource):
+        def file(self, repository, revision, path):
+            if path == resolver.SERVER_CAPABILITY_KEYS[1]:
+                return json.dumps({'capabilities': [{'key': 'serve.wms'}]}).encode()
+            return super().file(repository, revision, path)
+
+    with pytest.raises(resolver.ResolutionError) as refused:
+        resolve_published(monkeypatch, pins, Narrow(pins))
+    for name in pins:
+        assert f'honua-sdk-{name}: ' in str(refused.value)
+    assert 'does not advertise required capabilities discovery.capability-manifest, ' \
+           'serve.geoservices-featureserver, serve.ogc-api-features' in str(refused.value)
+
+
+@pytest.mark.parametrize('body,message', [
+    (b'{"capabilities": []}', 'has no capabilities list'),
+    (b'{"capabilities": [{"displayName": "x"}]}', 'without a key'),
+    (b'{', 'is not a JSON document'),
+])
+def test_an_unreadable_server_vocabulary_refuses(body, message):
+    class Server:
+        def file(self, repository, revision, path):
+            return body
+
+    candidate = {'components': {'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW}}}
+    with pytest.raises(resolver.ResolutionError, match=message):
+        resolver.advertised_capabilities(Server(), candidate)
+
+
+def test_the_documented_baseline_is_the_dotnet_fixture_and_resolves():
+    doc = (resolver.ROOT / 'docs' / 'SDK-SERVER-BASELINE-RULE.md').read_text(encoding='utf-8')
+    section = doc.split('## The SDK capability baseline file', 1)[1]
+    example = re.search(r'```json\n(.*?)```', section, re.S).group(1)
+    assert json.loads(example) == json.loads(baseline_bytes('honua-sdk-dotnet'))
+    compatibility, _ = read_baseline('honua-sdk-dotnet', example.encode())
+    assert compatibility['minimumServerVersion'] == 'first-release'
