@@ -239,7 +239,6 @@ def classify(blocks: list[Block]) -> list[Block]:
                 block.intent = "run"
                 if block.language not in set(RUN_LANGUAGES.values()):
                     block.marker_error = f"doc-run: run on a language this gate cannot execute ({block.language})"
-                    block.intent = "illustrative"
                 previous_run = block if block.intent == "run" else previous_run
                 continue
         doc_test = info.get("doc-test")

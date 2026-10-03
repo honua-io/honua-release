@@ -1057,3 +1057,40 @@ def test_report_declaration_command_emits_all_sixteen_classes(tmp_path):
     for name in QUALIFYING_EXPECTED:
         assert emitted['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert name not in emitted['evidenceReceipts']
+
+
+@pytest.mark.parametrize("scenario,event,success", [
+    ("subset", "workflow_call", False), ("candidate", "workflow_call", False),
+    ("read-document", "pull_request", False), ("checkout", "pull_request", False),
+    ("runner", "pull_request", False), ("document-failure", "pull_request", True),
+    ("pass", "workflow_call", True),
+])
+def test_executable_docs_verdict_outputs_fail_on_incomplete_or_broken_harness(tmp_path, scenario, event, success):
+    import json
+    steps = _workflow("gate-executable-docs.yml")["jobs"]["run"]["steps"]
+    command = next(step["run"] for step in steps if step.get("id") == "verdict")
+    sources = {"documents": [{"id": "a"}, {"id": "b"}]}
+    rows = [{"id": "a", "checks": []}, {"id": "b", "checks": []}]
+    status = "pass"
+    if scenario == "subset":
+        rows.pop()
+    elif scenario == "candidate":
+        rows.append({"id": "candidate", "checks": []})
+    elif scenario in {"read-document", "checkout", "runner"}:
+        rows[0]["checks"] = [{"check": scenario, "status": "fail"}]
+        status = "fail"
+    elif scenario == "document-failure":
+        rows[0]["checks"] = [{"check": "boots-candidate-image", "status": "fail"}]
+        status = "fail"
+    for name, body in [("certification/executable-docs/sources.json", sources),
+                       ("artifacts/executable-docs/report.json", {"status": status, "documents": rows})]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body))
+    (tmp_path / "artifacts/executable-docs/summary.md").write_text("summary")
+    output = tmp_path / "output"
+    proc = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True,
+                          env={**os.environ, "EVENT": event, "GITHUB_OUTPUT": str(output),
+                               "GITHUB_STEP_SUMMARY": str(tmp_path / "summary")})
+    assert (proc.returncode == 0) is success, proc.stderr
+    assert output.read_text().splitlines()[-1] == f"overall_status={status if success else 'fail'}"

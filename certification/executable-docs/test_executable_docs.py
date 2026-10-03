@@ -321,3 +321,54 @@ def test_file_header_comments_and_replace_cues_name_files():
     assert (blocks[0].intent, blocks[0].file) == ("file", "Program.cs")
     assert (blocks[1].intent, blocks[1].file) == ("file", "Program.cs")
     assert scrub('api_key=os.environ["HONUA_API_KEY"]', []) == 'api_key=os.environ["HONUA_API_KEY"]'
+
+
+@pytest.mark.parametrize("expected,actual,ok", [
+    ('{"mode":"disabled"}', '{"mode":"enabled"}', False),
+    ('{"count":3}', '{"count":12}', False),
+    ('{"value":true}', '{"value":1}', False),
+    ('{"data":{"mode":"disabled","id":"..."}}',
+     '{"data":{"mode":"disabled","id":42,"extra":1}}', True),
+    ('{"data":[{"mode":"disabled"}]}', '{"data":[{"mode":"enabled"}]}', False),
+])
+def test_json_output_compares_values(expected, actual, ok):
+    assert assert_output(expected, actual)[0] is ok
+
+
+def test_unevaluated_candidate_check_fails_document():
+    from run import summarize
+    result = {"blocks": [{"status": "pass"}],
+              "checks": [{"check": "boots-candidate-image", "status": "not-evaluated"}]}
+    summarize(result)
+    assert result["status"] == "fail"
+
+
+@pytest.mark.parametrize("installed,pins,closure,status", [
+    ({"@honua-io/old": "1.0.0"}, {"@honua/sdk": "2.0.0"}, {}, "fail"),
+    ({"honua-extra": "1.0.0"}, {}, {}, "fail"),
+    ({"@honua/core": "1.0.0"}, {}, {"@honua/core": "1.0.0"}, "pass"),
+    ({"@honua/core": "0.9.0"}, {}, {"@honua/core": "1.0.0"}, "fail"),
+    ({"@honua/sdk": "1.0.0"}, {"@honua/sdk": "2.0.0"}, {"@honua/sdk": "*"}, "fail"),
+])
+def test_document_rejects_url_packages_outside_admitted_set(tmp_path, installed, pins, closure, status):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={},
+                              run_shell=lambda *args: Outcome("pass", "installed", exit_code=0),
+                              installed_honua=lambda runtime: installed)
+    result, _ = run_document({"runtime": "node"}, "```sh\nnpm install https://example.org/pkg.tgz\n```",
+                             session, {"_pins": pins, "_closure": lambda: closure},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == status
+
+
+def test_unsupported_explicit_run_fails_document(tmp_path):
+    from types import SimpleNamespace
+    from run import run_document
+    text = "<!-- doc-run: run -->\n```ruby\nputs 'hello'\n```"
+    assert extract(text, "markdown")[0].intent == "run"
+    session = SimpleNamespace(workdir=tmp_path, env={})
+    result, _ = run_document({"runtime": "node"}, text, session, {},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert "cannot execute" in result["blocks"][0]["detail"]

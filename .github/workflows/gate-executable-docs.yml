@@ -124,9 +124,9 @@ jobs:
             echo "overall_status=fail" >> "$GITHUB_OUTPUT"
             echo "::error::the runner produced no report"; exit 1
           fi
+          echo "overall_status=fail" >> "$GITHUB_OUTPUT"
           cat artifacts/executable-docs/summary.md >> "$GITHUB_STEP_SUMMARY"
           status="$(jq -r .status "$report")"
-          echo "overall_status=${status}" >> "$GITHUB_OUTPUT"
           # Every declared document has a row; a harness that silently dropped one cannot pass.
           declared="$(jq '.documents | length' certification/executable-docs/sources.json)"
           reported="$(jq '[.documents[] | select(.id != "candidate")] | length' "$report")"
@@ -136,6 +136,11 @@ jobs:
           if jq -e '.documents[] | select(.id == "candidate")' "$report" >/dev/null; then
             echo "::error::the candidate did not boot; no document ran against it"; exit 1
           fi
+          if jq -e '[.documents[].checks[]? | select(.check != "boots-candidate-image" and .status != "pass")] | length > 0' "$report" >/dev/null; then
+            echo "::error::document harness/infrastructure checks failed"; exit 1
+          fi
+          case "$status" in pass|fail|blocked) ;; *) echo "::error::invalid report status"; exit 1 ;; esac
+          echo "overall_status=${status}" >> "$GITHUB_OUTPUT"
           if [ "$EVENT" = "pull_request" ]; then
             echo "::notice::harness proof: ${reported} documents ran; documents' status ${status} (the nightly gate enforces it)"
             exit 0

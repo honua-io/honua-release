@@ -38,7 +38,7 @@ sys.path.insert(0, str(HERE))
 from blocks import Block, extract  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
-from registry_guard import pins_from_manifest  # noqa: E402
+from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 
 TAIL = 2000
 SERVE = re.compile(
@@ -84,14 +84,24 @@ def _norm(line: str) -> str:
 def assert_output(expected: str, actual: str) -> tuple[bool, str]:
     """Every non-elided expected line appears in the output, in order (digits and spacing normalized).
 
-    Lines that are only `...`/`…` or comments elide. JSON output compares the expected object's keys.
+    Lines that are only `...`/`…` or comments elide. JSON values compare recursively;
+    a value of `...` or `…` explicitly marks a dynamic field.
     """
     try:
         want = json.loads(expected)
         got = json.loads(actual.strip().splitlines()[-1] if actual.strip() else "")
-        if isinstance(want, dict) and isinstance(got, dict):
-            missing = sorted(set(want) - set(got))
-            return (not missing, "expected JSON keys present" if not missing else f"output lacks keys {missing}")
+        def matches(want: Any, got: Any) -> bool:
+            if isinstance(want, str) and want in {"...", "…"}:
+                return True
+            if isinstance(want, dict):
+                return isinstance(got, dict) and all(k in got and matches(v, got[k]) for k, v in want.items())
+            if isinstance(want, list):
+                return isinstance(got, list) and len(want) == len(got) and all(
+                    matches(a, b) for a, b in zip(want, got))
+            return type(want) is type(got) and want == got
+
+        ok = matches(want, got)
+        return ok, "expected JSON values matched" if ok else "output differs from documented JSON values"
     except (json.JSONDecodeError, IndexError):
         pass
     lines = [_norm(l) for l in expected.splitlines()]
@@ -472,14 +482,15 @@ class Session:
             try:
                 for row in json.loads(out or "[]"):
                     if row["name"].lower().startswith("honua"):
-                        found[row["name"].lower().replace("_", "-")] = row["version"]
+                        found[pypi_normalize(row["name"])] = row["version"]
             except (json.JSONDecodeError, KeyError):
                 pass
         modules = Path(self.cwd) / "node_modules"
-        for package_json in list(modules.glob("@honua/*/package.json")) + list(modules.glob("@honua-io/*/package.json")):
+        for package_json in modules.rglob("package.json"):
             try:
                 meta = json.loads(package_json.read_text())
-                found[meta["name"]] = meta["version"]
+                if NPM_HONUA.match(meta["name"]):
+                    found[meta["name"]] = meta["version"]
             except (OSError, json.JSONDecodeError, KeyError):
                 pass
         return found
@@ -592,7 +603,7 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
 
 def summarize(result: dict[str, Any]) -> None:
     statuses = [r["status"] for r in result["blocks"]] + [c["status"] for c in result.get("checks", [])]
-    result["status"] = "fail" if "fail" in statuses else ("needs-input" if "needs-input" in statuses else "pass")
+    result["status"] = "fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else ("needs-input" if "needs-input" in statuses else "pass")
     result["counts"] = {s: statuses.count(s) for s in sorted(set(statuses))}
 
 
@@ -666,6 +677,9 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
 
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
+        if (block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run":
+            record(block, None, "fail", block.marker_error)
+            continue
         if block.intent in {"illustrative", "alternative", "excluded", "output"}:
             record(block, None, "not-run", block.reason or f"{block.intent} block")
             continue
@@ -732,11 +746,13 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         if doc.get("docker") and block.language == "shell":
             observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
                             servers_seen, candidate_digest)
-        if outcome.status == "pass" and block.language == "shell" and pinned_versions:
+        if outcome.status == "pass" and block.language == "shell":
             installed = session.installed_honua(doc["runtime"])
-            wrong = sorted(f"{name} {version} (the release pins {pinned_versions[name]})"
+            closure = context.get("_closure", lambda: {})()
+            allowed = {**closure, **pinned_versions}
+            wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
                            for name, version in installed.items()
-                           if name in pinned_versions and version != pinned_versions[name])
+                           if allowed.get(name) not in {version, "*"})
             if wrong:
                 outcome.status = "fail"
                 outcome.detail = ("installed a Honua package the release does not pin: " + "; ".join(wrong))
@@ -943,6 +959,7 @@ def main() -> int:
     install_docs = [d for d in selected if d.get("docker")]
     client_docs = [d for d in selected if not d.get("docker")]
     guards = Guards(manifest, sources["runtimes"]["python"], work, run_id)
+    context["_closure"] = guards.closure
     booted = False
     report_docs: list[dict[str, Any]] = []
     live_docs: list[tuple[dict[str, Any], str, str]] = []
