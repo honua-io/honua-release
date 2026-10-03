@@ -34,10 +34,9 @@ on:
         type: string
         default: ""
       tools_ref:
-        description: "honua-release ref providing the classifier, vocabulary, allowlist and baselines"
-        required: false
+        description: "honua-release commit sha (40 hex) providing the classifier, vocabulary, allowlist and baselines"
+        required: true
         type: string
-        default: "trunk"
     outputs:
       avoidable:
         description: "open (non-excepted) avoidable uses in the calling repository"
@@ -63,13 +62,24 @@ jobs:
           persist-credentials: false
 
       # In honua-release itself the gate tooling is the code under review; elsewhere it comes from the
-      # pinned honua-release ref, so a calling repository cannot loosen its own baseline or allowlist.
+      # pinned honua-release commit, so a calling repository cannot loosen its own baseline or allowlist and
+      # a later honua-release change cannot alter an already-pinned check.
+      - name: Require an immutable tooling revision
+        if: github.repository != 'honua-io/honua-release'
+        env:
+          TOOLS_REF: ${{ inputs.tools_ref }}
+        run: |
+          if ! [[ "$TOOLS_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::tools_ref must be a full 40-character honua-release commit sha, got '$TOOLS_REF'"
+            exit 1
+          fi
+
       - name: Check out the gate tooling
         if: github.repository != 'honua-io/honua-release'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.tools_ref || 'trunk' }}
+          ref: ${{ inputs.tools_ref }}
           path: release-tools
           persist-credentials: false
 

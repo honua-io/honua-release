@@ -86,8 +86,17 @@ COMPATIBILITY = re.compile(
 ENDORSEMENT = re.compile(r"\b(?:certified\s+by|endorsed\s+by|approved\s+by|official|partner\w*|"
                          r"powered\s+by|sponsored\s+by|affiliated\s+with)\b", re.IGNORECASE)
 HEADING_LEADS_WITH_MARK = re.compile(r"^\s*#{1,6}\s*[*_`]*\s*(?:esri|arcgis)", re.IGNORECASE)
+# Headings in the other prose formats: HTML <h1>-<h6>/<title>, AsciiDoc "= Title", and a line underlined by
+# the next one (reStructuredText, AsciiDoc two-line and Markdown setext titles).
+HTML_HEADING = re.compile(r"^\s*<(?:h[1-6]|title)\b", re.IGNORECASE)
+ASCIIDOC_HEADING = re.compile(r"^\s*={1,6}\s+\S")
+UNDERLINE = re.compile(r"^\s*([=\-~^\"'`#*+.:_])\1{2,}\s*$")
+LEADS_WITH_MARK = re.compile(r"^[\s*_`#=]*(?:esri|arcgis|living\s+atlas|arcmap|arccatalog|arcpy|arcobjects|"
+                             r"arcsde|arcims)", re.IGNORECASE)
 
 PROSE_SUFFIXES = {".md", ".mdx", ".markdown", ".rst", ".adoc", ".txt", ".html", ".htm"}
+# A compatibility matrix that is prose (a Markdown or HTML page) exempts only its table rows.
+TABLE_ROW = re.compile(r"^\s*\||<t[dh]\b", re.IGNORECASE)
 MATRIX_PATH = re.compile(r"(?:^|/)(?:[^/]*compatib[^/]*|[^/]*matrix[^/]*)(?:/|$)", re.IGNORECASE)
 TEST_PATH = re.compile(r"(?:^|/)(?:tests?|__tests__|spec|e2e|testing)(?:/|$)|(?:^|/)test_[^/]*$|"
                        r"(?:_test|\.test|\.spec|Tests?)\.[A-Za-z]+$|\.Tests?(?:/|\.)", re.IGNORECASE)
@@ -131,7 +140,6 @@ MARKUP_COMMENT = {".xml", ".csproj", ".props", ".targets", ".nuspec", ".svg", ".
 GENERATED = re.compile(r"(?:^|/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|"
                        r"poetry\.lock|Pipfile\.lock|uv\.lock|packages\.lock\.json|Cargo\.lock|go\.sum)$|"
                        r"\.min\.(?:js|css)$|\.map$")
-MAX_BYTES = 20 * 1024 * 1024
 BUNDLE_SUFFIXES = {".js", ".mjs", ".cjs", ".css"}
 
 
@@ -213,32 +221,41 @@ def _git(root: Path, *args: str, binary: bool = False):
     return result.stdout if binary else result.stdout.decode()
 
 
-def working_tree_files(root: Path) -> Iterator[tuple[str, bytes]]:
-    """Tracked plus untracked-but-not-ignored files; plain directory walk outside a git checkout."""
+def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
+    """Tracked plus untracked-but-not-ignored files; plain directory walk outside a git checkout.
+
+    A symlink yields its own path with ``None`` content: its name is classified, its target is not followed.
+    """
     try:
         listed = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                       binary=True).split(b"\0")
         paths = sorted({item.decode("utf-8", "surrogateescape") for item in listed if item})
     except (subprocess.CalledProcessError, FileNotFoundError):
         paths = sorted(str(p.relative_to(root)).replace(os.sep, "/") for p in root.rglob("*")
-                       if p.is_file() and ".git" not in p.relative_to(root).parts)
+                       if (p.is_file() or p.is_symlink()) and ".git" not in p.relative_to(root).parts)
     for relative in paths:
         full = root / relative
-        if full.is_symlink() or not full.is_file():
-            continue
-        yield relative, full.read_bytes()
+        if full.is_symlink():
+            yield relative, None
+        elif full.is_file():
+            yield relative, full.read_bytes()
 
 
-def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes]]:
-    """Blobs of ``ref`` (tracked content only), read through one ``git cat-file --batch``."""
+def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
+    """Blobs of ``ref`` (tracked content only), read through one ``git cat-file --batch``; symlinks as in
+    ``working_tree_files``."""
     entries = []
+    links = []
     for record in _git(root, "ls-tree", "-r", "-z", "--full-tree", ref, binary=True).split(b"\0"):
         if not record:
             continue
         meta, _, name = record.partition(b"\t")
         mode, kind, sha = meta.decode().split()
-        if kind == "blob" and mode != "120000":
+        if kind == "blob" and mode == "120000":
+            links.append(name.decode("utf-8", "surrogateescape"))
+        elif kind == "blob":
             entries.append((name.decode("utf-8", "surrogateescape"), sha))
+    yield from ((path, None) for path in sorted(links))
     process = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE)
     assert process.stdin and process.stdout
@@ -304,6 +321,19 @@ def is_attributed(text: str) -> bool:
     flattened = re.sub(r"(?m)^\s*(?:#+|//+|\*|>)\s?", " ", text)
     flattened = re.sub(r"[*_`]", "", flattened)
     return all(clause.search(flattened) for clause in ATTRIBUTION_CLAUSES)
+
+
+def _heading_leads_with_mark(context: FileContext, line: str, next_line: str) -> bool:
+    """A heading or page title that starts with a mark, in any prose format (Markdown ``#`` everywhere)."""
+    if HEADING_LEADS_WITH_MARK.search(line):
+        return True
+    if not context.prose:
+        return False
+    if HTML_HEADING.search(line):
+        return LEADS_WITH_MARK.search(re.sub(r"<[^>]*>", "", line)) is not None
+    if ASCIIDOC_HEADING.search(line) or (line.strip() and UNDERLINE.match(next_line)):
+        return LEADS_WITH_MARK.search(line) is not None
+    return False
 
 
 def _comment_kind(context: FileContext) -> str | None:
@@ -435,7 +465,8 @@ class Classifier:
         hits: list[Hit] = []
         in_fence = False
         in_block = False  # /* */ or <!-- --> spanning lines
-        for number, line in enumerate(text.splitlines(), start=1):
+        lines = text.splitlines()
+        for number, line in enumerate(lines, start=1):
             stripped = line.strip()
             if context.prose and stripped.startswith(("```", "~~~")):
                 in_fence = not in_fence
@@ -460,14 +491,16 @@ class Classifier:
                 if ENCODED.fullmatch(_word_around(line, start, end)):
                     self.skipped["encoded-token"] += 1
                     continue
+                heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
                 cls, category = self._classify(context, line, start, end, token, in_fence, block_open,
-                                               comment_at)
+                                               comment_at, heading)
                 exception = self._exception(path, token) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 
     def _classify(self, context: FileContext, line: str, start: int, end: int, token: str,
-                  in_fence: bool, block_open: bool, comment_at: int | None) -> tuple[str, str]:
+                  in_fence: bool, block_open: bool, comment_at: int | None,
+                  heading: bool = False) -> tuple[str, str]:
         if token in self.vocabulary:
             return "spec", "spec-identifier"
         word = _word_around(line, start, end)
@@ -475,7 +508,7 @@ class Classifier:
         in_comment = (block_open or (comment_at is not None and start > comment_at)
                       or stripped.startswith(("*", "/*", "///", "<!--")) and context.suffix in SLASH_COMMENT)
         prose_line = context.prose and not in_fence and not in_comment
-        if self._nominative(context, line, start, token, word, prose_line):
+        if self._nominative(context, line, start, token, word, prose_line, heading):
             return "nominative", ("attribution" if ATTRIBUTION_LINE.search(line) else "compatibility-statement")
         if REPO_NAME.search(word) or HONUA_NAME.search(word) or (context.manifest
                                                                   and PACKAGE_DECLARATION.search(line)):
@@ -503,7 +536,7 @@ class Classifier:
 
     @staticmethod
     def _nominative(context: FileContext, line: str, start: int, token: str, word: str,
-                    prose_line: bool) -> bool:
+                    prose_line: bool, heading: bool = False) -> bool:
         if not (prose_line or context.matrix) or not context.attributed:
             return False
         if token.lower() not in BARE_MARKS and token not in PRODUCT_NAMES and not PRODUCT.fullmatch(token) \
@@ -515,29 +548,32 @@ class Classifier:
             return False  # inline code is code, not prose
         if ATTRIBUTION_LINE.search(line):
             return True  # the attribution notice itself
-        if HEADING_LEADS_WITH_MARK.search(line) or ENDORSEMENT.search(line):
+        if heading or ENDORSEMENT.search(line):
             return False
-        return context.matrix or COMPATIBILITY.search(line) is not None
+        # a structured matrix (YAML/JSON rows) or a matrix page's table row; any other line needs the
+        # compatibility language
+        matrix_row = context.matrix and (not context.prose or TABLE_ROW.search(line) is not None)
+        return matrix_row or COMPATIBILITY.search(line) is not None
 
 
 # --------------------------------------------------------------------------------------------- scan
 
-def scan(files: Iterable[tuple[str, bytes]], repo: str, vocabulary: dict[str, dict],
+def scan(files: Iterable[tuple[str, bytes | None]], repo: str, vocabulary: dict[str, dict],
          allowlist: list[Exception_]) -> tuple[list[Hit], Counter[str], int]:
     classifier = Classifier(repo, vocabulary, allowlist)
     hits: list[Hit] = []
     seen_prefixes: set[str] = set()
     scanned = 0
     for path, data in files:
-        for hit in classifier.classify_path(path):
-            if hit.path not in seen_prefixes:
-                seen_prefixes.add(hit.path)
-                hits.append(hit)
+        # every mark in a path component is a hit, but a directory shared by many files counts once
+        path_hits = classifier.classify_path(path)
+        hits += [hit for hit in path_hits if hit.path not in seen_prefixes]
+        seen_prefixes.update(hit.path for hit in path_hits)
+        if data is None:
+            classifier.skipped["symlink"] += 1
+            continue
         if GENERATED.search(path):
             classifier.skipped["generated"] += 1
-            continue
-        if len(data) > MAX_BYTES:
-            classifier.skipped["large"] += 1
             continue
         if b"\0" in data[:8192]:
             classifier.skipped["binary"] += 1
@@ -654,18 +690,37 @@ def lint(report: dict, baseline: dict) -> list[str]:
     return problems
 
 
+def _mark_rename(old: str, new: str) -> bool:
+    """``new`` is ``old`` with only marked path components renamed (``src/EsriLayer.cs`` -> ``src/Layer.cs``)."""
+    old_parts, new_parts = old.split("/"), new.split("/")
+    if len(old_parts) != len(new_parts) or old == new:
+        return False
+    return all(PRESCREEN.search(a) for a, b in zip(old_parts, new_parts) if a != b)
+
+
 def baseline_growth(current: dict, base: dict | None) -> list[str]:
-    """A baseline may only shrink: the total never grows, and an entry may grow only in a net shrink."""
+    """A baseline may only shrink: the total never grows, and no entry grows. The one exception is a rename
+    that drops a mark: a new entry may take over the count of a removed entry whose path differs only in
+    marked components, up to that entry's count (each removed entry covers one new entry)."""
     if base is None:
         return []
     name = current.get("repo", "?")
+    problems = []
     if current["total"] > base["total"]:
-        return [f"baseline.{name}: total grew {base['total']} -> {current['total']}"]
-    grown = [path for path, count in current["files"].items() if count > base["files"].get(path, 0)]
-    if grown and current["total"] >= base["total"]:
-        return [f"baseline.{name}: {path} grew {base['files'].get(path, 0)} -> {current['files'][path]} "
-                "without a net shrink of the total" for path in grown]
-    return []
+        problems.append(f"baseline.{name}: total grew {base['total']} -> {current['total']}")
+    removed = {path: count for path, count in base["files"].items() if path not in current["files"]}
+    for path, count in sorted(current["files"].items()):
+        before = base["files"].get(path, 0)
+        if count <= before:
+            continue
+        source = next((old for old, old_count in sorted(removed.items())
+                       if before == 0 and old_count >= count and _mark_rename(old, path)), None)
+        if source is not None:
+            del removed[source]
+            continue
+        problems.append(f"baseline.{name}: {path} grew {before} -> {count}; a baseline entry may only grow as "
+                        "the rename of a removed entry whose marked path components were renamed")
+    return problems
 
 
 # --------------------------------------------------------------------------------------------- cli

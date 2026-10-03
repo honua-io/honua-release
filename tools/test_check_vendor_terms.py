@@ -63,6 +63,26 @@ def test_heading_that_leads_with_the_mark_is_avoidable_even_when_attributed():
     assert hit.cls == "avoidable"
 
 
+@pytest.mark.parametrize("path,text", [
+    ("site/clients.html", "<h1>ArcGIS Pro works with Honua</h1>"),
+    ("site/clients.html", "<title>ArcGIS Pro works with Honua</title>"),
+    ("site/clients.html", '<h2 class="hero"><strong>ArcGIS Pro</strong> works with Honua</h2>'),
+    ("docs/clients.adoc", "== ArcGIS Pro works with Honua"),
+    ("docs/clients.rst", "ArcGIS Pro works with Honua\n==========================="),
+    ("docs/clients.md", "ArcGIS Pro works with Honua\n---"),
+])
+def test_headings_in_every_prose_format_that_lead_with_the_mark_are_avoidable(path, text):
+    hit = only(classify(path, f"{text}\n\n{ATTRIBUTION}\n"), "ArcGIS Pro")
+    assert hit.cls == "avoidable"
+
+
+def test_compatibility_sentences_that_are_not_headings_stay_nominative():
+    for path, text in [("site/clients.html", "<p>ArcGIS Pro works with Honua.</p>"),
+                       ("docs/clients.rst", "ArcGIS Pro works with Honua.\nIt loads layers as well."),
+                       ("docs/clients.md", "ArcGIS Pro works with Honua.\n\n---")]:
+        assert only(classify(path, f"{text}\n\n{ATTRIBUTION}\n"), "ArcGIS Pro").cls == "nominative", path
+
+
 def test_endorsement_language_is_avoidable_even_when_attributed():
     hit = only(classify("docs/clients.md", f"Honua is an official ArcGIS Online partner.\n\n{ATTRIBUTION}\n"),
                "ArcGIS Online")
@@ -81,6 +101,17 @@ def test_compatibility_matrix_rows_are_nominative_when_the_file_is_attributed():
     assert hit.cls == "nominative"
     assert only(classify("matrix/clients.yaml", "clients:\n  - name: ArcGIS Pro\n"), "ArcGIS Pro").cls == \
         "avoidable"
+
+
+def test_a_matrix_page_exempts_only_its_table_rows():
+    text = f"| Client | Versions |\n| --- | --- |\n| ArcGIS Pro | 3.3 |\n\nChoose ArcGIS Online today.\n\n{ATTRIBUTION}\n"
+    hits = classify("docs/matrix-notes.md", text)
+    assert only(hits, "ArcGIS Pro").cls == "nominative"
+    assert only(hits, "ArcGIS Online").cls == "avoidable"
+    html = f"<table><tr><td>ArcGIS Pro</td><td>3.3</td></tr></table>\n<p>Choose ArcGIS Online.</p>\n{ATTRIBUTION}\n"
+    hits = classify("site/compatibility.html", html)
+    assert only(hits, "ArcGIS Pro").cls == "nominative"
+    assert only(hits, "ArcGIS Online").cls == "avoidable"
 
 
 def test_fenced_code_in_docs_is_not_prose():
@@ -130,6 +161,34 @@ def test_path_components_count_once_per_prefix():
     hits, _, scanned = vt.scan(files, "honua-test", VOCABULARY, [])
     assert scanned == 2
     assert [(hit.path, hit.line, hit.category) for hit in hits] == [("tests/esri-leaflet", 0, "path")]
+
+
+def test_every_mark_in_one_path_component_is_a_hit():
+    files = [("esri-arcgis-tools/a.txt", b"ok\n"), ("esri-arcgis-tools/b.txt", b"ok\n")]
+    hits, _, _ = vt.scan(files, "honua-test", VOCABULARY, [])
+    assert [(hit.path, hit.token) for hit in hits] == [("esri-arcgis-tools", "esri"),
+                                                      ("esri-arcgis-tools", "arcgis")]
+
+
+def test_large_text_files_are_scanned():
+    data = b"x = 1\n" * (4 * 1024 * 1024) + b"var layer = new EsriLayer();\n"
+    hits, skipped, scanned = vt.scan([("src/big.cs", data)], "honua-test", VOCABULARY, [])
+    assert (scanned, dict(skipped)) == (1, {})
+    assert [(hit.line, hit.token) for hit in hits] == [(4 * 1024 * 1024 + 1, "EsriLayer")]
+
+
+def test_symlink_names_are_classified_without_following_the_target(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "notes.txt").write_text("ok\n")
+    (repo / "EsriDocs").symlink_to("notes.txt")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "seed")
+    for files in (vt.working_tree_files(repo), vt.git_ref_files(repo, "HEAD")):
+        hits, skipped, scanned = vt.scan(files, "honua-test", VOCABULARY, [])
+        assert [(hit.path, hit.category) for hit in hits] == [("EsriDocs", "path")]
+        assert (dict(skipped), scanned) == ({"symlink": 1}, 1)
 
 
 def test_generated_binary_and_bundled_files_are_skipped_but_counted():
@@ -195,19 +254,39 @@ def test_a_new_avoidable_use_fails_the_lint():
 
 
 def test_a_baseline_that_grows_fails():
-    assert vt.baseline_growth(_baseline({"src/a.cs": 3}), _baseline({"src/a.cs": 2})) == [
-        "baseline.honua-test: total grew 2 -> 3"]
+    problems = vt.baseline_growth(_baseline({"src/a.cs": 3}), _baseline({"src/a.cs": 2}))
+    assert problems[0] == "baseline.honua-test: total grew 2 -> 3"
+    assert problems[1].startswith("baseline.honua-test: src/a.cs grew 2 -> 3;")
 
 
-def test_a_baseline_that_moves_counts_without_a_net_shrink_fails():
+def test_a_baseline_that_moves_counts_without_a_rename_fails():
     problems = vt.baseline_growth(_baseline({"src/a.cs": 1, "src/b.cs": 1}), _baseline({"src/a.cs": 2}))
-    assert problems == ["baseline.honua-test: src/b.cs grew 0 -> 1 without a net shrink of the total"]
+    assert [p.split(";")[0] for p in problems] == ["baseline.honua-test: src/b.cs grew 0 -> 1"]
+
+
+def test_a_net_shrink_does_not_buy_growth_in_another_entry():
+    # the total shrinks by one, but 98 uses move to a path that is not a rename of anything
+    problems = vt.baseline_growth(_baseline({"src/old.cs": 1, "src/new.cs": 98}), _baseline({"src/old.cs": 100}))
+    assert [p.split(";")[0] for p in problems] == ["baseline.honua-test: src/new.cs grew 0 -> 98"]
+    # removing the old entry is not enough either: the new path must be the old one with marks renamed
+    problems = vt.baseline_growth(_baseline({"src/new.cs": 98}), _baseline({"src/old.cs": 100}))
+    assert [p.split(";")[0] for p in problems] == ["baseline.honua-test: src/new.cs grew 0 -> 98"]
 
 
 def test_a_baseline_that_shrinks_passes_including_a_rename():
     assert vt.baseline_growth(_baseline({"src/a.cs": 1}), _baseline({"src/a.cs": 2})) == []
     # EsriLayer.cs -> Layer.cs: the path hit disappears, the remaining content hits move with the file
     assert vt.baseline_growth(_baseline({"src/Layer.cs": 2}), _baseline({"src/EsriLayer.cs": 3})) == []
+    # a marked directory renamed: every file under it moves
+    assert vt.baseline_growth(_baseline({"tests/leaflet/a.ts": 1, "tests/leaflet/b.ts": 2}),
+                              _baseline({"tests/esri-leaflet/a.ts": 1, "tests/esri-leaflet/b.ts": 2,
+                                         "tests/esri-leaflet": 1})) == []
+
+
+def test_a_rename_may_not_carry_more_than_the_removed_entry():
+    problems = vt.baseline_growth(_baseline({"src/Layer.cs": 3, "src/b.cs": 0}),
+                                  _baseline({"src/EsriLayer.cs": 2, "src/b.cs": 1}))
+    assert [p.split(";")[0] for p in problems] == ["baseline.honua-test: src/Layer.cs grew 0 -> 3"]
 
 
 # ------------------------------------------------------------------------------------------ CLI end to end

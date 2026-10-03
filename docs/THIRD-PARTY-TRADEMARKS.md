@@ -120,12 +120,14 @@ python3 tools/check_vendor_terms.py baseline --root ../honua-server --repo honua
 - Baselines are per file. A new avoidable use in any file fails the lint, even when another file got
   cleaner.
 - A baseline may only shrink. `check-baselines` runs in honua-release `validate` against the base ref.
-  It fails when a baseline's total grows, or when an entry grows without a net shrink of the total. A net
-  shrink covers the case where renaming `EsriLayer.cs` removes its path hit and the file's remaining hits
-  move to the new name.
+  It fails when a baseline's total grows or when any entry grows. The one exception is a rename that drops
+  a mark: when `src/EsriLayer.cs` becomes `src/Layer.cs`, the new entry may take over the removed entry's
+  count, up to that count, because the two paths differ only in marked components. Any other move of
+  avoidable uses to a new path needs an allowlist entry.
 - Lockfiles, source maps, binary files and bundled build output (`.js` or `.css` averaging more than
-  1,000 characters a line) are skipped, and the report counts them. Every other text file is scanned:
-  tracked files plus untracked files that are not ignored, or the blobs of `--git-ref`.
+  1,000 characters a line) are skipped, and the report counts them. Every other text file is scanned,
+  whatever its size: tracked files plus untracked files that are not ignored, or the blobs of `--git-ref`.
+  A symlink's own path is classified like any other path; its target is not followed.
 - Other repositories adopt the gate by calling the reusable workflow, once their baseline is committed
   here:
 
@@ -133,7 +135,12 @@ python3 tools/check_vendor_terms.py baseline --root ../honua-server --repo honua
 jobs:
   vendor-terms:
     uses: honua-io/honua-release/.github/workflows/gate-vendor-terms.yml@<sha>
+    with:
+      tools_ref: <the same sha>
 ```
+
+`tools_ref` is required and must be a full commit sha, so the classifier, allowlist and baselines a
+caller runs cannot change under an already-pinned check.
 
 ## Requesting an exception
 
