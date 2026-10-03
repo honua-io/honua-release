@@ -397,7 +397,7 @@ def regenerate_post_gate(source: Path, matrix: Path, frozen: dict, references: d
     after = {key: value for key, value in draft.lock.items() if key not in allowed}
     # Only the root manifest's hash is recomputed. The matrix and the source-input
     # denominator must still equal the qualification draft exactly.
-    before['sourceInputs']['platformManifest'] = draft.lock['sourceInputs']['platformManifest']
+    before['sourceInputs']['platformManifest']['sha256'] = draft.lock['sourceInputs']['platformManifest']['sha256']
     if canonical_bytes(before) != canonical_bytes(after):
         raise ValueError('no lock minted: regeneration changed facts outside sbom, provenance and notes, '
                          'fixtures and evidence declarations')

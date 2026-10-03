@@ -1182,3 +1182,18 @@ def test_buildkit_invocation_id_spelling_is_validated():
     predicate['metadata']['buildInvocationID'] = 'run-123'
     predicate['builder']['id'] = ''
     assert not nightly.predicate_valid(kind, predicate)
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda lock: lock['sourceInputs']['platformManifest'].update(path='other.yaml'),
+    lambda lock: lock['sourceInputs']['compatibilityMatrix'].update(sha256='sha256:' + '0' * 64),
+    lambda lock: lock['sourceInputs'].update(undeclared={'sha256': 'sha256:' + '0' * 64}),
+])
+def test_regeneration_recomputes_only_the_manifest_hash(inputs, tmp_path, mutation):
+    report, paths = inputs
+    references = fresh_references(report, paths)['references']
+    frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
+    mutation(frozen)
+    source = nightly.attach_post_gate(paths[0], references, report['evidenceDeclarations'], tmp_path)
+    with pytest.raises(ValueError, match='changed facts outside'):
+        nightly.regenerate_post_gate(source, paths[1], frozen, references)
