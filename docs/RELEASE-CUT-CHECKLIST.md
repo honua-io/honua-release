@@ -87,8 +87,8 @@ lifecycle coverage alone cannot replace the required two-revision application pr
   `qualification_candidate_digest` to the exact manifest. A receipt reference alone is insufficient.
 
 The artifact layout and attempt-ledger contract are in [BURN-IN-PROMOTION.md](BURN-IN-PROMOTION.md).
-The promotion fetcher/producers still need the integration described there under #386/#381; missing
-artifacts fail closed. Documentation and checker tests do not substitute for live proof.
+`tools/fetch_promotion_evidence.py` supplies that layout. The class producers and the lock-bound demo
+canary described there are still owed under #386/#381; missing artifacts fail closed. Documentation and checker tests do not substitute for live proof.
 
 ## 3. Check readiness and publish
 
@@ -104,8 +104,9 @@ artifacts fail closed. Documentation and checker tests do not substitute for liv
 - [ ] Rehearse fix-forward patching before GA ([release#380](https://github.com/honua-io/honua-release/issues/380)):
   fix on trunk → next certified lock → 12-hour patch burn and two canaries → `2026.1.1` promotion →
   rollback to the previous promoted lock. `release/2026.1` is a recorded Sev1 break-glass path only.
-- [ ] Request promotion through the scoped App workflow and obtain independent protected-environment
-  approval. Verify the lock signature and publication tag against the minting train's exact source.
+- [ ] Confirm the hourly `request-promotion.yml` run found the record ready and requested promotion as
+  the scoped App identity, then obtain independent protected-environment approval. Verify the lock
+  signature and publication tag against the minting train's exact source.
 - [ ] Promote `honua-2026.1.0`, publishing the selected lock's exact bytes and provenance. Only promotion
   moves npm `latest` / `2026.1`, container `:stable` / `:2026.1`, Helm and customer-install-manifest
   channels; each pointer resolves to immutable artifacts. No rebuild or unsigned update channel ships.

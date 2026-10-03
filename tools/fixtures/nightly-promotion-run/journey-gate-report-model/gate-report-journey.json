@@ -1,0 +1,20 @@
+{
+  "status": "pass",
+  "generatedAt": "2026-09-30T06:03:00Z",
+  "runId": "4242",
+  "runAttempt": 1,
+  "cells": [
+    {
+      "cell": "aws-ecs/redis-off",
+      "status": "pass",
+      "attempts": [
+        {
+          "number": 1,
+          "status": "pass",
+          "driver": "genuine-model",
+          "completedAt": "2026-09-30T06:03:00Z"
+        }
+      ]
+    }
+  ]
+}

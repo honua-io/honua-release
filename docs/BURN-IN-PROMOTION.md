@@ -112,24 +112,56 @@ The checker reads these paths under `--evidence-dir`:
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
 `rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
-four GA cells, with no other cells. Successful Actions metadata must match each recorded
-completion time. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
+four GA cells, with no other cells. Successful Actions metadata must match each recorded qualifying
+completion time; nightly receipt production must fall within the minting run lifetime. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.
 
 `tools/check_promotion_readiness.py` emits `promotion-readiness.json` and refuses before publication
-when any condition fails. `--lock-history` is retained for caller compatibility and does not affect the
+when any condition fails. Its `--lock` is the minting train's retained `platform-lock.json`, never
+trunk's current lock. `--lock-history` is retained for caller compatibility and does not affect the
 burn: repository lock history describes other candidates too.
 
-**Integration remaining in #386/#381:** `promote.yml` and `request-promotion.yml` still use the freeze
-shape. The fetcher must supply the class receipts and complete canary ledger above, pass the selected
-lock's retained bytes instead of the current trunk lock, accept scheduled minting runs, and stop
-reading the withdrawn `burnStartCommit`. Readiness must be requested on a schedule from hour 48 rather
-than when a train completes. That change is carried by a separate pull request. Until it lands, the
-workflow refuses every record, so promotion fails closed. This checker/docs change does not certify a
-live burn or move a channel.
+`tools/fetch_promotion_evidence.py fetch` builds this layout from Actions. It checks each run against
+Actions metadata: the minting train is a successful default-branch run of `release-train.yml` or the
+scheduled `nightly-certification.yml`, and each recorded canary is a successful scheduled `demo-canary.yml`
+run. It downloads the minting train's `certified-candidate` artifact, which carries the selected lock's
+exact bytes, and each class receipt from the artifact `promotion-receipt-<class>` on the run the record
+names. That run must be a successful default-branch run of the class's allowlisted producer
+(`RECEIPT_PRODUCERS`): nightly classes come only from the minting workflows, and a class with no
+allowlisted producer refuses, so qualifying classes refuse until their producers are registered. Each
+artifact is extracted in isolation and only its expected file is kept (the whole candidate bundle for the
+train), so artifact contents never replace the Actions `run.json`. It builds `canary-sequence.json` from every completed canary (scheduled or dispatched) since a day before
+minting, reading each run's `candidateLock.digest`. A run that failed before binding a lock is recorded
+with a null digest. An earlier failed attempt of a re-run canary is kept as an unattributed failure, so a
+successful re-run cannot erase it. A missing receipt is left missing, and the checker refuses it.
 
-After readiness passes, `request-promotion.yml` requests protected promotion as the scoped App identity.
+The nightly report declares the eleven nightly class names in `evidenceClasses`, and all fifteen
+classes in `evidenceDeclarations`. Each nightly declaration names its retained receipt and seven-day
+`freshUntil`; qualifying declarations have a null receipt and freshness bound. The report retains the
+nightly receipt payloads in `evidenceReceipts`. Minting checks every payload against the minted lock's
+exact byte digest before signing. Missing, wrong-lock or failed evidence mints nothing; a deterministic
+journey cannot stand in for the nightly genuine-model observation.
+
+The train retains its pre-mint inputs as `qualified-candidate`. Only a successful mint uploads the
+final `certified-candidate`, combining those exact manifest/matrix bytes with the signed minted lock
+and report, and the eleven `promotion-receipt-<class>` artifacts containing `receipt.json`. Journey
+receipts preserve the workflow's recorded attempt timestamps, driver and failure attribution.
+
+**Producers remaining in #386/#381:** qualifying class producers must upload their receipts during burn, and
+`demo-canary.yml` binds its evidence to trunk's committed `platform-lock.json` rather than the deployed
+selected lock. Until they do, the checker refuses every record, so promotion fails closed. The fetcher
+and checker do not certify a live burn or move a channel.
+
+`request-promotion.yml` runs hourly. `fetch_promotion_evidence.py candidates` lists committed records
+at or past hour 48 that have no published release and no promotion request that is pending or was made
+in the last 24 hours. For each one, the workflow fetches the evidence and runs the same readiness
+check. Only a passing record is dispatched to `promote.yml` as the scoped App identity, where readiness
+is checked again behind the protected environment. A record file that is not a readable JSON object is
+skipped with a warning rather than stopping the check of every other candidate. `promote.yml` verifies
+the lock signature against the validated minting workflow: `gh attestation verify` for a
+`release-train.yml` attestation, `cosign verify-blob` bound to `nightly-certification.yml` at the source
+commit for a nightly mint.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the
 minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua-2026.1.Z`) and moves
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
