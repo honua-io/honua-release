@@ -10,6 +10,8 @@ on:
       - e2e/harness/compose.candidate.yml
       - platform-manifest.yaml
       - certification/installed-clients/**
+      - certification/terminal-journey/probes.py
+      - e2e/scenarios/geoservices_error_surfacing/probes/**
       - .github/workflows/installed-client-certification.yml
 
 permissions:
@@ -26,8 +28,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      # The NuGet cell restores the pinned public package into a clean net10.0 consumer.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
       - run: python -m pip install -r e2e/requirements.txt
-      - name: Self-test the published-.NET-SDK import fidelity gate
+      - name: Self-test the installed-client gate
         run: |
           python -m pip install pytest
           python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py -q
@@ -39,13 +45,11 @@ jobs:
             --live \
             --evidence-uri "$EVIDENCE_URI" \
             --output artifacts/installed-client-certification.json || code=$?
-          test "${code:-0}" = 1
-          jq -e '.results | length == 6' artifacts/installed-client-certification.json
-          jq -e '[.results[] | select(.target == "npm" or .target == "pypi") | .status] == ["pass", "pass"]' artifacts/installed-client-certification.json
-          jq -e '[.results[] | select(.target == "pypi-admin") | .status] == ["pass"]' artifacts/installed-client-certification.json
-          jq -e '.results[] | select(.target == "npm-mcp") | .status == "fail"' artifacts/installed-client-certification.json
-          jq -e '.results[] | select(.target == "nuget") | .status == "fail"' artifacts/installed-client-certification.json
-          jq -e '.results[] | select(.cell == "nuget-service-layer-import-fidelity") | .status == "fail"' artifacts/installed-client-certification.json
+          # matrix.json is the only source of expected outcomes: active cells pass, blocked cells
+          # report their blocker, and a blocked cell that starts passing fails until it is flipped.
+          python certification/installed-clients/run.py \
+            --verify-receipt artifacts/installed-client-certification.json
+          test "${code:-0}" = 0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
