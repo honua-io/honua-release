@@ -1357,11 +1357,11 @@
       "id": "honua-release-docs-install-2026-1",
       "repo": "honua-io/honua-release",
       "path": "docs/INSTALL-2026.1.md",
-      "revision": "f65948cdf46a6eba60e4cb10d858eecccff97c91",
+      "revision": "6c6dcf6ed4a96c944a6d326803bee0a325313330",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/f65948cdf46a6eba60e4cb10d858eecccff97c91/docs/INSTALL-2026.1.md",
+      "url": "https://github.com/honua-io/honua-release/blob/6c6dcf6ed4a96c944a6d326803bee0a325313330/docs/INSTALL-2026.1.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1369,7 +1369,7 @@
       "blocks": [
         {
           "index": 0,
-          "line": 13,
+          "line": 14,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
@@ -1378,7 +1378,7 @@
         },
         {
           "index": 1,
-          "line": 20,
+          "line": 21,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "illustrative",
@@ -1388,7 +1388,7 @@
         },
         {
           "index": 2,
-          "line": 32,
+          "line": 33,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
