@@ -206,6 +206,8 @@ class Session:
     py_lines: "queue.Queue[str]" = field(default_factory=queue.Queue)
     py_path: str | None = None
     paths: dict[str, str] = field(default_factory=dict)   # PATH per runtime (venv activation, npm -g)
+    prerequisites: set[str] = field(default_factory=set)  # tools the session's documents say to have
+    teardowns: list[tuple[dict[str, Any], str, str, dict[str, Any]]] = field(default_factory=list)
     counter: int = 0
 
     def __post_init__(self) -> None:
@@ -237,6 +239,9 @@ class Session:
                 "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1", "-e", "PIP_ROOT_USER_ACTION=ignore",
                 "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "-e", "DOTNET_NOLOGO=1",
                 "--label", f"honua.execdocs.run={self.run_id}"]
+        if "node" in self.prerequisites and runtime != "node":
+            args += ["-v", f"{self.tools / 'node'}:/opt/node:ro",
+                     "-e", "PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
         if self.docker_access:
             args += ["-v", "/var/run/docker.sock:/var/run/docker.sock",
                      "-v", f"{self.tools / 'docker'}:/usr/local/bin/docker:ro",
@@ -475,19 +480,24 @@ def snapshot_containers() -> set[str]:
     return set(docker("ps", "-aq", "--no-trunc").stdout.split())
 
 
-def server_container_check(new_ids: set[str], candidate_digest: str) -> dict[str, Any] | None:
-    """Did the containers a document started run the candidate server image?"""
-    servers = []
-    for cid in sorted(new_ids):
+def observe_servers(ids: set[str], seen: dict[str, dict[str, Any]], candidate_digest: str) -> None:
+    """Record, while they exist, which server image each container a document started is running."""
+    for cid in sorted(ids - set(seen)):
         info = docker("inspect", "-f", "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels \"com.docker.compose.service\"}}", cid)
         if info.returncode:
             continue
         image, image_id, service = (info.stdout.strip().split("|") + ["", "", ""])[:3]
         if "honua-server" not in image and "honuaio/honua" not in image:
+            seen[cid] = {}
             continue
         digests = docker("image", "inspect", "-f", "{{json .RepoDigests}}", image_id).stdout.strip()
-        servers.append({"container": cid[:12], "service": service, "image": image,
-                        "isCandidate": candidate_digest in image or candidate_digest in digests})
+        seen[cid] = {"container": cid[:12], "service": service, "image": image,
+                     "isCandidate": candidate_digest in image or candidate_digest in digests}
+
+
+def server_container_check(seen: dict[str, dict[str, Any]], candidate_digest: str) -> dict[str, Any] | None:
+    """Did the stack a document started run the candidate server image?"""
+    servers = [s for s in seen.values() if s]
     if not servers:
         return None
     ok = all(s["isCandidate"] for s in servers)
@@ -540,10 +550,31 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
     session.cwd = str(target / spec.get("cwd", ""))
 
 
+def summarize(result: dict[str, Any]) -> None:
+    statuses = [r["status"] for r in result["blocks"]] + [c["status"] for c in result.get("checks", [])]
+    result["status"] = "fail" if "fail" in statuses else ("needs-input" if "needs-input" in statuses else "pass")
+    result["counts"] = {s: statuses.count(s) for s in sorted(set(statuses))}
+
+
+def run_teardowns(session: Session, secrets: list[str]) -> None:
+    """Run what each document said to run when the reader is done, after the whole session."""
+    for row, code, runtime, result in session.teardowns:
+        outcome = session.run_shell(code, runtime, DEFAULT_TIMEOUT, False)
+        row.update({"status": outcome.status, "detail": "run at the end of the session: " + outcome.detail,
+                    "durationSec": round(outcome.duration, 1), "exitCode": outcome.exit_code})
+        if outcome.status != "pass":
+            row["stdoutTail"] = scrub(tail(outcome.stdout), secrets)
+            row["stderrTail"] = scrub(tail(outcome.stderr), secrets)
+        summarize(result)
+    session.teardowns.clear()
+
+
 def run_document(doc: dict[str, Any], text: str, session: Session, context: dict[str, str],
                  variables: dict[str, Any], candidate_digest: str, secrets: list[str],
-                 defined: set[str], revision: str = "", token: str | None = None) -> tuple[dict[str, Any], set[str]]:
+                 defined: set[str], revision: str = "", token: str | None = None,
+                 report_row: dict[str, Any] | None = None) -> tuple[dict[str, Any], set[str]]:
     blocks = extract(text, "html" if doc.get("format") == "html" else "markdown")
+    context = {**context, "session.appDir": str(session.workdir / "app")}
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
     subst = {k: render(str(v["value"]), context) for k, v in variables["substitute"].items()}
     session.env.update(env_values)
@@ -553,6 +584,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     deferred: list[Block] = []
     pinned_versions = {k.lower() if not k.startswith("@") else k: v for k, v in (context.get("_pins") or {}).items()}
     before = snapshot_containers() if doc.get("docker") else set()
+    servers_seen: dict[str, dict[str, Any]] = {}
     later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]) for b in blocks}
 
     def record(block: Block, outcome: Outcome | None, status: str, detail: str, extra: dict | None = None) -> None:
@@ -589,9 +621,13 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             return session.run_http(code, doc["runtime"], context["candidate.baseUrl"], timeout)
         return Outcome("fail", f"no executor for {lang}")
 
+    pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
         if block.intent in {"illustrative", "alternative", "excluded", "output"}:
             record(block, None, "not-run", block.reason or f"{block.intent} block")
+            continue
+        if block.intent == "teardown":
+            pending_teardowns.append((block, substitute(block.code, subst)))
             continue
         if block.intent == "compile":
             deferred.append(block)
@@ -646,6 +682,9 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                     outcome.status, outcome.detail = "fail", f"{outcome.detail}; output assertion failed: {why}"
                 else:
                     outcome.detail = f"{outcome.detail}; {why}"
+        if doc.get("docker") and block.language == "shell":
+            observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
+                            servers_seen, candidate_digest)
         if outcome.status == "pass" and block.language == "shell" and pinned_versions:
             installed = session.installed_honua(doc["runtime"])
             wrong = sorted(f"{name} {version} (the release pins {pinned_versions[name]})"
@@ -659,18 +698,19 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
         record(block, outcome, outcome.status, "doc-test=compile; typechecked after the document's install steps: "
                + outcome.detail)
+    for block, code in pending_teardowns:
+        record(block, None, "pending", "teardown; runs when the session's documents are done")
+        session.teardowns.append((rows[-1], code, doc["runtime"], report_row if report_row is not None else {}))
     rows.sort(key=lambda r: r["index"])
     checks = []
     if doc.get("docker"):
-        new = {c for c in snapshot_containers() - before if started_from(c, session.workdir)}
-        check = server_container_check(new, candidate_digest)
+        check = server_container_check(servers_seen, candidate_digest)
         checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
                                 "detail": f"no honua-server container was started from this document's directory "
-                                          f"({len(new)} container(s) started there)"})
-    statuses = [r["status"] for r in rows] + [c["status"] for c in checks]
-    status = "fail" if "fail" in statuses else ("needs-input" if "needs-input" in statuses else "pass")
-    counts = {s: statuses.count(s) for s in sorted(set(statuses))}
-    return ({"status": status, "counts": counts, "blocks": rows, "checks": checks}, defined)
+                                          f"({len(servers_seen)} container(s) started there)"})
+    result = {"blocks": rows, "checks": checks}
+    summarize(result)
+    return (result, defined)
 
 
 # ── orchestration ────────────────────────────────────────────────────────────────────────────────
@@ -680,6 +720,18 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
     tools.mkdir(parents=True, exist_ok=True)
     for runtime in ("node", "python", "dotnet"):
         docker("pull", runtimes[runtime], timeout=1800, check=True)
+    node = tools / "node"
+    if not (node / "bin" / "node").exists():
+        cid = docker("create", runtimes["node"], check=True).stdout.strip()
+        try:
+            (node / "bin").mkdir(parents=True, exist_ok=True)
+            (node / "lib").mkdir(parents=True, exist_ok=True)
+            docker("cp", f"{cid}:/usr/local/bin/node", str(node / "bin" / "node"), check=True)
+            docker("cp", f"{cid}:/usr/local/lib/node_modules", str(node / "lib"), check=True)
+        finally:
+            docker("rm", "-f", cid)
+        for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
+            (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
     try:
@@ -863,9 +915,11 @@ def main() -> int:
             row["url"] = f"https://github.com/{document['repo']}/blob/{revision}/{document['path']}"
             key = document.get("session") or ident
             if key not in sessions:
+                members = [d for d in documents if (d.get("session") or doc_id(d["repo"], d["path"])) == key]
                 sessions[key] = Session(key, work / key, sources["runtimes"], guards.base(network), tools,
                                         bool(document.get("docker")), network, run_id,
-                                        sources.get("toolchain", {}).get("typescript", "5.9.3"))
+                                        sources.get("toolchain", {}).get("typescript", "5.9.3"),
+                                        prerequisites={p for d in members for p in d.get("prerequisites", {})})
             session = sessions[key]
             variables = load_vars(args.vars_dir, ident)
             print(f"== {ident} @ {revision[:12]}", flush=True)
@@ -877,13 +931,14 @@ def main() -> int:
                 report_docs.append(row)
                 continue
             result, defined[key] = run_document(document, text, session, context, variables, digest, [api_key],
-                                                defined.get(key, set()), revision, token)
+                                                defined.get(key, set()), revision, token, row)
             row.update(result)
             row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
             report_docs.append(row)
             live_docs.append((document, revision, text))
             print(f"   {row['status']} {row['counts']}", flush=True)
             if last_of_session.get(key) == ident:
+                run_teardowns(session, [api_key])
                 session.close()
                 cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
 

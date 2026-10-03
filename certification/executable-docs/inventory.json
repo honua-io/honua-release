@@ -1316,6 +1316,15 @@
         },
         {
           "index": 25,
+          "line": 488,
+          "language": "csharp",
+          "infoString": "csharp",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "04e91864498f22b91463718d41b4f0eae1d00dc06dbb3a89f9dcc28befa853c4"
+        },
+        {
+          "index": 26,
           "line": 492,
           "language": "csharp",
           "infoString": "csharp",
@@ -1324,7 +1333,7 @@
           "sha256": "0142db20c386b7343c01aa30da83e70d43aa587bb80e02eac9dee9447420b9b6"
         },
         {
-          "index": 26,
+          "index": 27,
           "line": 507,
           "language": "csharp",
           "infoString": "csharp",
@@ -1333,7 +1342,7 @@
           "sha256": "248da7c54d8cafa3006edd6b65b380f25ac07d55e0efc3c27fa3b26d18425487"
         },
         {
-          "index": 27,
+          "index": 28,
           "line": 528,
           "language": "csharp",
           "infoString": "csharp",
@@ -1502,9 +1511,10 @@
           "line": 241,
           "language": "shell",
           "infoString": "bash",
-          "intent": "run",
+          "intent": "teardown",
           "intentSource": "heuristic",
-          "sha256": "668c8bf3ed79497ec0e9ea2c5960cd3bb6f056f01d550717218bff11a7116cae"
+          "sha256": "668c8bf3ed79497ec0e9ea2c5960cd3bb6f056f01d550717218bff11a7116cae",
+          "reason": "stops the reader's stack; run when the session's documents are done"
         }
       ]
     },
@@ -1524,6 +1534,20 @@
       "blocks": [
         {
           "index": 0,
+          "line": 18,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "d8e332f0bc1855d260ad960c63ace488c6aec984e26cc03109be658c3b85a3aa",
+          "needs": {
+            "placeholders": [
+              "<your quickstart install directory>"
+            ]
+          }
+        },
+        {
+          "index": 1,
           "line": 28,
           "language": "shell",
           "infoString": "bash",
@@ -1532,7 +1556,7 @@
           "sha256": "9246623e9487a170684795cae3da38d23d18fee9cd36ea5cb8cd9d75ae9c470c"
         },
         {
-          "index": 1,
+          "index": 2,
           "line": 41,
           "language": "shell",
           "infoString": "bash",
@@ -1541,17 +1565,17 @@
           "sha256": "4bd883b1368c4dde398c7adc20ca9844f8b35a776cb66a0dabb0b50acee889d7"
         },
         {
-          "index": 2,
+          "index": 3,
           "line": 67,
           "language": "json",
           "infoString": "json",
           "intent": "output",
           "intentSource": "heuristic",
           "sha256": "098f0662a1fa0b3c8e7bc1286cee3f81f727f6119d077cecfff0b39e47a63800",
-          "outputOf": 1
+          "outputOf": 2
         },
         {
-          "index": 3,
+          "index": 4,
           "line": 91,
           "language": "shell",
           "infoString": "bash",
@@ -1560,7 +1584,7 @@
           "sha256": "99f36d7079b2c687c1163677ece3f2bbb4e1bde3fe1f570d75b00aea9735cc70"
         },
         {
-          "index": 4,
+          "index": 5,
           "line": 121,
           "language": "shell",
           "infoString": "bash",
@@ -1569,7 +1593,7 @@
           "sha256": "8bf2a18f9e06da0c7a903e5490e17c045668198cc9500bb77f418599664d3b6b"
         },
         {
-          "index": 5,
+          "index": 6,
           "line": 151,
           "language": "shell",
           "infoString": "bash",
@@ -1578,7 +1602,7 @@
           "sha256": "edcd9dd17dac52ce3e01d629d3c211d45c2c69e186064bb70cabb08cb3ae8bff"
         },
         {
-          "index": 6,
+          "index": 7,
           "line": 169,
           "language": "shell",
           "infoString": "bash",
@@ -2525,7 +2549,7 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 199,
+    "blocks": 201,
     "byIntent": {
       "alternative": 1,
       "compile": 7,
@@ -2533,7 +2557,8 @@
       "file": 4,
       "illustrative": 12,
       "output": 8,
-      "run": 165
+      "run": 166,
+      "teardown": 1
     }
   }
 }

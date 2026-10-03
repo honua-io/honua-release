@@ -275,3 +275,12 @@ def test_release_train_and_nightly_consume_the_gate():
     assert readiness.EVIDENCE_CLASSES["executable-docs"] == "nightly"
     assert mint.CLASS_GATES["executable-docs"] == "executable-docs"
     assert "executable-docs" in mint.REQUIRED_NIGHTLY_GATES
+
+
+def test_blockquoted_fences_and_teardown_blocks():
+    text = ("> **Base URL.** Take it from `.env`:\n>\n> ```bash\n> export A=1\n> ```\n\n"
+            "```bash\ndocker compose down              # stop, keep data\ndocker compose down --volumes\n```\n\n"
+            "<!-- doc-run: teardown -->\n```bash\nrm -rf .venv\n```\n")
+    blocks = by_index(text)
+    assert (blocks[0].intent, blocks[0].code) == ("run", "export A=1\n")
+    assert blocks[1].intent == "teardown" and blocks[2].intent == "teardown"

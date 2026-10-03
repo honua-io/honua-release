@@ -11,6 +11,8 @@ Intent of a block:
   alternative  a platform variant of a neighbouring block (PowerShell, cmd) this Linux lane cannot run
   illustrative a language this gate does not execute (json, yaml, html, text, ...)
   excluded     the author marked it `<!-- doc-run: skip reason="..." -->` or `doc-test=skip reason=...`
+  teardown     stops what the reader started (`docker compose down`); run when the reader is done with
+               the session, after any document that continues this one
 """
 from __future__ import annotations
 
@@ -42,6 +44,7 @@ FILE_CUE = re.compile(
 COMMAND_START = re.compile(
     r"^(\$ |npm |npx |pnpm |yarn |pip |pip3 |python3? |uv |dotnet |docker |curl |git |cd |export |honua |"
     r"node |mkdir |cat |source |set )")
+TEARDOWN_LINE = re.compile(r"^\s*(?:#.*|docker\s+compose\s+(?:-f\s+\S+\s+)*(?:down|stop|rm)\b.*|docker\s+(?:stop|rm)\b.*|)$")
 DOC_RUN = re.compile(r"<!--\s*doc-run:\s*(.*?)\s*-->", re.S)
 ATTR = re.compile(r'([\w-]+)(?:=(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?')
 
@@ -108,19 +111,23 @@ def parse_markdown(text: str) -> list[Block]:
         i += 1
     while i < len(lines):
         line = lines[i]
-        match = re.match(r"^(\s*)(`{3,}|~{3,})(.*)$", line)
+        match = re.match(r"^((?:\s*>)*)(\s*)(`{3,}|~{3,})(.*)$", line)
         if not match:
             prose.append(line)
             i += 1
             continue
-        indent, fence, info = len(match.group(1)), match.group(2), match.group(3).strip()
+        quote, indent, fence, info = match.group(1), len(match.group(2)), match.group(3), match.group(4).strip()
+        depth = quote.count(">")
         body: list[str] = []
         i += 1
         while i < len(lines):
-            close = re.match(r"^\s*(`{3,}|~{3,})\s*$", lines[i])
+            current = lines[i]
+            for _ in range(depth):   # a fence inside a blockquote: strip the quote markers
+                current = re.sub(r"^\s*> ?", "", current, count=1)
+            close = re.match(r"^\s*(`{3,}|~{3,})\s*$", current)
             if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
                 break
-            body.append(lines[i])
+            body.append(current)
             i += 1
         start_line = i - len(body)
         i += 1
@@ -213,6 +220,9 @@ def classify(blocks: list[Block]) -> list[Block]:
             elif "file" in marker and marker["file"]:
                 block.intent, block.file = "file", marker["file"]
                 continue
+            elif "teardown" in marker:
+                block.intent = "teardown"
+                continue
             elif "output" in marker:
                 block.intent = "output"
                 if previous_run is not None:
@@ -253,6 +263,11 @@ def classify(blocks: list[Block]) -> list[Block]:
                 block.intent, block.file = "file", name
                 previous_run = None
                 continue
+        if lang == "shell" and block.code.strip() and all(TEARDOWN_LINE.match(l) for l in block.code.splitlines()):
+            block.intent = "teardown"
+            block.reason = "stops the reader's stack; run when the session's documents are done"
+            previous_run = None
+            continue
         if lang == "shell":
             if block.raw_language.split()[0].lower() in {"console", "shell-session", "shellsession"} \
                     or (block.code.lstrip().startswith("$ ") and any(

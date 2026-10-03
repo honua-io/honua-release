@@ -31,7 +31,7 @@
     {"repo": "honua-io/honua-release", "path": "docs/INSTALL-2026.1.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-release", "path": "docs/CUSTOMER-INSTALL.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/registry-clients.md", "revision": {"component": "honua-server"}, "runtime": "python"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/javascript/javascript-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "node"},
@@ -58,6 +58,7 @@
   "toolchain": {
     "typescript": "5.9.3"
   },
+  "prerequisites": "a document's stated prerequisite tool beyond its runtime image, with the citation; `node` mounts the pinned node runtime's node/npm/npx into the session's other containers",
   "contexts": {
     "checkout": "the document is a README inside a repository: the reader has cloned that repository at the document's revision and runs from `cwd` (relative to the clone)"
   }
