@@ -11,7 +11,8 @@ response, and this module compares every declared key with the advertised value.
   extra     an advertised key the declaration does not list
   mismatch  the same key with a different value
 
-Any of the three refuses. The report carries both maps, so a refusal shows its own evidence.
+Any of the three refuses. The manifest pin must also equal the declaration, so the lock ships
+the versions the candidate advertises. The report carries all three maps and their disagreements.
 
 What the envelope advertises: `data.compatibility.contractVersions`, when the server publishes that
 map, is the advertised set as a whole. Without it, only the two fields the envelope carries today
@@ -46,7 +47,9 @@ ENVELOPE_FIELDS = (("admin", "adminApiMajor"), ("metadata", "metadataApiVersion"
 
 def advertised_contract_versions(document: object) -> dict[str, str]:
     """The contract versions an admin capabilities response advertises, or ValueError."""
-    data = document.get("data") if isinstance(document, dict) else None
+    if not isinstance(document, dict) or document.get("success") is not True:
+        raise ValueError(f"{CAPABILITIES_PATH} response success must be true")
+    data = document.get("data")
     compatibility = data.get("compatibility") if isinstance(data, dict) else None
     if not isinstance(compatibility, dict):
         raise ValueError(f"{CAPABILITIES_PATH} response has no data.compatibility object")
@@ -150,6 +153,23 @@ def run(manifest_path: Path, capabilities_path: Path, image_ref: str,
             report["declared"] = dict(sorted(declared.items()))
         else:
             report = check(declared, advertised)
+            pinned = manifest["components"][SERVER].get("contractVersions")
+            if not isinstance(pinned, dict) or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in pinned.items()
+            ):
+                report["status"] = "blocked"
+                report["why"] = f"manifest components.{SERVER}.contractVersions must map names to version strings"
+                report["manifest"] = pinned
+                report["manifestFindings"] = []
+            else:
+                report["manifest"] = dict(sorted(pinned.items()))
+                report["manifestFindings"] = compare(declared, pinned)
+                if report["manifestFindings"]:
+                    report["status"] = "fail"
+                    report["why"] += "; manifest contract versions differ from the declaration: " + "; ".join(
+                        f"{f['key']} {f['kind']} (declared {f['declared']!r}, manifest {f['advertised']!r})"
+                        for f in report["manifestFindings"])
+
     report["image"] = image_ref
     report["declaration"] = provenance
     report["capabilities"] = CAPABILITIES_PATH

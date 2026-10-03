@@ -67,7 +67,7 @@ def inputs(tmp_path):
     manifest.write_text(yaml.safe_dump({"components": {"honua-server": {
         "repository": "https://github.com/honua-io/honua-server", "sha": SERVER_SHA,
         "image": "ghcr.io/honua-io/honua-server:nightly-87966c3",
-        "contractVersions": {"admin": "v1"}}}}))
+        "contractVersions": copy.deepcopy(DECLARATION["contractVersions"])}}}))
     declaration = tmp_path / "component-versions.json"
     declaration.write_text(json.dumps(DECLARATION))
     capabilities = tmp_path / "capabilities.json"
@@ -97,6 +97,8 @@ def test_identical_maps_pass(inputs):
         "advertised": {"admin": "v1", "geoservices": "1.0.0", "grpc": "v1",
                        "metadata": "metadata.honua.io/v2alpha1", "ogc": "1.0.0", "stac": "1.0.0"},
         "findings": [],
+        "manifest": DECLARATION["contractVersions"],
+        "manifestFindings": [],
         "image": IMAGE_REF,
         "declaration": {"repository": "honua-io/honua-server", "sha": SERVER_SHA,
                         "path": "release/component-versions.json"},
@@ -160,7 +162,8 @@ def test_the_explicit_map_is_the_whole_advertised_set(inputs):
 
 @pytest.mark.parametrize("response, detail", [
     ("not json", "/api/v1/admin/capabilities unreadable: Expecting value"),
-    ({"success": False, "data": None}, "has no data.compatibility object"),
+    ({"success": False, "data": None}, "success must be true"),
+    ({"success": True, "data": None}, "has no data.compatibility object"),
     (advertising(["admin", "v1"]), "contractVersions must map names to version strings"),
     (advertising({"admin": 1}), "contractVersions must map names to version strings"),
 ])
@@ -201,7 +204,48 @@ def test_the_declaration_is_validated_as_the_resolver_reads_it(inputs, edit, det
 
 
 def test_the_declaration_not_the_manifest_map_is_the_input(inputs):
-    """The fixture manifest carries only {admin: v1}; the declaration's six keys are compared."""
+    """A partial manifest cannot certify a matching image and six-key declaration."""
+    manifest = yaml.safe_load(inputs[0].read_text())
+    manifest["components"]["honua-server"]["contractVersions"] = {"admin": "v1"}
+    inputs[0].write_text(yaml.safe_dump(manifest))
     code, report = run(inputs, IDENTICAL)
-    assert code == 0
+    assert code == 1
     assert len(report["declared"]) == 6
+    assert {f["key"] for f in report["manifestFindings"]} == set(DECLARATION["contractVersions"]) - {"admin"}
+    assert all(f["kind"] == "missing" for f in report["manifestFindings"])
+
+
+@pytest.mark.parametrize("success", [False, None, "true", 1])
+def test_unsuccessful_envelope_with_matching_versions_is_blocked(inputs, success):
+    response = copy.deepcopy(IDENTICAL)
+    response["success"] = success
+    code, report = run(inputs, response)
+    assert code == 3
+    assert report["status"] == "blocked"
+    assert "success must be true" in report["why"]
+
+
+@pytest.mark.parametrize("pinned, kind", [
+    ({**DECLARATION["contractVersions"], "stac": "1.1.0"}, "mismatch"),
+    ({**DECLARATION["contractVersions"], "odata": "4.0"}, "extra"),
+])
+def test_manifest_drift_refuses_matching_source_and_image(inputs, pinned, kind):
+    manifest = yaml.safe_load(inputs[0].read_text())
+    manifest["components"]["honua-server"]["contractVersions"] = pinned
+    inputs[0].write_text(yaml.safe_dump(manifest))
+    code, report = run(inputs, IDENTICAL)
+    assert code == 1
+    assert report["declared"] == report["advertised"] == DECLARATION["contractVersions"]
+    assert report["manifest"] == pinned
+    assert len(report["manifestFindings"]) == 1
+    assert report["manifestFindings"][0]["kind"] == kind
+
+
+@pytest.mark.parametrize("pinned", [None, [], {"admin": 1}])
+def test_malformed_manifest_versions_are_blocked(inputs, pinned):
+    manifest = yaml.safe_load(inputs[0].read_text())
+    manifest["components"]["honua-server"]["contractVersions"] = pinned
+    inputs[0].write_text(yaml.safe_dump(manifest))
+    code, report = run(inputs, IDENTICAL)
+    assert code == 3
+    assert "manifest components.honua-server.contractVersions" in report["why"]

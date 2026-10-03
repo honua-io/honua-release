@@ -116,7 +116,7 @@ jobs:
             fi
           fi
           if [ "$booted" = true ]; then
-            code="$(curl -sS -o "$OUT/capabilities.json" -w '%{http_code}' \
+            code="$(curl -sS --connect-timeout 5 --max-time 30 -o "$OUT/capabilities.json" -w '%{http_code}' \
               http://localhost:8080/api/v1/admin/capabilities)" || code=000
             if [ "$code" != 200 ]; then
               mv -f "$OUT/capabilities.json" "$OUT/capabilities.http-$code.txt" 2>/dev/null || true

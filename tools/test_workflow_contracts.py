@@ -1156,6 +1156,7 @@ def test_contract_live_boots_like_e2e_and_reads_admin_capabilities():
     assert "docker compose -f e2e/harness/compose.candidate.yml ps -q server" in boot["run"]
     assert '.RepoDigests' in boot["run"]
     assert "http://localhost:8080/api/v1/admin/capabilities" in boot["run"]
+    assert "--connect-timeout 5 --max-time 30" in boot["run"]
     compose = yaml.safe_load((REPO_ROOT / "e2e/harness/compose.candidate.yml").read_text(encoding="utf-8"))
     assert compose["services"]["server"]["environment"]["Licensing__Mode"] == "Disabled"
     check = _contract_live_step("Compare advertised contract versions with the declaration")
@@ -1196,8 +1197,40 @@ def test_release_train_requires_the_contract_live_gate_under_strict():
     assert "gate_contract_live" in report["needs"]
     assemble = next(step for step in report["steps"] if step.get("name") == "Assemble platform gate-report.json")
     assert assemble["env"]["S_CONTRACT_LIVE"] == (
-        "${{ needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}")
+        "${{ needs.gate_contract_live.result == 'success' && "
+        "needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}")
     assert re.search(r"^\s*contract-live\|\$S_CONTRACT_LIVE$", assemble["run"], re.MULTILINE)
     assert 'row["gate"] == "contract-live"' in assemble["run"]
     names = [step.get("name") for step in report["steps"]]
     assert names.index("Download the contract-live report") < names.index("Assemble platform gate-report.json")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_path):
+    image = "ghcr.io/honua-io/honua-server:nightly@sha256:" + "a" * 64
+    harness = tmp_path / "e2e/harness"
+    harness.mkdir(parents=True)
+    calls = tmp_path / "calls"
+    (harness / "boot.sh").write_text('echo "$1" >> "$CALLS"\n')
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    docker = shim / "docker"
+    docker.write_text('#!/bin/bash\nif [ "$1" = compose ]; then echo cid; '
+                      'elif [ "$1" = inspect ]; then echo imageid; '
+                      'else echo "ghcr.io/honua-io/honua-server@sha256:' + "a" * 64 + '"; fi\n')
+    docker.chmod(0o755)
+    curl = shim / "curl"
+    curl.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\necho 200\nexit 28\n')
+    curl.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-c", _contract_live_step("Boot the exact candidate and read its admin capabilities")["run"]],
+        cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ, "HONUA_SERVER_IMAGE": image, "E2E_OUT": str(tmp_path / "out"),
+             "GITHUB_OUTPUT": str(output), "CALLS": str(calls),
+             "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"})
+    assert result.returncode == 0
+    assert calls.read_text().splitlines()[0] == "up"
+    assert calls.read_text().splitlines()[-1] == "down"
+    assert "--connect-timeout 5 --max-time 30" in calls.read_text()
+    assert output.read_text() == "why=GET /api/v1/admin/capabilities returned HTTP 000\n"

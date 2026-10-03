@@ -517,7 +517,7 @@ jobs:
           S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
           S_BUILD: ${{ needs.gate_build_test.result }}
           S_CONTRACT: ${{ needs.gate_contract.result }}
-          S_CONTRACT_LIVE: ${{ needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
+          S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
           S_CONFORMANCE: ${{ needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
@@ -620,7 +620,7 @@ jobs:
                   row["exception"] = {"issue": entry.get("issue", ""),
                                       "why": " ".join(str(entry.get("why", "")).split())}
               if row["gate"] == "contract-live":
-                  row.update({key: live.get(key) for key in ("declared", "advertised", "findings", "image")})
+                  row.update({key: live.get(key) for key in ("declared", "advertised", "findings", "manifest", "manifestFindings", "image")})
           after = json.dumps(
               [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
           )
