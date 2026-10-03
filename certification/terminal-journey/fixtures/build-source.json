@@ -1,0 +1,6 @@
+{
+  "features": [
+    {"type": "Feature", "properties": {"journey_id": 1}, "geometry": {"type": "Point", "coordinates": [0, 0]}},
+    {"type": "Feature", "properties": {"journey_id": 2}, "geometry": {"type": "Point", "coordinates": [1, 1]}}
+  ]
+}

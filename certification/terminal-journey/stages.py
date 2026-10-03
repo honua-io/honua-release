@@ -129,6 +129,18 @@ def _resolve(checks: list[Check], number: int, stage_id: str, command: str) -> S
     )
 
 
+def prerequisites(checks: list[Check]) -> list[Check]:
+    """Keep measured client/tool checks when replacing unexecuted placeholders."""
+    return [check for check in checks if check.id.endswith(("admin-cli", "tools-present", "tool-present", "client-pins"))]
+
+
+def merge_execution(original: StageResult, executed: StageResult) -> StageResult:
+    retained = prerequisites(original.checks)
+    combined = _resolve(retained + executed.checks, executed.number, executed.stage, executed.command)
+    executed.checks, executed.status, executed.blocked_by = combined.checks, combined.status, combined.blocked_by
+    return executed
+
+
 def _tool_presence(observation: Observation, names: tuple[str, ...], check_id: str) -> Check:
     """Prove the server publishes the named tools. Discovery only, no authority."""
     invocation = f"mcp tools/list ∋ {', '.join(names)}"
@@ -515,6 +527,9 @@ def run_stages(
             ]
         else:
             checks = implementation(observation, workspace_blockers)
+        if number >= 3:
+            checks.insert(0, _admin_cli_check(f"{number}.client-pins",
+                "verify pinned installed clients required by this stage", workspace_blockers, number))
         result = _resolve(checks, number, stage["id"], stage["command"])
         # A stage never loses a blocker the contract already knew about.
         if result.status == "blocked":
