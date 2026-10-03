@@ -1157,6 +1157,8 @@ def test_contract_live_boots_like_e2e_and_reads_admin_capabilities():
     assert '.RepoDigests' in boot["run"]
     assert "http://localhost:8080/api/v1/admin/capabilities" in boot["run"]
     assert "--connect-timeout 5 --max-time 30" in boot["run"]
+    login = _contract_live_step("Log in to ghcr")
+    assert "continue-on-error" not in login, "a ghcr login failure must fail the run"
     compose = yaml.safe_load((REPO_ROOT / "e2e/harness/compose.candidate.yml").read_text(encoding="utf-8"))
     assert compose["services"]["server"]["environment"]["Licensing__Mode"] == "Disabled"
     check = _contract_live_step("Compare advertised contract versions with the declaration")

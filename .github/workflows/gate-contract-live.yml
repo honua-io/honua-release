@@ -82,13 +82,13 @@ jobs:
               print(f"ref={image}@{digest}")
           PY
 
+      # A failed login is a red run, not a later "did not boot" blocked verdict.
       - name: Log in to ghcr
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       # boot.sh pulls the image, brings the compose stack up, waits for /healthz/ready and asserts
       # licensing mode: disabled. Then the running container must be the candidate digest.

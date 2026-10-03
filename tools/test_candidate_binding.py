@@ -435,3 +435,12 @@ def test_live_promotion_requires_a_passing_contract_live_receipt(status):
     ok, why = cb.validate_live_report(report, now=now)
     assert not ok
     assert "contract-live" in why
+
+
+def test_nightly_mint_refuses_a_report_without_the_contract_live_row():
+    import mint_nightly_lock as nightly
+
+    assert "contract-live" in nightly.REQUIRED_NIGHTLY_GATES
+    report = {"gates": [{"gate": name, "status": "pass"} for name in sorted(nightly.REQUIRED_NIGHTLY_GATES)
+                        if name != "contract-live"]}
+    assert "contract-live: missing required gate" in nightly.failures(report)
