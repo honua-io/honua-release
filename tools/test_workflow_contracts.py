@@ -1,5 +1,7 @@
 """Trust-boundary contracts for release workflow triggers and gates."""
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -63,31 +65,82 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert 'DRY_RUN" = "false' in commands
 
 
-def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
-    import os
-    import subprocess
-    found = False
-    for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
+def _run_with_refusing_generator(command: str, root: Path, variables: dict) -> tuple[subprocess.CompletedProcess, bool]:
+    """Run a workflow shell whose generator writes a partial draft and refuses.
+
+    Every other repository tool is stubbed to succeed and inline `python -` scripts run on the
+    real interpreter, so only propagation of the generator refusal decides whether the shell
+    reaches the trailing marker; an unrelated missing script or unset declared variable can
+    never make the check pass.
+    """
+    root.mkdir()
+    binary = root / "bin/python"
+    binary.parent.mkdir()
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "script = sys.argv[1] if len(sys.argv) > 1 else ''\n"
+        "if script.endswith('generate_platform_lock.py'):\n"
+        "    output = sys.argv[sys.argv.index('--output') + 1]\n"
+        "    open(output, 'w').write('platform: {id: partial}\\n')\n"
+        "    sys.exit(1)\n"
+        "if script.startswith('tools/'):\n"
+        "    sys.exit(0)\n"
+        f"os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])\n"
+    )
+    binary.chmod(0o755)
+    marker = root / "gate-input-created"
+    outputs = re.findall(r"--output\s+(\S+)", command)
+    try:
+        result = subprocess.run(["bash", "-e", "-c", command + f"\ntouch '{marker}'"],
+                                cwd=root, capture_output=True,
+                                env={**os.environ, **{name: "placeholder" for name in variables}, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]})
+    finally:
+        for output in outputs:
+            if os.path.isabs(output):
+                Path(output).unlink(missing_ok=True)
+    return result, marker.exists()
+
+
+def _generator_steps():
+    steps = []
+    for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
         workflow = _workflow(path.name)
         for job in workflow.get("jobs", {}).values():
-            for step in job.get("steps", []):
-                command = step.get("run", "")
-                if "tools/generate_platform_lock.py" not in command:
-                    continue
-                found = True
-                assert "continue-on-error" not in step and "continue-on-error" not in job
-                # Execute the actual workflow shell with a refusing generator. Relabelling a
-                # partial lock or any later command must be unreachable.
-                binary = tmp_path / "bin/python"
-                binary.parent.mkdir(exist_ok=True)
-                binary.write_text("#!/bin/sh\nexit 1\n")
-                binary.chmod(0o755)
-                marker = tmp_path / "gate-input-created"
-                result = subprocess.run(["bash", "-e", "-c", command + f"\ntouch '{marker}'"],
-                                        cwd=tmp_path, capture_output=True,
-                                        env={**os.environ, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]})
-                assert result.returncode != 0 and not marker.exists(), path.name
-    assert found
+            for index, step in enumerate(job.get("steps", [])):
+                if "tools/generate_platform_lock.py" in step.get("run", ""):
+                    steps.append((path, index, workflow, job, step))
+    assert steps
+    return steps
+
+
+def test_generator_refusal_is_not_statically_suppressed():
+    for path, _, _, job, step in _generator_steps():
+        command = step["run"]
+        assert "continue-on-error" not in step and "continue-on-error" not in job
+        assert "set +e" not in command, path.name
+        for line in command.replace("\\\n", " ").splitlines():
+            if "generate_platform_lock.py" in line:
+                assert not re.search(r"\|\|\s*(true|:)", line), (path.name, line)
+
+
+# These steps run on ubuntu runners and manifest-validate runs this suite there. On Windows `bash`
+# is the WSL launcher, which fails without running the step and so cannot prove anything.
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
+    for path, index, workflow, job, step in _generator_steps():
+        command = step["run"]
+        # A swallowed refusal relabels the partial draft, reaches the marker and fails here.
+        case = tmp_path / f"{path.stem}-{index}"
+        variables = {**workflow.get("env", {}), **job.get("env", {}), **step.get("env", {})}
+        result, reached = _run_with_refusing_generator(command, case, variables)
+        assert result.returncode != 0 and not reached, (path.name, result.stderr)
+        # The harness itself must not be vacuous: the same step with its refusal suppressed by a
+        # form the static checks do not recognise has to reach the marker.
+        suppressed = command.replace("python tools/generate_platform_lock.py",
+                                     "! python tools/generate_platform_lock.py")
+        result, reached = _run_with_refusing_generator(suppressed, tmp_path / f"{case.name}-suppressed", variables)
+        assert result.returncode == 0 and reached, (path.name, result.stderr)
 
 
 def test_live_release_aggregate_fails_on_any_skipped_required_gate():

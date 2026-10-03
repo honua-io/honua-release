@@ -444,3 +444,41 @@ def test_bind_refuses_sbom_the_frozen_inputs_never_declared(candidate):
     _refreeze(lock, paths, manifest)
     with pytest.raises(ValueError, match="immutable SBOM references and hashes are not declared"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def _image_candidate(candidate, image, platform_digests):
+    """Re-freeze the candidate with one component published as a registry image."""
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    declared = manifest["components"]["sdk"]
+    for key in ("artifact", "version"):
+        declared.pop(key)
+    declared.update({"image": f"{image['coordinate']}:candidate", "digest": image["digest"],
+                     "artifactVersion": "1.2.3", "architectures": image["architectures"],
+                     "platformDigests": platform_digests})
+    manifest["clientArtifacts"].pop("sdk")
+    lock["components"]["sdk"]["artifacts"] = [{
+        "kind": "image", "coordinate": image["coordinate"], "version": "1.2.3",
+        "sourceRevision": "c" * 40, "digest": image["digest"],
+        "architectures": image["architectures"], "platformDigests": platform_digests}]
+    _refreeze(lock, paths, manifest)
+    return lock, paths
+
+
+def test_bind_verifies_image_architectures_against_the_registry(candidate, registry_docker):
+    image = registry_docker["honua-console"]
+    lock, paths = _image_candidate(candidate, image, image["platformDigests"])
+    bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("tamper", ["swapped", "foreign"])
+def test_bind_refuses_image_architectures_the_registry_disagrees_with(candidate, registry_docker, tamper):
+    """Manifest and lock agree with each other and are well-formed; only the registry index
+    proves them wrong, so bind must consult it before the freeze job signs the lock."""
+    image = registry_docker["honua-console"]
+    amd64, arm64 = image["platformDigests"]["amd64"], image["platformDigests"]["arm64"]
+    declared = ({"amd64": arm64, "arm64": amd64} if tamper == "swapped"
+                else {"amd64": amd64, "arm64": registry_docker["honua-server"]["platformDigests"]["arm64"]})
+    lock, paths = _image_candidate(candidate, image, declared)
+    with pytest.raises(ValueError, match="platformDigests do not match registry Linux architecture identities"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
