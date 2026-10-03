@@ -76,17 +76,36 @@ def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
                     continue
                 found = True
                 assert "continue-on-error" not in step and "continue-on-error" not in job
-                # Execute the actual workflow shell with a refusing generator. Relabelling a
-                # partial lock or any later command must be unreachable.
+                assert "set +e" not in command, path.name
+                for line in command.replace("\\\n", " ").splitlines():
+                    if "generate_platform_lock.py" in line:
+                        assert not re.search(r"\|\|\s*(true|:)", line), (path.name, line)
+                # Execute the actual workflow shell with a generator that writes a partial draft
+                # and refuses. Every other python is the real interpreter, so a swallowed refusal
+                # relabels the partial draft, reaches the marker and fails this test.
                 binary = tmp_path / "bin/python"
                 binary.parent.mkdir(exist_ok=True)
-                binary.write_text("#!/bin/sh\nexit 1\n")
+                binary.write_text(
+                    f"#!{sys.executable}\n"
+                    "import os, sys\n"
+                    "if any(arg.endswith('generate_platform_lock.py') for arg in sys.argv[1:2]):\n"
+                    "    output = sys.argv[sys.argv.index('--output') + 1]\n"
+                    "    open(output, 'w').write('platform: {id: partial}\\n')\n"
+                    "    sys.exit(1)\n"
+                    f"os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])\n"
+                )
                 binary.chmod(0o755)
                 marker = tmp_path / "gate-input-created"
-                result = subprocess.run(["bash", "-e", "-c", command + f"\ntouch '{marker}'"],
-                                        cwd=tmp_path, capture_output=True,
-                                        env={**os.environ, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]})
-                assert result.returncode != 0 and not marker.exists(), path.name
+                outputs = re.findall(r"--output\s+(\S+)", command)
+                try:
+                    result = subprocess.run(["bash", "-e", "-c", command + f"\ntouch '{marker}'"],
+                                            cwd=tmp_path, capture_output=True,
+                                            env={**os.environ, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]})
+                finally:
+                    for output in outputs:
+                        if os.path.isabs(output):
+                            Path(output).unlink(missing_ok=True)
+                assert result.returncode != 0 and not marker.exists(), (path.name, result.stderr)
     assert found
 
 
