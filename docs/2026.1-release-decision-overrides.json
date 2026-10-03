@@ -1,8 +1,137 @@
 {
   "schema_version": 1,
   "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
-  "rules_date": "2026-09-10",
+  "rules_date": "2026-10-03",
   "rulings": {
+    "R3": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244",
+      "ruling": "Preview amendment to the 2026-09-05 every-P0-before-cut rule: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor.",
+      "moved": [
+        "honua-studio#2",
+        "honua-studio#26",
+        "honua-studio#41"
+      ]
+    },
+    "R4": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-demo-infra/issues/68#issuecomment-5883906566",
+      "ruling": "Demo geometry.buffer canary moves to post-cut-hardening.",
+      "moved": [
+        "honua-demo-infra#68"
+      ]
+    },
+    "R5": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-devops/issues/150#issuecomment-5883906979",
+      "ruling": "Server-side canonical lineage field moves to 2026.1.1 (server#5316); the DevOps join is proven against the candidate.",
+      "moved": [
+        "honua-devops#150"
+      ]
+    },
+    "R6": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "In-repo scope merged; the remaining live receipts are proven against the candidate (one ruling comment on each issue).",
+      "moved": [
+        "honua-iac#149",
+        "honua-iac#191",
+        "honua-sdk-dotnet#311",
+        "honua-sdk-js#1424"
+      ]
+    },
+    "R7": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-server/issues/3365#issuecomment-5883909078",
+      "ruling": "Acceptance met on trunk; the issue stays open until the grant vocabulary is confirmed. Bucket unchanged.",
+      "moved": [],
+      "cited": [
+        "honua-server#3365"
+      ]
+    },
+    "R8": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-sdk-dotnet/issues/341#issuecomment-5883909477",
+      "ruling": "Live attachments, subtypes and true curves are documented 2026.1 limits. Bucket unchanged.",
+      "moved": [],
+      "cited": [
+        "honua-sdk-dotnet#341"
+      ]
+    },
+    "R9": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928",
+      "ruling": "Support policy 2026.1-r2 approved; open until the signed lock cites it. Bucket unchanged.",
+      "moved": [],
+      "cited": [
+        "honua-support#60"
+      ]
+    },
+    "R10": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519",
+      "ruling": "Single-operator review model; two-person review moves to 2026.2 as an accepted limitation. Bucket unchanged.",
+      "moved": [],
+      "cited": [
+        "honua-release#236"
+      ]
+    },
+    "R11-R17": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929",
+      "ruling": "2026.1 release plan rulings (flagship gate, model, update scope, claims, approvals, Lambda digest, announcement). GA docs gates and patch readiness are proven before GA, not before the rc.3 lock.",
+      "moved": [
+        "honua-release#379",
+        "honua-release#380"
+      ]
+    },
+    "R18": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5885024688",
+      "ruling": "Continuous certification on trunk: an all-green nightly strict train mints a signed lock; promotion alone moves channels.",
+      "moved": [
+        "honua-sdk-js#1824"
+      ]
+    },
+    "R22-R27": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5965525512",
+      "ruling": "Lock-field and gate rulings on the #231 inventory: R22 nightly image version, R23 empty version sets, R24 catalog identity, R25 SDK pin advance, R26 upgrade baseline, R27 server contract versions.",
+      "effect": "Implementation rulings for release#231 (must-fix-before-cut) and its gates; they place no issue in a different bucket.",
+      "moved": []
+    },
+    "R28": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679",
+      "ruling": "Executable docs are a required nightly gate from day one; a failing getting-started block is a red night and mints nothing. No reporting-only period.",
+      "effect": "Every executable-docs finding is must-fix-before-cut by explicit exception, so a body edit cannot demote it.",
+      "moved": [
+        "honua-release#423",
+        "honua-release#424",
+        "honua-samples#59",
+        "honua-samples#60",
+        "honua-samples#61",
+        "honua-sdk-dotnet#402",
+        "honua-sdk-dotnet#403",
+        "honua-sdk-dotnet#404",
+        "honua-sdk-js#1886",
+        "honua-sdk-js#1887",
+        "honua-sdk-js#1888",
+        "honua-sdk-js#1889",
+        "honua-sdk-python#251",
+        "honua-sdk-python#252",
+        "honua-sdk-python#253",
+        "honua-sdk-python#254",
+        "honua-server#5386",
+        "honua-server#5387",
+        "honua-server#5388",
+        "honua-server#5389",
+        "honua-site#286",
+        "honua-site#287",
+        "honua-site#288",
+        "honua-site#289"
+      ]
+    },
     "R29": {
       "date": "2026-10-03",
       "authority": "https://github.com/honua-io/honua-release/issues/376",
@@ -10,6 +139,32 @@
       "effect": "An issue whose only subject is multi-tenant operation leaves the release buckets. Cross-tenant authorization denial and isolation cells inside single-tenant GA issues are security floors, not multi-tenant claims, and stay in their buckets.",
       "moved": [],
       "basis": "2026-10-03 scan of every open release/2026.1 cohort member (titles, labels and bodies mentioning tenant/tenancy): no open issue is multi-tenant-only. The multi-tenant-only work (honua-server#4793, honua-server#346) already carries release/2026.2 and is outside the cohort; closed members keep their recorded buckets."
+    },
+    "R30": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5971774870",
+      "ruling": "Desktop-client certification detail stays in the private certification repository; public repositories cite evidence identifiers and state compatibility nominatively.",
+      "effect": "The per-repo inventory issues were admitted on their bodies (no named release promise) and take the hardening default; R30 sets no cut sequence.",
+      "moved": []
+    },
+    "R31": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5971869742",
+      "ruling": "The Helm chart is published by digest with keyless signing (#231 WI-6); Helm/EKS remain Preview.",
+      "moved": []
+    },
+    "security-review-2026-10-03": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5965525512",
+      "ruling": "GA disposition of the server security review findings, recorded on the private findings tracker; counts only.",
+      "counts": {
+        "total": 33,
+        "fixed_and_closed": 4,
+        "ga_blocker": 10,
+        "fix_before_ga_not_gating_multi_tenant_only": 2,
+        "post_ga_2026_1_x": 17
+      },
+      "effect": "Highs and default-on Mediums block GA. The two multi-tenant-only findings do not gate (R29). No public cohort issue changes bucket."
     }
   },
   "exceptions": {
@@ -27,8 +182,9 @@
       "remove_first_release_gate": true
     },
     "honua-demo-infra#68": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
+      "bucket": "post-cut-hardening",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-demo-infra/issues/68#issuecomment-5883906566): governing geometry.buffer on the public demo and its scheduled GP canary support the demo/samples showcase, not a 2026.1 GA promise; whole-catalog GP is qualified against the candidate under server#3809. Acceptance needs 7 consecutive green scheduled runs on a deployed candidate, so it cannot finish before the cut by construction. PR #78 stays merged; the demo must not advertise geometry.buffer until those receipts exist. Supersedes the earlier must-fix-before-cut exception.",
+      "ruling": "R4"
     },
     "honua-devops#181": {
       "bucket": "prove-against-candidate",
@@ -112,7 +268,8 @@
     },
     "honua-release#236": {
       "bucket": "must-fix-before-cut",
-      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+      "reason": "Required gate/identity machinery before manufacture. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519): for 2026.1 the review model is required status checks verified by automation plus operator approval; rulesets applied with no bypass and read back; CODEOWNERS names the operator. Still in scope: required checks on iac/demo-infra/evidence/esri-compat, read-back rulesets across all 17 repos, one denied and one approved change. The two-person code-review rule moves to 2026.2 as an accepted limitation. Bucket unchanged.",
+      "ruling": "R10"
     },
     "honua-release#257": {
       "bucket": "must-fix-before-cut",
@@ -184,7 +341,8 @@
     },
     "honua-sdk-dotnet#341": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; member of the adopted migration program. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-dotnet/issues/341#issuecomment-5883909477) accepts live attachments, subtypes and true curves as documented \"not supported in 2026.1\" limits; the issue closes once those support-matrix rows (including the import-fidelity section release#317 consumes) land. Bucket unchanged.",
+      "ruling": "R8"
     },
     "honua-sdk-js#1419": {
       "bucket": "must-fix-before-cut",
@@ -224,7 +382,8 @@
     },
     "honua-server#3365": {
       "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-server/issues/3365#issuecomment-5883909078): acceptance met on trunk (#3576, #4372, #4736, #4990) with the release#362 live receipt; the issue stays open until the grant vocabulary is confirmed in admin-api.json. The focused Console read/approve receipt is re-minted on the RC. Bucket unchanged.",
+      "ruling": "R7"
     },
     "honua-server#3377": {
       "bucket": "prove-against-candidate",
@@ -392,6 +551,181 @@
     "honua-support#68": {
       "bucket": "post-cut-hardening",
       "reason": "Staffed-manual support controls remain required via support#5/#60; broader Preview application automation and API hardening do not add a pre-cut product dependency."
+    },
+    "honua-devops#150": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-devops/issues/150#issuecomment-5883906979): the DevOps side of federated lineage is merged (#190, #201, #202 at 689be60). The DevOps-side join must still appear in the release#129 candidate receipt. The server-side canonical rootProvisioningOperationId field moves to honua-server#5316 (release/2026.1.1); deploy parameters give a verifiable correlation join for 2026.1. P0 label retained.",
+      "ruling": "R5"
+    },
+    "honua-iac#149": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-iac/issues/149#issuecomment-5883907494): the in-repo scope is merged (#158, #161, #170, #174, #193, #202) and nothing pre-cut remains. The live approval-bound apply/smoke/destroy, the IAM allow/deny check and cross-executor lock contention run as one combined live run with iac#118 and devops#147 against the RC, in the disposable AWS account with a short-lived role. P0 label retained.",
+      "ruling": "R6"
+    },
+    "honua-iac#191": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-iac/issues/191#issuecomment-5883907830): #192 is merged and licensing-disabled: PASS is recorded on candidate runs 35081740780 and 35081743407. The remaining evidence is the cloud parity cells run live with no license inputs, reporting disabled at /api/v1/admin/license on the RC, collected under release#129/#282 once OIDC is wired.",
+      "ruling": "R6"
+    },
+    "honua-release#379": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026.1 release plan ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929), plan epic release#376: the GA docs gates (promise quickstart, rollback runbook, release withdrawal, pricing posture, support readiness) are M3 gates whose acceptance runs on the GA candidate; they do not hold the rc.3 cut.",
+      "ruling": "R11-R17"
+    },
+    "honua-release#380": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026.1 release plan ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929), plan epic release#376: patch readiness (release branches at the GA commits, backports, declared patch profile, rehearsal patch) is proven before GA; it does not hold the rc.3 cut.",
+      "ruling": "R11-R17"
+    },
+    "honua-sdk-dotnet#311": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-dotnet/issues/311#issuecomment-5883908263): the fail-closed installed-package lane landed in #322. With the re-pin to Honua.Sdk 1.10.0 from nuget.org (release#348), what remains is running that lane against the RC and submitting the evidence fragment. P0 and first-release-gate labels retained.",
+      "ruling": "R6"
+    },
+    "honua-sdk-js#1424": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-js/issues/1424#issuecomment-5883908623): the shared command layer and correlation are merged (#1461, #1477, #1478, #1582, #1775, #1785) and server#3304 is closed. What remains: refresh releaseManifestServerSha in config/admin-client.v1.json to the new pin, then RC proofs showing the same server-side audit join and identical RBAC/cross-tenant denials across CLI, MCP, Studio and JS. P0 and first-release-gate labels retained.",
+      "ruling": "R6"
+    },
+    "honua-studio#2": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The real-model compose/save/reopen/propose/approved-URL smoke must still be proven against the RC before GA; it no longer holds the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained.",
+      "ruling": "R3"
+    },
+    "honua-studio#26": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The private/public sharing decision (separate human approval, verified URL returned into the conversation) must still be proven against the RC before GA; it no longer holds the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained.",
+      "ruling": "R3"
+    },
+    "honua-studio#41": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The versioned self-hosted Studio tag and its runtime-configuration receipt must still be proven against the RC before GA; they no longer hold the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained.",
+      "ruling": "R3"
+    },
+    "honua-release#424": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-samples#59": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-samples#60": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-samples#61": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-dotnet#402": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-dotnet#403": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-dotnet#404": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1886": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1887": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1888": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1889": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-python#251": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-python#252": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-python#253": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-python#254": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-server#5386": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-server#5387": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-server#5388": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-server#5389": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-site#286": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-site#287": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-site#288": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-site#289": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-release#423": {
+      "bucket": "must-fix-before-cut",
+      "ruling": "R28",
+      "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-sdk-js#1824": {
+      "bucket": "prove-against-candidate",
+      "ruling": "R18",
+      "reason": "Ruling R18 (2026-09-29, https://github.com/honua-io/honua-release/issues/376#issuecomment-5885024688) names this issue as its implementation: templates and samples follow the promoted channel instead of exact pins. Channels move only at promotion, so this must be proven on the promotion candidate before GA; it is not a prerequisite for minting a certified lock."
     }
   },
   "admission_reviews": {
@@ -621,9 +955,9 @@
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly and is the certification gate for it \u2014 quality-contract Sec7.2/Sec14 (upgrade/rollback pass, signed promotion receipt) and Sec14's release-train/burn-in bullets already require exactly this real-candidate injected-failure recovery proof; this issue supplies the missing evidence for an already-committed GA gate, not a new claim."
     },
     "honua-release#323": {
-      "body_sha256": "840e8daf56cee418a4b783b816c4bbf3a2d526fb0e5dddcb6910afeb1764602a",
+      "body_sha256": "501da2bea97130ff2e3d8d81c5ee5d35c98c73d59024443ca027159c3837382b",
       "named_promise": false,
-      "reason": "Grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica 2026-09-11; verdict unchanged."
+      "reason": "Reviewed 2026-09-29: grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica; verdict unchanged."
     },
     "honua-release#325": {
       "body_sha256": "0b022514f5d1f5bf32d2691b8748295e1768ff342ce708d6c2416716576321bd",
@@ -631,9 +965,9 @@
       "reason": "Epic/grouping issue for a newly introduced 'SDK adoption outcomes' program (.NET import, JS app migration, Python GP) dated 2026-09-09; not present in the quality contract's Sec14 gates or the release decision record, and the six canonical-ruling comments on release#268 (through 2026-09-05) do not adopt it. New scope, not a name-checked existing promise. Would flip true if a canonical ruling on release#268 adopts this program as part of the 2026.1 contract."
     },
     "honua-release#57": {
-      "body_sha256": "44326da89a16d96580c755cc8126f2ad1a8a602313556149d0817ea07ed7731b",
+      "body_sha256": "07c6f40d88ee8b6745492e22143b73a85f7f85216dc4e3648308b9aa2657b908",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: First-publication wave: finish NuGet, BSR, Helm OCI, QGIS, Mobile, Console, and migrate"
+      "reason": "Reviewed 2026-09-29: first-publication wave (NuGet, BSR, Helm OCI, QGIS, Mobile, Console, migrate): installed-client certification requires the same immutable public bytes that promotion publishes. Verdict unchanged."
     },
     "honua-release#7": {
       "body_sha256": "793c3edcb04333c45f97aed56aa0d29396b4f8a0124d10980963a37f9b978619",
@@ -666,9 +1000,9 @@
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(certification): exercise FeatureServer edits with governed entitlement"
     },
     "honua-sdk-dotnet#311": {
-      "body_sha256": "99b9ad0c97693415bc688fe064bc6905485757c429487dfc69a6040788a8028d",
+      "body_sha256": "fb361f5c8e1876103d9572ce85d6bb4221b0908ee84b9eaab8fffdcab5e42223",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the installed NuGet package against the exact 2026.1 candidate"
+      "reason": "Reviewed 2026-09-29: fail-closed installed-package certification with cross-tenant and insufficient-scope denials; bucket is set by the 2026-09-29 exception."
     },
     "honua-sdk-dotnet#326": {
       "body_sha256": "ac30f8dc81bbe023371d33d86f7d08b2fbcee99ba6906ef96c670b3f4b82075b",
@@ -681,9 +1015,9 @@
       "reason": "Same new-scope program (release#316/#317/#325): 'A C# implementation inside honua-server is not sufficient for the required SDK-only customer journey' \u2014 a new typed public-API surface being built for the migration program, not an existing promise being repaired."
     },
     "honua-sdk-dotnet#341": {
-      "body_sha256": "91a399a3035f65a9705cdd7485bee84fe9e7ff37bb172844bd35ed5e9d649e38",
+      "body_sha256": "c605e420a8b0ab2b5e90d7883d90fbe80da9c8c44e6bebd14fe510169a2bd6c9",
       "named_promise": false,
-      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) \u2014 new typed SDK capability ('add only missing typed coverage for service/layer/table discovery...') built to satisfy the new adoption-outcomes certification bar, not a fix to a behavior the record already promises."
+      "reason": "Reviewed 2026-09-29: body is the low-switching-cost Esri migration workstream (release#316): new typed SDK capability, not a fix to an already promised behavior; release scope comes from the 2026-09-10 exception and the 2026-09-29 accepted limits."
     },
     "honua-sdk-js#1397": {
       "body_sha256": "d58d631ae9dd9405e6e099b79edcf3f437d8e5f0e35de7412076c2a007f5ed1b",
@@ -706,9 +1040,9 @@
       "reason": "Body says this work is 'promoted' into 2026.1 specifically because the new migrated-app cohort (#1662, part of release#316) requires it, and explicitly separates it from its home epic (#1294, 2026.2 Application components). New feature completion for the new adoption program, not a fix to an existing promise."
     },
     "honua-sdk-js#1424": {
-      "body_sha256": "faa6dc54b22de9c857b02791e7d39ce299e8028bcd25f78f078c9e3c03d8d9dd",
+      "body_sha256": "e04cd8352bdae8408dff1653a4f84c720ca6fb4fd5195ac730ab9b6b3fd82eed",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: refactor(control-plane): share idempotent application commands across CLI, MCP, Studio, and SDK"
+      "reason": "Reviewed 2026-09-29: one command layer so RBAC and no-self-approval cannot drift between CLI, MCP, Studio and JS; bucket is set by the 2026-09-29 exception."
     },
     "honua-sdk-js#1426": {
       "body_sha256": "18afad32f45757d1309ba73cd5b43ef213f822a7fc572ab4d3a1281c586dc946",
@@ -1723,7 +2057,7 @@
     "honua-support#60": {
       "body_sha256": "2d92d95a3c2678aae7c86a7ebb49371e879fa773abdec4e830002683d472d843",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: publish severity, coverage, contact, incident, maintenance, and EOL policy"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: publish severity, coverage, contact, incident, maintenance, and EOL policy Operator approval 2026-09-29 (https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928): support policy 2026.1-r2 approved; stays open until the signed 2026.1 lock cites r2 by commit and digest."
     },
     "honua-support#61": {
       "body_sha256": "7f66b610c7b28ad54f7ab6f4b6f2212d0c6c33ab8612b43f3a0cc43000a5df8c",
@@ -1749,6 +2083,366 @@
       "body_sha256": "bbcc26a555b7d6c6493ecca00026f1dfb0176e012b4ef645f9c0e32c1a81ec4c",
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(api): 110 failure producers emit incompatible or bodyless error contracts"
+    },
+    "honua-esri-compat#101": {
+      "body_sha256": "1fcdd94b56290f47674d1bc991e4353a0b677f446c47f234824955f8db4d9e5d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: the declared GeoServices profile conformance gate (release certification / report, conformance-esri-geoservices) is broken: committed Esri operation matrices are stale and no fresh certification bundle is published, so the documented supported workflow cannot be certified."
+    },
+    "honua-iac#191": {
+      "body_sha256": "880494be41e7aa10b6101335c6e1529c5877f7f1d8b6659ffe1cc1eb9d8e59f4",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names the 2026.1 licensing-disabled deploy contract (release#338) on the GA AWS targets; bucket is set by the 2026-09-29 exception."
+    },
+    "honua-iac#206": {
+      "body_sha256": "d1e5e42923ac4d05c1d357816a5a0e808b7d4d071665fd440d37289d1840f765",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: optional Console sidecar in the standard deploy is new packaging scope; the body leaves the bucket to the operator and allows 2026.1.1. No named security floor, data-integrity defect or broken supported workflow."
+    },
+    "honua-iac#207": {
+      "body_sha256": "48f265f0e63c675a3106ff76656b765d124b921d4e030f1b8317c7b889d4da94",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: Bedrock grant, N-1 digest inputs and OIDC are required inputs to the promise-journey gate on every GA cell (plan ruling R11, release#376); removes static AWS keys and scopes the model grant (security floor)."
+    },
+    "honua-iac#209": {
+      "body_sha256": "be247aedaf9974ed0c9880ab38e3e3e8db95b72c18cf2b542d8f182056242bdb",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: mixed ECS + Batch topology is Preview and informational in 2026.1 (plan rulings R11/R14); GA in 2026.1.x."
+    },
+    "honua-migrate#152": {
+      "body_sha256": "f348c154b862a78bb3701f317fbf8b7088a7c8f0b850d78174aa977ecbb4891f",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: body targets 2026.1 exploratory learning and states qualification is a later gate; no named release promise."
+    },
+    "honua-release#376": {
+      "body_sha256": "ec3b04cffd862642051ef010d0bbc71e49516c29b804e41665285025507d433d",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: plan epic (Specifica 2026-1-release-plan-ai-cloud-to-maps), body re-projected after rulings R22-R31; its child issues are reviewed individually. An epic does not itself name a release promise. Verdict unchanged from 2026-09-29."
+    },
+    "honua-release#377": {
+      "body_sha256": "971aa64db5c9d6e6a69cd7b6a8561491649902072e38fdc45773e9d7f52b928a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: the promise journey is a required release gate (plan ruling R11); its stages include no-self-approval, prompt-injection and incompatible-target refusal (security floors) and exactly-once rollback (integrity)."
+    },
+    "honua-release#378": {
+      "body_sha256": "26021cd17f3c441b328460533237b5dd7c8504c2c915834989fd62a47f50a419",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: M1 developer preview announcement and dogfood run; the body states the recorded run is feasibility evidence, not a gate receipt, and M1 is not a release candidate (plan ruling R17)."
+    },
+    "honua-release#379": {
+      "body_sha256": "93457cdf614fe85b4bed0873aca5c29b9299c9f9190a61d92076d36c4ab7d209",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: GA docs gates the release cannot ship without; bucket is set by the 2026-09-29 plan exception (M3)."
+    },
+    "honua-release#380": {
+      "body_sha256": "06aa1f8822d839e4e32445bd91a9059ebd15df72d6504080f6cfd4bab5c7711d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: patch readiness backs the published Sev1 mitigation promise of support policy 2026.1-r2; bucket is set by the 2026-09-29 plan exception (before GA)."
+    },
+    "honua-release#381": {
+      "body_sha256": "0394bd5a8ab95c5b3d200d063230128436de8eaf38399d514a46158a9779bf15",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: makes the promise journey a failable train and promotion gate (ruling R11, R19 pass rule); required gate machinery before the rc.3 lock. Body re-projected; verdict unchanged from 2026-09-29."
+    },
+    "honua-sdk-js#1704": {
+      "body_sha256": "66f695d1e021cee92322fa3c733d4fad72cb464b939e8e42b34cbf54b7a8fcf5",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+    },
+    "honua-sdk-js#1705": {
+      "body_sha256": "d15e5043a57c0c5a1a0469c4dd9dafd768e68621524ae5afb0346228f648c675",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri dashboard conversion targets 2026.1 exploratory learning; the body states qualification is a later gate, and dashboards are not a 2026.1 claim (plan ruling R14)."
+    },
+    "honua-sdk-js#1706": {
+      "body_sha256": "530c4856aa1f2069a63f7f9def3593e8b06b0f79972927717b179977d003ab92",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+    },
+    "honua-sdk-js#1707": {
+      "body_sha256": "e2926732c90e19341830ca26e6c1e5770ed6596f256abcbb33976698350c158e",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri editor conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+    },
+    "honua-server#5312": {
+      "body_sha256": "3a082b967eeda0380e0003e9ab033706c11489505ced6a6ce0ce0d6ef43d36fe",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names data integrity across update and rollback: no duplicate or lost GP execution, and an older server must refuse an incompatible schema rather than serve silently wrong data."
+    },
+    "honua-server#5314": {
+      "body_sha256": "e7dbb90b12a0355ff3aec509c8850eb4408f3e016a4d2e854d9ef2275a1425c9",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: the capacity/SLO gate (release#258) now requires attested honua.capacity-observations/v1 evidence that no producer emits; required gate evidence for the rc.3 freeze train."
+    },
+    "honua-studio#2": {
+      "body_sha256": "2b249809d5e5c95b01983273dda6ffa9ff4d4c357ad6619efa445368c79ee813",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names governed publication with a separate human approver and no self-approval, the Studio security floor retained by the #268 experimental-safety ruling; bucket is set by the 2026-09-29 Preview amendment."
+    },
+    "honua-studio#26": {
+      "body_sha256": "5cff36f1dad36d17297e840bc904f600b4397341c8cb83340b7d9058e69e0b81",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names human approval for private and public publication with no agent-executable exception, a retained governance floor; bucket is set by the 2026-09-29 Preview amendment."
+    },
+    "honua-studio#41": {
+      "body_sha256": "b7321fce7a858554e991c759f01d2f8854a38320f4dad3b58a7f3d24d3882dda",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names no embedded provider/admin credentials in the self-hosted bundle, a retained security floor; bucket is set by the 2026-09-29 Preview amendment."
+    },
+    "honua-console#403": {
+      "body_sha256": "e7959dc42155177848fb994133ce09632a8ad866ec65961c510df700104c3dfd",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: live Console suite fails S4 (17 failed) because the harness never signs in an attributable operator; the Console read/approve journey is a documented supported workflow and S4 is a required nightly cell (R18): a red night mints nothing."
+    },
+    "honua-console#408": {
+      "body_sha256": "11c2a9250eaba888f646f176f1acca7138d1a235808fb29a9ebabc80eda76093",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-devops#206": {
+      "body_sha256": "e4459bcf4377494ef6aa39dba6b87943fdae72f744930af672ea792c0ce2d76d",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-helm#88": {
+      "body_sha256": "f0c279bb13a3327005b78622518914883dbe9734b1322bdc484214f45496234e",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-iac#213": {
+      "body_sha256": "53cb71b36f1a132638297bdd36d9fa1fa34d3e073233cdf7163239e9661acdb2",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: All-ECS/Redis-on is a GA cell (R11): the module injects no operation key-ring certificate, so the Redis-on server never becomes healthy. Broken documented supported install topology."
+    },
+    "honua-iac#214": {
+      "body_sha256": "ba13ab1bf460627948ce62fac11ccb84065b7069635c3ff0c45484f6fe923985",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: both Lambda + Batch GA cells (R11) fail before probes because the module rewrites the protected standing image repository policy; installing a supported topology inside the least-privilege boundary (iac#208) is broken."
+    },
+    "honua-iac#215": {
+      "body_sha256": "b479cdd35eda231961bc51ef1c325235c1799a22df1b1d56299304ac0b7e77dd",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: EKS is Preview and informational in 2026.1 (rulings R11/R14). The body names no GA promise, security floor or data-integrity defect; the aggregation that still requires the EKS rows is owned by release#381 (Preview cells cannot block), which stays before cut."
+    },
+    "honua-iac#220": {
+      "body_sha256": "4596750f7ce7954bd302b6264a54f88de46639034df3d0b25cca0d97d682b885",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-release#386": {
+      "body_sha256": "12bdabd1c610ae8bd93e7bd79e49cbf3006b6332f92fb378ca6eec2f0ec35a31",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: continuous certification on trunk (ruling R18, amended R19-R21): the nightly strict train that mints the signed rc.N lock. Without it no certified lock, and so no candidate, can exist; required release-integrity machinery."
+    },
+    "honua-release#416": {
+      "body_sha256": "2775af20c7558a07e54b7a11a5fc025ebddf2d31598e8b956bcb931ea6aee13d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-release#423": {
+      "body_sha256": "ae27f6f524b1fa06bf5e8a1e21cb6b6c8179c0718cbdcff08b00fa2ebcef5a99",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing. Release-side half: the candidate fixture does not serve the demo data contract the docs query, and create-honua-app is not a manifest pin."
+    },
+    "honua-release#424": {
+      "body_sha256": "624242bfd61ea75ca2d3345da86a6c2124da9259be6f243028dc26a1e6a0fd51",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-release#425": {
+      "body_sha256": "461acb50ee5a51a81044ad674d226b49fec73bd31f26ad0f9a407917d5f4fa29",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: third-party trademark policy, classifier and lint (operator request, legal minimisation). It names no security/isolation floor, data-integrity defect or broken supported workflow; no ruling places it before the cut."
+    },
+    "honua-release#427": {
+      "body_sha256": "4b3d5050c37f6fc0b80a72d607f318144dd1b1c58e5902e6819d3252138b4d34",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-samples#56": {
+      "body_sha256": "947ecd428e774afd46410e4c7277309815a118285cc01fda4cd843f774edeee7",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-samples#59": {
+      "body_sha256": "e28bda99d1c0ad6d2dbfa85083a29b2a5d6b635f8b1e43c24553454cb1cbdd98",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-samples#60": {
+      "body_sha256": "47d7f1b10f2891c0ae66617be3a46e8b38f721dc77bd90761245a96ccbe29821",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-samples#61": {
+      "body_sha256": "fd8abaa9f02f205b7b1e23256c3d2c1d3b64215936ebadd6823fdac332762cdc",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-dotnet#401": {
+      "body_sha256": "589ba81a898f471496353eb7c8dabd61d1406a4ecfe78529ac96bb7043778f0b",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-sdk-dotnet#402": {
+      "body_sha256": "c98c1e23342cc1a2b16108577112cabb2fd04bf8a2d121b4b2795637d0da399b",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-dotnet#403": {
+      "body_sha256": "ba6e8b82446882b4abb7f4893841f6248f06bad0a38516caf0ab663560ed00e5",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-dotnet#404": {
+      "body_sha256": "bd18ad211ef3c50bf71d827dfe1825dea6cb48260a9cf8972561edd2d91e6507",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-dotnet#405": {
+      "body_sha256": "0a92ce60ace4da51443d82f75a9efe246209cbe6661187e8d222d245715cc6d8",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: Honua.Sdk has never had an OGC API Tiles client and no .NET doc claims one; adding it is new typed SDK capability (same basis as sdk-dotnet#341), not a fix to a promised behaviour. The installed-client matrix step stays inactive until it ships."
+    },
+    "honua-sdk-dotnet#406": {
+      "body_sha256": "449512fbb4b103d63df00148e020944f83bd59c158b94f83e89ee79c753fb2f6",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-sdk-js#1883": {
+      "body_sha256": "0f8162b419bb98fccebec953ed0b40eff301be16609781cfee2becb54298f36c",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-sdk-js#1886": {
+      "body_sha256": "be92e7da5ac7fe9c12c58d74c6c8d528dae070fba53eb9eb63fc63e3701bc552",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-js#1887": {
+      "body_sha256": "dd2169a5d3eec82b35be7923a53c7c338ca9748bbd2b7c0228873b5512832dbe",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-js#1888": {
+      "body_sha256": "4a0f8f77293011a3e493d714d1bff323d82a6c02dc1029e41371c69d0936fcf8",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-js#1889": {
+      "body_sha256": "55a5fc29ef59fd03e24972d320430755bf5b7ea9f210d1156af36ee7c46af871",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-js#1894": {
+      "body_sha256": "0195c1b30d4363155d50d62fe5961d128404caf48f9dd2b1ea625e7efd6555e4",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: documented HonuaFeatureLayer.queryFeatureCount/queryObjectIds fail with HTTP 400 on every published layer whose object-id field is not OBJECTID; broken documented supported SDK workflow on the GA GeoServices surface."
+    },
+    "honua-sdk-js#1895": {
+      "body_sha256": "5073fef61cc2e14d600d3733c8d7c07d6e7309153ba4cebbd5ab8669a31c8245",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-sdk-python#250": {
+      "body_sha256": "ca32184fd01f2d015c7d250e26ef6efa9f61f8c298ec7989de39f1c56a8c4ee3",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-sdk-python#251": {
+      "body_sha256": "a16c4ff5d2f543ed1b81e0b9407841d46f1cad46583c355f0165f6c8ca4f0d52",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-python#252": {
+      "body_sha256": "e5746b1a5bae83e8cd069dc104317d96f3c40575da5bc47ba26ed66e582d050b",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-python#253": {
+      "body_sha256": "3ae0befd9d21e248945241e01c90b67a4ccc73fca6e4f7ed15229cfe5d520887",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-python#254": {
+      "body_sha256": "eec248269819307fafab411e6c55def6795413a7aecf0f4d9fd895f6b172ca1d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-sdk-python#255": {
+      "body_sha256": "77f9ae4793656fb17755b19b6b64ec65aa45d68a3743081e1a08055aa7e244ca",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: the documented OGC API Tiles helper works for the default vector encoding; selecting a raster (PNG) encoding is new client capability that no Python doc promises. The installed-client matrix step stays inactive until it ships."
+    },
+    "honua-sdk-python#256": {
+      "body_sha256": "85ef9855af46efa880ac9042aadd7107c0b357de28755a711673755b9097146b",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-server#5373": {
+      "body_sha256": "5357d030193f6928dcdf8f5dc807d1e886e1ff19a17e9e562628f377431cb110",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-server#5386": {
+      "body_sha256": "b1196d1198a8da4ce1d58097a8524f867bfdd722301de424219f483659f9ea7a",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5387": {
+      "body_sha256": "8c1db6b0f2cd8b1bf48070a879ae6dd07669cce82ae9cac8cb028e9018ce24cb",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5388": {
+      "body_sha256": "07a31a04b616714d0d56e76ec745a686c2f6c721c2a5c5029edb6b9a97d6da19",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5389": {
+      "body_sha256": "d360f68df26d56e683c5a6effab04d23078048c74950ba6b204b8e61f63d5ff5",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5407": {
+      "body_sha256": "9ef759a53685105564f73ce512f59205e50579053f176126760af23473b53fb3",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: attribute-only applyEdits on a managed layer returns HTTP 500 through all three published SDKs; broken documented supported editing workflow on the GA GeoServices surface."
+    },
+    "honua-server#5408": {
+      "body_sha256": "f447dd42e5229329ed1bad6975446cf369f18e4a2b16e3c8809b120aaeba8059",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
+    },
+    "honua-site#285": {
+      "body_sha256": "5f70e359c62610520c01e6d71e508376d8aa358cd3015190a5ae28a3d0988331",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: getting-started content hunt finding under the release#379 promise quickstart: a customer following this public getting-started/install page does not get the published 2026.1 artifacts and ruled behaviour (licensing disabled, pinned digest, published client versions) or reads a claim beyond the ruled scope (R14). Broken documented supported workflow."
+    },
+    "honua-site#286": {
+      "body_sha256": "ab47e269b189f0f69483b15ecedc7c747214cecb4d821621608178a25c72852c",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-site#287": {
+      "body_sha256": "e38a0182ee9f6148be35921b5a9e4300b8fa4d1663f7f4eaa0adaa5dbaef2634",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-site#288": {
+      "body_sha256": "806dde61f520b0b5a78f04ed097ab4bd58e491abacea638610a855a70bdb7cb1",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-site#289": {
+      "body_sha256": "f71ef8637a4677fd3723e079840d8449814abc062a02602492c1694fbf9b8814",
+      "named_promise": true,
+      "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-site#291": {
+      "body_sha256": "f2b15ae3eeea8d599f1b19de632ff8aacade633c91217f0fd7fce665509a5ea4",
+      "named_promise": false,
+      "reason": "Reviewed 2026-10-03: ruling R30 desktop-client-detail inventory: lists public paths to keep, move or neutralise. It names no security/isolation floor, data-integrity defect or broken supported workflow, and R30 sets no cut sequence; it does not hold a lock."
     }
   }
 }
