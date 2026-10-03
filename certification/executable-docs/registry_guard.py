@@ -115,6 +115,19 @@ def filter_nuget_versions(package_id: str, body: dict[str, Any], pins: dict[str,
     return {"versions": versions} if versions else None
 
 
+def filter_nuget_registration(index: dict[str, Any], version: str) -> dict[str, Any] | None:
+    """Keep only the pinned version's leaf in an (inlined) NuGet registration index."""
+    pages = []
+    for page in index.get("items") or []:
+        leaves = [leaf for leaf in page.get("items") or []
+                  if str(leaf.get("catalogEntry", {}).get("version", "")).lower() == version.lower()]
+        if leaves:
+            pages.append({**page, "items": leaves, "count": len(leaves), "lower": version, "upper": version})
+    if not pages:
+        return None
+    return {**index, "items": pages, "count": len(pages)}
+
+
 class Guard:
     def __init__(self, pins: dict[str, dict[str, str]], host: str = "127.0.0.1", port: int = 0,
                  refusals_path: str | None = None):
@@ -207,14 +220,7 @@ class Guard:
             elif path.startswith("/nuget/flat/"):
                 self._nuget_flat(handler, path[len("/nuget/flat/"):], head)
             elif path.startswith("/nuget/reg/"):
-                package_id = path[len("/nuget/reg/"):].split("/", 1)[0]
-                if NUGET_HONUA.match(package_id):
-                    # Registration pages list every version; the flat container is the filtered view.
-                    self._send(handler, 404, b"{}", "application/json", head)
-                    return
-                code, data, ctype = self._fetch(f"{NUGET_REG_UPSTREAM}/{path[len('/nuget/reg/'):]}")
-                data = data.replace(NUGET_REG_UPSTREAM.encode() + b"/", f"{self.base}/nuget/reg/".encode())
-                self._send(handler, code, data, ctype, head)
+                self._nuget_registration(handler, path[len("/nuget/reg/"):], head)
             else:
                 self._send(handler, 404, b"unknown registry path", "text/plain", head)
         except (BrokenPipeError, ConnectionResetError):
@@ -270,6 +276,45 @@ class Guard:
             self.refuse(handler, "pypi", name)
             return
         self._send(handler, 200, text.encode(), "text/html", head)
+
+    def _rewrite_nuget(self, data: bytes) -> bytes:
+        return (data.replace(NUGET_REG_UPSTREAM.encode() + b"/", f"{self.base}/nuget/reg/".encode())
+                    .replace(NUGET_FLAT_UPSTREAM.encode() + b"/", f"{self.base}/nuget/flat/".encode()))
+
+    def _nuget_registration(self, handler: BaseHTTPRequestHandler, rest: str, head: bool) -> None:
+        package_id = rest.split("/", 1)[0]
+        if not NUGET_HONUA.match(package_id):
+            code, data, ctype = self._fetch(f"{NUGET_REG_UPSTREAM}/{rest.lower()}")
+            self._send(handler, code, self._rewrite_nuget(data), ctype, head)
+            return
+        lower = package_id.lower()
+        version = self.nuget_pins.get(lower) or (self.nuget_pins.get("__family__") if lower.startswith("honua.sdk") else None)
+        if not version:
+            self.refuse(handler, "nuget", package_id)
+            return
+        leaf = rest.split("/", 1)[1] if "/" in rest else "index.json"
+        if leaf != "index.json":
+            if leaf.lower() != f"{version.lower()}.json":
+                self.refuse(handler, "nuget", f"{package_id} {leaf[:-5]}")
+                return
+            code, data, ctype = self._fetch(f"{NUGET_REG_UPSTREAM}/{lower}/{leaf.lower()}")
+            self._send(handler, code, self._rewrite_nuget(data), ctype, head)
+            return
+        code, data, _ = self._fetch(f"{NUGET_REG_UPSTREAM}/{lower}/index.json")
+        if code != 200:
+            self.refuse(handler, "nuget", package_id)
+            return
+        index = json.loads(data)
+        for page in index.get("items") or []:   # inline any page the hub left external
+            if "items" not in page and page.get("@id"):
+                page_code, page_data, _ = self._fetch(page["@id"])
+                if page_code == 200:
+                    page["items"] = json.loads(page_data).get("items", [])
+        body = filter_nuget_registration(index, version)
+        if body is None:
+            self.refuse(handler, "nuget", package_id)
+            return
+        self._send(handler, 200, self._rewrite_nuget(json.dumps(body).encode()), "application/json", head)
 
     def _nuget_flat(self, handler: BaseHTTPRequestHandler, rest: str, head: bool) -> None:
         parts = rest.split("/")

@@ -13,7 +13,7 @@ sys.path.insert(0, str(HERE))
 from blocks import extract, parse_html  # noqa: E402
 from inputs import doc_id, load_vars, needs, render  # noqa: E402
 from inventory import Resolver, build, drift  # noqa: E402
-from registry_guard import (filter_npm_packument, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
+from registry_guard import (filter_npm_packument, filter_nuget_registration, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
                             nuget_family_pins, pins_from_manifest)
 from run import (assert_output, combine_csharp, combine_js, continuation_error, scrub,  # noqa: E402
                  split_csharp, substitute, SERVE)
@@ -285,3 +285,13 @@ def test_blockquoted_fences_and_teardown_blocks():
     blocks = by_index(text)
     assert (blocks[0].intent, blocks[0].code) == ("run", "export A=1\n")
     assert blocks[1].intent == "teardown" and blocks[2].intent == "teardown"
+
+
+def test_nuget_registration_keeps_only_the_pinned_leaf():
+    leaf = lambda v: {"catalogEntry": {"id": "Honua.Sdk.Cli", "version": v}, "packageContent": f"x/{v}.nupkg"}
+    index = {"count": 1, "items": [{"count": 3, "lower": "1.9.0", "upper": "1.10.1",
+                                    "items": [leaf("1.9.0"), leaf("1.10.0"), leaf("1.10.1")]}]}
+    kept = filter_nuget_registration(index, "1.10.1")
+    assert [l["catalogEntry"]["version"] for l in kept["items"][0]["items"]] == ["1.10.1"]
+    assert kept["items"][0]["lower"] == kept["items"][0]["upper"] == "1.10.1"
+    assert filter_nuget_registration(index, "2.0.0") is None

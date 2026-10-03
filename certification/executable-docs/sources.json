@@ -60,6 +60,7 @@
   },
   "prerequisites": "a document's stated prerequisite tool beyond its runtime image, with the citation; `node` mounts the pinned node runtime's node/npm/npx into the session's other containers",
   "contexts": {
+    "dotnetProject": "a document whose runtime is dotnet is read by someone with a project of their own: the session starts in a fresh `dotnet new console` project, so `dotnet add package` and Program.cs have somewhere to go",
     "checkout": "the document is a README inside a repository: the reader has cloned that repository at the document's revision and runs from `cwd` (relative to the clone)"
   }
 }

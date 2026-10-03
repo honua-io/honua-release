@@ -208,6 +208,7 @@ class Session:
     paths: dict[str, str] = field(default_factory=dict)   # PATH per runtime (venv activation, npm -g)
     prerequisites: set[str] = field(default_factory=set)  # tools the session's documents say to have
     teardowns: list[tuple[dict[str, Any], str, str, dict[str, Any]]] = field(default_factory=list)
+    dotnet_project: bool = False
     counter: int = 0
 
     def __post_init__(self) -> None:
@@ -274,6 +275,16 @@ class Session:
         self.counter += 1
         base = Path(directory or self.state)
         return base / f"docrun-{self.counter:03d}{suffix}"
+
+    def ensure_dotnet_project(self) -> None:
+        """A .NET reader adds packages to a project of their own: start them in a fresh console app."""
+        if self.dotnet_project:
+            return
+        outcome = self._exec(self.container("dotnet"), ["dotnet", "new", "console", "--name", "App",
+                                                         "--output", self.cwd], DEFAULT_TIMEOUT)
+        if outcome.status != "pass":
+            raise RunError(f"could not create the reader's console project: {outcome.stderr[-300:]}")
+        self.dotnet_project = True
 
     def put(self, runtime: str, path: Path, content: str) -> None:
         """Write into the reader's directories from inside the container: the reader owns them there
@@ -584,6 +595,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                  report_row: dict[str, Any] | None = None) -> tuple[dict[str, Any], set[str]]:
     blocks = extract(text, "html" if doc.get("format") == "html" else "markdown")
     context = {**context, "session.appDir": str(session.workdir / "app")}
+    if doc["runtime"] == "dotnet" and not doc.get("checkout"):
+        session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
     subst = {k: render(str(v["value"]), context) for k, v in variables["substitute"].items()}
     session.env.update(env_values)
@@ -713,7 +726,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     checks = []
     if doc.get("docker"):
         check = server_container_check(servers_seen, candidate_digest)
-        checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
+        runs_docker = any(b.intent in {"run", "teardown"} and b.language == "shell" and re.search(r"\bdocker\b", b.code)
+                          for b in blocks)
+        if check or runs_docker:
+            checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
                                 "detail": f"no honua-server container was started from this document's directory "
                                           f"({len(servers_seen)} container(s) started there)"})
     result = {"blocks": rows, "checks": checks}
