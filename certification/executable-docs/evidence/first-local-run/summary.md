@@ -1,6 +1,6 @@
 ## Executable docs — fail
 
-Candidate `ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a` · {'fail': 24, 'needs-input': 1, 'pass': 10}
+Candidate `ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a` · {'fail': 24, 'pass': 10, 'needs-input': 1}
 
 | document | revision | status | pass | fail | needs-input | not-run |
 |---|---|---|---|---|---|---|
@@ -17,7 +17,7 @@ Candidate `ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201
 | [honua-sdk-dotnet:README.md](https://github.com/honua-io/honua-sdk-dotnet/blob/8a0a06c815baefd49e7398d38a9f22642a8c80c5/README.md) | `8a0a06c8` | **fail** | 3 | 2 | 0 | 1 |
 | [honua-sdk-dotnet:INSTALL.md](https://github.com/honua-io/honua-sdk-dotnet/blob/8a0a06c815baefd49e7398d38a9f22642a8c80c5/INSTALL.md) | `8a0a06c8` | **fail** | 2 | 3 | 1 | 0 |
 | [honua-sdk-dotnet:docs/quickstart.md](https://github.com/honua-io/honua-sdk-dotnet/blob/8a0a06c815baefd49e7398d38a9f22642a8c80c5/docs/quickstart.md) | `8a0a06c8` | **fail** | 6 | 20 | 0 | 3 |
-| [honua-release:docs/INSTALL-2026.1.md](https://github.com/honua-io/honua-release/blob/f65948cdf46a6eba60e4cb10d858eecccff97c91/docs/INSTALL-2026.1.md) | `f65948cd` | **fail** | 0 | 2 | 0 | 1 |
+| [honua-release:docs/INSTALL-2026.1.md](https://github.com/honua-io/honua-release/blob/6c6dcf6ed4a96c944a6d326803bee0a325313330/docs/INSTALL-2026.1.md) | `6c6dcf6e` | **fail** | 0 | 2 | 0 | 1 |
 | [honua-release:docs/CUSTOMER-INSTALL.md](https://github.com/honua-io/honua-release/blob/a89e831cf68e2c651f9dea593e25df486a5a0fa5/docs/CUSTOMER-INSTALL.md) | `a89e831c` | **fail** | 0 | 1 | 0 | 0 |
 | [honua-server:docs/get-started/quickstart.md](https://github.com/honua-io/honua-server/blob/87966c3f7b6c840ffc4d4da0b451714ab717b18a/docs/get-started/quickstart.md) | `87966c3f` | **fail** | 6 | 3 | 0 | 1 |
 | [honua-server:docs/get-started/first-dataset.md](https://github.com/honua-io/honua-server/blob/87966c3f7b6c840ffc4d4da0b451714ab717b18a/docs/get-started/first-dataset.md) | `87966c3f` | **fail** | 2 | 6 | 0 | 1 |
@@ -110,8 +110,8 @@ Candidate `ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201
 - `honua-sdk-dotnet:docs/quickstart.md` block 26 (line 492, csharp): **fail** — exit code 1
 - `honua-sdk-dotnet:docs/quickstart.md` block 27 (line 507, csharp): **fail** — exit code 1
 - `honua-sdk-dotnet:docs/quickstart.md` block 28 (line 528, csharp): **fail** — exit code 1
-- `honua-release:docs/INSTALL-2026.1.md` block 0 (line 13, shell): **fail** — exit code 1
-- `honua-release:docs/INSTALL-2026.1.md` block 2 (line 32, shell): **fail** — exit code 127
+- `honua-release:docs/INSTALL-2026.1.md` block 0 (line 14, shell): **fail** — exit code 1
+- `honua-release:docs/INSTALL-2026.1.md` block 2 (line 33, shell): **fail** — exit code 127
 - `honua-server:docs/get-started/quickstart.md` block 5 (line 177, shell): **fail** — exit code 1
 - `honua-server:docs/get-started/quickstart.md` block 7 (line 214, shell): **fail** — exit code 1
 - `honua-server:docs/get-started/first-dataset.md` block 2 (line 41, shell): **fail** — exit code 1

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "gate": "executable-docs",
-  "generatedAt": "2026-10-03T20:00:25.303361Z",
+  "generatedAt": "2026-10-03T20:03:24.183026Z",
   "release": "2026.1-rc.2",
   "candidate": {
     "image": "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
@@ -25,8 +25,8 @@
   "status": "fail",
   "summary": {
     "fail": 24,
-    "needs-input": 1,
-    "pass": 10
+    "pass": 10,
+    "needs-input": 1
   },
   "documents": [
     {
@@ -1774,12 +1774,12 @@
       "id": "honua-release-docs-install-2026-1",
       "repo": "honua-io/honua-release",
       "path": "docs/INSTALL-2026.1.md",
-      "revision": "f65948cdf46a6eba60e4cb10d858eecccff97c91",
-      "url": "https://github.com/honua-io/honua-release/blob/f65948cdf46a6eba60e4cb10d858eecccff97c91/docs/INSTALL-2026.1.md",
+      "revision": "6c6dcf6ed4a96c944a6d326803bee0a325313330",
+      "url": "https://github.com/honua-io/honua-release/blob/6c6dcf6ed4a96c944a6d326803bee0a325313330/docs/INSTALL-2026.1.md",
       "blocks": [
         {
           "index": 0,
-          "line": 13,
+          "line": 14,
           "language": "shell",
           "intent": "run",
           "status": "fail",
@@ -1789,11 +1789,11 @@
           "durationSec": 0.6,
           "exitCode": 1,
           "stdoutTail": "",
-          "stderrTail": "open /home/mike/honua-io/execdocs421-final-local-run/honua-release-docs-install-2026-1/app/docker-compose.yml: no such file or directory\n"
+          "stderrTail": "open /home/mike/honua-io/execdocs421-r29-install-rerun/honua-release-docs-install-2026-1/app/docker-compose.yml: no such file or directory\n"
         },
         {
           "index": 1,
-          "line": 20,
+          "line": 21,
           "language": "yaml",
           "intent": "illustrative",
           "status": "not-run",
@@ -1804,7 +1804,7 @@
         },
         {
           "index": 2,
-          "line": 32,
+          "line": 33,
           "language": "shell",
           "intent": "run",
           "status": "fail",
@@ -1814,7 +1814,7 @@
           "durationSec": 0.4,
           "exitCode": 127,
           "stdoutTail": "",
-          "stderrTail": "/home/mike/honua-io/execdocs421-final-local-run/honua-release-docs-install-2026-1/.docrun/docrun-002.sh: line 2: jq: command not found\ncurl: (7) Failed to connect to localhost port 8080 after 0 ms: Couldn't connect to server\n"
+          "stderrTail": "/home/mike/honua-io/execdocs421-r29-install-rerun/honua-release-docs-install-2026-1/.docrun/docrun-002.sh: line 2: jq: command not found\ncurl: (7) Failed to connect to localhost port 8080 after 0 ms: Couldn't connect to server\n"
         }
       ],
       "checks": [
@@ -3276,5 +3276,20 @@
     "@honua/sdk": "*",
     "@honua/sdk-esri-compat": "*"
   },
-  "inventoryDrift": []
+  "inventoryDrift": [],
+  "executionProvenance": {
+    "fullRun": {
+      "report": "full-run-original.json",
+      "runnerRevision": "05edb2d7f8ca5d499c257f0fd762d7c202f6b3e1",
+      "documents": 35,
+      "blocks": 201
+    },
+    "trunkRefresh": {
+      "report": "r29-install-rerun/report.json",
+      "document": "honua-release-docs-install-2026-1",
+      "revision": "6c6dcf6ed4a96c944a6d326803bee0a325313330",
+      "reason": "R29 changed install-guide prose during the full run; the unchanged command blocks were re-executed at the new published revision."
+    },
+    "method": "All 35 original documents ran. Replace only the actual rerun row for the changed guide; assert every final source revision and block hash against the regenerated committed inventory."
+  }
 }
