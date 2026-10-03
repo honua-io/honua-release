@@ -1,0 +1,33 @@
+{
+  "schema": "honua.vendor-terms.confidential-known.v1",
+  "repo": "honua-release",
+  "sha": "6d22eef8e3570a4a4738f5c2d5bb4ff1528bfac7",
+  "asOf": "2026-10-03",
+  "burnDown": [
+    "honua-io/honua-release#427",
+    "honua-io/honua-server#5408"
+  ],
+  "note": "Confidential (R30) uses present when the class landed. Listed so the gate is red with a reason, never green: the reusable gate fails on every entry. May only shrink.",
+  "total": 1422,
+  "files": {
+    ".github/workflows/certification.yml": 2,
+    "certification/README.md": 1,
+    "certification/conformance-evidence.yaml": 2,
+    "certification/generate-protocol-requirements.py": 6,
+    "certification/protocol-certification-requirements.v1.json": 1277,
+    "certification/protocol-certification-requirements.v1.schema.json": 4,
+    "certification/protocol-certification.v1.schema.json": 4,
+    "certification/validate-protocol-requirements.py": 2,
+    "compatibility-ledger.v1.yaml": 1,
+    "contracts/baselines/2026.1/honua-sdk-python/public-api.json": 74,
+    "docs/2026.1-release-decision-inputs.json": 3,
+    "docs/2026.1-release-decision-ledger.json": 3,
+    "docs/2026.1-release-decision-overrides.json": 4,
+    "docs/HYBRID-TRAIN.md": 8,
+    "docs/PROTOCOL-CERTIFICATION-PLAN.md": 2,
+    "docs/TEST-STRATEGY.md": 12,
+    "tools/check_protocol_certification.py": 5,
+    "tools/fixtures/client-artifacts/pypi.json": 5,
+    "tools/test_check_protocol_certification.py": 7
+  }
+}

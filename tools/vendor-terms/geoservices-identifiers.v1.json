@@ -7,10 +7,6 @@
       "edition": "Esri white paper J-9948, September 2010 (submitted to the OGC)",
       "url": "https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf",
       "sha256": "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12"
-    },
-    "wire-supplement": {
-      "title": "Members of spec-defined enumerations the 1.0 text does not list",
-      "file": "tools/vendor-terms/geoservices-wire-supplement.v1.json"
     }
   },
   "notes": [
@@ -51,86 +47,6 @@
       ]
     },
     {
-      "identifier": "esriCentimeters",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyDefinedInterval",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyEqualInterval",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyGeometricalInterval",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyManual",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyNaturalBreaks",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyQuantile",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriClassifyStandardDeviation",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "15.3",
-      "sectionTitle": "Class Breaks Renderer",
-      "family": "class breaks classification method",
-      "field": "classificationMethod",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriDecimalDegrees",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -139,16 +55,6 @@
       "sections": [
         "4.0.3"
       ]
-    },
-    {
-      "identifier": "esriDecimeters",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriExecutionTypeAsynchronous",
@@ -160,16 +66,6 @@
         "6.0.3",
         "6.1.3"
       ]
-    },
-    {
-      "identifier": "esriExecutionTypeSynchronous",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.0.3",
-      "sectionTitle": "GP Service Example",
-      "family": "GP execution type",
-      "field": "executionType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriFeatureEditToolAutoCompletePolygon",
@@ -262,36 +158,6 @@
       ]
     },
     {
-      "identifier": "esriFeet",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriFieldTypeBigInteger",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriFieldTypeBlob",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriFieldTypeDate",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -301,16 +167,6 @@
         "4.8.3",
         "9.1.4.3"
       ]
-    },
-    {
-      "identifier": "esriFieldTypeDateOnly",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriFieldTypeDouble",
@@ -327,16 +183,6 @@
       ]
     },
     {
-      "identifier": "esriFieldTypeGUID",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriFieldTypeGeometry",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -348,16 +194,6 @@
         "6.1.3",
         "8.0.3"
       ]
-    },
-    {
-      "identifier": "esriFieldTypeGlobalID",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriFieldTypeInteger",
@@ -391,26 +227,6 @@
       ]
     },
     {
-      "identifier": "esriFieldTypeRaster",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriFieldTypeSingle",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriFieldTypeSmallInteger",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -442,36 +258,6 @@
       ]
     },
     {
-      "identifier": "esriFieldTypeTimeOnly",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriFieldTypeTimestampOffset",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriFieldTypeXML",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "field type",
-      "field": "fields[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriGPParameterDirectionInput",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -490,26 +276,6 @@
       "sections": [
         "6.1.3"
       ]
-    },
-    {
-      "identifier": "esriGPParameterTypeDerived",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.3",
-      "sectionTitle": "Task Example",
-      "family": "GP parameter type",
-      "field": "parameters[].parameterType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriGPParameterTypeOptional",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.3",
-      "sectionTitle": "Task Example",
-      "family": "GP parameter type",
-      "field": "parameters[].parameterType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriGPParameterTypeRequired",
@@ -540,16 +306,6 @@
         "9.1.4.2",
         "9.1.8.2"
       ]
-    },
-    {
-      "identifier": "esriGeometryMultiPatch",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "10.0",
-      "sectionTitle": "GEOMETRY OBJECTS",
-      "family": "geometry type",
-      "field": "geometryType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriGeometryMultipiont",
@@ -891,36 +647,6 @@
       ]
     },
     {
-      "identifier": "esriImageServiceDataTypeElevation",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriImageServiceDataTypeGeneric",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriImageServiceDataTypeProcessed",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriImageServiceDataTypeRGB",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -929,146 +655,6 @@
       "sections": [
         "8.0.3"
       ]
-    },
-    {
-      "identifier": "esriImageServiceDataTypeScientific",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriImageServiceDataTypeThematic",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriImageServiceDataTypeVectorMagDir",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriImageServiceDataTypeVectorUV",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.3",
-      "sectionTitle": "Image Service Example",
-      "family": "image service data type",
-      "field": "serviceDataType",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriInches",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobCancelled",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobCancelling",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobDeleted",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobDeleting",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobExecuting",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobFailed",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobMessageTypeAbort",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.3",
-      "sectionTitle": "Job Example",
-      "family": "job message type",
-      "field": "messages[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobMessageTypeEmpty",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.3",
-      "sectionTitle": "Job Example",
-      "family": "job message type",
-      "field": "messages[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobMessageTypeError",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.3",
-      "sectionTitle": "Job Example",
-      "family": "job message type",
-      "field": "messages[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriJobMessageTypeInformative",
@@ -1082,36 +668,6 @@
       ]
     },
     {
-      "identifier": "esriJobMessageTypeWarning",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.3",
-      "sectionTitle": "Job Example",
-      "family": "job message type",
-      "field": "messages[].type",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobNew",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobSubmitted",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriJobSucceeded",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -1120,26 +676,6 @@
       "sections": [
         "6.2.3"
       ]
-    },
-    {
-      "identifier": "esriJobTimedOut",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriJobWaiting",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.2.1",
-      "sectionTitle": "Job Reference",
-      "family": "job status",
-      "field": "jobStatus",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriKilometers",
@@ -1173,16 +709,6 @@
         "6.1.6.2",
         "6.3.4.3"
       ]
-    },
-    {
-      "identifier": "esriMillimeters",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriMosaicAttribute",
@@ -1274,36 +800,6 @@
       ]
     },
     {
-      "identifier": "esriNauticalMiles",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriNoDataMatchAll",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.4.2",
-      "sectionTitle": "Export Image Parameters",
-      "family": "no-data interpretation",
-      "field": "noDataInterpretation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriNoDataMatchAny",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "8.0.4.2",
-      "sectionTitle": "Export Image Parameters",
-      "family": "no-data interpretation",
-      "field": "noDataInterpretation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriPFS",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -1323,66 +819,6 @@
         "9.1.3",
         "12.5"
       ]
-    },
-    {
-      "identifier": "esriPoints",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriRelCardinalityManyToMany",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "relationship cardinality",
-      "field": "relationships[].cardinality",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriRelCardinalityOneToMany",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "relationship cardinality",
-      "field": "relationships[].cardinality",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriRelCardinalityOneToOne",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "relationship cardinality",
-      "field": "relationships[].cardinality",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriRelRoleDestination",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "relationship role",
-      "field": "relationships[].role",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriRelRoleOrigin",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "4.2.3",
-      "sectionTitle": "Layer/Table Example",
-      "family": "relationship role",
-      "field": "relationships[].role",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriSFS",
@@ -1502,16 +938,6 @@
       ]
     },
     {
-      "identifier": "esriSLSDashDot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriSLSDashDotDot",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -1533,26 +959,6 @@
       ]
     },
     {
-      "identifier": "esriSLSLongDash",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSLSLongDashDot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriSLSNull",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -1561,46 +967,6 @@
       "sections": [
         "12.3"
       ]
-    },
-    {
-      "identifier": "esriSLSShortDash",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSLSShortDashDot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSLSShortDashDotDot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSLSShortDot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.3",
-      "sectionTitle": "Simple Line Symbol",
-      "family": "simple line style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriSLSSolid",
@@ -1671,16 +1037,6 @@
       "sections": [
         "12.2"
       ]
-    },
-    {
-      "identifier": "esriSMSTriangle",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "12.2",
-      "sectionTitle": "Simple Marker Symbol",
-      "family": "simple marker style",
-      "field": "style",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriSMSX",
@@ -1755,66 +1111,6 @@
         "7.0.13.2",
         "7.0.15.2"
       ]
-    },
-    {
-      "identifier": "esriSRUnit_Foot",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSRUnit_Kilometer",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSRUnit_Meter",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSRUnit_NauticalMile",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSRUnit_StatuteMile",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriSRUnit_USNauticalMile",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "7.0.6.2",
-      "sectionTitle": "Buffer Parameters",
-      "family": "esriSRUnitType constant",
-      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     },
     {
       "identifier": "esriServerHTMLPopupTypeAsHTMLText",
@@ -2331,46 +1627,6 @@
       ]
     },
     {
-      "identifier": "esriTimeRelationAfterStartOverlapsEnd",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "9.1.4.2",
-      "sectionTitle": "Query Parameters",
-      "family": "feature query time relation",
-      "field": "timeRelation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriTimeRelationOverlaps",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "9.1.4.2",
-      "sectionTitle": "Query Parameters",
-      "family": "feature query time relation",
-      "field": "timeRelation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriTimeRelationOverlapsStartWithinEnd",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "9.1.4.2",
-      "sectionTitle": "Query Parameters",
-      "family": "feature query time relation",
-      "field": "timeRelation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriTimeRelationWithin",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "9.1.4.2",
-      "sectionTitle": "Query Parameters",
-      "family": "feature query time relation",
-      "field": "timeRelation",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
       "identifier": "esriTimeUnitsCenturies",
       "kind": "enum-value",
       "source": "gsr-1.0",
@@ -2501,26 +1757,6 @@
         "4.0.5.2",
         "4.2.3"
       ]
-    },
-    {
-      "identifier": "esriUnknownUnits",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
-    },
-    {
-      "identifier": "esriYards",
-      "kind": "enum-value",
-      "source": "wire-supplement",
-      "section": "6.1.6.2",
-      "sectionTitle": "GPLinearUnit Input Parameter",
-      "family": "linear unit",
-      "field": "units",
-      "reference": "ArcGIS REST APIs reference (https://developers.arcgis.com/rest/services-reference/enterprise/)"
     }
   ]
 }

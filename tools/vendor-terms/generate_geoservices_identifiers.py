@@ -3,9 +3,10 @@
 
 The only identifiers the vendor-term classifier accepts as ``spec`` are the ones this script extracts
 from the GeoServices REST Specification Version 1.0 (white paper J-9948, September 2010, the document
-submitted to the OGC), each tagged with the numbered section it appears in, plus the reviewed members
-of spec-defined enumerations in ``geoservices-wire-supplement.v1.json``. The PDF is pinned by sha256 so
-a regenerated vocabulary is reproducible; it is not vendored here.
+submitted to the OGC), each tagged with the numbered section it appears in. Identifiers from later ArcGIS
+REST services are not GSR 1.0 vocabulary; they are hand-reviewed in ``arcgis-rest-interop.v1.json`` (R36)
+and classed ``spec-interop``. The PDF is pinned by sha256 so a regenerated vocabulary is reproducible; it
+is not vendored here.
 
     curl -sSLo /tmp/gsr.pdf https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf
     python3 -m pip install pypdf
@@ -25,7 +26,6 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 OUTPUT = HERE / "geoservices-identifiers.v1.json"
-SUPPLEMENT = HERE / "geoservices-wire-supplement.v1.json"
 
 SPEC_URL = "https://www.esri.com/~/media/files/pdfs/library/whitepapers/pdfs/geoservices-rest-spec.pdf"
 SPEC_SHA256 = "de002ce4fc95c180c8f3e9adeebd073ebc8b45b94bd1841d133fc1273271ae12"
@@ -111,31 +111,8 @@ def extract(text_pages: list[str]) -> tuple[list[dict], dict[str, str]]:
     return entries, sections
 
 
-def _supplement(sections: dict[str, str]) -> list[dict]:
-    document = json.loads(SUPPLEMENT.read_text(encoding="utf-8"))
-    entries = []
-    for family in document["families"]:
-        if sections.get(family["section"]) != family["sectionTitle"]:
-            raise SystemExit(f"supplement family {family['family']!r} cites section {family['section']} "
-                             f"{family['sectionTitle']!r}, which the specification does not have")
-        for identifier in family["identifiers"]:
-            entries.append({
-                "identifier": identifier,
-                "kind": "enum-value",
-                "source": "wire-supplement",
-                "section": family["section"],
-                "sectionTitle": family["sectionTitle"],
-                "family": family["family"],
-                "field": family["field"],
-                "reference": family["reference"],
-            })
-    return entries
-
-
 def build(text_pages: list[str], pdf_sha256: str) -> dict:
-    spec, sections = extract(text_pages)
-    known = {entry["identifier"] for entry in spec}
-    supplement = [entry for entry in _supplement(sections) if entry["identifier"] not in known]
+    spec, _ = extract(text_pages)
     return {
         "schema": SCHEMA,
         "generatedBy": "tools/vendor-terms/generate_geoservices_identifiers.py",
@@ -146,10 +123,6 @@ def build(text_pages: list[str], pdf_sha256: str) -> dict:
                 "url": SPEC_URL,
                 "sha256": pdf_sha256,
             },
-            "wire-supplement": {
-                "title": "Members of spec-defined enumerations the 1.0 text does not list",
-                "file": "tools/vendor-terms/geoservices-wire-supplement.v1.json",
-            },
         },
         "notes": [
             "The 1.0 specification defines no JSON key and no URL path segment that contains 'esri' or "
@@ -158,7 +131,7 @@ def build(text_pages: list[str], pdf_sha256: str) -> dict:
         ],
         "jsonKeys": [],
         "pathSegments": [],
-        "identifiers": sorted(spec + supplement, key=lambda entry: entry["identifier"]),
+        "identifiers": spec,
     }
 
 

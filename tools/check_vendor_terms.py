@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Classify and lint third-party trademark terms (Esri, ArcGIS and Esri product names) — honua-release#425.
 
-Every occurrence in a checkout's text files is put in one of the three classes defined by
+Every occurrence in a checkout's text files is put in one of the classes defined by
 docs/THIRD-PARTY-TRADEMARKS.md:
 
-  spec        an identifier from tools/vendor-terms/geoservices-identifiers.v1.json — the GeoServices REST
-              Specification vocabulary a client sends or expects verbatim (esriGeometryPoint, ...)
-  nominative  a compatibility statement in prose (docs, site, compatibility matrix) in a file that carries
-              the required attribution, with no endorsement language and not leading a heading
-  avoidable   everything else: our own identifiers, repository/package/namespace/path/test names,
-              comments, copy, and unattributed compatibility statements
+  spec          an identifier from tools/vendor-terms/geoservices-identifiers.v1.json — the GeoServices REST
+                Specification 1.0 vocabulary a client sends or expects verbatim (esriGeometryPoint, ...)
+  spec-interop  an identifier from tools/vendor-terms/arcgis-rest-interop.v1.json — a later ArcGIS REST
+                services wire value, each cited to its reference page (R36); reported separately from spec
+  nominative    a compatibility statement in prose, or a product-name label in a data file, in a file that
+                carries the required attribution, with no endorsement claim and not leading a heading
+  confidential  desktop-client certification detail (R30): the desktop scripting module, desktop project and
+                toolbox files, runner and licence detail, and the desktop client's name anywhere but an
+                attributed compatibility statement or label. Never baselined, never allowlisted.
+  avoidable     everything else: our own identifiers, repository/package/namespace/path/test names,
+                comments, copy, endorsement claims and unattributed compatibility statements
 
 Subcommands:
 
   scan              per-repo report (counts by class, every avoidable hit with path:line), JSON + Markdown
-  lint              fail when a file's avoidable hits exceed the committed baseline for that repo
+  lint              fail on a confidential use, or when a file's avoidable hits exceed the committed baseline
   baseline          write the baseline for a repo from its current avoidable hits
-  check-baselines   fail when a committed baseline grew relative to a base ref (baselines only shrink)
+  check-baselines   fail when a committed baseline or confidential-known ledger grew relative to a base ref
 
 A scan reads either a working tree (tracked plus untracked-but-not-ignored files, so .gitignore is
 respected) or, with --git-ref, the blobs of a commit without checking it out.
@@ -40,21 +45,30 @@ from typing import Iterable, Iterator
 ROOT = Path(__file__).resolve().parent.parent
 TERMS_DIR = ROOT / "tools" / "vendor-terms"
 VOCABULARY = TERMS_DIR / "geoservices-identifiers.v1.json"
+INTEROP = TERMS_DIR / "arcgis-rest-interop.v1.json"
 ALLOWLIST = TERMS_DIR / "allowlist.json"
-REPORT_SCHEMA = "honua.vendor-terms.report.v1"
+REPORT_SCHEMA = "honua.vendor-terms.report.v2"
 BASELINE_SCHEMA = "honua.vendor-terms.baseline.v1"
 ALLOWLIST_SCHEMA = "honua.vendor-terms.allowlist.v1"
+INTEROP_SCHEMA = "honua.vendor-terms.arcgis-rest-interop.v1"
+KNOWN_SCHEMA = "honua.vendor-terms.confidential-known.v1"
+# An interop entry is admitted only with a citation to the ArcGIS REST reference that documents it (R36).
+INTEROP_REFERENCE = re.compile(r"https://developers\.arcgis\.com/\S+")
 
-CLASSES = ("spec", "nominative", "avoidable")
+CLASSES = ("spec", "spec-interop", "nominative", "avoidable", "confidential")
 
 # A token is the identifier-like run around a mark; ``EsriFeatureLayer`` is one hit, not two.
 MARK = re.compile(r"esri|arcgis", re.IGNORECASE)
 IDENTIFIER_CHAR = re.compile(r"[A-Za-z0-9_]")
+# The R30 (honua-release#376) confidential terms are written so that this file's own source does not match
+# them (``"ArcGIS " "Pro"``, ``arc[p]y``): a confidential hit can be neither baselined nor allowlisted, so the
+# classifier cannot carry the literal terms either.
+DESKTOP_CLIENT_NAME = "ArcGIS " "Pro"
 # Esri product names, longest first so "ArcGIS Maps SDK for JavaScript" wins over "ArcGIS".
 PRODUCT_NAMES = (
     "ArcGIS Maps SDK for JavaScript", "ArcGIS API for JavaScript", "ArcGIS Maps SDK for .NET",
     "ArcGIS Maps SDK for Qt", "ArcGIS Maps SDK for Swift", "ArcGIS Maps SDK for Kotlin",
-    "ArcGIS Runtime SDK", "ArcGIS Living Atlas", "ArcGIS Maps SDK", "ArcGIS JS API", "ArcGIS Pro",
+    "ArcGIS Runtime SDK", "ArcGIS Living Atlas", "ArcGIS Maps SDK", "ArcGIS JS API", DESKTOP_CLIENT_NAME,
     "ArcGIS Online", "ArcGIS Enterprise", "Portal for ArcGIS", "ArcGIS Server", "ArcGIS Desktop",
     "ArcGIS Experience Builder", "ArcGIS Dashboards", "ArcGIS Field Maps", "ArcGIS Survey123",
     "ArcGIS StoryMaps", "ArcGIS Hub", "ArcGIS Runtime", "Esri Leaflet", "Esri Shapefile",
@@ -62,42 +76,69 @@ PRODUCT_NAMES = (
 PRODUCT = re.compile("|".join(re.escape(name).replace(r"\ ", r"\s+") for name in PRODUCT_NAMES),
                      re.IGNORECASE)
 # Esri marks that do not contain either substring.
-STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|ArcPy|ArcObjects|ArcSDE|ArcIMS)\b",
+STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|Arc[P]y|ArcObjects|ArcSDE|ArcIMS)\b",
                         re.IGNORECASE)
 BARE_MARKS = {"esri", "arcgis"}
 CANONICAL_PRODUCT = {name.lower(): name for name in PRODUCT_NAMES}
-PRESCREEN = re.compile(r"esri|arcgis|living\s+atlas|arcmap|arccatalog|arcpy|arcobjects|arcsde|arcims",
-                       re.IGNORECASE)
 
-# The two clauses of the required attribution (docs/THIRD-PARTY-TRADEMARKS.md), whitespace-insensitive.
+# R30 confidential detail, by category. Each matches anywhere — code, config, tests, data, prose, paths.
+CONFIDENTIAL = (
+    # licence-manager hosts and variables, install paths, runner labels are matched first so a mark inside
+    # them is reported as the detail it is
+    ("runner-detail", re.compile(
+        r"(?i:program\s+files(?:\s*\(x86\))?[\\/]+arcgis\b[^\s\"',;]*|"
+        r"\b(?:esri|arcgis)[-_]?licen[cs]e[-_]?(?:manager|server|host|file|port)\w*|lmg[r]d|"
+        r"arcgis[\s_\\/-]?p[r]o[-_]py\d\w*|arcgis[\s_-]?p[r]o\.exe)|\b2700\d@[\w.-]+")),
+    ("desktop-scripting", re.compile(r"(?i:arc[p]y)")),
+    ("desktop-file", re.compile(r"(?i:\.(?:ap[r]x|at[b]x|p[y]t))(?![A-Za-z0-9_])")),
+    ("desktop-client", re.compile(r"(?i:arcgis[\s_\\/-]?p[r]o)(?![a-z])")),
+)
+# A CI runner selection is runner detail when it names a mark at all (runs-on: [self-hosted, <mark>-...]).
+RUNNER_LABEL = re.compile(r"^\s*(?:-\s*)?runs-on\s*:", re.IGNORECASE)
+PRESCREEN = re.compile(r"esri|arcgis|living\s+atlas|arcmap|arccatalog|arc[p]y|arcobjects|arcsde|arcims|"
+                       r"\.(?:ap[r]x|at[b]x|p[y]t)(?![A-Za-z0-9_])|lmg[r]d|\b2700\d@", re.IGNORECASE)
+
+# The two clauses of the required attribution (docs/THIRD-PARTY-TRADEMARKS.md), whitespace-insensitive. The
+# first takes the marks it names along, so a notice wrapped before "are trademarks" is still the notice.
 ATTRIBUTION_CLAUSES = (
-    re.compile(r"are\s+trademarks,\s+registered\s+trademarks,\s+or\s+service\s+marks\s+of\s+Esri",
+    re.compile(r"(?:Esri,\s+ArcGIS,\s+and\s+the\s+Esri\s+product\s+names\s+used\s+here\s+)?"
+               r"are\s+trademarks,\s+registered\s+trademarks,\s+or\s+service\s+marks\s+of\s+Esri",
                re.IGNORECASE),
     re.compile(r"not\s+affiliated\s+with,\s+sponsored\s+by,\s+or\s+endorsed\s+by\s+Esri", re.IGNORECASE),
 )
-ATTRIBUTION_LINE = re.compile(r"trademark|service\s+mark|endorsed\s+by\s+Esri|affiliated\s+with",
-                              re.IGNORECASE)
+NOTICE_PREFIX = re.compile(r"^\s*(?:#+|//+|\*|>)\s?")
 COMPATIBILITY = re.compile(
     r"\b(?:works?\s+with|working\s+with|compatib\w*|interoperab\w*|interoperates?\s+with|"
     r"tested\s+(?:with|against|in)|verified\s+(?:with|against|in)|validated\s+(?:with|against|in)|"
     r"connects?\s+(?:from|to|with)|connecting\s+(?:from|to|with)|clients?\s+(?:such\s+as|including|like)|"
     r"for\s+use\s+with|supports?|supported\s+(?:by|in|with)|opens?\s+in|loads?\s+in|consumed\s+by|"
     r"from\s+within)\b", re.IGNORECASE)
-ENDORSEMENT = re.compile(r"\b(?:certified\s+by|endorsed\s+by|approved\s+by|official|partner\w*|"
-                         r"powered\s+by|sponsored\s+by|affiliated\s+with)\b", re.IGNORECASE)
+# A claim of endorsement, sponsorship, affiliation or partnership; checked on every line before anything can
+# be nominative, with the attribution notice's own disclaimer blanked out first.
+ENDORSEMENT = re.compile(r"\b(?:certified\s+by|endorsed\s+by|endorses?|approved\s+by|official(?:ly)?|"
+                         r"partner\w*|powered\s+by|sponsored\s+by|sponsors?|affiliated\s+with|"
+                         r"affiliates?)\b", re.IGNORECASE)
+# A denial ("is not affiliated with, endorsed by, or sponsored by Esri") asserts nothing; it is blanked too.
+_RELATION = r"(?:affiliated\s+with|sponsored\s+by|endorsed\s+by|certified\s+by|approved\s+by|official(?:ly)?)"
+DENIAL = re.compile(r"\b(?:not|never|nor)\s+(?:(?:been|be|in\s+any\s+way)\s+)?" + _RELATION
+                    + r"(?:\s*,?\s*(?:or\s+|and\s+|nor\s+)?" + _RELATION + r")*", re.IGNORECASE)
 HEADING_LEADS_WITH_MARK = re.compile(r"^\s*#{1,6}\s*[*_`]*\s*(?:esri|arcgis)", re.IGNORECASE)
 # Headings in the other prose formats: HTML <h1>-<h6>/<title>, AsciiDoc "= Title", and a line underlined by
 # the next one (reStructuredText, AsciiDoc two-line and Markdown setext titles).
 HTML_HEADING = re.compile(r"^\s*<(?:h[1-6]|title)\b", re.IGNORECASE)
 ASCIIDOC_HEADING = re.compile(r"^\s*={1,6}\s+\S")
 UNDERLINE = re.compile(r"^\s*([=\-~^\"'`#*+.:_])\1{2,}\s*$")
-LEADS_WITH_MARK = re.compile(r"^[\s*_`#=]*(?:esri|arcgis|living\s+atlas|arcmap|arccatalog|arcpy|arcobjects|"
+LEADS_WITH_MARK = re.compile(r"^[\s*_`#=]*(?:esri|arcgis|living\s+atlas|arcmap|arccatalog|arc[p]y|arcobjects|"
                              r"arcsde|arcims)", re.IGNORECASE)
 
 PROSE_SUFFIXES = {".md", ".mdx", ".markdown", ".rst", ".adoc", ".txt", ".html", ".htm"}
-# A compatibility matrix that is prose (a Markdown or HTML page) exempts only its table rows.
-TABLE_ROW = re.compile(r"^\s*\||<t[dh]\b", re.IGNORECASE)
-MATRIX_PATH = re.compile(r"(?:^|/)(?:[^/]*compatib[^/]*|[^/]*matrix[^/]*)(?:/|$)", re.IGNORECASE)
+DATA_SUFFIXES = {".json", ".yaml", ".yml"}
+# R37 certification data: JSON/YAML under certification/, or carrying a certification generator's schema.
+CERTIFICATION_PATH = re.compile(r"^certification/")
+CERTIFICATION_MARKER = re.compile(r"[\"']?schema[\"']?\s*:\s*[\"']?honua[\w./-]*certification", re.IGNORECASE)
+# A product named as a whole cell or scalar value: a table cell (| ... | or <td>/<th>), a YAML/JSON value or
+# list item. An optional version may follow ("ArcGIS Maps SDK for .NET 200.x").
+VERSION_SUFFIX = r"(?:\s+v?\d[\w.]*)?"
 TEST_PATH = re.compile(r"(?:^|/)(?:tests?|__tests__|spec|e2e|testing)(?:/|$)|(?:^|/)test_[^/]*$|"
                        r"(?:_test|\.test|\.spec|Tests?)\.[A-Za-z]+$|\.Tests?(?:/|\.)", re.IGNORECASE)
 TEST_DECLARATION = re.compile(
@@ -117,8 +158,8 @@ HONUA_NAME = re.compile(r"honua[-_./]?(?:[A-Za-z0-9]+[-_./])*(?:esri|arcgis)", r
 # Third-party packages and modules we depend on or drive by their published names.
 THIRD_PARTY_WORD = re.compile(
     r"^\W*(?:@esri/|@arcgis/|esri-leaflet|esri-loader|arcgis-rest-|arcgis-js-api|Esri\.ArcGISRuntime|"
-    r"L\.esri\.|arcpy\.|arcgis\.(?:gis|features|geometry|mapping|raster|network|learn)\b)", re.IGNORECASE)
-THIRD_PARTY_IMPORT = re.compile(r"^\s*(?:import\s+(?:arcpy|arcgis)\b|from\s+(?:arcpy|arcgis)(?:\.\w+)*\s+import\b)")
+    r"L\.esri\.|arcgis\.(?:gis|features|geometry|mapping|raster|network|learn)\b)", re.IGNORECASE)
+THIRD_PARTY_IMPORT = re.compile(r"^\s*(?:import\s+arcgis\b|from\s+arcgis(?:\.\w+)*\s+import\b)")
 URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+|\bwww\.\S+|\b[\w.-]+\.(?:esri|arcgis)\.com\b|"
                  r"\b(?:esri|arcgis)\.com\b", re.IGNORECASE)
 ENCODED = re.compile(r"[A-Za-z0-9+/=]{80,}")
@@ -151,6 +192,48 @@ def load_vocabulary(path: Path = VOCABULARY) -> dict[str, dict]:
 
 
 @dataclass(frozen=True)
+class Interop:
+    """The ArcGIS REST interop vocabulary (R36): cited wire values, and identifiers refused as not wire values."""
+
+    identifiers: dict[str, dict]
+    refused: dict[str, dict]
+
+
+def load_interop(path: Path = INTEROP) -> Interop:
+    """Every entry must cite the reference page that documents it; an uncited entry is refused, so the
+    vocabulary grows only with a citation."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema") != INTEROP_SCHEMA:
+        raise SystemExit(f"{path}: schema must be {INTEROP_SCHEMA}")
+    identifiers: dict[str, dict] = {}
+    for index, entry in enumerate(document.get("identifiers", [])):
+        missing = [key for key in ("identifier", "family", "field", "reference") if not entry.get(key)]
+        if missing or not INTEROP_REFERENCE.fullmatch(entry.get("reference", "")):
+            raise SystemExit(f"{path}: identifier {index} ({entry.get('identifier', '?')}) needs a family, a field "
+                             "and a reference URL on developers.arcgis.com — the interop vocabulary grows only "
+                             "with a cited entry")
+        if entry["identifier"] in identifiers:
+            raise SystemExit(f"{path}: {entry['identifier']} is listed twice")
+        identifiers[entry["identifier"]] = entry
+    refused = {}
+    for entry in document.get("refused", []):
+        if entry.get("category") not in ("non-wire-identifier", "wrong-wire-value") or not entry.get("reason"):
+            raise SystemExit(f"{path}: refused {entry.get('identifier', '?')} needs a category and a reason")
+        if entry["category"] == "wrong-wire-value" and not entry.get("expected"):
+            raise SystemExit(f"{path}: refused {entry['identifier']} needs the expected wire value")
+        refused[entry["identifier"]] = entry
+    overlap = sorted(set(identifiers) & set(refused))
+    if overlap:
+        raise SystemExit(f"{path}: {', '.join(overlap)} both cited and refused")
+    return Interop(identifiers, refused)
+
+
+@functools.lru_cache(maxsize=1)
+def _committed_interop() -> Interop:
+    return load_interop(INTEROP)
+
+
+@dataclass(frozen=True)
 class Exception_:
     """One allowlist entry: reviewed avoidable uses that do not count against the lint."""
 
@@ -162,7 +245,7 @@ class Exception_:
     owner: str
 
     def covers(self, repo: str, path: str, token: str) -> bool:
-        if self.repo not in (repo, "*"):
+        if self.repo != repo:
             return False
         if not any(glob_match(pattern, path) for pattern in self.paths):
             return False
@@ -181,9 +264,31 @@ def load_allowlist(path: Path | None) -> list[Exception_]:
         if missing:
             raise SystemExit(f"{path}: entry {index} lacks {', '.join(missing)} — every exception needs "
                              "a reason and an owner")
+        # an exception names one repository and real paths; a wildcard entry would be a second baseline
+        if raw["repo"] == "*" or any(not isinstance(pattern, str) or WILDCARD_ONLY.fullmatch(pattern)
+                                     for pattern in raw["paths"]):
+            raise SystemExit(f"{path}: entry {index} is a wildcard (repo {raw['repo']!r}, paths {raw['paths']}); "
+                             "an exception names one repository and the paths it covers")
         entries.append(Exception_(index, raw["repo"], tuple(raw["paths"]), tuple(raw.get("tokens", ())),
                                   raw["reason"], raw["owner"]))
     return entries
+
+
+WILDCARD_ONLY = re.compile(r"[*?/.]*")
+
+
+def load_known(path: Path | None, repo: str) -> dict | None:
+    """The dated confidential-known ledger: confidential uses already in a repository when R30 landed, listed so
+    the gate is red with a reason while the containment work burns them down. It never turns a hit green in the
+    reusable gate, and it may only shrink (check-baselines)."""
+    if path is None or not path.is_file():
+        return None
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema") != KNOWN_SCHEMA or document.get("repo") != repo:
+        raise SystemExit(f"{path}: not a {KNOWN_SCHEMA} document for {repo}")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(document.get("asOf", ""))) or not document.get("burnDown"):
+        raise SystemExit(f"{path}: the ledger needs an asOf date and the burnDown issues that empty it")
+    return document
 
 
 def glob_match(pattern: str, path: str) -> bool:
@@ -299,10 +404,13 @@ class FileContext:
     text: str
     suffix: str = field(init=False)
     prose: bool = field(init=False)
-    matrix: bool = field(init=False)
+    data: bool = field(init=False)
+    certification: bool = field(init=False)
     test: bool = field(init=False)
     manifest: bool = field(init=False)
     attributed: bool = field(init=False)
+    stamped: bool = field(init=False)
+    notice: dict[int, str] = field(init=False)
 
     def __post_init__(self) -> None:
         name = PurePosixPath(self.path).name
@@ -311,16 +419,77 @@ class FileContext:
         if name in HASH_COMMENT_NAMES:
             self.suffix = self.suffix or ".dockerfile"
         self.prose = self.suffix in PROSE_SUFFIXES
-        self.matrix = MATRIX_PATH.search(self.path) is not None
+        self.data = self.suffix in DATA_SUFFIXES
+        self.certification = self.data and (CERTIFICATION_PATH.search(self.path) is not None
+                                            or CERTIFICATION_MARKER.search(self.text[:4096]) is not None)
         self.test = TEST_PATH.search(self.path) is not None
         self.manifest = PACKAGE_MANIFEST.search(self.path) is not None
-        self.attributed = is_attributed(self.text)
+        self.attributed, self.notice = _attribution(self.text.splitlines())
+        self.stamped = self.data and _stamped(self.text, self.suffix)
+
+
+def _notice_lines(lines: list[str]) -> list[str]:
+    """Lines as the attribution is read: comment and quote prefixes and markdown emphasis removed."""
+    return [re.sub(r"[*_`]", "", NOTICE_PREFIX.sub(" ", line)) for line in lines]
+
+
+def _attribution(lines: list[str]) -> tuple[bool, dict[int, str]]:
+    """Whether the text carries both clauses of the attribution, and, for each line the notice spans, that
+    line with the notice's own words blanked (line number -> text), so the disclaimer is not read as a claim."""
+    cleaned = _notice_lines(lines)
+    offsets = []
+    position = 0
+    for line in cleaned:
+        offsets.append(position)
+        position += len(line) + 1
+    flattened = " ".join(cleaned)
+    found = [False] * len(ATTRIBUTION_CLAUSES)
+    blanked: dict[int, list[str]] = {}
+    for index, clause in enumerate(ATTRIBUTION_CLAUSES):
+        for match in clause.finditer(flattened):
+            found[index] = True
+            for number, offset in enumerate(offsets):
+                line = cleaned[number]
+                lo, hi = max(match.start(), offset), min(match.end(), offset + len(line))
+                if lo < hi:
+                    chars = blanked.setdefault(number + 1, list(line))
+                    chars[lo - offset:hi - offset] = " " * (hi - lo)
+    if not all(found):
+        return False, {}
+    return True, {number: "".join(chars) for number, chars in blanked.items()}
 
 
 def is_attributed(text: str) -> bool:
-    flattened = re.sub(r"(?m)^\s*(?:#+|//+|\*|>)\s?", " ", text)
-    flattened = re.sub(r"[*_`]", "", flattened)
-    return all(clause.search(flattened) for clause in ATTRIBUTION_CLAUSES)
+    return _attribution(text.splitlines())[0]
+
+
+def _stamped(text: str, suffix: str) -> bool:
+    """A data file's header carries the attribution: a top-level ``trademarkNotice`` (JSON or YAML), or the
+    YAML file's leading comment block."""
+    if suffix == ".json":
+        try:
+            document = json.loads(text)
+        except ValueError:
+            return False
+        notice = document.get("trademarkNotice") if isinstance(document, dict) else None
+        return isinstance(notice, str) and is_attributed(notice)
+    lines = text.splitlines()
+    header = []
+    for line in lines:
+        if line.strip() and not line.lstrip().startswith("#"):
+            break
+        header.append(line)
+    if is_attributed("\n".join(header)):
+        return True
+    for index, line in enumerate(lines):
+        if re.match(r"trademarkNotice\s*:", line):
+            value = [line.split(":", 1)[1]]
+            for continuation in lines[index + 1:]:
+                if not continuation.startswith((" ", "\t")):
+                    break
+                value.append(continuation)
+            return is_attributed("\n".join(value))
+    return False
 
 
 def _heading_leads_with_mark(context: FileContext, line: str, next_line: str) -> bool:
@@ -384,21 +553,27 @@ def _word_around(line: str, start: int, end: int) -> str:
     return line[left:right]
 
 
-def _spans(line: str) -> list[tuple[int, int, str, str]]:
-    """(start, end, token, term) for every mark on a line; product names absorb their tokens."""
-    spans: list[tuple[int, int, str, str]] = []
+Span = tuple[int, int, str, str, "str | None"]
+
+
+def _spans(line: str) -> list[Span]:
+    """(start, end, token, term, confidential) for every mark on a line; product names absorb their tokens.
+
+    ``confidential`` is the R30 category when the span is, or overlaps, confidential detail; detail that carries
+    no mark at all (a desktop project file, a licence-server address) is a span of its own."""
+    spans: list[list] = []
     taken: list[tuple[int, int]] = []
     for match in PRODUCT.finditer(line):
-        # "ArcGIS ProSomething" is an identifier, not the product name
+        # a product name followed by identifier characters is an identifier, not the product name
         if match.end() < len(line) and (line[match.end()].isalnum() or line[match.end()] == "_"):
             continue
         canonical = CANONICAL_PRODUCT[re.sub(r"\s+", " ", match.group()).lower()]
-        spans.append((match.start(), match.end(), match.group(), canonical))
+        spans.append([match.start(), match.end(), match.group(), canonical, None])
         taken.append((match.start(), match.end()))
     for match in STANDALONE.finditer(line):
         if any(s <= match.start() < e for s, e in taken):
             continue
-        spans.append((match.start(), match.end(), match.group(), re.sub(r"\s+", " ", match.group())))
+        spans.append([match.start(), match.end(), match.group(), re.sub(r"\s+", " ", match.group()), None])
         taken.append((match.start(), match.end()))
     for start, end in _mark_tokens(line):
         if any(s <= start < e for s, e in taken):
@@ -407,8 +582,24 @@ def _spans(line: str) -> list[tuple[int, int, str, str]]:
         lowered = token.lower()
         term = "esri" if "esri" in lowered and ("arcgis" not in lowered or
                                                  lowered.index("esri") < lowered.index("arcgis")) else "arcgis"
-        spans.append((start, end, token, term))
-    return sorted(spans)
+        spans.append([start, end, token, term, None])
+        taken.append((start, end))
+    for category, pattern in CONFIDENTIAL:
+        for match in pattern.finditer(line):
+            if category in ("desktop-scripting", "desktop-client") and not _starts_word(line, match.start()):
+                continue
+            overlapping = [span for span in spans if span[0] < match.end() and match.start() < span[1]]
+            for span in overlapping:
+                span[4] = span[4] or category
+            if not overlapping:
+                start, end = match.start(), match.end()
+                if category != "desktop-file":
+                    while start > 0 and IDENTIFIER_CHAR.match(line[start - 1]):
+                        start -= 1
+                    while end < len(line) and IDENTIFIER_CHAR.match(line[end]):
+                        end += 1
+                spans.append([start, end, line[start:end], category, category])
+    return sorted((tuple(span) for span in spans), key=lambda span: (span[0], span[1]))
 
 
 def _starts_word(line: str, index: int) -> bool:
@@ -435,9 +626,11 @@ def _mark_tokens(line: str) -> list[tuple[int, int]]:
 
 
 class Classifier:
-    def __init__(self, repo: str, vocabulary: dict[str, dict], allowlist: list[Exception_]):
+    def __init__(self, repo: str, vocabulary: dict[str, dict], allowlist: list[Exception_],
+                 interop: Interop | None = None):
         self.repo = repo
         self.vocabulary = vocabulary
+        self.interop = interop if interop is not None else _committed_interop()
         self.allowlist = allowlist
         self.skipped: Counter[str] = Counter()
 
@@ -448,13 +641,17 @@ class Classifier:
         return None
 
     def classify_path(self, path: str) -> list[Hit]:
-        """One hit per path prefix whose final component carries a mark (a directory counts once)."""
+        """One hit per path prefix whose final component carries a mark or confidential detail (a directory
+        counts once). A confidential path component is never excepted."""
         hits = []
         parts = path.split("/")
         for depth, part in enumerate(parts):
-            for start, end, token, term in _spans(part):
+            for start, end, token, term, secret in _spans(part):
                 prefix = "/".join(parts[:depth + 1])
-                hits.append(Hit(prefix, 0, token, term, "avoidable", "path", self._exception(prefix, token)))
+                if secret:
+                    hits.append(Hit(prefix, 0, token, term, "confidential", secret))
+                else:
+                    hits.append(Hit(prefix, 0, token, term, "avoidable", "path", self._exception(prefix, token)))
         return hits
 
     def classify_text(self, path: str, text: str) -> list[Hit]:
@@ -487,36 +684,61 @@ class Classifier:
             if not spans:
                 continue
             comment_at = _comment_start(line, kind)
-            for start, end, token, term in spans:
+            runner = RUNNER_LABEL.search(line) is not None
+            for start, end, token, term, secret in spans:
                 if ENCODED.fullmatch(_word_around(line, start, end)):
                     self.skipped["encoded-token"] += 1
                     continue
+                if runner and token not in self.vocabulary:
+                    secret = "runner-detail"
                 heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
-                cls, category = self._classify(context, line, start, end, token, in_fence, block_open,
-                                               comment_at, heading)
+                cls, category = self._classify(context, number, line, start, end, token, secret, in_fence,
+                                               block_open, comment_at, heading)
                 exception = self._exception(path, token) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 
-    def _classify(self, context: FileContext, line: str, start: int, end: int, token: str,
-                  in_fence: bool, block_open: bool, comment_at: int | None,
+    def _classify(self, context: FileContext, number: int, line: str, start: int, end: int, token: str,
+                  secret: str | None, in_fence: bool, block_open: bool, comment_at: int | None,
                   heading: bool = False) -> tuple[str, str]:
         if token in self.vocabulary:
             return "spec", "spec-identifier"
+        if token in self.interop.identifiers:
+            return "spec-interop", "interop-identifier"
+        if token in self.interop.refused:
+            return "avoidable", self.interop.refused[token]["category"]
+        # R30 detail is confidential wherever it appears; only the desktop client's plain name, in an
+        # attributed compatibility statement or a stamped label, is nominative instead
+        if secret and secret != "desktop-client":
+            return "confidential", secret
         word = _word_around(line, start, end)
         stripped = line.strip()
         in_comment = (block_open or (comment_at is not None and start > comment_at)
                       or stripped.startswith(("*", "/*", "///", "<!--")) and context.suffix in SLASH_COMMENT)
         prose_line = context.prose and not in_fence and not in_comment
-        if self._nominative(context, line, start, token, word, prose_line, heading):
-            return "nominative", ("attribution" if ATTRIBUTION_LINE.search(line) else "compatibility-statement")
+        # the endorsement check runs on every line before anything can be nominative
+        claim = ENDORSEMENT.search(DENIAL.sub(" ", context.notice.get(number, line))) is not None
+        nominative = None
+        if not claim:
+            if number in context.notice and _whole_word(line, start, token, word):
+                nominative = "attribution"
+            elif self._nominative(context, line, start, token, word, prose_line, heading):
+                nominative = "compatibility-statement"
+            elif self._label(context, line, start, end, token):
+                nominative = "certification-label" if context.certification else "label"
+        if secret:
+            return ("nominative", nominative) if nominative and token == DESKTOP_CLIENT_NAME else (
+                "confidential", secret)
+        if nominative:
+            return "nominative", nominative
+        if claim:
+            return "avoidable", "endorsement-claim"
         if REPO_NAME.search(word) or HONUA_NAME.search(word) or (context.manifest
                                                                   and PACKAGE_DECLARATION.search(line)):
             if NAMESPACE_LINE.search(line) and not context.prose:
                 return "avoidable", "namespace-or-import"
             return "avoidable", "repo-or-package-name"
-        if THIRD_PARTY_WORD.search(word) or (THIRD_PARTY_IMPORT.search(line)
-                                             and token.lower() in {"arcpy", "arcgis"}):
+        if THIRD_PARTY_WORD.search(word) or (THIRD_PARTY_IMPORT.search(line) and token.lower() == "arcgis"):
             return "avoidable", "third-party-reference"
         if URL.search(word):
             return "avoidable", "url"
@@ -530,37 +752,58 @@ class Classifier:
             return "avoidable", "test-name"
         if _inside_quotes(line, start):
             # a product named as a data label (a client under test) rather than in our own identifiers
-            product = token in PRODUCT_NAMES or PRODUCT.fullmatch(token) or STANDALONE.fullmatch(token)
-            return "avoidable", "product-name-label" if product else "string-literal"
+            return "avoidable", "product-name-label" if _is_product(token) else "string-literal"
         return "avoidable", "identifier"
 
     @staticmethod
     def _nominative(context: FileContext, line: str, start: int, token: str, word: str,
                     prose_line: bool, heading: bool = False) -> bool:
-        if not (prose_line or context.matrix) or not context.attributed:
+        """A compatibility statement: prose in an attributed file, the mark a whole word outside inline code, not
+        leading a heading. A table row qualifies when the product fills a cell; any other line needs the
+        compatibility language. Nothing about the path makes a line nominative."""
+        if not prose_line or not context.attributed or heading:
             return False
-        if token.lower() not in BARE_MARKS and token not in PRODUCT_NAMES and not PRODUCT.fullmatch(token) \
-                and not STANDALONE.fullmatch(token):
+        if not _is_product(token) and token.lower() not in BARE_MARKS:
             return False  # compound identifiers (EsriFeatureLayer, esri-compat) are never nominative
-        if word != token and not re.fullmatch(r"[\W_]*" + re.escape(token) + r"(?:'s|’s)?[\W_]*", word):
-            return False  # part of a path, URL, package or identifier
+        if not _whole_word(line, start, token, word):
+            return False
         if line.count("`", 0, start) % 2:
             return False  # inline code is code, not prose
-        if ATTRIBUTION_LINE.search(line):
-            return True  # the attribution notice itself
-        if heading or ENDORSEMENT.search(line):
+        return _cell(line, start, token) or COMPATIBILITY.search(line) is not None
+
+    @staticmethod
+    def _label(context: FileContext, line: str, start: int, end: int, token: str) -> bool:
+        """R37: a product name as a whole scalar value in a data file whose header carries the attribution."""
+        if not context.stamped or not _is_product(token):
             return False
-        # a structured matrix (YAML/JSON rows) or a matrix page's table row; any other line needs the
-        # compatibility language
-        matrix_row = context.matrix and (not context.prose or TABLE_ROW.search(line) is not None)
-        return matrix_row or COMPATIBILITY.search(line) is not None
+        value = re.compile(r"^\s*(?:-\s+)?(?:[\"']?[\w.-]+[\"']?\s*:\s*)?([\"']?)" + re.escape(token)
+                           + VERSION_SUFFIX + r"\1\s*,?\s*(?:#.*)?$")
+        match = value.match(line)
+        return match is not None and match.start(1) <= start
+
+
+def _is_product(token: str) -> bool:
+    return bool(token in PRODUCT_NAMES or PRODUCT.fullmatch(token) or STANDALONE.fullmatch(token))
+
+
+def _whole_word(line: str, start: int, token: str, word: str) -> bool:
+    # not part of a path, URL, package or identifier
+    return word == token or re.fullmatch(r"[\W_]*" + re.escape(token) + r"(?:'s|’s)?[\W_]*", word) is not None
+
+
+def _cell(line: str, start: int, token: str) -> bool:
+    """The product fills a table cell: ``| ArcGIS Online | ... |`` or ``<td>ArcGIS Online 11.3</td>``."""
+    cell = re.compile(r"(?:^\s*\||\|)\s*(?:\*\*|__)?" + re.escape(token) + VERSION_SUFFIX
+                      + r"(?:\*\*|__)?\s*\||<t[dh]\b[^>]*>\s*(?:<[^>]+>\s*)*" + re.escape(token)
+                      + VERSION_SUFFIX + r"\s*(?:<[^>]+>\s*)*</t[dh]>", re.IGNORECASE)
+    return any(match.start() <= start < match.end() for match in cell.finditer(line))
 
 
 # --------------------------------------------------------------------------------------------- scan
 
 def scan(files: Iterable[tuple[str, bytes | None]], repo: str, vocabulary: dict[str, dict],
-         allowlist: list[Exception_]) -> tuple[list[Hit], Counter[str], int]:
-    classifier = Classifier(repo, vocabulary, allowlist)
+         allowlist: list[Exception_], interop: Interop | None = None) -> tuple[list[Hit], Counter[str], int]:
+    classifier = Classifier(repo, vocabulary, allowlist, interop)
     hits: list[Hit] = []
     seen_prefixes: set[str] = set()
     scanned = 0
@@ -594,16 +837,19 @@ def _minified(path: str, data: bytes) -> bool:
 
 
 def build_report(repo: str, sha: str, hits: list[Hit], skipped: Counter[str], scanned: int,
-                 vocabulary_path: Path = VOCABULARY) -> dict:
+                 vocabulary_path: Path = VOCABULARY, interop_path: Path = INTEROP) -> dict:
     counts = Counter(hit.cls for hit in hits)
     avoidable = [hit for hit in hits if hit.cls == "avoidable"]
     open_hits = [hit for hit in avoidable if hit.exception is None]
+    confidential = [hit for hit in hits if hit.cls == "confidential"]
     return {
         "schema": REPORT_SCHEMA,
         "repo": repo,
         "sha": sha,
         "vocabulary": {"path": "tools/vendor-terms/geoservices-identifiers.v1.json",
                        "sha256": hashlib.sha256(vocabulary_path.read_bytes()).hexdigest()},
+        "interopVocabulary": {"path": "tools/vendor-terms/arcgis-rest-interop.v1.json",
+                              "sha256": hashlib.sha256(interop_path.read_bytes()).hexdigest()},
         "files": {"scanned": scanned, "skipped": dict(sorted(skipped.items()))},
         "counts": {cls: counts.get(cls, 0) for cls in CLASSES} | {
             "avoidableExcepted": len(avoidable) - len(open_hits)},
@@ -612,14 +858,26 @@ def build_report(repo: str, sha: str, hits: list[Hit], skipped: Counter[str], sc
         "byTerm": {cls: dict(Counter(hit.term for hit in hits if hit.cls == cls).most_common())
                    for cls in CLASSES},
         "topSpecIdentifiers": dict(Counter(hit.token for hit in hits if hit.cls == "spec").most_common(25)),
+        "topInteropIdentifiers": dict(Counter(hit.token for hit in hits
+                                              if hit.cls == "spec-interop").most_common(25)),
         "topAvoidableTokens": dict(Counter(hit.token for hit in open_hits).most_common(25)),
         "avoidableByFile": dict(sorted(Counter(hit.path for hit in open_hits).items())),
         "avoidable": [hit.as_dict() for hit in avoidable],
+        "confidentialByFile": dict(sorted(Counter(hit.path for hit in confidential).items())),
+        "confidential": [hit.as_dict() for hit in confidential],
     }
 
 
+def is_confidential_text(text: str) -> bool:
+    return any(pattern.search(text) for _, pattern in CONFIDENTIAL)
+
+
 def render_markdown(report: dict) -> str:
+    """The committed inventory. Confidential hits appear as counts only (R30: no detail in a public repository),
+    and an avoidable hit whose path is itself confidential is counted, not listed."""
     counts = report["counts"]
+    withheld = [hit for hit in report["avoidable"] if is_confidential_text(hit["path"])]
+    listed = [hit for hit in report["avoidable"] if not is_confidential_text(hit["path"])]
     lines = [
         f"# Vendor-term inventory: {report['repo']} @ {report['sha'][:12]}",
         "",
@@ -632,16 +890,22 @@ def render_markdown(report: dict) -> str:
         "",
         "| Class | Hits |",
         "| --- | ---: |",
-        f"| spec | {counts['spec']} |",
+        f"| spec (GSR 1.0) | {counts['spec']} |",
+        f"| spec-interop (ArcGIS REST, R36) | {counts['spec-interop']} |",
         f"| nominative | {counts['nominative']} |",
+        f"| confidential (R30) | {counts['confidential']} |",
         f"| avoidable | {counts['avoidable']} |",
         f"| avoidable, excepted by allowlist | {counts['avoidableExcepted']} |",
         "",
-        "## Avoidable hits by category",
+        "## Confidential hits by category",
+        "",
+        f"Counts only: {len(report['confidentialByFile'])} files. The repository's own lint lists each hit.",
         "",
         "| Category | Hits |",
         "| --- | ---: |",
     ]
+    lines += [f"| {name} | {n} |" for name, n in report["byCategory"]["confidential"].items()]
+    lines += ["", "## Avoidable hits by category", "", "| Category | Hits |", "| --- | ---: |"]
     lines += [f"| {name} | {n} |" for name, n in report["byCategory"]["avoidable"].items()]
     lines += ["", "## Avoidable hits by term", "", "| Term | Hits |", "| --- | ---: |"]
     lines += [f"| {name} | {n} |" for name, n in report["byTerm"]["avoidable"].items()]
@@ -649,13 +913,19 @@ def render_markdown(report: dict) -> str:
     lines += [f"| `{name}` | {n} |" for name, n in report["topAvoidableTokens"].items()]
     lines += ["", "## Most frequent spec identifiers", "", "| Identifier | Hits |", "| --- | ---: |"]
     lines += [f"| `{name}` | {n} |" for name, n in report["topSpecIdentifiers"].items()]
-    by_file = Counter(report["avoidableByFile"])
+    lines += ["", "## Most frequent spec-interop identifiers", "", "| Identifier | Hits |", "| --- | ---: |"]
+    lines += [f"| `{name}` | {n} |" for name, n in report["topInteropIdentifiers"].items()]
+    by_file = Counter({path: n for path, n in report["avoidableByFile"].items() if not is_confidential_text(path)})
     lines += ["", "## Files with the most avoidable hits", "", "| File | Hits |", "| --- | ---: |"]
     lines += [f"| `{name}` | {n} |" for name, n in by_file.most_common(30)]
     lines += ["", "## Every avoidable hit", "",
-              "`path:line  category  token` (line 0 = the path itself; `[excepted]` = allowlisted).", "",
-              "```text"]
-    for hit in report["avoidable"]:
+              "`path:line  category  token` (line 0 = the path itself; `[excepted]` = allowlisted).", ""]
+    if withheld:
+        files = len({hit["path"] for hit in withheld})
+        lines += [f"{len(withheld)} avoidable hits in {files} file{'' if files == 1 else 's'} whose path is "
+                  "itself confidential are counted above but not listed.", ""]
+    lines += ["```text"]
+    for hit in listed:
         suffix = "  [excepted]" if "exception" in hit else ""
         lines.append(f"{hit['path']}:{hit['line']}  {hit['category']}  {hit['token']}{suffix}")
     lines += ["```", ""]
@@ -664,9 +934,27 @@ def render_markdown(report: dict) -> str:
 
 # --------------------------------------------------------------------------------------------- baseline
 
+def _refuse_confidential_paths(paths: Iterable[str], what: str) -> None:
+    named = [path for path in paths if is_confidential_text(path)]
+    if named:
+        raise SystemExit(f"{len(named)} {what} entries would name a confidential path; contain them first (R30)")
+
+
 def baseline_from(report: dict) -> dict:
+    """Avoidable uses only: a confidential hit is never baselined."""
     files = report["avoidableByFile"]
+    _refuse_confidential_paths(files, "baseline")
     return {"schema": BASELINE_SCHEMA, "repo": report["repo"], "sha": report["sha"],
+            "total": sum(files.values()), "files": files}
+
+
+def known_from(report: dict, as_of: str, burn_down: list[str]) -> dict:
+    files = report["confidentialByFile"]
+    _refuse_confidential_paths(files, "confidential-known")
+    return {"schema": KNOWN_SCHEMA, "repo": report["repo"], "sha": report["sha"], "asOf": as_of,
+            "burnDown": burn_down,
+            "note": "Confidential (R30) uses present when the class landed. Listed so the gate is red with a "
+                    "reason, never green: the reusable gate fails on every entry. May only shrink.",
             "total": sum(files.values()), "files": files}
 
 
@@ -690,36 +978,37 @@ def lint(report: dict, baseline: dict) -> list[str]:
     return problems
 
 
-def _mark_rename(old: str, new: str) -> bool:
-    """``new`` is ``old`` with only marked path components renamed (``src/EsriLayer.cs`` -> ``src/Layer.cs``)."""
-    old_parts, new_parts = old.split("/"), new.split("/")
-    if len(old_parts) != len(new_parts) or old == new:
-        return False
-    return all(PRESCREEN.search(a) for a, b in zip(old_parts, new_parts) if a != b)
+def confidential_findings(report: dict, known: dict | None) -> tuple[list[str], list[str]]:
+    """(new, known): every confidential hit, as ``path:line  category  token``. A hit is known only while its
+    file has no more confidential hits than the dated ledger lists; anything else is new."""
+    listed = (known or {}).get("files", {})
+    new, already = [], []
+    for path, count in sorted(report["confidentialByFile"].items()):
+        rows = [f"{hit['path']}:{hit['line']}  {hit['category']}  {hit['token']}"
+                for hit in report["confidential"] if hit["path"] == path]
+        (already if count <= listed.get(path, 0) else new).extend(rows)
+    return new, already
 
 
-def baseline_growth(current: dict, base: dict | None) -> list[str]:
-    """A baseline may only shrink: the total never grows, and no entry grows. The one exception is a rename
-    that drops a mark: a new entry may take over the count of a removed entry whose path differs only in
-    marked components, up to that entry's count (each removed entry covers one new entry)."""
-    if base is None:
-        return []
+def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") -> list[str]:
+    """A baseline (or confidential-known ledger) may only shrink: its total never grows, it stays the sum of its
+    entries, no entry grows, and no entry is added — not even by moving counts from a removed or shrunk entry,
+    so a rename carries its file's uses only once they are gone."""
     name = current.get("repo", "?")
     problems = []
+    if current["total"] != sum(current["files"].values()):
+        problems.append(f"{kind}.{name}: total {current['total']} is not the sum of its entries "
+                        f"({sum(current['files'].values())})")
+    if base is None:
+        return problems
     if current["total"] > base["total"]:
-        problems.append(f"baseline.{name}: total grew {base['total']} -> {current['total']}")
-    removed = {path: count for path, count in base["files"].items() if path not in current["files"]}
+        problems.append(f"{kind}.{name}: total grew {base['total']} -> {current['total']}")
     for path, count in sorted(current["files"].items()):
-        before = base["files"].get(path, 0)
-        if count <= before:
-            continue
-        source = next((old for old, old_count in sorted(removed.items())
-                       if before == 0 and old_count >= count and _mark_rename(old, path)), None)
-        if source is not None:
-            del removed[source]
-            continue
-        problems.append(f"baseline.{name}: {path} grew {before} -> {count}; a baseline entry may only grow as "
-                        "the rename of a removed entry whose marked path components were renamed")
+        if path not in base["files"]:
+            problems.append(f"{kind}.{name}: {path} is a new entry ({count}); an entry may only shrink or go, and "
+                            "none is added, not even by redistribution from another file")
+        elif count > base["files"][path]:
+            problems.append(f"{kind}.{name}: {path} grew {base['files'][path]} -> {count}")
     return problems
 
 
@@ -728,6 +1017,7 @@ def baseline_growth(current: dict, base: dict | None) -> list[str]:
 def _report_for(args) -> dict:
     root = Path(args.root).resolve()
     vocabulary = load_vocabulary(Path(args.vocabulary))
+    interop = load_interop(Path(args.interop))
     allowlist = load_allowlist(Path(args.allowlist) if args.allowlist else None)
     if args.git_ref:
         files = git_ref_files(root, args.git_ref)
@@ -738,8 +1028,9 @@ def _report_for(args) -> dict:
             sha = _git(root, "rev-parse", "HEAD").strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
             sha = "working-tree"
-    hits, skipped, scanned = scan(files, args.repo, vocabulary, allowlist)
-    return build_report(args.repo, args.sha or sha, hits, skipped, scanned, Path(args.vocabulary))
+    hits, skipped, scanned = scan(files, args.repo, vocabulary, allowlist, interop)
+    return build_report(args.repo, args.sha or sha, hits, skipped, scanned, Path(args.vocabulary),
+                        Path(args.interop))
 
 
 def _add_scan_arguments(parser: argparse.ArgumentParser) -> None:
@@ -748,6 +1039,7 @@ def _add_scan_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--git-ref", help="scan this commit's blobs instead of the working tree")
     parser.add_argument("--sha", help="override the recorded commit")
     parser.add_argument("--vocabulary", default=str(VOCABULARY))
+    parser.add_argument("--interop", default=str(INTEROP))
     parser.add_argument("--allowlist", default=str(ALLOWLIST))
 
 
@@ -757,62 +1049,39 @@ def _write(path: str | None, content: str) -> None:
         Path(path).write_text(content, encoding="utf-8")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    scan_parser = commands.add_parser("scan", help="write the per-repo report")
-    _add_scan_arguments(scan_parser)
-    scan_parser.add_argument("--json", dest="json_out")
-    scan_parser.add_argument("--markdown", dest="markdown_out")
-
-    lint_parser = commands.add_parser("lint", help="fail on avoidable uses above the baseline")
-    _add_scan_arguments(lint_parser)
-    lint_parser.add_argument("--baseline", help="default tools/vendor-terms/baseline.<repo>.json")
-    lint_parser.add_argument("--json", dest="json_out")
-    lint_parser.add_argument("--markdown", dest="markdown_out")
-
-    baseline_parser = commands.add_parser("baseline", help="write the baseline from the current hits")
-    _add_scan_arguments(baseline_parser)
-    baseline_parser.add_argument("--out", help="default tools/vendor-terms/baseline.<repo>.json")
-
-    shrink_parser = commands.add_parser("check-baselines", help="fail when a committed baseline grew")
-    shrink_parser.add_argument("--base-ref", required=True)
-    shrink_parser.add_argument("--repo-root", default=str(ROOT))
-
-    args = parser.parse_args(argv)
-
-    if args.command == "check-baselines":
-        root = Path(args.repo_root)
-        problems = []
-        for path in sorted((root / "tools" / "vendor-terms").glob("baseline.*.json")):
+def _check_ledgers(root: Path, base_ref: str) -> list[str]:
+    problems = []
+    for pattern, kind in (("baseline.*.json", "baseline"), ("confidential-known.*.json", "confidential-known")):
+        for path in sorted((root / "tools" / "vendor-terms").glob(pattern)):
             relative = path.relative_to(root).as_posix()
             try:
-                base = json.loads(_git(root, "show", f"{args.base_ref}:{relative}"))
+                base = json.loads(_git(root, "show", f"{base_ref}:{relative}"))
             except subprocess.CalledProcessError:
-                base = None  # a new repository's first baseline
-            problems += baseline_growth(json.loads(path.read_text(encoding="utf-8")), base)
-        for problem in problems:
-            print(f"::error::{problem}")
-        print("vendor-term baselines: " + ("GREW" if problems else "only shrink — ok"))
-        return 1 if problems else 0
+                base = None  # a repository's first baseline or ledger
+            problems += baseline_growth(json.loads(path.read_text(encoding="utf-8")), base, kind)
+    return problems
 
-    report = _report_for(args)
-    default_baseline = TERMS_DIR / f"baseline.{args.repo}.json"
 
-    if args.command == "baseline":
-        out = Path(args.out) if args.out else default_baseline
-        out.write_text(json.dumps(baseline_from(report), indent=2) + "\n", encoding="utf-8")
-        print(f"wrote {out} ({sum(report['avoidableByFile'].values())} avoidable)")
-        return 0
-
-    _write(args.json_out, json.dumps(report, indent=2) + "\n")
-    _write(args.markdown_out, render_markdown(report))
-    counts = report["counts"]
-    print(f"{report['repo']} @ {report['sha'][:12]}: spec={counts['spec']} nominative={counts['nominative']} "
-          f"avoidable={counts['avoidable']} (excepted {counts['avoidableExcepted']})")
-    if args.command == "scan":
-        return 0
+def _lint(args, report: dict, default_baseline: Path) -> int:
+    failed = False
+    known = load_known(Path(args.known) if args.known else TERMS_DIR / f"confidential-known.{args.repo}.json",
+                       args.repo)
+    new, already = confidential_findings(report, known)
+    for row in new:
+        print(f"::error::confidential (R30) — never baselined, never allowlisted: {row}")
+    if new:
+        failed = True
+        print(f"{len(new)} confidential uses outside the confidential-known ledger. Desktop-client certification "
+              "detail belongs only in the private certification repository; see docs/THIRD-PARTY-TRADEMARKS.md.")
+    if already:
+        level = "error" if args.fail_on_known_confidential else "warning"
+        reason = (f"known since {known['asOf']} (tools/vendor-terms/confidential-known.{args.repo}.json, "
+                  f"burn-down {', '.join(known['burnDown'])})")
+        for row in already:
+            print(f"::{level}::confidential (R30), {reason}: {row}")
+        print(f"{len(already)} known confidential uses remain, {reason}. The vendor-terms gate stays red until the "
+              "ledger is empty.")
+        failed = failed or args.fail_on_known_confidential
 
     baseline_path = Path(args.baseline) if args.baseline else default_baseline
     if not baseline_path.is_file():
@@ -833,8 +1102,79 @@ def main(argv: list[str] | None = None) -> int:
     if shrinkable:
         print(f"{len(shrinkable)} baseline entries can shrink; regenerate the baseline to lock the burn-down in.")
     print(f"vendor-term lint: {sum(report['avoidableByFile'].values())} avoidable within baseline "
-          f"{baseline['total']} — ok")
-    return 0
+          f"{baseline['total']}" + (" — confidential uses FAIL" if failed else " — ok"))
+    return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    scan_parser = commands.add_parser("scan", help="write the per-repo report")
+    _add_scan_arguments(scan_parser)
+    scan_parser.add_argument("--json", dest="json_out")
+    scan_parser.add_argument("--markdown", dest="markdown_out")
+
+    lint_parser = commands.add_parser("lint", help="fail on confidential uses and avoidable uses above the baseline")
+    _add_scan_arguments(lint_parser)
+    lint_parser.add_argument("--baseline", help="default tools/vendor-terms/baseline.<repo>.json")
+    lint_parser.add_argument("--known", help="default tools/vendor-terms/confidential-known.<repo>.json")
+    lint_parser.add_argument("--fail-on-known-confidential", action="store_true",
+                             help="fail on ledger-listed confidential uses too (the reusable gate always does)")
+    lint_parser.add_argument("--json", dest="json_out")
+    lint_parser.add_argument("--markdown", dest="markdown_out")
+
+    baseline_parser = commands.add_parser("baseline", help="write the baseline from the current hits")
+    _add_scan_arguments(baseline_parser)
+    baseline_parser.add_argument("--out", help="default tools/vendor-terms/baseline.<repo>.json")
+
+    known_parser = commands.add_parser("confidential-known",
+                                       help="write the dated ledger of confidential uses being burned down")
+    _add_scan_arguments(known_parser)
+    known_parser.add_argument("--as-of", required=True, help="YYYY-MM-DD")
+    known_parser.add_argument("--burn-down", action="append", required=True,
+                              help="issue that removes the listed uses (repeatable)")
+    known_parser.add_argument("--out", help="default tools/vendor-terms/confidential-known.<repo>.json")
+
+    shrink_parser = commands.add_parser("check-baselines",
+                                        help="fail when a committed baseline or confidential-known ledger grew")
+    shrink_parser.add_argument("--base-ref", required=True)
+    shrink_parser.add_argument("--repo-root", default=str(ROOT))
+
+    args = parser.parse_args(argv)
+
+    if args.command == "check-baselines":
+        problems = _check_ledgers(Path(args.repo_root), args.base_ref)
+        for problem in problems:
+            print(f"::error::{problem}")
+        print("vendor-term baselines and ledgers: " + ("GREW" if problems else "only shrink — ok"))
+        return 1 if problems else 0
+
+    report = _report_for(args)
+    default_baseline = TERMS_DIR / f"baseline.{args.repo}.json"
+
+    if args.command == "baseline":
+        out = Path(args.out) if args.out else default_baseline
+        out.write_text(json.dumps(baseline_from(report), indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {out} ({sum(report['avoidableByFile'].values())} avoidable)")
+        return 0
+
+    if args.command == "confidential-known":
+        out = Path(args.out) if args.out else TERMS_DIR / f"confidential-known.{args.repo}.json"
+        out.write_text(json.dumps(known_from(report, args.as_of, args.burn_down), indent=2) + "\n",
+                       encoding="utf-8")
+        print(f"wrote {out} ({report['counts']['confidential']} confidential)")
+        return 0
+
+    _write(args.json_out, json.dumps(report, indent=2) + "\n")
+    _write(args.markdown_out, render_markdown(report))
+    counts = report["counts"]
+    print(f"{report['repo']} @ {report['sha'][:12]}: spec={counts['spec']} spec-interop={counts['spec-interop']} "
+          f"nominative={counts['nominative']} confidential={counts['confidential']} "
+          f"avoidable={counts['avoidable']} (excepted {counts['avoidableExcepted']})")
+    if args.command == "scan":
+        return 0
+    return _lint(args, report, default_baseline)
 
 
 if __name__ == "__main__":
