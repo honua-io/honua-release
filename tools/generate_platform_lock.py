@@ -156,14 +156,16 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
     release_ctx = release_context({"components": {PUBLISHER: publisher_source}})
     for name, component in combined:
         cpath = f"$.components.{name}"
+        if "sourcePinnedOnly" in component and not isinstance(component["sourcePinnedOnly"], bool):
+            refuse(f"{cpath}.sourcePinnedOnly: must be a boolean", "MECHANICAL")
+        source_pinned = component.get("sourcePinnedOnly") is True
         entry: dict[str, Any] = {
             "source": {"repository": component.get("repository"), "revision": component.get("sha")},
             "contractVersions": {},
             "schemaVersions": {},
             "artifacts": [],
-            "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
+            "artifactIdentityModel": "source-pinned" if source_pinned else "published",
         }
-        source_pinned = bool(component.get("sourcePinnedOnly"))
         for group in ("contractVersions", "schemaVersions"):
             if group in component:
                 try:
@@ -209,7 +211,7 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             refuse(f"{cpath}.contractVersions: not declared", resolution)
         if not entry["schemaVersions"] and not (source_pinned and "schemaVersions" in component):
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed and not component.get("sourcePinnedOnly") and not published_by_component[name]:
+        if not seed and not source_pinned and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
         elif seed:
             apath = f"{cpath}.artifacts[0]"

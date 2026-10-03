@@ -711,3 +711,27 @@ def test_generator_refuses_two_identities_for_one_standard(tmp_path):
     agreed = draft_of(tmp_path, manifest)
     assert agreed.lock["contentDigests"]["geospatialMcp"] == DIGEST
     assert not any("disagrees with" in item for item in agreed.unresolved)
+
+
+@pytest.mark.parametrize("value", ["false", "true", 1, None])
+@pytest.mark.parametrize("empty", [True, False])
+def test_generator_requires_boolean_source_pinned_only(tmp_path, value, empty):
+    draft, refusals = _version_refusals(
+        tmp_path, sourcePinnedOnly=value,
+        contractVersions={} if empty else {"api": "1"},
+        schemaVersions={} if empty else {"workspace": "1"})
+    assert any("[MECHANICAL] $.components.mobile.sourcePinnedOnly: must be a boolean" in item
+               for item in draft.unresolved)
+    assert draft.lock["components"]["mobile"]["artifactIdentityModel"] == "published"
+    assert any("mobile.artifacts: no artifact coordinate is declared" in item for item in draft.unresolved)
+    if empty:
+        for group in ("contractVersions", "schemaVersions"):
+            assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals)
+            assert any(f"mobile.{group}: not declared" in item for item in refusals)
+
+
+def test_generator_false_does_not_allow_empty_version_sets(tmp_path):
+    draft, refusals = _version_refusals(tmp_path, sourcePinnedOnly=False, contractVersions={}, schemaVersions={})
+    assert not any("sourcePinnedOnly: must be a boolean" in item for item in draft.unresolved)
+    for group in ("contractVersions", "schemaVersions"):
+        assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals)

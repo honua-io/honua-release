@@ -716,3 +716,34 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+@pytest.mark.parametrize("section", ["components", "experimental"])
+@pytest.mark.parametrize("value", ["false", "true", 1, None])
+@pytest.mark.parametrize("empty", [True, False])
+def test_source_pinned_only_requires_a_boolean_in_validator_and_schema(section, value, empty):
+    manifest, matrix = _real_files()
+    name = next(iter(manifest[section]))
+    row = manifest[section][name]
+    row["sourcePinnedOnly"] = value
+    row["contractVersions"] = {} if empty else {"api": "1"}
+    row["schemaVersions"] = {} if empty else {"workspace": "1"}
+    findings = vp.validate(manifest, matrix, None)
+    assert any(f"{section}.{name}.sourcePinnedOnly must be a boolean" in error for error in findings.errors)
+    if empty:
+        for group in ("contractVersions", "schemaVersions"):
+            assert any(f"{section}.{name}.{group}: must be a non-empty mapping" in error for error in findings.errors)
+    schema = json.loads((REPO_ROOT / "schemas/platform-manifest.schema.json").read_text())
+    errors = list(Draft202012Validator(schema).iter_errors(manifest))
+    assert any(list(error.absolute_path) == [section, name, "sourcePinnedOnly"] for error in errors)
+
+
+@pytest.mark.parametrize("section", ["components", "experimental"])
+def test_false_does_not_allow_empty_manifest_version_sets(section):
+    manifest, matrix = _real_files()
+    name = next(iter(manifest[section]))
+    manifest[section][name].update(sourcePinnedOnly=False, contractVersions={}, schemaVersions={})
+    findings = vp.validate(manifest, matrix, None)
+    assert not any("sourcePinnedOnly must be a boolean" in error for error in findings.errors)
+    for group in ("contractVersions", "schemaVersions"):
+        assert any(f"{section}.{name}.{group}: must be a non-empty mapping" in error for error in findings.errors)

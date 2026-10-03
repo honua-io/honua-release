@@ -303,6 +303,8 @@ def component_versions(github, name, component):
     A missing, unreadable or invalid declaration refuses the component. An explicit empty map is a
     declaration only where the manifest marks the component sourcePinnedOnly.
     """
+    if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
+        raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
     repository = str(component.get('repository') or '').removeprefix('https://github.com/')
     sha = str(component.get('sha') or '')
     if not SHA.fullmatch(sha):
@@ -323,7 +325,7 @@ def component_versions(github, name, component):
             f"{'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message}" for error in errors[:5]))
     if declaration['component'] != name:
         raise ResolutionError(f"{where} declares component {declaration['component']!r}, not {name!r}")
-    source_pinned = bool(component.get('sourcePinnedOnly'))
+    source_pinned = component.get('sourcePinnedOnly') is True
     declared = {}
     for group in ('contractVersions', 'schemaVersions'):
         derived = group == 'schemaVersions' and name in DERIVED_SCHEMA_VERSIONS

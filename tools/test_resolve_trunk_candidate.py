@@ -545,3 +545,17 @@ def test_the_documented_example_is_a_valid_declaration():
     name = json.loads(example)['component']
     versions, _ = declared(name, example.encode())
     assert versions['contractVersions'] and versions['schemaVersions']
+
+
+@pytest.mark.parametrize('value', ['false', 'true', 1, None])
+@pytest.mark.parametrize('empty', [True, False])
+def test_source_pinned_only_requires_a_boolean(value, empty):
+    maps = {'contractVersions': {}, 'schemaVersions': {}} if empty else {}
+    with pytest.raises(resolver.ResolutionError, match='sourcePinnedOnly must be a boolean'):
+        declared('honua-mobile', declaration_bytes('honua-mobile', **maps), sourcePinnedOnly=value)
+
+
+def test_false_does_not_allow_empty_version_sets():
+    with pytest.raises(resolver.ResolutionError, match='contractVersions must be a non-empty mapping'):
+        declared('honua-mobile', declaration_bytes('honua-mobile', contractVersions={}, schemaVersions={}),
+                 sourcePinnedOnly=False)
