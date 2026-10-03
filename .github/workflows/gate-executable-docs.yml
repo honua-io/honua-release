@@ -136,7 +136,9 @@ jobs:
           if jq -e '.documents[] | select(.id == "candidate")' "$report" >/dev/null; then
             echo "::error::the candidate did not boot; no document ran against it"; exit 1
           fi
-          if jq -e '[.documents[].checks[]? | select(.check != "boots-candidate-image" and .status != "pass")] | length > 0' "$report" >/dev/null; then
+          # boots-candidate-image and nothing-executed are document findings (reported in the summary),
+          # not harness failures; every other non-passing check is.
+          if jq -e '[.documents[].checks[]? | select(.check != "boots-candidate-image" and .check != "nothing-executed" and .status != "pass")] | length > 0' "$report" >/dev/null; then
             echo "::error::document harness/infrastructure checks failed"; exit 1
           fi
           case "$status" in pass|fail|blocked) ;; *) echo "::error::invalid report status"; exit 1 ;; esac
