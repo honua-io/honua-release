@@ -28,6 +28,67 @@ def canonical_bytes(value: dict) -> bytes:
                       ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
+def bind_post_gate(lock: dict, manifest: Path, matrix: Path, label: str, directory: Path, *,
+                   image_inspector=registry_image_platform_digests) -> None:
+    """Verify the retained nightly transformation after the caller verifies its signature.
+
+    Manual freeze requires a complete release lock. A nightly retains its unsigned
+    qualification draft, original green report and reachable notes/evidence bytes.
+    """
+    from mint_nightly_lock import (failures, evidence_failures, regenerate_post_gate,
+                                   verify_reference_bundle, declared_manifest, attach_post_gate)
+    from fixture_revisions import declare
+    from candidate_binding import _sha256
+    import tempfile
+    frozen_path = directory / 'qualification-lock.json'
+    frozen = load_lock(frozen_path)
+    report = json.loads((directory / 'qualification-gate-report.json').read_bytes())
+    if report.get('platform_label') != label:
+        raise ValueError('qualification report label differs from the lock')
+    errors = failures(report) + evidence_failures(report, 'sha256:' + _sha256(frozen_path))
+    if errors:
+        raise ValueError('; '.join(errors))
+    evidence = json.loads((directory / 'post-gate-references.json').read_bytes())
+    if canonical_bytes(evidence.get('candidate')) != canonical_bytes(report.get('candidate')):
+        raise ValueError('post-gate references belong to another candidate or run')
+    qualification_manifest = directory / 'qualification-inputs' / manifest.name
+    if not qualification_manifest.exists():
+        raise ValueError('missing retained qualification manifest')
+    for path in (qualification_manifest, matrix):
+        pin = report['candidate']['artifacts'].get(path.name) or {}
+        if pin.get('sha256') != _sha256(path) or pin.get('size') != path.stat().st_size:
+            raise ValueError('qualification report is not bound to its retained inputs')
+    bind_qualification(frozen, qualification_manifest, matrix, label, image_inspector=image_inspector)
+    if frozen_path.read_bytes() != canonical_bytes(frozen):
+        raise ValueError('qualification lock must use canonical bytes')
+    retained = json.loads((directory / 'fixture-revisions.json').read_bytes())
+    fixtures = declare(retained['records'], run_id=report['candidate']['train']['runId'])
+    if canonical_bytes(fixtures) != canonical_bytes(retained['fixtures']):
+        raise ValueError('retained fixture declaration differs from gate records')
+    with tempfile.TemporaryDirectory(prefix='verify-derived-manifest-') as scratch:
+        source = declared_manifest(qualification_manifest, fixtures, Path(scratch))
+        source = attach_post_gate(source, evidence['references'], report['evidenceDeclarations'], Path(scratch))
+        if source.read_bytes() != manifest.read_bytes():
+            raise ValueError('shipped manifest changed facts outside post-gate declarations')
+    regenerated = regenerate_post_gate(manifest, matrix, frozen, evidence['references'])
+    if canonical_bytes(lock) != canonical_bytes(regenerated.lock):
+        raise ValueError('signed lock differs from its post-gate regeneration')
+    bind(lock, manifest, matrix, label, image_inspector=image_inspector)
+    verify_reference_bundle(evidence, directory / 'release-notes.bundle', qualification_manifest, matrix, report)
+
+
+def bind_qualification(lock: dict, manifest: Path, matrix: Path, label: str, *,
+                       image_inspector=registry_image_platform_digests) -> None:
+    """Check an unsigned draft exactly; this never authorizes release signing."""
+    draft = generate(manifest, matrix, qualification=True, image_inspector=image_inspector)
+    if draft.unresolved:
+        raise ValueError('unresolved qualification facts: ' + '; '.join(draft.unresolved))
+    if draft.lock['platform']['status'] != 'rc' or draft.lock['platform']['id'] != f'honua-{label}':
+        raise ValueError('qualification platform label/status differs from candidate')
+    if canonical_bytes(lock) != canonical_bytes(draft.lock):
+        raise ValueError('qualification lock differs from frozen inputs')
+
+
 def _declared(expected, actual, path: str) -> None:
     """Match every declared input fact; absent facts must be supplied by the lock."""
     if isinstance(expected, dict):
@@ -229,12 +290,20 @@ def main(argv=None) -> int:
     parser.add_argument("--matrix", type=Path, required=True)
     parser.add_argument("--label", required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--qualification", action="store_true", help="check unsigned qualification draft only")
     parser.add_argument("--check", action="store_true", help="verify frozen bytes and all derivatives without rewriting")
     args = parser.parse_args(argv)
     try:
         lock = load_lock(args.lock)
-        bind(lock, args.manifest, args.matrix, args.label)
-        files = bundle_files(lock)
+        if args.qualification:
+            bind_qualification(lock, args.manifest, args.matrix, args.label)
+        elif args.check and (args.lock.parent / 'post-gate-references.json').exists():
+            bind_post_gate(lock, args.manifest, args.matrix, args.label, args.lock.parent)
+        else:
+            bind(lock, args.manifest, args.matrix, args.label)
+        files = ({"platform-lock.json": canonical_bytes(lock),
+                  "bom.cdx.json": canonical_bytes(build_bom(lock))}
+                 if args.qualification else bundle_files(lock))
         if args.check:
             for name, expected in files.items():
                 if (args.out_dir / name).read_bytes() != expected:

@@ -482,3 +482,83 @@ def test_bind_refuses_image_architectures_the_registry_disagrees_with(candidate,
     lock, paths = _image_candidate(candidate, image, declared)
     with pytest.raises(ValueError, match="platformDigests do not match registry Linux architecture identities"):
         bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_pending_qualification_is_checked_exactly_and_never_signable(candidate):
+    lock, paths, _ = candidate
+    data = yaml.safe_load(paths[0].read_text())
+    for field in ('sbom', 'provenance', 'notes', 'fixtures'):
+        del data['platformLockEvidence'][field]
+    # This candidate has no deployment-owned denominator; declare the tested one explicitly.
+    data['disasterRecovery'] = {'substrates': {'postgresql': True}}
+    paths[0].write_text(yaml.safe_dump(data))
+    draft = bundle.generate(*paths, qualification=True)
+    assert draft.unresolved == []
+    bundle.bind_qualification(draft.lock, *paths, '2026.1-rc.1', image_inspector=None)
+    with pytest.raises(ValueError):
+        bundle.bind(draft.lock, *paths, '2026.1-rc.1', image_inspector=None)
+    forged = copy.deepcopy(draft.lock)
+    forged['notes'] = lock['notes']
+    with pytest.raises(ValueError, match='qualification lock differs'):
+        bundle.bind_qualification(forged, *paths, '2026.1-rc.1', image_inspector=None)
+
+
+def test_qualification_binding_rejects_boolean_integer_and_input_hash_drift(candidate):
+    _, paths, _ = candidate
+    data = yaml.safe_load(paths[0].read_text())
+    data['disasterRecovery'] = {'substrates': {'postgresql': True}}
+    paths[0].write_text(yaml.safe_dump(data))
+    draft = bundle.generate(*paths, qualification=True)
+    for mutate in (lambda lock: lock['disasterRecovery']['substrates'].update(postgresql=1),
+                   lambda lock: lock['sourceInputs']['platformManifest'].update(sha256='sha256:' + '0' * 64)):
+        forged = copy.deepcopy(draft.lock)
+        mutate(forged)
+        with pytest.raises(ValueError, match='qualification lock differs'):
+            bundle.bind_qualification(forged, *paths, '2026.1-rc.1', image_inspector=None)
+
+
+def test_unsigned_qualification_cli_derives_bom_and_preserves_complete_signing_refusal(candidate, tmp_path):
+    _, paths, _ = candidate
+    data = yaml.safe_load(paths[0].read_text())
+    data['disasterRecovery'] = {'substrates': {'postgresql': True}}
+    for field in ('sbom', 'provenance', 'notes', 'fixtures'):
+        del data['platformLockEvidence'][field]
+    paths[0].write_text(yaml.safe_dump(data))
+    lock = bundle.generate(*paths, qualification=True).lock
+    source = tmp_path / 'qualification-lock.json'
+    source.write_bytes(bundle.canonical_bytes(lock))
+    output = tmp_path / 'qualification'
+    command = [sys.executable, str(ROOT / 'tools/platform_lock_bundle.py'), str(source),
+               '--manifest', str(paths[0]), '--matrix', str(paths[1]), '--label', '2026.1-rc.1',
+               '--out-dir', str(output)]
+    assert subprocess.run(command + ['--qualification'], capture_output=True).returncode == 0
+    assert (output / 'platform-lock.json').read_bytes() == source.read_bytes()
+    assert (output / 'bom.cdx.json').read_bytes() == bundle.canonical_bytes(bundle.build_bom(lock))
+    assert not list(output.glob('*sigstore*'))
+    assert subprocess.run(command + ['--qualification', '--check'], capture_output=True).returncode == 0
+    assert subprocess.run(command, capture_output=True).returncode != 0
+    malformed = copy.deepcopy(lock)
+    malformed['components']['sdk']['artifacts'][0]['version'] = '9.9.9'
+    source.write_bytes(bundle.canonical_bytes(malformed))
+    assert subprocess.run(command + ['--qualification'], capture_output=True).returncode != 0
+
+
+def test_nightly_bom_and_rollback_verify_the_exact_qualification_draft():
+    train = yaml.safe_load((ROOT / '.github/workflows/release-train.yml').read_text())['jobs']
+    assert train['gate_sbom']['with']['candidate_snapshot'] == '${{ inputs.nightly }}'
+    assert train['gate_one_operation_rollback']['with']['candidate_snapshot'] == '${{ inputs.nightly }}'
+    sbom = yaml.safe_load((ROOT / '.github/workflows/gate-sbom.yml').read_text())
+    assert 'candidate_snapshot' not in sbom[True]['workflow_dispatch']['inputs']
+    steps = sbom['jobs']['platform-sbom']['steps']
+    download = next(s for s in steps if s.get('name') == 'Use the exact unsigned nightly qualification lock')
+    assert download['if'] == 'inputs.candidate_snapshot'
+    assert download['with']['name'] == 'candidate-manifest'
+    generation = next(s for s in steps if s.get('name') == 'Generate aggregated platform BOM')
+    assert 'ARGS+=(--qualification)' in generation['run']
+    assert '--out-dir bom/locked "${ARGS[@]}"' in generation['run']
+    rollback = yaml.safe_load((ROOT / '.github/workflows/rollback-certification.yml').read_text())
+    verification = next(s for s in rollback['jobs']['certify']['steps']
+                        if s.get('name') == 'Resolve and verify retained lock A and frozen lock B')
+    assert '--qualification --check' in verification['run']
+    assert 'gh attestation verify _candidate/platform-manifest.yaml' in verification['run']
+    assert 'gh attestation verify _candidate/compatibility-matrix.yaml' in verification['run']

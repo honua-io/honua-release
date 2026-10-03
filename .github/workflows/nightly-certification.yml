@@ -242,6 +242,9 @@ jobs:
             --expected-source-sha "$EXPECTED_SHA" \
             --expected-run-id "$EXPECTED_RUN" \
             --fixture-revisions fixture-revisions \
+            --lock certified/qualification-lock.json \
+            --post-gate-references certified/post-gate-references.json \
+            --notes-bundle certified/release-notes.bundle \
             --out-dir nightly-lock \
             --certificate-identity "$CERTIFICATE_IDENTITY" | tee mint.txt
           label="$(awk '/^MINTED: /{print $2}' mint.txt)"
@@ -251,9 +254,13 @@ jobs:
           export GIT_INDEX_FILE="${RUNNER_TEMP}/nightly-lock.index"
           git --work-tree=nightly-lock add -A --force
           tree="$(git write-tree)"
+          # Keep the notes and fetched package bundles reachable at their repo@rev paths.
+          git fetch certified/release-notes.bundle HEAD
+          notes_revision="$(cat certified/release-notes-revision.txt)"
+          test "$(git rev-parse FETCH_HEAD)" = "$notes_revision"
           commit="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
             GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
-            git commit-tree "$tree" -m "chore: nightly lock ${label}")"
+            git commit-tree "$tree" -p "$notes_revision" -m "chore: nightly lock ${label}")"
           git push origin "${commit}:refs/tags/nightly-lock/${label}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
