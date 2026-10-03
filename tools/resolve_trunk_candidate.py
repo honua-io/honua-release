@@ -50,7 +50,10 @@ def retry(operation):
         try:
             return operation()
         except (OSError, subprocess.CalledProcessError) as exc:
-            detail = (getattr(exc, 'stderr', '') or str(exc)).lower()
+            detail = getattr(exc, 'stderr', '') or str(exc)
+            if isinstance(detail, bytes):
+                detail = detail.decode('utf-8', errors='replace')
+            detail = detail.lower()
             transient = isinstance(exc, urllib.error.URLError) or any(term in detail for term in (
                 'error connecting', 'could not resolve host', 'connection reset',
                 'timeout', 'timed out', 'tls', '403'))
@@ -126,8 +129,33 @@ class GitHub:
         return row['decided'] == 'pass', row['why']
 
     def file(self, repository, revision, path):
+        """The exact blob bytes at `revision`, or a refusal; never a short or empty read."""
         response = self.json(f'repos/{repository}/contents/{path}?ref={revision}')
-        return base64.b64decode(response['content'])
+        if not isinstance(response, dict):
+            raise ResolutionError(f'{repository}@{revision}:{path} is not a file')
+        size, blob = response.get('size'), str(response.get('sha') or '')
+        if response.get('encoding') == 'base64':
+            raw = base64.b64decode(response.get('content') or '')
+        else:
+            # Over 1 MB the contents API answers encoding "none" and an empty content field; the
+            # raw media type serves the blob itself (up to 100 MB).
+            raw = self.raw(f'repos/{repository}/contents/{path}?ref={revision}')
+        # The blob sha the API reports binds the bytes, so a truncated or substituted body refuses.
+        actual = hashlib.sha1(b'blob %d\0' % len(raw) + raw).hexdigest()
+        if len(raw) != size or actual != blob:
+            raise ResolutionError(f'{repository}@{revision}:{path}: read {len(raw)} bytes (git blob {actual}), '
+                                  f'not the {size} bytes of blob {blob or "(none)"}')
+        return raw
+
+    def raw(self, path):
+        try:
+            result = retry(lambda: subprocess.run(
+                ['gh', 'api', path, '-H', 'Accept: application/vnd.github.raw+json'],
+                capture_output=True, check=True))
+        except subprocess.CalledProcessError as exc:
+            detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
+            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+        return result.stdout
 
 
 class Registry:
@@ -417,6 +445,38 @@ def migration_journal(github, paths, repository, sha):
     return [name for name in names if name != CONFIGURED_SCHEMA_ADOPTION]
 
 
+# The lock's OKF and catalog content digests (honua-release#231 WI-7) are the byte sha256 of one file
+# at a revision this candidate selected, declared as repository@revision:path#sha256 so
+# verify_content_digests.py re-reads the same bytes. Each source is (owner, path): owner is a
+# candidate component (read at its selected sha) or LEDGER (the bound protocolCertification.ledger
+# repository at its commit).
+LEDGER = 'protocolCertification.ledger'
+OKF_CONTENT_SOURCE = ('honua-server', 'scripts/ci/okf-bundle.v1.json')
+# Ruling R24 (honua-release#376, 2026-10-03): the catalog is the server's runtime feature catalog at
+# the selected sha. feature-catalog.json is copied into the image (Dockerfile), embedded by
+# Honua.Server.csproj and Honua.Ai.csproj, and served by FeatureCatalogResource. It is ~1.6 MB, so
+# GitHub.file reads it through the raw media type.
+CATALOG_CONTENT_SOURCE = ('honua-server', 'docs/gis/data/feature-catalog.json')
+CONTENT_DIGEST_SOURCES = {'okf': OKF_CONTENT_SOURCE, 'catalog': CATALOG_CONTENT_SOURCE}
+
+
+def content_digest_declaration(github, candidate, name):
+    """`{repository, revision, path, sha256}` for one content digest, read at the selected revision."""
+    owner, path = CONTENT_DIGEST_SOURCES[name]
+    if owner == LEDGER:
+        ledger = candidate['protocolCertification']['ledger']
+        repository, revision = str(ledger.get('repository') or ''), str(ledger.get('commit') or '')
+    else:
+        component = candidate['components'][owner]
+        repository, revision = str(component.get('repository') or ''), str(component.get('sha') or '')
+    repository = repository.removeprefix('https://github.com/')
+    if not SHA.fullmatch(revision):
+        raise ResolutionError(f'{owner} has no immutable revision to read {path} at')
+    raw = github.file(repository, revision, path)
+    return {'repository': f'https://github.com/{repository}', 'revision': revision, 'path': path,
+            'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}
+
+
 def resolve(manifest, matrix, github, registry, limit=100):
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
@@ -492,6 +552,15 @@ def resolve(manifest, matrix, github, registry, limit=100):
     declaration = candidate.get('platformLockEvidence', {}).get('contentDigests', {}).get('geospatialMcp')
     if declaration and mcp:
         declaration.update(revision=mcp['sha'], sha256=mcp.get('artifactSha256'))
+    # A hand or carried-forward declaration never survives: the selected bytes replace it, or the
+    # night refuses with the digest undeclared.
+    digests = candidate.setdefault('platformLockEvidence', {}).setdefault('contentDigests', {})
+    for name in CONTENT_DIGEST_SOURCES:
+        digests.pop(name, None)
+        try:
+            digests[name] = content_digest_declaration(github, candidate, name)
+        except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+            failures.append(f'contentDigests.{name}: {exc}')
     if certification['ledger'].get('status') != 'bound':
         failures.append(
             'protocolCertification.ledger: no bound ledger for the selected honua-server '

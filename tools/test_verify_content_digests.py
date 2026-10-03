@@ -128,3 +128,61 @@ def test_verifier_refuses_two_identities_for_one_standard(source_root, capsys):
     }), encoding="utf-8")
     assert run(path, root) == 1
     assert "one standard has one identity" in capsys.readouterr().out
+
+
+@pytest.fixture
+def server_root(tmp_path):
+    """A honua-server checkout whose selected commit carries the OKF and catalog files, then moves on."""
+    import resolve_trunk_candidate as resolver
+
+    repository = tmp_path / "honua-io" / "honua-server"
+    _git(tmp_path, "init", "-q", "-b", "trunk", str(repository))
+    files = {path: f'{{"bytes": "{name} at the selected sha"}}\n'.encode()
+             for name, (_, path) in resolver.CONTENT_DIGEST_SOURCES.items()}
+
+    def commit(contents, message):
+        for path, raw in contents.items():
+            (repository / path).parent.mkdir(parents=True, exist_ok=True)
+            (repository / path).write_bytes(raw)
+        _git(repository, "add", "-A")
+        _git(repository, "-c", "user.name=t", "-c", "user.email=t@test", "commit", "-qm", message)
+        return _git(repository, "rev-parse", "HEAD")
+
+    selected = commit(files, "selected")
+    later = commit({path: b"{}\n" for path in files}, "later")
+    return tmp_path, selected, later, files
+
+
+def resolved_digests(root, revision):
+    """What the resolver declares when it selects `revision`, read through the offline git reader."""
+    import resolve_trunk_candidate as resolver
+
+    reader = verifier.SourceReader(root)
+
+    class Contents:
+        def file(self, repository, sha, path):
+            return reader(f"https://github.com/{repository}", sha, path)
+
+    candidate = {"components": {"honua-server": {
+        "repository": "https://github.com/honua-io/honua-server", "sha": revision}}}
+    return {name: resolver.content_digest_declaration(Contents(), candidate, name)
+            for name in resolver.CONTENT_DIGEST_SOURCES}
+
+
+def test_resolver_declarations_verify_against_the_selected_server_bytes(server_root, capsys):
+    """#231 WI-7: what the resolver writes is exactly what this verifier re-reads and accepts."""
+    root, selected, _, files = server_root
+    digests = resolved_digests(root, selected)
+    for declaration in digests.values():
+        assert declaration["sha256"] == "sha256:" + hashlib.sha256(files[declaration["path"]]).hexdigest()
+    assert run(manifest_at(root, **digests), root) == 0
+    out = capsys.readouterr().out
+    assert "okf (scripts/ci/okf-bundle.v1.json@" in out and "catalog (" in out
+
+
+def test_a_resolver_declaration_does_not_verify_at_another_server_sha(server_root, capsys):
+    root, selected, later, _ = server_root
+    digests = resolved_digests(root, selected)
+    digests["okf"]["revision"] = later
+    assert run(manifest_at(root, **digests), root) == 1
+    assert "contentDigests.okf" in capsys.readouterr().out
