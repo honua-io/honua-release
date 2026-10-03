@@ -64,7 +64,14 @@ def scrub(text: str, secrets: list[str]) -> str:
 
 
 def tail(text: str, limit: int = TAIL) -> str:
-    return text if len(text) <= limit else "…" + text[-limit:]
+    """The first error line usually explains the failure and the end shows where it stopped."""
+    if len(text) <= limit:
+        return text
+    head = text[: limit // 4]
+    first_error = re.search(r"^.*(?:Error|error|ERR!|Exception|FAIL)[^\n]*$", text, re.M)
+    if first_error and first_error.start() > len(head):
+        head += "\n…\n" + first_error.group(0)[:300]
+    return head + "\n…\n" + text[-(limit - len(head)):]
 
 
 # ── oracle ───────────────────────────────────────────────────────────────────────────────────────
@@ -92,10 +99,12 @@ def assert_output(expected: str, actual: str) -> tuple[bool, str]:
     haystack = _norm(actual)
     position = 0
     for line in lines:
-        found = haystack.find(line, position)
-        if found < 0:
+        # `…`/`...` inside a shown line stands for whatever the real value is
+        pattern = ".*?".join(re.escape(part.strip()) for part in re.split(r"…|\.\.\.", line))
+        found = re.compile(pattern).search(haystack, position)
+        if not found:
             return False, f"expected output line not found: {line[:200]!r}"
-        position = found + len(line)
+        position = found.end()
     return True, f"{len(lines)} expected output line(s) matched"
 
 
@@ -172,6 +181,7 @@ def docker(*args: str, timeout: int = 600, check: bool = False) -> subprocess.Co
     return proc
 
 
+APT_PREREQUISITES = {"jq"}
 LANGUAGE_RUNTIME = {"python": "python", "javascript": "node", "typescript": "node", "csharp": "dotnet"}
 
 
@@ -256,6 +266,12 @@ class Session:
         docker("rm", "-f", name)
         docker(*args, check=True, timeout=1800)
         self.containers[runtime] = name
+        packages = sorted(p for p in self.prerequisites if p in APT_PREREQUISITES)
+        if packages:   # a tool the document lists under its prerequisites, installed as the reader would
+            setup = docker("exec", name, "bash", "-c", "apt-get update -qq && DEBIAN_FRONTEND=noninteractive "
+                           "apt-get install -y -qq " + " ".join(packages), timeout=900)
+            if setup.returncode:
+                raise RunError(f"could not install the documented prerequisites {packages}: {setup.stderr[-300:]}")
         base = docker("exec", name, "env", "-0").stdout
         self.baselines[runtime] = dict(item.split("=", 1) for item in base.split("\0") if "=" in item)
         return name
@@ -556,22 +572,21 @@ def started_from(cid: str, workdir: Path) -> bool:
 
 
 def checkout_context(doc: dict[str, Any], revision: str, session: Session, token: str | None) -> None:
-    """A README that lives inside a repository is read from a checkout: clone it, cd where it says."""
+    """A README that lives inside a repository is read from a checkout: clone it, cd where it says.
+
+    The clone is made inside the reader's container, so the reader owns it (git refuses a repository
+    another user owns)."""
     spec = doc.get("checkout")
     if not spec:
         return
     target = session.workdir / "app" / doc["repo"].split("/")[-1]
     if not (target / ".git").exists():
-        target.mkdir(parents=True, exist_ok=True)
         url = f"https://github.com/{doc['repo']}.git"
-        if token:
-            url = f"https://x-access-token:{token}@github.com/{doc['repo']}.git"
-        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
-        for cmd in (["git", "init", "-q"], ["git", "fetch", "-q", "--depth", "1", url, revision],
-                    ["git", "checkout", "-q", "FETCH_HEAD"]):
-            proc = subprocess.run(cmd, cwd=target, capture_output=True, text=True, env=env, check=False)
-            if proc.returncode:
-                raise RunError(f"could not check out {doc['repo']}@{revision[:12]}: {proc.stderr.strip()[-300:]}")
+        script = (f"mkdir -p {shlex.quote(str(target))} && cd {shlex.quote(str(target))} && git init -q && "
+                  f"git fetch -q --depth 1 {shlex.quote(url)} {shlex.quote(revision)} && git checkout -q FETCH_HEAD")
+        outcome = session._exec(session.container(doc["runtime"]), ["bash", "-c", script], DEFAULT_TIMEOUT)
+        if outcome.status != "pass":
+            raise RunError(f"could not check out {doc['repo']}@{revision[:12]}: {outcome.stderr.strip()[-300:]}")
     session.cwd = str(target / spec.get("cwd", ""))
 
 
@@ -600,7 +615,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                  report_row: dict[str, Any] | None = None) -> tuple[dict[str, Any], set[str]]:
     blocks = extract(text, "html" if doc.get("format") == "html" else "markdown")
     context = {**context, "session.appDir": str(session.workdir / "app")}
-    if doc["runtime"] == "dotnet" and not doc.get("checkout"):
+    if (doc["runtime"] == "dotnet" and not doc.get("checkout")
+            and not any(re.search(r"\bdotnet\s+new\b", b.code) for b in blocks)):
         session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
     subst = {k: render(str(v["value"]), context) for k, v in variables["substitute"].items()}
@@ -693,6 +709,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             continue
         outcome = execute(block, code)
         lang = block.language
+        if block.expect_failure and outcome.exit_code not in (None, 0, 124):
+            outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
+        elif block.expect_failure and outcome.status == "pass":
+            outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
         if (outcome.status == "fail" and lang in {"csharp", "javascript", "typescript"}
                 and session.passed.get(lang) and continuation_error(lang, outcome.stdout + outcome.stderr)):
             combined = (combine_csharp if lang == "csharp" else combine_js)(session.passed[lang] + [code])

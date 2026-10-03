@@ -33,7 +33,7 @@
     {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/registry-clients.md", "revision": {"component": "honua-server"}, "runtime": "python"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/registry-clients.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/javascript/javascript-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "node"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/python/python-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "python"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/dotnet/dotnet-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
@@ -44,7 +44,7 @@
     {"repo": "honua-io/honua-samples", "path": "samples/odata-query-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/odata-query-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/ogc-features-python/README.md", "revision": {"defaultBranch": true}, "runtime": "python", "checkout": {"cwd": "samples/ogc-features-python"}},
     {"repo": "honua-io/honua-samples", "path": "samples/stac-search-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/stac-search-rest"}},
-    {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}},
+    {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:9 — \"Bash, `curl`, `jq`, and `od`\""}},
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
@@ -58,7 +58,7 @@
   "toolchain": {
     "typescript": "5.9.3"
   },
-  "prerequisites": "a document's stated prerequisite tool beyond its runtime image, with the citation; `node` mounts the pinned node runtime's node/npm/npx into the session's other containers",
+  "prerequisites": "a document's stated prerequisite tool beyond its runtime image, with the citation; `node` mounts the pinned node runtime's node/npm/npx into the session's other containers, `jq` is installed from the image's Debian archive",
   "contexts": {
     "dotnetProject": "a document whose runtime is dotnet is read by someone with a project of their own: the session starts in a fresh `dotnet new console` project, so `dotnet add package` and Program.cs have somewhere to go",
     "checkout": "the document is a README inside a repository: the reader has cloned that repository at the document's revision and runs from `cwd` (relative to the clone)"

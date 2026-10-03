@@ -268,10 +268,10 @@
           "line": 95,
           "language": "json",
           "infoString": "json",
-          "intent": "output",
+          "intent": "illustrative",
           "intentSource": "heuristic",
           "sha256": "d90f4bae3f346eb2c586e8e3bb4bf54d6d951dc824377487d1d334844b5c3134",
-          "outputOf": 2
+          "reason": "json block is not executable by this gate"
         },
         {
           "index": 4,
@@ -297,10 +297,10 @@
           "line": 211,
           "language": "json",
           "infoString": "json",
-          "intent": "output",
+          "intent": "illustrative",
           "intentSource": "heuristic",
           "sha256": "363c0d3f78c5311fd2565d396d6979f64d1aa32e8a0f0b39d575e7a8a3597c0a",
-          "outputOf": 4
+          "reason": "json block is not executable by this gate"
         },
         {
           "index": 7,
@@ -1674,7 +1674,7 @@
         "component": "honua-server"
       },
       "url": "https://github.com/honua-io/honua-server/blob/87966c3f7b6c840ffc4d4da0b451714ab717b18a/docs/get-started/registry-clients.md",
-      "runtime": "python",
+      "runtime": "dotnet",
       "docker": false,
       "session": null,
       "checkout": null,
@@ -1955,7 +1955,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "1d0c9933a01ec15ee46224ff617fb380a267e9064b8fe8843eb8e354d1541d90"
+          "sha256": "1d0c9933a01ec15ee46224ff617fb380a267e9064b8fe8843eb8e354d1541d90",
+          "expectFailure": true
         },
         {
           "index": 6,
@@ -2555,8 +2556,8 @@
       "compile": 7,
       "excluded": 2,
       "file": 4,
-      "illustrative": 12,
-      "output": 8,
+      "illustrative": 14,
+      "output": 6,
       "run": 166,
       "teardown": 1
     }

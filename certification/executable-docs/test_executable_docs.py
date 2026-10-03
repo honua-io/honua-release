@@ -62,6 +62,14 @@ def test_expected_output_binds_to_the_preceding_run_block():
     assert blocks[0].expected_output == "hello 42"
 
 
+def test_prose_examples_are_not_the_commands_output():
+    text = ("```bash\nnpx honua-mcp\n```\n\nTools that need a Honua surface degrade gracefully on a plain\n"
+            "endpoint: they return a structured result\n\n```json\n{\"available\": false}\n```\n\n"
+            "instead of crashing.\n")
+    blocks = by_index(text)
+    assert blocks[1].intent == "illustrative" and blocks[0].expected_output is None
+
+
 def test_console_transcripts_split_commands_from_output():
     blocks = by_index("```console\n$ honua --version\nhonua 1.2.3\n```\n")
     assert blocks[0].code == "honua --version\n"
@@ -128,6 +136,8 @@ def test_doc_id_is_stable():
 
 def test_output_oracle_matches_in_order_with_digits_normalized():
     assert assert_output("Found 3 features\n...\ndone", "Found 12 features\nnoise\ndone\n")[0]
+    assert assert_output('PASS: "380 New York St" -> "..." (..., ...), score ...',
+                         'PASS: "380 New York St" -> "380 New York St, Redlands" (34.05, -117.19), score 100\n')[0]
     ok, why = assert_output("done\nFound 3 features", "Found 12 features\ndone\n")
     assert not ok and "not found" in why
     assert assert_output('{"mode": "disabled"}', '{"mode": "disabled", "x": 1}\n')[0]
@@ -295,3 +305,11 @@ def test_nuget_registration_keeps_only_the_pinned_leaf():
     assert [l["catalogEntry"]["version"] for l in kept["items"][0]["items"]] == ["1.10.1"]
     assert kept["items"][0]["lower"] == kept["items"][0]["upper"] == "1.10.1"
     assert filter_nuget_registration(index, "2.0.0") is None
+
+
+def test_expected_failures_are_declared_or_described():
+    text = ("To see it catch a deliberately broken manifest:\n\n```bash\nnode validate.mjs bad\n```\n\n"
+            "<!-- doc-run: expect-fail -->\n```bash\nfalse\n```\n\n```bash\ntrue\n```\n")
+    blocks = by_index(text)
+    assert blocks[0].expect_failure and blocks[1].expect_failure and not blocks[2].expect_failure
+    assert blocks[1].intent == "run"

@@ -1,0 +1,10 @@
+{
+  "document": "honua-sdk-python-install",
+  "env": {},
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:68-121 — the `your-honua-server.com` placeholder for the reader's server in the verification snippets"
+    }
+  }
+}

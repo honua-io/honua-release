@@ -48,8 +48,10 @@ first, before the candidate holds port 8080. The `boots-candidate-image` check t
 whose stack ran a server image other than the candidate. A README inside a repository (`checkout`)
 runs from a clone of that repository at the document's revision. When a document states a
 prerequisite tool beyond its runtime ("Python with `honua-admin`, and Node.js with `npx`"),
-`prerequisites` in `sources.json` records it with the citation, and the pinned node runtime's
-`node`/`npm`/`npx` are mounted into the session's other containers.
+`prerequisites` in `sources.json` records it with the citation. The pinned node runtime's
+`node`/`npm`/`npx` are mounted into the session's other containers, and `jq` is installed from the
+image's Debian archive. A tool that a document uses but does not list (for example `jq` in
+`INSTALL-2026.1.md`) is not provided: the clean machine does not have it, and that is a finding.
 
 **Only pinned packages.** npm, pip and NuGet in those containers point at the registry guard
 (`registry_guard.py`). Third-party packages pass through. A Honua package (`@honua/*`, `@honua-io/*`,
@@ -127,6 +129,7 @@ the fence (only blank lines may separate them). The comment is invisible when re
 | `<!-- doc-run: skip reason="..." -->` | Deliberately illustrative. The block is not run, and the inventory records it as `excluded` with the reason. **A skip without a reason is ignored and the block still runs.** |
 | `<!-- doc-run: file=path/name.ext -->` | Save the block as this file (relative to the reader's current directory). Later blocks run it. If none mentions it, a runnable file is also run. |
 | `<!-- doc-run: output -->` | This block is the expected output of the preceding runnable block. |
+| `<!-- doc-run: expect-fail -->` | The command is meant to fail (for example, a validator shown rejecting a bad input): a non-zero exit passes, and exit 0 fails. Prose that says "deliberately broken" or "to see it catch/fail/reject" right above the block means the same. |
 | `<!-- doc-run: teardown -->` | This block stops what the reader started. It runs when the reader is done, after the last document of the session. A shell block made only of `docker compose down/stop/rm` lines is treated this way without a marker. |
 | `<!-- doc-run: run -->` | Run this block even though no heuristic says so (for example, an unlabelled fence). |
 | `<!-- doc-run: checkout -->` / `checkout=sub/dir` | The block is run from a clone of the document's repository at the document's revision (optionally from `sub/dir`). Use it for contributor steps such as `npm install && npm run demo` in a repository README. |

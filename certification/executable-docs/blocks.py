@@ -45,6 +45,7 @@ COMMAND_START = re.compile(
     r"^(\$ |npm |npx |pnpm |yarn |pip |pip3 |python3? |uv |dotnet |docker |curl |git |cd |export |honua |"
     r"node |mkdir |cat |source |set )")
 TEARDOWN_LINE = re.compile(r"^\s*(?:#.*|docker\s+compose\s+(?:-f\s+\S+\s+)*(?:down|stop|rm)\b.*|docker\s+(?:stop|rm)\b.*|)$")
+EXPECT_FAILURE = re.compile(r"\bdeliberately (?:broken|invalid|bad|wrong)\b|\bto see it (?:catch|fail|reject|refuse)", re.I)
 DOC_RUN = re.compile(r"<!--\s*doc-run:\s*(.*?)\s*-->", re.S)
 ATTR = re.compile(r'([\w-]+)(?:=(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?')
 
@@ -63,6 +64,7 @@ class Block:
     output_of: int | None = None
     expected_output: str | None = None
     marker_error: str | None = None
+    expect_failure: bool = False
     preceding_text: str = field(default="", repr=False)
     info_attrs: dict[str, str] = field(default_factory=dict, repr=False)
     marker: dict[str, str] | None = field(default=None, repr=False)
@@ -77,6 +79,8 @@ class Block:
             "infoString": self.raw_language, "intent": self.intent, "intentSource": self.intent_source,
             "sha256": self.sha256,
         }
+        if self.expect_failure:
+            row["expectFailure"] = True
         for key, value in (("reason", self.reason), ("file", self.file), ("outputOf", self.output_of),
                            ("markerError", self.marker_error)):
             if value not in (None, ""):
@@ -208,6 +212,7 @@ def classify(blocks: list[Block]) -> list[Block]:
         block.marker = marker
         info = block.info_attrs
         paragraph = _last_paragraph(re.sub(DOC_RUN, "", block.preceding_text))
+        block.expect_failure = bool((marker and "expect-fail" in marker) or EXPECT_FAILURE.search(paragraph))
         # 1. explicit author declarations win
         if marker is not None:
             block.intent_source = "marker"
@@ -229,7 +234,7 @@ def classify(blocks: list[Block]) -> list[Block]:
                     block.output_of = previous_run.index
                     previous_run.expected_output = block.code.strip()
                 continue
-            elif "run" in marker or "checkout" in marker:
+            elif "run" in marker or "checkout" in marker or "expect-fail" in marker:
                 block.intent = "run"
                 if block.language not in set(RUN_LANGUAGES.values()):
                     block.marker_error = f"doc-run: run on a language this gate cannot execute ({block.language})"
@@ -283,8 +288,10 @@ def classify(blocks: list[Block]) -> list[Block]:
             block.intent = "run"
             previous_run = block
             continue
-        if lang in OUTPUT_LANGUAGES and previous_run is not None and OUTPUT_CUE.search(paragraph or "output"):
-            if not paragraph.strip() or OUTPUT_CUE.search(paragraph):
+        if lang in OUTPUT_LANGUAGES and previous_run is not None and previous_run.index == block.index - 1:
+            gap = [line for line in block.preceding_text.splitlines() if line.strip()]
+            # "It prints:" directly under the command, or no prose at all: that is the command's output.
+            if not gap or (len(gap) <= 3 and gap[-1].rstrip().endswith(":") and OUTPUT_CUE.search(" ".join(gap))):
                 block.intent, block.output_of = "output", previous_run.index
                 previous_run.expected_output = block.code.strip()
                 previous_run = None
