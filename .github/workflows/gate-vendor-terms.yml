@@ -1,0 +1,130 @@
+# Third-party trademark gate (honua-release#425, policy docs/THIRD-PARTY-TRADEMARKS.md).
+#
+# Classifies every vendor-term occurrence in the calling repository as spec / spec-interop / nominative /
+# confidential / avoidable and FAILS when
+#   - any confidential use (R30 desktop-client certification detail) is present — never baselined, never
+#     allowlisted; uses listed in a dated tools/vendor-terms/confidential-known.<repo>.json ledger are reported
+#     with that ledger's reason but still fail here, so the gate is red with a reason until the ledger is empty;
+#   - any file carries more avoidable uses than the repository's committed baseline in honua-release
+#     (tools/vendor-terms/baseline.<repo>.json), so new avoidable uses are red while the backlog is burned down.
+# A repository without a committed baseline fails closed: adopt it by committing one here.
+#
+# Adopt from another repository (pin the workflow and pass the same sha as tools_ref):
+#
+#   jobs:
+#     vendor-terms:
+#       uses: honua-io/honua-release/.github/workflows/gate-vendor-terms.yml@<sha>
+#       with:
+#         tools_ref: <sha>
+#
+# honua-release runs the same lint inside its own `validate` job, where ledger-listed confidential uses are
+# warnings and anything new fails; this workflow's pull_request trigger proves the reusable path on changes
+# to the gate itself, and is red while honua-release's own ledger lists uses (#427, honua-server#5408).
+
+name: gate-vendor-terms
+
+on:
+  pull_request:
+    paths:
+      - "tools/check_vendor_terms.py"
+      - "tools/test_check_vendor_terms.py"
+      - "tools/vendor-terms/**"
+      - "docs/THIRD-PARTY-TRADEMARKS.md"
+      - ".github/workflows/gate-vendor-terms.yml"
+  workflow_call:
+    inputs:
+      repo:
+        description: "baseline key (default: the calling repository's name)"
+        required: false
+        type: string
+        default: ""
+      tools_ref:
+        description: "honua-release commit sha (40 hex) providing the classifier, vocabulary, allowlist and baselines"
+        required: true
+        type: string
+    outputs:
+      avoidable:
+        description: "open (non-excepted) avoidable uses in the calling repository"
+        value: ${{ jobs.vendor-terms.outputs.avoidable }}
+      confidential:
+        description: "confidential (R30) uses in the calling repository, including ledger-listed ones"
+        value: ${{ jobs.vendor-terms.outputs.confidential }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-vendor-terms-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vendor-terms:
+    runs-on: ubuntu-latest
+    outputs:
+      avoidable: ${{ steps.lint.outputs.avoidable }}
+      confidential: ${{ steps.lint.outputs.confidential }}
+    steps:
+      - name: Check out the repository under review
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: target
+          persist-credentials: false
+
+      # In honua-release itself the gate tooling is the code under review; elsewhere it comes from the
+      # pinned honua-release commit, so a calling repository cannot loosen its own baseline or allowlist and
+      # a later honua-release change cannot alter an already-pinned check.
+      - name: Require an immutable tooling revision
+        if: github.repository != 'honua-io/honua-release'
+        env:
+          TOOLS_REF: ${{ inputs.tools_ref }}
+        run: |
+          if ! [[ "$TOOLS_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::tools_ref must be a full 40-character honua-release commit sha, got '$TOOLS_REF'"
+            exit 1
+          fi
+
+      - name: Check out the gate tooling
+        if: github.repository != 'honua-io/honua-release'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ inputs.tools_ref }}
+          path: release-tools
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Classify and lint vendor terms
+        id: lint
+        env:
+          REPO_NAME: ${{ inputs.repo || github.event.repository.name }}
+          TOOLS: ${{ github.repository == 'honua-io/honua-release' && 'target' || 'release-tools' }}
+        run: |
+          set +e
+          python3 "$TOOLS/tools/check_vendor_terms.py" lint --root target --repo "$REPO_NAME" \
+            --fail-on-known-confidential --json vendor-terms.json --markdown vendor-terms.md
+          status=$?
+          set -e
+          if [ -f vendor-terms.json ]; then
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          report = json.load(open("vendor-terms.json"))
+          print(f"avoidable={sum(report['avoidableByFile'].values())}")
+          print(f"confidential={report['counts']['confidential']}")
+          PY
+            # the summary carries the counts and categories; every hit is in the artifact
+            sed '/^## Every avoidable hit/,$d' vendor-terms.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Upload the vendor-term report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vendor-terms-report
+          path: |
+            vendor-terms.json
+            vendor-terms.md
+          if-no-files-found: ignore

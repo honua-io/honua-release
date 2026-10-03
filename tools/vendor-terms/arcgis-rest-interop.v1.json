@@ -1,0 +1,714 @@
+{
+  "schema": "honua.vendor-terms.arcgis-rest-interop.v1",
+  "ruling": "R36, honua-io/honua-release#425 (2026-10-03)",
+  "description": "Identifiers Honua emits or accepts for interoperability with later ArcGIS REST services. They are not GeoServices REST Specification 1.0 vocabulary: the 1.0 text names the field each family fills (gsrSection) but does not list these members. The classifier reports them as spec-interop, separately from spec. Every entry cites the ArcGIS REST reference page that documents its field (reference); listedVerbatim records whether that page spelled the identifier out on 2026-10-03. An entry is added only with such a citation; anything else is an allowlist request.",
+  "identifiers": [
+    {
+      "identifier": "esriCentimeters",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriClassifyDefinedInterval",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyEqualInterval",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyGeometricalInterval",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyManual",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyNaturalBreaks",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyQuantile",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriClassifyStandardDeviation",
+      "family": "class breaks classification method",
+      "field": "classificationMethod",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/classBreaksRenderer/",
+      "listedVerbatim": true,
+      "gsrSection": "15.3",
+      "gsrSectionTitle": "Class Breaks Renderer"
+    },
+    {
+      "identifier": "esriDecimeters",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriExecutionTypeSynchronous",
+      "family": "GP execution type",
+      "field": "executionType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-service/",
+      "listedVerbatim": true,
+      "gsrSection": "6.0.3",
+      "gsrSectionTitle": "GP Service Example"
+    },
+    {
+      "identifier": "esriFeet",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriFieldTypeBigInteger",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeBlob",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeDateOnly",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeGUID",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeGlobalID",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeRaster",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeSingle",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeTimeOnly",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeTimestampOffset",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriFieldTypeXML",
+      "family": "field type",
+      "field": "fields[].type",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/field/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriGPParameterTypeDerived",
+      "family": "GP parameter type",
+      "field": "parameters[].parameterType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-task/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.3",
+      "gsrSectionTitle": "Task Example"
+    },
+    {
+      "identifier": "esriGPParameterTypeOptional",
+      "family": "GP parameter type",
+      "field": "parameters[].parameterType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-task/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.3",
+      "gsrSectionTitle": "Task Example"
+    },
+    {
+      "identifier": "esriGeometryMultiPatch",
+      "family": "geometry type",
+      "field": "geometryType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-feature-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "10.0",
+      "gsrSectionTitle": "GEOMETRY OBJECTS"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeElevation",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeGeneric",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeProcessed",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeScientific",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeThematic",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeVectorMagDir",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriImageServiceDataTypeVectorUV",
+      "family": "image service data type",
+      "field": "serviceDataType",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/image-service/",
+      "listedVerbatim": false,
+      "gsrSection": "8.0.3",
+      "gsrSectionTitle": "Image Service Example"
+    },
+    {
+      "identifier": "esriInches",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriJobCancelled",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobCancelling",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobDeleted",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobDeleting",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobExecuting",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobFailed",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobMessageTypeAbort",
+      "family": "job message type",
+      "field": "messages[].type",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": false,
+      "gsrSection": "6.2.3",
+      "gsrSectionTitle": "Job Example"
+    },
+    {
+      "identifier": "esriJobMessageTypeEmpty",
+      "family": "job message type",
+      "field": "messages[].type",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": false,
+      "gsrSection": "6.2.3",
+      "gsrSectionTitle": "Job Example"
+    },
+    {
+      "identifier": "esriJobMessageTypeError",
+      "family": "job message type",
+      "field": "messages[].type",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.3",
+      "gsrSectionTitle": "Job Example"
+    },
+    {
+      "identifier": "esriJobMessageTypeWarning",
+      "family": "job message type",
+      "field": "messages[].type",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.3",
+      "gsrSectionTitle": "Job Example"
+    },
+    {
+      "identifier": "esriJobNew",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobSubmitted",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobTimedOut",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriJobWaiting",
+      "family": "job status",
+      "field": "jobStatus",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-job/",
+      "listedVerbatim": true,
+      "gsrSection": "6.2.1",
+      "gsrSectionTitle": "Job Reference"
+    },
+    {
+      "identifier": "esriMillimeters",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriNauticalMiles",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriNoDataMatchAll",
+      "family": "no-data interpretation",
+      "field": "noDataInterpretation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/export-image/",
+      "listedVerbatim": true,
+      "gsrSection": "8.0.4.2",
+      "gsrSectionTitle": "Export Image Parameters"
+    },
+    {
+      "identifier": "esriNoDataMatchAny",
+      "family": "no-data interpretation",
+      "field": "noDataInterpretation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/export-image/",
+      "listedVerbatim": true,
+      "gsrSection": "8.0.4.2",
+      "gsrSectionTitle": "Export Image Parameters"
+    },
+    {
+      "identifier": "esriPoints",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriRelCardinalityManyToMany",
+      "family": "relationship cardinality",
+      "field": "relationships[].cardinality",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriRelCardinalityOneToMany",
+      "family": "relationship cardinality",
+      "field": "relationships[].cardinality",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriRelCardinalityOneToOne",
+      "family": "relationship cardinality",
+      "field": "relationships[].cardinality",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriRelRoleDestination",
+      "family": "relationship role",
+      "field": "relationships[].role",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriRelRoleOrigin",
+      "family": "relationship role",
+      "field": "relationships[].role",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "4.2.3",
+      "gsrSectionTitle": "Layer/Table Example"
+    },
+    {
+      "identifier": "esriSLSDashDot",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSLongDash",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSLongDashDot",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSShortDash",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSShortDashDot",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSShortDashDotDot",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSLSShortDot",
+      "family": "simple line style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSLS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.3",
+      "gsrSectionTitle": "Simple Line Symbol"
+    },
+    {
+      "identifier": "esriSMSTriangle",
+      "family": "simple marker style",
+      "field": "style",
+      "reference": "https://developers.arcgis.com/web-map-specification/objects/esriSMS_symbol/",
+      "listedVerbatim": true,
+      "gsrSection": "12.2",
+      "gsrSectionTitle": "Simple Marker Symbol"
+    },
+    {
+      "identifier": "esriSRUnit_Foot",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriSRUnit_Kilometer",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriSRUnit_Meter",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriSRUnit_NauticalMile",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriSRUnit_StatuteMile",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriSRUnit_USNauticalMile",
+      "family": "esriSRUnitType constant",
+      "field": "unit / distanceUnit / units (the spec delegates to the esriSRUnitType constants)",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/query-map-service-layer/",
+      "listedVerbatim": true,
+      "gsrSection": "7.0.6.2",
+      "gsrSectionTitle": "Buffer Parameters"
+    },
+    {
+      "identifier": "esriTimeRelationAfterStartOverlapsEnd",
+      "family": "feature query time relation",
+      "field": "timeRelation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": false,
+      "gsrSection": "9.1.4.2",
+      "gsrSectionTitle": "Query Parameters"
+    },
+    {
+      "identifier": "esriTimeRelationOverlaps",
+      "family": "feature query time relation",
+      "field": "timeRelation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": true,
+      "gsrSection": "9.1.4.2",
+      "gsrSectionTitle": "Query Parameters"
+    },
+    {
+      "identifier": "esriTimeRelationOverlapsStartWithinEnd",
+      "family": "feature query time relation",
+      "field": "timeRelation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": false,
+      "gsrSection": "9.1.4.2",
+      "gsrSectionTitle": "Query Parameters"
+    },
+    {
+      "identifier": "esriTimeRelationWithin",
+      "family": "feature query time relation",
+      "field": "timeRelation",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/layer-feature-service/",
+      "listedVerbatim": false,
+      "gsrSection": "9.1.4.2",
+      "gsrSectionTitle": "Query Parameters"
+    },
+    {
+      "identifier": "esriUnknownUnits",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    },
+    {
+      "identifier": "esriYards",
+      "family": "linear unit",
+      "field": "units",
+      "reference": "https://developers.arcgis.com/rest/services-reference/enterprise/gp-data-types/",
+      "listedVerbatim": true,
+      "gsrSection": "6.1.6.2",
+      "gsrSectionTitle": "GPLinearUnit Input Parameter"
+    }
+  ],
+  "refused": [
+    {
+      "identifier": "esriGeometryNull",
+      "category": "non-wire-identifier",
+      "reason": "R36: not a wire value; the server cleanup renames it"
+    },
+    {
+      "identifier": "esriSpatialRelWithinDistance",
+      "category": "non-wire-identifier",
+      "reason": "R36: not a wire value; the server cleanup renames it"
+    },
+    {
+      "identifier": "esriSpatialRelBeyondDistance",
+      "category": "non-wire-identifier",
+      "reason": "R36: not a wire value; the server cleanup renames it"
+    },
+    {
+      "identifier": "esriMosaicByAttribute",
+      "category": "wrong-wire-value",
+      "expected": "esriMosaicAttribute",
+      "reason": "R36: the mosaicMethod wire value is esriMosaicAttribute (GSR 1.0); the server cleanup corrects it"
+    }
+  ]
+}
