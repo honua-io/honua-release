@@ -11,6 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import upgrade_lock_binding as binding  # noqa: E402
 
 
+JOURNAL = ["Honua.Server.Migrations.001_CreateHonuaSchema.sql", "Honua.Server.Migrations.002_AddThing.sql"]
+# Hand-computed outside Python:
+#   printf '%s\n' '["Honua.Server.Migrations.001_CreateHonuaSchema.sql","Honua.Server.Migrations.002_AddThing.sql"]' | sha256sum
+JOURNAL_SHA256 = "sha256:7d59f866183bbaa6fcaba855f876ec6f42ff262020d23ca0fa2a8df84e1cc63b"
+
+
 def _digest(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
@@ -18,7 +24,7 @@ def _digest(value: str) -> str:
 def _lock(path: Path, name: str, image: str, source: str, schema: str = "107", chart_version: str = "1.4.0") -> dict:
     value = {
         "components": {
-            "honua-server": {"schemaVersions": {"database": schema}, "migrationJournalSha256": _digest("journal"), "artifacts": [{
+            "honua-server": {"schemaVersions": {"database": schema}, "migrationJournalSha256": JOURNAL_SHA256, "artifacts": [{
                 "kind": "image", "coordinate": "ghcr.io/honua-io/honua-server", "version": "1.0.0",
                 "digest": image, "platformDigests": {"amd64": image}, "sourceRevision": source,
             }]},
@@ -46,7 +52,7 @@ def _case(tmp_path: Path):
             "candidate": {"imageID": f"docker-pullable://x@{b_img}", "runtimeIdentity": {"imageDigest": b_img, "sourceRevision": "b" * 40, "observedVersion": "1.0.0+bbbbbbbb", "platformLockDigest": binding.bytes_digest(candidate_path)}},
             "rollback": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}, "databaseSchema": "107"},
         },
-        "schema": {"observed": "107", "journalSha256": _digest("journal"), "declaredJournalSha256": _digest("journal")},
+        "schema": {"observed": "107", "journal": list(JOURNAL), "journalSha256": JOURNAL_SHA256, "declaredJournalSha256": JOURNAL_SHA256},
         "seededData": {"checksumsMatched": True, "rollbackQueryPassed": True},
     }
     return prior_path, candidate_path, evidence
@@ -114,3 +120,92 @@ def test_migration_journal_must_match_declared_set(tmp_path):
     evidence["schema"]["journalSha256"] = _digest("extra-migration")
     with pytest.raises(binding.BindingError, match="migration journal"):
         binding.verify(prior, candidate, evidence)
+
+
+def test_canonical_journal_bytes_match_an_independent_hand_computation():
+    expected = b'["Honua.Server.Migrations.001_CreateHonuaSchema.sql","Honua.Server.Migrations.002_AddThing.sql"]\n'
+    # Order and psql's `json_agg` spacing are not part of the identity.
+    observed = binding.observed_journal('["Honua.Server.Migrations.002_AddThing.sql", "Honua.Server.Migrations.001_CreateHonuaSchema.sql"]\n')
+    assert binding.canonical_journal_bytes(observed) == expected
+    assert binding.journal_digest(observed) == JOURNAL_SHA256
+
+
+def test_journal_with_one_extra_script_is_refused_by_the_binding(tmp_path):
+    prior, candidate, evidence = _case(tmp_path)
+    extra = JOURNAL + ["Honua.Server.Migrations.003_Undeclared.sql"]
+    evidence["schema"]["journal"] = extra
+    evidence["schema"]["journalSha256"] = binding.journal_digest(extra)
+    with pytest.raises(binding.BindingError, match="migration journal"):
+        binding.verify(prior, candidate, evidence)
+
+
+def test_reported_journal_hash_cannot_vouch_for_different_names(tmp_path):
+    prior, candidate, evidence = _case(tmp_path)
+    # The reported digest is the declared one, but the observed names carry an extra script.
+    evidence["schema"]["journal"] = JOURNAL + ["Honua.Server.Migrations.003_Undeclared.sql"]
+    with pytest.raises(binding.BindingError, match="migration journal"):
+        binding.verify(prior, candidate, evidence)
+
+
+def test_journal_missing_a_declared_script_is_refused(tmp_path):
+    prior, candidate, evidence = _case(tmp_path)
+    evidence["schema"]["journal"] = JOURNAL[:1]
+    evidence["schema"]["journalSha256"] = binding.journal_digest(JOURNAL[:1])
+    with pytest.raises(binding.BindingError, match="migration journal"):
+        binding.verify(prior, candidate, evidence)
+
+
+def test_candidate_without_declared_journal_is_refused(tmp_path):
+    prior, candidate, evidence = _case(tmp_path)
+    lock = yaml.safe_load(candidate.read_text())
+    del lock["components"]["honua-server"]["migrationJournalSha256"]
+    candidate.write_text(yaml.safe_dump(lock), encoding="utf-8")
+    evidence["candidateLockDigest"] = binding.bytes_digest(candidate)
+    evidence["phases"]["candidate"]["runtimeIdentity"]["platformLockDigest"] = evidence["candidateLockDigest"]
+    evidence["schema"]["declaredJournalSha256"] = None
+    with pytest.raises(binding.BindingError, match="migrationJournalSha256"):
+        binding.verify(prior, candidate, evidence)
+
+
+@pytest.mark.parametrize("scripts,message", [
+    ([], "non-empty"),
+    (None, "non-empty"),
+    (JOURNAL + JOURNAL[:1], "repeats"),
+    (JOURNAL + ['Honua.Server.Migrations.003_"quoted".sql'], "not a canonical script name"),
+    (JOURNAL + ["Honua.Server.Migrations.003_Caf\u00e9.sql"], "not a canonical script name"),
+    (JOURNAL + [3], "not a canonical script name"),
+])
+def test_non_canonical_journals_are_refused_not_normalized(scripts, message):
+    with pytest.raises(binding.BindingError, match=message):
+        binding.canonical_journal_bytes(scripts)
+
+
+@pytest.mark.parametrize("text", ["", "null\n", '{"scripts": []}'])
+def test_unparseable_or_empty_database_journal_is_refused(text):
+    with pytest.raises(binding.BindingError):
+        binding.canonical_journal_bytes(binding.observed_journal(text))
+
+
+def test_journal_digest_cli_canonicalizes_psql_output(tmp_path, capsys):
+    raw = tmp_path / "migration-journal.json"
+    raw.write_text('["Honua.Server.Migrations.001_CreateHonuaSchema.sql", "Honua.Server.Migrations.002_AddThing.sql"]\n')
+    canonical = tmp_path / "migration-journal.canonical.json"
+    assert binding.main(["journal-digest", str(raw), "--canonical-output", str(canonical)]) == 0
+    assert capsys.readouterr().out == JOURNAL_SHA256 + "\n"
+    assert "sha256:" + hashlib.sha256(canonical.read_bytes()).hexdigest() == JOURNAL_SHA256
+
+
+def test_journal_digest_cli_fails_on_an_empty_journal(tmp_path, capsys):
+    raw = tmp_path / "migration-journal.json"
+    raw.write_text("\n")
+    assert binding.main(["journal-digest", str(raw)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "migration journal: FAIL" in captured.err
+
+
+def test_gate_upgrade_hashes_the_canonical_journal_not_psql_output():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/gate-upgrade.yml").read_text(encoding="utf-8")
+    assert "sha256sum /tmp/migration-journal.json" not in workflow
+    assert ("python tools/upgrade_lock_binding.py journal-digest /tmp/migration-journal.json \\\n"
+            "                 --canonical-output /tmp/upg/migration-journal.canonical.json") in workflow
+    assert "journal:$journalNames[0],journalSha256:$journal" in workflow
