@@ -67,12 +67,11 @@ jobs:
       # detection, the output oracle and the registry guard's pin filters are unit-tested offline.
       - name: Self-test the executable-docs runner
         run: python -m pytest certification/executable-docs -q
-      # Drift is reported, not enforced: the live run reads each document at its release revision
-      # whether or not the committed inventory has caught up.
+      # Inventory drift fails closed: review and commit the current published documents first.
       - name: Inventory drift against the documents' release revisions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python certification/executable-docs/inventory.py --check || echo "::notice::inventory.json is stale; regenerate with inventory.py --write"
+        run: python certification/executable-docs/inventory.py --check
 
   run:
     needs: self-test

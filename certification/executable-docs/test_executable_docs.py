@@ -134,12 +134,13 @@ def test_doc_id_is_stable():
     assert doc_id("honua-io/honua-sdk-js", "docs/quickstart.md") == "honua-sdk-js-docs-quickstart"
 
 
-def test_output_oracle_matches_in_order_with_digits_normalized():
-    assert assert_output("Found 3 features\n...\ndone", "Found 12 features\nnoise\ndone\n")[0]
+def test_output_oracle_preserves_digits_and_only_elides_explicit_ellipses():
+    assert assert_output("Found 3 features\n...\ndone", "Found 12 features\nnoise\ndone\n")[0] is False
+    assert assert_output("Found 3 features\n...\ndone", "Found 3 features\nnoise\ndone\n")[0] is True
     assert assert_output('PASS: "380 New York St" -> "..." (..., ...), score ...',
                          'PASS: "380 New York St" -> "380 New York St, Redlands" (34.05, -117.19), score 100\n')[0]
     ok, why = assert_output("done\nFound 3 features", "Found 12 features\ndone\n")
-    assert not ok and "not found" in why
+    assert ok is False and why == "output differs from documented full output"
     assert assert_output('{"mode": "disabled"}', '{"mode": "disabled", "x": 1}\n')[0]
     assert not assert_output('{"mode": "disabled"}', '{"x": 1}\n')[0]
 
@@ -328,7 +329,8 @@ def test_file_header_comments_and_replace_cues_name_files():
     ('{"count":3}', '{"count":12}', False),
     ('{"value":true}', '{"value":1}', False),
     ('{"data":{"mode":"disabled","id":"..."}}',
-     '{"data":{"mode":"disabled","id":42,"extra":1}}', True),
+     '{"data":{"mode":"disabled","id":42,"extra":1}}', False),
+    ('{"data":{"mode":"disabled","id":"..."}}', '{"data":{"mode":"disabled","id":42}}', True),
     ('{"data":[{"mode":"disabled"}]}', '{"data":[{"mode":"enabled"}]}', False),
 ])
 def test_json_output_compares_values(expected, actual, ok):
@@ -372,3 +374,137 @@ def test_unsupported_explicit_run_fails_document(tmp_path):
                              {"env": {}, "substitute": {}}, "sha256:test", [], set())
     assert result["status"] == "fail"
     assert "cannot execute" in result["blocks"][0]["detail"]
+
+
+@pytest.mark.parametrize("text", ["No commands here.", "```yaml\nservices: {}\n```"])
+def test_zero_executed_blocks_is_a_failure(tmp_path, text):
+    from types import SimpleNamespace
+    from run import run_document
+    result, _ = run_document({"runtime": "node"}, text, SimpleNamespace(workdir=tmp_path, env={}), {},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert result["checks"] == [{"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"}]
+
+
+def test_empty_docker_document_reports_unevaluated_candidate_as_failure(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import run
+    monkeypatch.setattr(run, "snapshot_containers", lambda: set())
+    result, _ = run.run_document({"runtime": "node", "docker": True}, "No blocks.",
+                                 SimpleNamespace(workdir=tmp_path, env={}), {},
+                                 {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert result["checks"][0]["status"] == "not-evaluated"
+    assert result["counts"] == {"fail": 1, "not-evaluated": 1}
+
+
+@pytest.mark.parametrize("error", [PermissionError("root-owned Program.cs"), RuntimeError("unexpected fault")])
+def test_unexpected_block_exception_reports_failure_and_continues(tmp_path, error):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    def execute(code, *args):
+        if "broken" in code:
+            raise error
+        return Outcome("pass", "exit code 0", exit_code=0)
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=execute,
+                              installed_honua=lambda runtime: {})
+    result, _ = run_document({"runtime": "node"}, "```sh\nbroken\n```\n```sh\ntrue\n```", session, {},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert [b["status"] for b in result["blocks"]] == ["fail", "pass"]
+    assert type(error).__name__ in result["blocks"][0]["stderrTail"]
+    assert "Traceback" in result["blocks"][0]["stderrTail"]
+
+
+@pytest.mark.parametrize("language,runtime,method,code", [
+    ("python", "python", "run_python", "print(1)"),
+    ("js", "node", "run_js", "console.log(1)"),
+    ("ts", "node", "run_js", "console.log(1)"),
+    ("csharp", "dotnet", "run_csharp", "Console.WriteLine(1);"),
+    ("http", "node", "run_http", "GET /healthz"),
+    ("sh", "node", "run_shell", "true"),
+])
+def test_every_executed_language_rejects_unpinned_installs(tmp_path, language, runtime, method, code):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    audited = []
+    def installed(actual_runtime):
+        audited.append(actual_runtime)
+        return {"honua-extra": "9.9.9"}
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, installed_honua=installed,
+                              ensure_dotnet_project=lambda: None)
+    setattr(session, method, lambda *args: Outcome("pass", "completed", exit_code=0))
+    result, _ = run_document({"runtime": runtime}, f"```{language}\n{code}\n```", session,
+                             {"candidate.baseUrl": "http://localhost:8080", "_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail"
+    assert result["blocks"][0]["status"] == "fail"
+    assert "honua-extra 9.9.9 (admitted version: none)" in result["blocks"][0]["detail"]
+    assert audited == [runtime]
+
+
+@pytest.mark.parametrize("expected,actual,ok", [
+    ("Found 3", "Found 30", False), ("version 1.2.3", "version 1.2.4", False),
+    ("done", "prefix done", False), ("done", "done trailing", False),
+    ("hello world", " hello\n  world \n", True),
+    ('{"a":{"b":3}}', '{"a":{"b":4}}', False),
+    ('{"a":3}', 'noise\n{"a":3}', False),
+    ('{"a":3}', '{\n "a": 3\n}', True),
+    ('{"a":3}', '{"a":3,"extra":1}', False),
+])
+def test_full_output_literal_expectations(expected, actual, ok):
+    assert assert_output(expected, actual)[0] is ok
+
+
+def test_workflow_inventory_drift_is_fatal():
+    import yaml
+    gate = yaml.safe_load((HERE.parents[1] / ".github/workflows/gate-executable-docs.yml").read_text())
+    step = next(s for s in gate["jobs"]["self-test"]["steps"] if "Inventory drift" in s.get("name", ""))
+    assert step["run"] == "python certification/executable-docs/inventory.py --check"
+    assert step.get("continue-on-error", False) is False
+
+
+@pytest.mark.parametrize("readiness,expected_status", [(None, "needs-input"), ({"log": "ready"}, "pass"),
+                                                      ({"log": "missing"}, "fail")])
+def test_elapsed_serve_timer_never_proves_readiness(tmp_path, monkeypatch, readiness, expected_status):
+    import subprocess
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    class Process:
+        calls = 0
+        returncode = None
+        def poll(self):
+            self.calls += 1
+            if self.calls > 1:
+                self.returncode = 124
+            return self.returncode
+        def wait(self):
+            return self.returncode
+    def popen(args, **kwargs):
+        kwargs["stdout"].write("ready\n")
+        kwargs["stdout"].flush()
+        return Process()
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(run.time, "sleep", lambda seconds: None)
+    result = session.run_shell("npm run dev", "node", 600, True, readiness)
+    assert result.status == expected_status
+    assert result.exit_code == 124
+
+
+def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    import run
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("test", tmp_path, {"node": "node@sha256:test"}, "http://guard", tmp_path,
+                          False, "host", "test", "5.9.3")
+    session.container("node")
+    invocation = next(args for args in calls if args[0] == "run")
+    assert invocation[invocation.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+    assert f"HOME={session.home}" in invocation
+    assert (session.home / ".nuget/NuGet/NuGet.Config").exists()

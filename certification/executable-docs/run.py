@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,24 +78,19 @@ def tail(text: str, limit: int = TAIL) -> str:
 # ── oracle ───────────────────────────────────────────────────────────────────────────────────────
 
 def _norm(line: str) -> str:
-    line = re.sub(r"\d+(\.\d+)?", "0", line)
     return re.sub(r"\s+", " ", line).strip()
 
 
 def assert_output(expected: str, actual: str) -> tuple[bool, str]:
-    """Every non-elided expected line appears in the output, in order (digits and spacing normalized).
-
-    Lines that are only `...`/`…` or comments elide. JSON values compare recursively;
-    a value of `...` or `…` explicitly marks a dynamic field.
-    """
+    """Compare complete output, normalizing whitespace; only explicit ellipses elide values."""
     try:
         want = json.loads(expected)
-        got = json.loads(actual.strip().splitlines()[-1] if actual.strip() else "")
+        got = json.loads(actual)
         def matches(want: Any, got: Any) -> bool:
             if isinstance(want, str) and want in {"...", "…"}:
                 return True
             if isinstance(want, dict):
-                return isinstance(got, dict) and all(k in got and matches(v, got[k]) for k, v in want.items())
+                return isinstance(got, dict) and want.keys() == got.keys() and all(matches(v, got[k]) for k, v in want.items())
             if isinstance(want, list):
                 return isinstance(got, list) and len(want) == len(got) and all(
                     matches(a, b) for a, b in zip(want, got))
@@ -104,18 +100,13 @@ def assert_output(expected: str, actual: str) -> tuple[bool, str]:
         return ok, "expected JSON values matched" if ok else "output differs from documented JSON values"
     except (json.JSONDecodeError, IndexError):
         pass
-    lines = [_norm(l) for l in expected.splitlines()]
-    lines = [l for l in lines if l and l not in {"...", "…"} and not l.startswith("#")]
-    haystack = _norm(actual)
-    position = 0
-    for line in lines:
-        # `…`/`...` inside a shown line stands for whatever the real value is
-        pattern = ".*?".join(re.escape(part.strip()) for part in re.split(r"…|\.\.\.", line))
-        found = re.compile(pattern).search(haystack, position)
-        if not found:
-            return False, f"expected output line not found: {line[:200]!r}"
-        position = found.end()
-    return True, f"{len(lines)} expected output line(s) matched"
+    pattern = ".*?".join(re.escape(part) for part in re.split(r"…|\.\.\.", _norm(expected)))
+    ok = re.fullmatch(pattern, _norm(actual)) is not None
+    return ok, "normalized full output matched" if ok else "output differs from documented full output"
+
+
+def exception_outcome() -> Outcome:
+    return Outcome("fail", "unexpected runner exception", stderr=tail(traceback.format_exc()))
 
 
 # ── program combination for fragments that continue an earlier block ───────────────────────────
@@ -238,10 +229,15 @@ class Session:
         self.cwd = str(self.workdir / "app")
         nuget = self.state / "nuget"
         nuget.mkdir(exist_ok=True)
+        self.home = self.state / "home"
+        self.home.mkdir(exist_ok=True)
         (nuget / "NuGet.Config").write_text(
             '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n'
             f'    <add key="release-pinned" value="{self.guard_base}/nuget/v3/index.json" allowInsecureConnections="true" />\n'
             "  </packageSources>\n</configuration>\n")
+        home_nuget = self.home / ".nuget/NuGet"
+        home_nuget.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
 
     # container lifecycle
@@ -252,24 +248,26 @@ class Session:
         name = f"execdocs-{self.run_id}-{re.sub(r'[^a-z0-9]+', '-', self.name.lower())[:40]}-{runtime}"
         g = self.guard_base
         args = ["run", "-d", "--name", name, "--network", self.network,
+                "--user", f"{os.getuid()}:{os.getgid()}", "-e", f"HOME={self.home}",
                 "-v", f"{self.workdir}:{self.workdir}", "-w", self.cwd,
-                "-v", f"{self.state / 'nuget' / 'NuGet.Config'}:/root/.nuget/NuGet/NuGet.Config:ro",
                 "-e", f"npm_config_registry={g}/npm/", "-e", "npm_config_update_notifier=false",
                 "-e", "npm_config_fund=false", "-e", f"YARN_NPM_REGISTRY_SERVER={g}/npm/",
+                "-e", f"npm_config_prefix={self.home}/.local",
                 "-e", f"PIP_INDEX_URL={g}/pypi/simple/", "-e", f"UV_DEFAULT_INDEX={g}/pypi/simple/",
                 "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1", "-e", "PIP_ROOT_USER_ACTION=ignore",
                 "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "-e", "DOTNET_NOLOGO=1",
                 "--label", f"honua.execdocs.run={self.run_id}"]
-        path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        path = f"{self.home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         if "node" in self.prerequisites and runtime != "node":
             args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
             path = "/opt/node/bin:" + path
         if runtime == "dotnet":
-            path += ":/root/.dotnet/tools"   # the .NET SDK installers put global tools on PATH
+            path += f":{self.home}/.dotnet/tools"
         if path != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin":
             args += ["-e", f"PATH={path}"]
         if self.docker_access:
-            args += ["-v", "/var/run/docker.sock:/var/run/docker.sock",
+            args += ["--group-add", str(Path("/var/run/docker.sock").stat().st_gid),
+                     "-v", "/var/run/docker.sock:/var/run/docker.sock",
                      "-v", f"{self.tools / 'docker'}:/usr/local/bin/docker:ro",
                      "-v", f"{self.tools / 'docker-compose'}:/usr/local/lib/docker/cli-plugins/docker-compose:ro"]
         args += [image, "sleep", "infinity"]
@@ -278,7 +276,7 @@ class Session:
         self.containers[runtime] = name
         packages = sorted(p for p in self.prerequisites if p in APT_PREREQUISITES)
         if packages:   # a tool the document lists under its prerequisites, installed as the reader would
-            setup = docker("exec", name, "bash", "-c", "apt-get update -qq && DEBIAN_FRONTEND=noninteractive "
+            setup = docker("exec", "--user", "0", name, "bash", "-c", "apt-get update -qq && DEBIAN_FRONTEND=noninteractive "
                            "apt-get install -y -qq " + " ".join(packages), timeout=900)
             if setup.returncode:
                 raise RunError(f"could not install the documented prerequisites {packages}: {setup.stderr[-300:]}")
@@ -327,7 +325,8 @@ class Session:
             raise RunError(f"could not write {path}: {proc.stderr.strip()[-300:]}")
 
     # executors
-    def run_shell(self, code: str, runtime: str, timeout: int, serve: bool) -> Outcome:
+    def run_shell(self, code: str, runtime: str, timeout: int, serve: bool,
+                  readiness: dict[str, str] | None = None) -> Outcome:
         name = self.container(runtime)
         script = self.next_path(".sh")
         script.write_text(code)
@@ -338,10 +337,23 @@ class Session:
             f"set -a -e\n. {shlex.quote(str(script))}\n")
         window = SERVE_WINDOW if serve else timeout
         started = time.monotonic()
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             ["docker", "exec", *self.exec_env(runtime), name, "timeout", "-k", "5", str(window), "bash", "-c",
              f"{wrapper}", "docrun"],
-            stdin=subprocess.DEVNULL, stdout=open(out, "w"), stderr=open(err, "w"), timeout=window + 60, check=False)
+            stdin=subprocess.DEVNULL, stdout=open(out, "w"), stderr=open(err, "w"))
+        ready = False
+        deadline = started + window + 60
+        while proc.poll() is None and time.monotonic() < deadline:
+            if serve and readiness and not ready:
+                if readiness.get("url"):
+                    probe = docker("exec", name, "curl", "-fsS", "--max-time", "2", readiness["url"], timeout=10)
+                    ready = probe.returncode == 0
+                elif readiness.get("log"):
+                    ready = readiness["log"] in out.read_text(errors="replace") + err.read_text(errors="replace")
+            time.sleep(0.2)
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
         duration = time.monotonic() - started
         stdout, stderr = out.read_text(errors="replace"), err.read_text(errors="replace")
         if cwdfile.exists():
@@ -359,12 +371,19 @@ class Session:
         code_ = proc.returncode
         if code_ == 124:
             if serve:
-                return Outcome("pass", f"long-running command kept serving for {window}s (stopped by the runner)",
+                status = "pass" if ready else ("fail" if readiness else "needs-input")
+                detail = ("documented readiness evidence observed" if ready else
+                          "documented readiness evidence was not observed" if readiness else
+                          "long-running command needs a documented readiness URL or expected log line")
+                return Outcome(status, detail,
                                stdout, stderr, code_, duration, "serve")
             return Outcome("fail", f"timed out after {window}s (waiting for input or a process that never ends)",
                            stdout, stderr, code_, duration)
         if code_:
             return Outcome("fail", f"exit code {code_}", stdout, stderr, code_, duration)
+        if serve:
+            return Outcome("fail", "long-running command exited before readiness could be established",
+                           stdout, stderr, 0, duration, "serve")
         return Outcome("pass", "exit code 0", stdout, stderr, 0, duration)
 
     def _py_reader(self) -> None:
@@ -485,14 +504,20 @@ class Session:
                         found[pypi_normalize(row["name"])] = row["version"]
             except (json.JSONDecodeError, KeyError):
                 pass
-        modules = Path(self.cwd) / "node_modules"
-        for package_json in modules.rglob("package.json"):
+        modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules"]
+        for package_json in (p for root in modules for p in root.rglob("package.json")):
             try:
                 meta = json.loads(package_json.read_text())
                 if NPM_HONUA.match(meta["name"]):
                     found[meta["name"]] = meta["version"]
             except (OSError, json.JSONDecodeError, KeyError):
                 pass
+        if runtime == "dotnet":
+            for assets in self.workdir.rglob("project.assets.json"):
+                for library, meta in json.loads(assets.read_text()).get("libraries", {}).items():
+                    package, version = library.rsplit("/", 1)
+                    if meta.get("type") == "package" and package.lower().startswith("honua."):
+                        found[package.lower()] = version
         return found
 
     def _exec(self, name: str, cmd: list[str], timeout: int) -> Outcome:
@@ -602,6 +627,10 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
 
 
 def summarize(result: dict[str, Any]) -> None:
+    checks = [c for c in result.get("checks", []) if c["check"] != "nothing-executed"]
+    if not any("durationSec" in b for b in result["blocks"]):
+        checks.append({"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"})
+    result["checks"] = checks
     statuses = [r["status"] for r in result["blocks"]] + [c["status"] for c in result.get("checks", [])]
     result["status"] = "fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else ("needs-input" if "needs-input" in statuses else "pass")
     result["counts"] = {s: statuses.count(s) for s in sorted(set(statuses))}
@@ -610,7 +639,10 @@ def summarize(result: dict[str, Any]) -> None:
 def run_teardowns(session: Session, secrets: list[str]) -> None:
     """Run what each document said to run when the reader is done, after the whole session."""
     for row, code, runtime, result in session.teardowns:
-        outcome = session.run_shell(code, runtime, DEFAULT_TIMEOUT, False)
+        try:
+            outcome = session.run_shell(code, runtime, DEFAULT_TIMEOUT, False)
+        except Exception:
+            outcome = exception_outcome()
         row.update({"status": outcome.status, "detail": "run at the end of the session: " + outcome.detail,
                     "durationSec": round(outcome.duration, 1), "exitCode": outcome.exit_code})
         if outcome.status != "pass":
@@ -660,11 +692,27 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         row.update(extra or {})
         rows.append(row)
 
-    def execute(block: Block, code: str) -> Outcome:
+    def audit(outcome: Outcome, runtime: str) -> Outcome:
+        installed = session.installed_honua(runtime)
+        allowed = {**context.get("_closure", lambda: {})(), **pinned_versions}
+        wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
+                       for name, version in installed.items() if allowed.get(name) not in {version, "*"})
+        if wrong:
+            outcome.status = "fail"
+            outcome.detail += "; installed a Honua package the release does not pin: " + "; ".join(wrong)
+        return outcome
+
+    def dispatch(block: Block, code: str) -> Outcome:
         lang = block.language
         timeout = int(doc.get("timeout", DEFAULT_TIMEOUT))
         if lang == "shell":
-            return session.run_shell(code, doc["runtime"], timeout, bool(SERVE.search(code)))
+            serve = bool(SERVE.search(code))
+            readiness = {k: substitute(v, subst) for k, v in (block.marker or {}).items()
+                         if k in {"ready-url", "ready-log"}}
+            if serve and readiness:
+                return session.run_shell(code, doc["runtime"], timeout, True,
+                                         {k.removeprefix("ready-"): v for k, v in readiness.items()})
+            return session.run_shell(code, doc["runtime"], timeout, serve)
         if lang == "python":
             return session.run_python(code, timeout)
         if lang in {"javascript", "typescript"}:
@@ -675,90 +723,92 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             return session.run_http(code, doc["runtime"], context["candidate.baseUrl"], timeout)
         return Outcome("fail", f"no executor for {lang}")
 
+    def execute(block: Block, code: str) -> Outcome:
+        return dispatch(block, code)
+
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
-        if (block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run":
-            record(block, None, "fail", block.marker_error)
-            continue
-        if block.intent in {"illustrative", "alternative", "excluded", "output"}:
-            record(block, None, "not-run", block.reason or f"{block.intent} block")
-            continue
-        if block.intent == "teardown":
-            pending_teardowns.append((block, substitute(block.code, subst)))
-            continue
-        if block.intent == "compile":
-            deferred.append(block)
-            continue
-        need = needs(block, defined | set(session.env))
-        missing_env = [n for n in need["env"] if n not in session.env]
-        missing_ph = [p for p in need["placeholders"] if p not in subst]
-        defined |= assigned_names(block)
-        if missing_env or missing_ph:
-            parts = []
-            if missing_env:
-                parts.append("environment " + ", ".join(missing_env))
-            if missing_ph:
-                parts.append("placeholder " + ", ".join(missing_ph))
-            record(block, None, "needs-input",
-                   "needs " + "; ".join(parts) + " and the document gives no value a reader could supply "
-                   "(no variables-file entry citing where the doc documents it)")
-            continue
-        code = substitute(block.code, subst)
-        if block.marker and "checkout" in block.marker:
-            try:
-                checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
-            except RunError as exc:
-                record(block, None, "fail", str(exc))
+        try:
+            if (block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run":
+                record(block, None, "fail", block.marker_error)
                 continue
-        if block.intent == "file":
-            target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
-            session.put(doc["runtime"], target, code)
-            # A .cs file belongs to the reader's project: a later `dotnet run` builds it, it never runs alone.
-            runnable = block.language in {"python", "javascript", "typescript", "shell"}
-            if not runnable or Path(block.file).name in later_text[block.index]:
-                record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
+            if block.intent in {"illustrative", "alternative", "excluded", "output"}:
+                record(block, None, "not-run", block.reason or f"{block.intent} block")
+                continue
+            if block.intent == "teardown":
+                pending_teardowns.append((block, substitute(block.code, subst)))
+                continue
+            if block.intent == "compile":
+                deferred.append(block)
+                continue
+            need = needs(block, defined | set(session.env))
+            missing_env = [n for n in need["env"] if n not in session.env]
+            missing_ph = [p for p in need["placeholders"] if p not in subst]
+            defined |= assigned_names(block)
+            if missing_env or missing_ph:
+                parts = []
+                if missing_env:
+                    parts.append("environment " + ", ".join(missing_env))
+                if missing_ph:
+                    parts.append("placeholder " + ", ".join(missing_ph))
+                record(block, None, "needs-input",
+                       "needs " + "; ".join(parts) + " and the document gives no value a reader could supply "
+                       "(no variables-file entry citing where the doc documents it)")
+                continue
+            code = substitute(block.code, subst)
+            if block.marker and "checkout" in block.marker:
+                try:
+                    checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
+                except RunError as exc:
+                    record(block, None, "fail", str(exc))
+                    continue
+            if block.intent == "file":
+                target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
+                session.put(doc["runtime"], target, code)
+                # A .cs file belongs to the reader's project: a later `dotnet run` builds it, it never runs alone.
+                runnable = block.language in {"python", "javascript", "typescript", "shell"}
+                if not runnable or Path(block.file).name in later_text[block.index]:
+                    record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
+                    continue
+                outcome = audit(execute(block, code), LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+                record(block, outcome, outcome.status, f"saved as {block.file}; no later step runs it, so run it: "
+                       + outcome.detail, {"file": block.file})
                 continue
             outcome = execute(block, code)
-            record(block, outcome, outcome.status, f"saved as {block.file}; no later step runs it, so run it: "
-                   + outcome.detail, {"file": block.file})
-            continue
-        outcome = execute(block, code)
-        lang = block.language
-        if block.expect_failure and outcome.exit_code not in (None, 0, 124):
-            outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
-        elif block.expect_failure and outcome.status == "pass":
-            outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
-        if (outcome.status == "fail" and lang in {"csharp", "javascript", "typescript"}
-                and session.passed.get(lang) and continuation_error(lang, outcome.stdout + outcome.stderr)):
-            combined = (combine_csharp if lang == "csharp" else combine_js)(session.passed[lang] + [code])
-            retry = execute(block, combined)
-            retry.mode = (retry.mode or "") + "+continues-earlier-blocks"
-            outcome = retry
-        if outcome.status == "pass":
-            if lang in {"csharp", "javascript", "typescript"}:
-                session.passed.setdefault(lang, []).append(code)
-            if block.expected_output:
-                ok, why = assert_output(block.expected_output, outcome.stdout)
-                if not ok:
-                    outcome.status, outcome.detail = "fail", f"{outcome.detail}; output assertion failed: {why}"
-                else:
-                    outcome.detail = f"{outcome.detail}; {why}"
-        if doc.get("docker") and block.language == "shell":
-            observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
-                            servers_seen, candidate_digest)
-        if outcome.status == "pass" and block.language == "shell":
-            installed = session.installed_honua(doc["runtime"])
-            closure = context.get("_closure", lambda: {})()
-            allowed = {**closure, **pinned_versions}
-            wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
-                           for name, version in installed.items()
-                           if allowed.get(name) not in {version, "*"})
-            if wrong:
-                outcome.status = "fail"
-                outcome.detail = ("installed a Honua package the release does not pin: " + "; ".join(wrong))
-        record(block, outcome, outcome.status, outcome.detail)
+            lang = block.language
+            if block.expect_failure and outcome.exit_code not in (None, 0, 124):
+                outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
+            elif block.expect_failure and outcome.status == "pass":
+                outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
+            if (outcome.status == "fail" and lang in {"csharp", "javascript", "typescript"}
+                    and session.passed.get(lang) and continuation_error(lang, outcome.stdout + outcome.stderr)):
+                combined = (combine_csharp if lang == "csharp" else combine_js)(session.passed[lang] + [code])
+                retry = execute(block, combined)
+                retry.mode = (retry.mode or "") + "+continues-earlier-blocks"
+                outcome = retry
+            if outcome.status == "pass":
+                if lang in {"csharp", "javascript", "typescript"}:
+                    session.passed.setdefault(lang, []).append(code)
+                if block.expected_output:
+                    ok, why = assert_output(block.expected_output, outcome.stdout)
+                    if not ok:
+                        outcome.status, outcome.detail = "fail", f"{outcome.detail}; output assertion failed: {why}"
+                    else:
+                        outcome.detail = f"{outcome.detail}; {why}"
+            if doc.get("docker") and block.language == "shell":
+                observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
+                                servers_seen, candidate_digest)
+            outcome = audit(outcome, LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+            record(block, outcome, outcome.status, outcome.detail)
+        except Exception:
+            outcome = exception_outcome()
+            record(block, outcome, outcome.status, outcome.detail)
     for block in deferred:
-        outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
+        try:
+            outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
+            outcome = audit(outcome, "node")
+        except Exception:
+            outcome = exception_outcome()
         record(block, outcome, outcome.status, "doc-test=compile; typechecked after the document's install steps: "
                + outcome.detail)
     for block, code in pending_teardowns:
@@ -768,10 +818,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     checks = []
     if doc.get("docker"):
         check = server_container_check(servers_seen, candidate_digest)
-        runs_docker = any(b.intent in {"run", "teardown"} and b.language == "shell" and re.search(r"\bdocker\b", b.code)
-                          for b in blocks)
-        if check or runs_docker:
-            checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
+        checks.append(check or {"check": "boots-candidate-image", "status": "not-evaluated",
                                 "detail": f"no honua-server container was started from this document's directory "
                                           f"({len(servers_seen)} container(s) started there)"})
     result = {"blocks": rows, "checks": checks}
@@ -863,7 +910,8 @@ class Guards:
             name = f"execdocs-{self.run_id}-guard-{len(self.running)}"
             refusals = self.dir / f"refusals-{len(self.running)}.json"
             docker("rm", "-f", name)
-            docker("run", "-d", "--name", name, "--network", network, "-v", f"{self.dir}:{self.dir}",
+            docker("run", "-d", "--name", name, "--network", network,
+                   "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{self.dir}:{self.dir}",
                    "--label", f"honua.execdocs.run={self.run_id}", self.image, "python3", "-u",
                    str(self.dir / "registry_guard.py"), "--pins", str(self.dir / "pins.json"),
                    "--port", str(self.port), "--refusals", str(refusals), check=True)
@@ -946,7 +994,7 @@ def main() -> int:
                                # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2)
                                "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2"}
     context["_pins"] = {str(v["package"]): str(v["version"]) for v in manifest.get("clientArtifacts", {}).values()
-                        if v.get("package") and v.get("version") and not str(v["package"]).startswith("Honua.")}
+                        if v.get("package") and v.get("version")}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     resolver = Resolver(manifest, token=token)
     run_id = datetime.now(timezone.utc).strftime("%H%M%S")
@@ -965,56 +1013,65 @@ def main() -> int:
     live_docs: list[tuple[dict[str, Any], str, str]] = []
     sessions: dict[str, Session] = {}
 
+    def add_exception(row: dict[str, Any], check: str) -> None:
+        outcome = exception_outcome()
+        row.setdefault("blocks", [])
+        row.setdefault("checks", []).append({"check": check, "status": "fail",
+                                            "detail": scrub(outcome.stderr, [api_key])})
+        summarize(row)
+
+    def close_session(session: Session) -> None:
+        session.close()
+        cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
+
     def run_phase(documents: list[dict[str, Any]], network: str, tools: Path) -> None:
         last_of_session = {(d.get("session") or doc_id(d["repo"], d["path"])): doc_id(d["repo"], d["path"])
                            for d in documents}
         defined: dict[str, set[str]] = {}
         for document in documents:
             ident = doc_id(document["repo"], document["path"])
-            row: dict[str, Any] = {"id": ident, "repo": document["repo"], "path": document["path"]}
+            row: dict[str, Any] = {"id": ident, "repo": document["repo"], "path": document["path"],
+                                   "revision": "unresolved", "url": "", "blocks": [], "checks": []}
+            report_docs.append(row)
+            key = document.get("session") or ident
+            text = None
             try:
                 revision = resolver.revision(document)
                 text = resolver.read(document, revision)
-            except InventoryError as exc:
-                row.update({"revision": "unresolved", "url": "", "status": "fail", "counts": {"fail": 1},
-                            "blocks": [], "checks": [{"check": "read-document", "status": "fail", "detail": str(exc)}]})
-                report_docs.append(row)
-                continue
-            row["revision"] = revision
-            row["url"] = f"https://github.com/{document['repo']}/blob/{revision}/{document['path']}"
-            key = document.get("session") or ident
-            if key not in sessions:
-                members = [d for d in documents if (d.get("session") or doc_id(d["repo"], d["path"])) == key]
-                sessions[key] = Session(key, work / key, sources["runtimes"], guards.base(network), tools,
-                                        bool(document.get("docker")), network, run_id,
-                                        sources.get("toolchain", {}).get("typescript", "5.9.3"),
-                                        prerequisites={p for d in members for p in d.get("prerequisites", {})})
-            session = sessions[key]
-            variables = load_vars(args.vars_dir, ident)
-            print(f"== {ident} @ {revision[:12]}", flush=True)
-            try:
+                row["revision"] = revision
+                row["url"] = f"https://github.com/{document['repo']}/blob/{revision}/{document['path']}"
+                live_docs.append((document, revision, text))
+                if key not in sessions:
+                    members = [d for d in documents if (d.get("session") or doc_id(d["repo"], d["path"])) == key]
+                    sessions[key] = Session(key, work / key, sources["runtimes"], guards.base(network), tools,
+                                            bool(document.get("docker")), network, run_id,
+                                            sources.get("toolchain", {}).get("typescript", "5.9.3"),
+                                            prerequisites={p for d in members for p in d.get("prerequisites", {})})
+                session = sessions[key]
+                variables = load_vars(args.vars_dir, ident)
+                print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
-            except RunError as exc:
-                row.update({"status": "fail", "counts": {"fail": 1}, "blocks": [],
-                            "checks": [{"check": "checkout", "status": "fail", "detail": str(exc)}]})
-                report_docs.append(row)
-                continue
-            try:
                 result, defined[key] = run_document(document, text, session, context, variables, digest,
                                                     [api_key], defined.get(key, set()), revision, token, row)
-            except (RunError, OSError, subprocess.SubprocessError, ValueError) as exc:
-                result = {"status": "fail", "counts": {"fail": 1}, "blocks": [],
-                          "checks": [{"check": "runner", "status": "fail",
-                                      "detail": f"the runner could not execute this document: {exc}"}]}
-            row.update(result)
-            row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
-            report_docs.append(row)
-            live_docs.append((document, revision, text))
+                row.update(result)
+                row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
+            except Exception:
+                outcome = exception_outcome()
+                if text is not None:
+                    recorded = {b["index"] for b in row["blocks"]}
+                    for block in extract(text, "html" if document.get("format") == "html" else "markdown"):
+                        if block.index not in recorded:
+                            row["blocks"].append({**block.record(), "status": "fail", "detail": outcome.detail,
+                                                  "command": scrub(block.code, [api_key]),
+                                                  "stderrTail": scrub(outcome.stderr, [api_key])})
+                add_exception(row, "runner")
+            if last_of_session.get(key) == ident and key in sessions:
+                try:
+                    run_teardowns(sessions[key], [api_key])
+                    close_session(sessions[key])
+                except Exception:
+                    add_exception(row, "cleanup")
             print(f"   {row['status']} {row['counts']}", flush=True)
-            if last_of_session.get(key) == ident:
-                run_teardowns(session, [api_key])
-                session.close()
-                cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
 
     try:
         tools = prepare_tools(sources["runtimes"], work)
@@ -1029,19 +1086,38 @@ def main() -> int:
                     raise RunError("the candidate fixture could not be seeded")
             network = "host" if args.network == "host" else f"container:{candidate_container()}"
             run_phase(client_docs, network, tools)
-    except RunError as exc:
+    except Exception:
+        exc = scrub(tail(traceback.format_exc()), [api_key])
         report_docs.append({"id": "candidate", "repo": "honua-io/honua-release", "path": "-", "revision": "-",
                             "url": args.evidence_uri, "status": "fail", "counts": {"fail": 1}, "blocks": [],
                             "checks": [{"check": "candidate", "status": "fail", "detail": str(exc)}]})
     finally:
         for session in sessions.values():
-            session.close()
-            cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
-        refusals = guards.refusals()
-        closure = guards.closure()
-        guards.stop()
-        if booted:
-            subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "down"], cwd=ROOT)
+            try:
+                close_session(session)
+            except Exception:
+                add_exception(report_docs[-1], "cleanup")
+        refusals, closure = [], {}
+        try:
+            refusals = guards.refusals()
+            closure = guards.closure()
+        except Exception:
+            add_exception(report_docs[-1], "registry-report")
+        try:
+            guards.stop()
+            if booted:
+                subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "down"], cwd=ROOT, check=True)
+        except Exception:
+            add_exception(report_docs[-1], "cleanup")
+    reported = {d["id"] for d in report_docs}
+    for document in selected:
+        ident = doc_id(document["repo"], document["path"])
+        if ident not in reported:
+            row = {"id": ident, "repo": document["repo"], "path": document["path"], "revision": "unresolved",
+                   "url": "", "blocks": [], "checks": [{"check": "runner", "status": "fail",
+                   "detail": "document could not run because candidate/infrastructure setup failed"}]}
+            summarize(row)
+            report_docs.append(row)
     committed = json.loads(args.inventory.read_text(encoding="utf-8")) if args.inventory.exists() else {}
     drift_lines: list[str] = []
     if not args.only and committed:
@@ -1056,7 +1132,7 @@ def main() -> int:
     order = {doc_id(d["repo"], d["path"]): i for i, d in enumerate(sources["documents"])}
     report_docs.sort(key=lambda d: order.get(d["id"], len(order)))
     statuses = [d["status"] for d in report_docs]
-    status = "fail" if "fail" in statuses or not report_docs else ("blocked" if "needs-input" in statuses else "pass")
+    status = "fail" if drift_lines or "fail" in statuses or not report_docs else ("blocked" if "needs-input" in statuses else "pass")
     report = {
         "schemaVersion": 1,
         "gate": "executable-docs",
