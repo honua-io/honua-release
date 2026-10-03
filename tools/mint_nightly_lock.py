@@ -155,9 +155,12 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     documents, pending = {}, []
 
     def oci(name, coordinate, digest, context, source_repository, source_revision):
-        if not coordinate.startswith('ghcr.io/'):
+        parsed = urllib.parse.urlsplit('oci://' + coordinate)
+        if (parsed.netloc != 'ghcr.io' or parsed.query or parsed.fragment
+                or not re.fullmatch(r'/[a-z0-9._/-]+', parsed.path)
+                or any(part in {'', '.', '..'} for part in parsed.path.removeprefix('/').split('/'))):
             raise ValueError(f'{context}: no attestation reader for {coordinate}')
-        repo = coordinate.removeprefix('ghcr.io/')
+        repo = parsed.path.removeprefix('/')
         index = registry.document(repo, digest, manifest=True)
         children = [child for child in index.get('manifests', [])
                     if (child.get('platform') or {}).get('os') == 'linux']

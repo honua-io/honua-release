@@ -340,6 +340,20 @@ def test_signed_index_attestation_can_cover_all_architectures(inputs, candidate,
     nightly.verify_reference_bundle(evidence, tmp_path / 'collected/release-notes.bundle', *paths, report)
 
 
+@pytest.mark.parametrize('coordinate', ['ghcr.io.evil.test/sdk', 'ghcr.io@evil.test/sdk',
+                                       'ghcr.io/honua-io/../sdk', 'ghcr.io/honua-io/sdk?redirect=evil'])
+def test_registry_reader_requires_exact_authority_and_repository_path(inputs, candidate, tmp_path, coordinate):
+    report, paths = inputs
+    registry, _, _ = oci_candidate(report, paths)
+    data = yaml.safe_load(paths[0].read_text())
+    data['components']['sdk']['image'] = coordinate + ':build'
+    paths[0].write_text(yaml.safe_dump(data))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    with pytest.raises(ValueError, match='no attestation reader'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+            attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None)
+
+
 def test_promotion_bundle_verification_accepts_only_the_retained_delta(inputs, tmp_path):
     import platform_lock_bundle as bundle
     report, paths = inputs
