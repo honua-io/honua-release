@@ -240,9 +240,14 @@ class Session:
                 "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1", "-e", "PIP_ROOT_USER_ACTION=ignore",
                 "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "-e", "DOTNET_NOLOGO=1",
                 "--label", f"honua.execdocs.run={self.run_id}"]
+        path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         if "node" in self.prerequisites and runtime != "node":
-            args += ["-v", f"{self.tools / 'node'}:/opt/node:ro",
-                     "-e", "PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
+            args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
+            path = "/opt/node/bin:" + path
+        if runtime == "dotnet":
+            path += ":/root/.dotnet/tools"   # the .NET SDK installers put global tools on PATH
+        if path != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin":
+            args += ["-e", f"PATH={path}"]
         if self.docker_access:
             args += ["-v", "/var/run/docker.sock:/var/run/docker.sock",
                      "-v", f"{self.tools / 'docker'}:/usr/local/bin/docker:ro",
