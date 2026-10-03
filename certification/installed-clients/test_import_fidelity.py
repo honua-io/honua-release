@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -286,37 +287,59 @@ class ImportFidelityGateTests(unittest.TestCase):
         self.assertEqual(verdict["status"], "fail")
         self.assertTrue(any(item["check"] == "schema" for item in verdict["findings"]), verdict["reason"])
 
-    def test_installed_client_cell_fails_closed_without_a_receipt(self):
+    def _execute(self, matrix, receipt=None):
         manifest, _requirements = _inputs()
-        matrix = json.loads((HERE / "matrix.json").read_text())
-        with mock.patch.object(installed, "install_npm", return_value=(True, "ok")), mock.patch.object(
-            installed, "install_pypi", return_value=(True, "ok")
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            installed, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(installed, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            installed, "install_nuget", return_value=(True, "ok")
         ):
-            receipt = installed.execute(manifest, matrix, EVIDENCE)
-        row = next(item for item in receipt["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
+            result = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=receipt)
+        row = next(item for item in result["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
+        return result, row
+
+    @staticmethod
+    def _matrices():
+        committed = json.loads((HERE / "matrix.json").read_text())
+        active = copy.deepcopy(committed)
+        cell = next(item for item in active["cells"] if item["id"] == "nuget-service-layer-import-fidelity")
+        cell["status"] = "active"
+        del cell["blockedBy"]
+        return committed, active
+
+    def test_installed_client_cell_fails_closed_without_a_receipt(self):
+        committed, active = self._matrices()
+        receipt, row = self._execute(active)
         self.assertEqual(row["status"], "fail")
         self.assertIn("missing evidence is not a pass", row["detail"])
         self.assertEqual(receipt["status"], "fail")
+        # The committed matrix blocks this cell on the missing receipt producer (honua-release#418).
+        receipt, row = self._execute(committed)
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(row["blockedBy"], "https://github.com/honua-io/honua-release/issues/418")
+        self.assertIn("missing evidence is not a pass", row["detail"])
+        self.assertEqual(receipt["status"], "blocked")
 
     def test_installed_client_cell_accepts_only_a_matching_receipt(self):
         manifest, requirements = _inputs()
-        matrix = json.loads((HERE / "matrix.json").read_text())
+        committed, active = self._matrices()
         good = _passing_receipt(manifest, requirements)
-        with mock.patch.object(installed, "install_npm", return_value=(True, "ok")), mock.patch.object(
-            installed, "install_pypi", return_value=(True, "ok")
-        ):
-            accepted = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=good)
-            bad = copy.deepcopy(good)
-            bad["consumer"]["sourceBuilt"] = True
-            bad["consumer"]["kind"] = "source-built"
-            rejected = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=bad)
-        accepted_row = next(item for item in accepted["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
-        rejected_row = next(item for item in rejected["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
+        bad = copy.deepcopy(good)
+        bad["consumer"]["sourceBuilt"] = True
+        bad["consumer"]["kind"] = "source-built"
+        accepted, accepted_row = self._execute(active, good)
+        rejected, rejected_row = self._execute(active, bad)
         self.assertEqual(accepted_row["status"], "pass")
         self.assertIn("142/142", accepted_row["detail"])
-        self.assertEqual(accepted["status"], "fail")
+        self.assertEqual(accepted["status"], "blocked")
         self.assertEqual(rejected_row["status"], "fail")
         self.assertIn("source-built", rejected_row["detail"])
+        self.assertEqual(rejected["status"], "fail")
+        # A matching receipt while the matrix still says blocked must not pass silently.
+        stale, stale_row = self._execute(committed, good)
+        self.assertEqual(stale_row["status"], "fail")
+        self.assertIn("set it active in matrix.json", stale_row["detail"])
+        self.assertEqual(stale["status"], "fail")
 
 
 if __name__ == "__main__":

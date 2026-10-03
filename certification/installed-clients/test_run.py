@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -74,21 +75,311 @@ class InstalledCertificationTests(unittest.TestCase):
 
     def test_receipt_materializes_every_non_pass(self):
         manifest, matrix = inputs()
-        with mock.patch.object(mod, "install_npm", return_value=(True, "ok")), mock.patch.object(
-            mod, "install_pypi", return_value=(False, "digest mismatch")
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(False, "digest mismatch")), mock.patch.object(
+            mod, "install_nuget", return_value=(True, "ok")
         ):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
         self.assertEqual(receipt["status"], "fail")
-        self.assertEqual(len(receipt["results"]), len(matrix["cells"]))
-        self.assertEqual({r["status"] for r in receipt["results"]}, {"pass", "fail"})
-        self.assertTrue(next(r for r in receipt["results"] if r["target"] == "nuget")["detail"].endswith("/57"))
+        self.assertEqual(
+            {r["cell"]: r["status"] for r in receipt["results"]},
+            {
+                "npm-node-geoservices-error": "pass",
+                "npm-mcp-tools-list": "pass",
+                "npm-mcp-setup-view-tools-list": "blocked",
+                "pypi-python-geoservices-error": "fail",
+                "pypi-admin-clean-install": "fail",
+                "nuget-net10-geoservices-error": "pass",
+                "nuget-service-layer-import-fidelity": "blocked",
+            },
+        )
+        setup = next(r for r in receipt["results"] if r["cell"] == "npm-mcp-setup-view-tools-list")
+        self.assertEqual(setup["blockedBy"], "https://github.com/honua-io/honua-sdk-js/issues/1875")
+        self.assertIn("needs a live candidate", setup["detail"])
         imported = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
-        self.assertEqual(imported["status"], "fail")
         self.assertIn("missing evidence is not a pass", imported["detail"])
+        self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 2)
 
     def test_matrix_includes_mcp_consumer(self):
         _, matrix = inputs()
         self.assertTrue(any(cell["artifact"] == "honua-mcp-server" for cell in matrix["cells"]))
+
+
+class MatrixExpectationTests(unittest.TestCase):
+    """The committed matrix is the only source of expected outcomes; these literals pin it."""
+
+    def test_committed_matrix_expectations(self):
+        _, matrix = inputs()
+        self.assertEqual(
+            {cell["id"]: (cell["status"], cell.get("blockedBy")) for cell in matrix["cells"]},
+            {
+                "npm-node-geoservices-error": ("active", None),
+                "npm-mcp-tools-list": ("active", None),
+                "npm-mcp-setup-view-tools-list": (
+                    "blocked", "https://github.com/honua-io/honua-sdk-js/issues/1875"
+                ),
+                "pypi-python-geoservices-error": ("active", None),
+                "pypi-admin-clean-install": ("active", None),
+                "nuget-net10-geoservices-error": ("active", None),
+                "nuget-service-layer-import-fidelity": (
+                    "blocked", "https://github.com/honua-io/honua-release/issues/418"
+                ),
+            },
+        )
+
+    def test_setup_view_cell_is_the_journey_contract(self):
+        _, matrix = inputs()
+        cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
+        self.assertEqual(cell["artifact"], "honua-mcp-server")
+        self.assertEqual(cell["driver"], "npm-mcp-setup-view")
+        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 25})
+
+    def test_mcp_executables_have_explicit_contracts(self):
+        _, matrix = inputs()
+        cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-tools-list")
+        self.assertEqual(
+            cell["executables"],
+            {"honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
+        )
+
+    def test_validation_rejects_implicit_expectations(self):
+        cases = [
+            ({"status": "blocked"}, "blocking issue URL"),
+            ({"status": "blocked", "blockedBy": "#1875"}, "blocking issue URL"),
+            ({"status": "active", "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875"}, "cannot carry"),
+            ({"status": "skipped"}, "active or blocked"),
+            ({"driver": "npm-mcp"}, "every executable"),
+            ({"driver": "npm-mcp", "executables": {"honua-mcp": "version"}}, "every executable"),
+            ({"driver": "npm-mcp-setup-view"}, "positive toolCount"),
+            ({"driver": "npm-mcp-setup-view", "expect": {"workflowView": "setup", "toolCount": True}}, "positive toolCount"),
+            ({"driver": "nuget-feed"}, "unknown driver"),
+        ]
+        for change, message in cases:
+            with self.subTest(change=change):
+                cell = {"id": "c", "artifact": "honua-sdk-js", "driver": "npm", "scenario": "s", "status": "active"}
+                cell.update(change)
+                with self.assertRaisesRegex(mod.CertificationError, message):
+                    mod.validate_cell(cell)
+
+    def test_all_active_passing_exits_zero_with_blocked_cells_reported(self):
+        manifest, matrix = inputs()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            mod, "install_nuget", return_value=(True, "ok")
+        ):
+            receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertEqual(
+            [r["status"] for r in receipt["results"]],
+            ["pass", "pass", "blocked", "pass", "pass", "pass", "blocked"],
+        )
+        self.assertEqual(mod.verify_receipt(matrix, receipt), [])
+        self.assertEqual(self._main(receipt), 0)
+
+    def test_failed_active_cell_exits_one(self):
+        manifest, matrix = inputs()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            mod, "install_nuget", return_value=(False, "restored NuGet package digest mismatch")
+        ):
+            receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+        self.assertEqual(receipt["status"], "fail")
+        self.assertEqual(
+            mod.verify_receipt(matrix, receipt),
+            ["nuget-net10-geoservices-error: active cell is fail: restored NuGet package digest mismatch"],
+        )
+        self.assertEqual(self._main(receipt), 1)
+
+    def test_blocked_cell_that_passes_is_not_silent(self):
+        manifest, matrix = inputs()
+        with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
+            mod, "install_npm", return_value=(True, "ok")
+        ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
+            mod, "install_nuget", return_value=(True, "ok")
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")) as probe:
+            receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
+        self.assertEqual(probe.call_args.args[1], "http://127.0.0.1:9/mcp")
+        setup = next(r for r in receipt["results"] if r["cell"] == "npm-mcp-setup-view-tools-list")
+        self.assertEqual(setup["status"], "fail")
+        self.assertIn("set it active in matrix.json", setup["detail"])
+        self.assertEqual(receipt["status"], "fail")
+        self.assertEqual(len(mod.verify_receipt(matrix, receipt)), 1)
+
+    def test_verify_receipt_requires_every_matrix_cell(self):
+        _, matrix = inputs()
+        results = [
+            {"cell": c["id"], "status": "blocked" if c["status"] == "blocked" else "pass", "blockedBy": c.get("blockedBy")}
+            for c in matrix["cells"]
+        ]
+        receipt = {"status": "blocked", "results": results[:-1]}
+        self.assertIn(
+            "receipt cells do not match the matrix cells one-to-one and in order",
+            mod.verify_receipt(matrix, receipt),
+        )
+        wrong_blocker = copy.deepcopy(results)
+        wrong_blocker[2]["blockedBy"] = "https://github.com/honua-io/honua-release/issues/57"
+        self.assertEqual(len(mod.verify_receipt(matrix, {"status": "blocked", "results": wrong_blocker})), 1)
+        self.assertEqual(
+            mod.verify_receipt(matrix, {"status": "pass", "results": results}),
+            ["receipt status 'pass' does not follow its cell results"],
+        )
+
+    def _main(self, receipt):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            mod, "execute", return_value=receipt
+        ), mock.patch.object(
+            mod.sys, "argv",
+            ["run.py", "--evidence-uri", "https://example.invalid/evidence/1", "--output", str(Path(tmp) / "r.json")],
+        ), mock.patch("builtins.print"):
+            code = mod.main()
+            verify_argv = ["run.py", "--verify-receipt", str(Path(tmp) / "r.json")]
+            with mock.patch.object(mod.sys, "argv", verify_argv), mock.patch.object(mod.sys, "stderr", io.StringIO()):
+                self.assertEqual(mod.main(), code)
+        return code
+
+
+FAKE_MCP = r"""#!{python}
+import json, os, sys
+contract = os.environ.get("FAKE_CONTRACT", "proxy")
+if contract == "proxy" and not os.environ.get("HONUA_MCP_REMOTE_URL", "").endswith("/mcp"):
+    sys.exit("Fatal: HONUA_MCP_REMOTE_URL environment variable is required")
+if contract == "stdio" and not os.environ.get("HONUA_BASE_URL"):
+    sys.exit("Fatal: HONUA_BASE_URL environment variable is required.")
+view = "default"
+for line in sys.stdin:
+    message = json.loads(line)
+    method = message.get("method")
+    if method == "initialize":
+        if os.environ.get("FAKE_PRESERVE") == "1":
+            view = message["params"].get("_meta", {{}}).get("honua.io/workflow-view", "default")
+        result = {{"protocolVersion": "2025-06-18", "capabilities": {{}}, "serverInfo": {{"name": "fake", "version": "1"}}}}
+    elif method == "tools/list":
+        count = 25 if view == "setup" else 12
+        tools = [{{"name": f"tool_{{i}}", "inputSchema": {{"type": "object"}}}} for i in range(count)]
+        result = {{"tools": tools, "_meta": {{"view": view, "revision": view + ".v2", "toolCount": count}}}}
+    else:
+        continue
+    sys.stdout.write(json.dumps({{"jsonrpc": "2.0", "id": message["id"], "result": result}}) + "\n")
+    sys.stdout.flush()
+"""
+
+
+class McpExchangeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proxy = Path(self.tmp.name) / "honua-mcp-proxy"
+        self.proxy.write_text(FAKE_MCP.format(python=sys.executable))
+        self.proxy.chmod(0o755)
+        self.expect = {"workflowView": "setup", "toolCount": 25}
+
+    def test_published_proxy_that_drops_the_setup_view_fails(self):
+        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "0"}):
+            ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
+        self.assertFalse(ok)
+        self.assertIn("view='default' revision='default.v2' tools=12", detail)
+
+    def test_proxy_that_preserves_the_setup_view_passes(self):
+        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "1"}):
+            ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
+        self.assertTrue(ok, detail)
+        self.assertIn("with 25 tools", detail)
+
+    def test_setup_view_tool_count_is_exact(self):
+        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "1"}):
+            ok, _ = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", {"workflowView": "setup", "toolCount": 24})
+        self.assertFalse(ok)
+
+    def test_mcp_executable_contracts_launch_the_installed_shim_configured(self):
+        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "proxy"}):
+            self.assertEqual(mod.mcp_tools_list(self.proxy, "mcp-proxy", "http://127.0.0.1:9"), (True, "12 tools"))
+        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "stdio"}):
+            self.assertEqual(mod.mcp_tools_list(self.proxy, "mcp-stdio", "http://127.0.0.1:9"), (True, "12 tools"))
+        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "stdio", "HONUA_BASE_URL": ""}):
+            ok, detail = mod.mcp_tools_list(self.proxy, "mcp-proxy", "http://127.0.0.1:9")
+        self.assertFalse(ok)
+        self.assertIn("live tools/list failed", detail)
+
+    def test_installed_executables_must_match_the_matrix_contract(self):
+        pin = inputs()[0]["clientArtifacts"]["honua-mcp-server"]
+        work = Path(self.tmp.name) / "install"
+
+        def run(cmd, **kwargs):
+            package = work / "node_modules" / "@honua" / "mcp-server"
+            (package / "dist").mkdir(parents=True)
+            (package / "dist" / "proxy.js").touch()
+            (package / "package.json").write_text(json.dumps({"bin": {"honua-mcp-proxy": "dist/proxy.js"}}))
+            lock = {"packages": {"node_modules/@honua/mcp-server": {"version": pin["version"], "integrity": pin["integrity"]}}}
+            (work / "package-lock.json").write_text(json.dumps(lock))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(mod.shutil, "which", return_value="/usr/bin/npm"), mock.patch.object(
+            mod, "_npm_archive_matches", return_value=(True, "archive.tgz")
+        ), mock.patch.object(mod, "_run", side_effect=run):
+            ok, detail = mod.install_npm(pin, work, executables={"honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy"})
+        self.assertFalse(ok)
+        self.assertIn("differ from the matrix execution contract", detail)
+
+
+class NugetInstallTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pin = copy.deepcopy(inputs()[0]["clientArtifacts"]["honua-sdk-dotnet"])
+        self.package = b"published nupkg bytes"
+        self.pin["digest"] = "sha256:" + hashlib.sha256(self.package).hexdigest()
+
+    def _install(self, restored_bytes, source=mod.NUGET_ORG, env=None):
+        work = Path(self.tmp.name) / "install"
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[1] == "restore":
+                packages = Path(kwargs["env"]["NUGET_PACKAGES"]) / "honua.sdk" / "1.10.1"
+                packages.mkdir(parents=True)
+                (packages / "honua.sdk.1.10.1.nupkg").write_bytes(restored_bytes)
+                (packages / ".nupkg.metadata").write_text(json.dumps({"source": source}))
+                (kwargs["cwd"] / "obj").mkdir()
+                (kwargs["cwd"] / "obj" / "project.assets.json").write_text(
+                    json.dumps({"libraries": {"Honua.Sdk/1.10.1": {}}})
+                )
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.dict(os.environ, env or {}, clear=True), mock.patch.object(
+            mod.shutil, "which", return_value="/usr/bin/dotnet"
+        ), mock.patch.object(mod, "_run", side_effect=run):
+            ok, detail = mod.install_nuget(self.pin, work)
+        return ok, detail, calls, work
+
+    def test_exact_nuget_org_bytes_pass(self):
+        ok, detail, calls, work = self._install(self.package, env={"HONUA_SERVER_URL": "http://127.0.0.1:9"})
+        self.assertTrue(ok, detail)
+        self.assertIn("live GeoServices error probe passed", detail)
+        self.assertEqual([c[1] for c in calls], ["restore", "build", str(work / "out" / "Consumer.dll")])
+        csproj = (work / "consumer" / "Consumer.csproj").read_text()
+        self.assertIn('<PackageReference Include="Honua.Sdk" Version="[1.10.1]" />', csproj)
+        self.assertIn("<TargetFramework>net10.0</TargetFramework>", csproj)
+        self.assertIn("<clear />", (work / "NuGet.config").read_text())
+
+    def test_restored_bytes_must_match_the_pin(self):
+        ok, detail, _, _ = self._install(b"other bytes")
+        self.assertFalse(ok)
+        self.assertIn("digest mismatch", detail)
+
+    def test_restored_package_must_come_from_nuget_org(self):
+        ok, detail, _, _ = self._install(self.package, source="https://nuget.pkg.github.com/honua-io/index.json")
+        self.assertFalse(ok)
+        self.assertIn("not nuget.org", detail)
+
+    def test_non_public_registry_is_refused(self):
+        self.pin["registry"] = "github-packages"
+        ok, detail, calls, _ = self._install(self.package)
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
