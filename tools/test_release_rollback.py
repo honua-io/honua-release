@@ -163,7 +163,7 @@ def test_failed_functional_probe_cannot_claim_success(tmp_path):
     assert next(child for child in result["children"] if child["kind"] == "worker")["state"] == "Failed"
 
 
-def _retained_server_image(tmp_path, monkeypatch, registry_docker):
+def _retained_server_image(tmp_path, monkeypatch, registry_docker, coordinate=None):
     """A second, earlier honua-server index served beside the fixture registry, so the retained
     lock is a distinct server identity rather than another component's image."""
     fixture = Path(__file__).resolve().parent / "fixtures/image-platforms/honua-server/index.json"
@@ -177,6 +177,8 @@ def _retained_server_image(tmp_path, monkeypatch, registry_docker):
     raw = json.dumps(index, indent=2).encode()
     image = dict(registry_docker["honua-server"], digest="sha256:" + hashlib.sha256(raw).hexdigest(),
                  platformDigests=platforms)
+    if coordinate:
+        image["coordinate"] = coordinate
     (tmp_path / "retained-index.json").write_bytes(raw)
     binary = tmp_path / "retained-bin/docker"
     binary.parent.mkdir()
@@ -192,10 +194,16 @@ def _retained_server_image(tmp_path, monkeypatch, registry_docker):
     return image
 
 
+def _declaring_manifest(path: Path, server="ghcr.io/honua-io/honua-server", release="2026.1") -> Path:
+    path.write_text(f"platformRelease: {release}\ncomponents:\n"
+                    f"  honua-server: {{image: '{server}:nightly-1'}}\n"
+                    "  honua-console: {image: 'ghcr.io/honua-io/honua-console:candidate-1'}\n", encoding="utf-8")
+    return path
+
+
 def test_certifier_consumes_exact_frozen_source_bytes(tmp_path, monkeypatch, registry_docker):
-    manifest = tmp_path / "platform-manifest.yaml"
+    manifest = _declaring_manifest(tmp_path / "platform-manifest.yaml")
     matrix = tmp_path / "compatibility-matrix.yaml"
-    manifest.write_text("platformRelease: 2026.1\n", encoding="utf-8")
     matrix.write_text("contracts: {}\n", encoding="utf-8")
 
     def sha(path):
@@ -246,9 +254,8 @@ def test_certifier_consumes_exact_frozen_source_bytes(tmp_path, monkeypatch, reg
 def test_certifier_refuses_another_components_image_as_server(tmp_path, monkeypatch, registry_docker, role):
     """Both indexes verify against the registry; only the coordinate shows the console image is
     standing in for honua-server, so certification must refuse before any provider mutation."""
-    manifest = tmp_path / "platform-manifest.yaml"
+    manifest = _declaring_manifest(tmp_path / "platform-manifest.yaml")
     matrix = tmp_path / "compatibility-matrix.yaml"
-    manifest.write_text("platformRelease: 2026.1\n", encoding="utf-8")
     matrix.write_text("contracts: {}\n", encoding="utf-8")
     images = {"CANDIDATE": registry_docker["honua-server"],
               "RETAINED": _retained_server_image(tmp_path, monkeypatch, registry_docker)}
@@ -271,6 +278,46 @@ def test_certifier_refuses_another_components_image_as_server(tmp_path, monkeypa
     assert f"ROLLBACK_{role}_IMAGE_COORDINATE_MISMATCH: honua-server: 'ghcr.io/honua-io/honua-console'" in (
         result.stdout + result.stderr)
     assert not (output / "success-receipt.json").exists()
+
+
+def _certify_server_pair(tmp_path, manifest, retained, candidate):
+    matrix = tmp_path / "compatibility-matrix.yaml"
+    matrix.write_text("contracts: {}\n", encoding="utf-8")
+    locks = {}
+    for name, image in (("retained", retained), ("candidate", candidate)):
+        locks[name] = _write(tmp_path / f"{name}.json", {
+            "sourceInputs": {"platformManifest": {"sha256": rollback.digest(manifest)},
+                             "compatibilityMatrix": {"sha256": rollback.digest(matrix)}},
+            "components": {"honua-server": {"schemaVersions": {"database": "107"}, "artifacts": [image]}},
+        })
+    output = tmp_path / "certification"
+    script = Path(__file__).resolve().parent / "certify_release_rollback.py"
+    return output, subprocess.run([
+        os.sys.executable, str(script), "--output", str(output), "--from-lock", str(locks["retained"]),
+        "--to-lock", str(locks["candidate"]), "--candidate-manifest", str(manifest),
+        "--compatibility-matrix", str(matrix),
+    ], check=False, text=True, capture_output=True)
+
+
+def test_certifier_binds_the_candidate_to_its_manifest_declared_coordinate(tmp_path, monkeypatch, registry_docker):
+    """The registry verifies the conventional server index, but the frozen manifest declares another
+    repository for honua-server, so the candidate is not the manifest's image."""
+    manifest = _declaring_manifest(tmp_path / "platform-manifest.yaml", server="ghcr.io/honua-io/honua-server-aot")
+    output, result = _certify_server_pair(tmp_path, manifest, _retained_server_image(tmp_path, monkeypatch, registry_docker),
+                                          registry_docker["honua-server"])
+    assert result.returncode == 1
+    assert "ROLLBACK_CANDIDATE_IMAGE_COORDINATE_MISMATCH: honua-server: 'ghcr.io/honua-io/honua-server'" in (
+        result.stdout + result.stderr)
+    assert not (output / "success-receipt.json").exists()
+
+
+def test_certifier_accepts_a_retained_server_from_a_renamed_repository(tmp_path, monkeypatch, registry_docker):
+    """An attested retained lock may carry the component's earlier repository name."""
+    retained = _retained_server_image(tmp_path, monkeypatch, registry_docker, coordinate="ghcr.io/honua-io/honua-server-legacy")
+    output, result = _certify_server_pair(tmp_path, _declaring_manifest(tmp_path / "platform-manifest.yaml"),
+                                          retained, registry_docker["honua-server"])
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert json.loads((output / "success-receipt.json").read_text())["status"] == "Succeeded"
 
 
 # First-lock certification extends the retained-lock tests above without changing them.
@@ -399,9 +446,8 @@ def test_release_lookup_failure_is_a_named_finding(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("tamper", [False, True, "missing_image_digest", "wrong_architecture"])
 def test_first_lock_report_and_real_operation(tmp_path, tamper, registry_docker):
-    manifest = tmp_path / "platform-manifest.yaml"
+    manifest = _declaring_manifest(tmp_path / "platform-manifest.yaml", release="2026.1.1-rc.1")
     matrix = tmp_path / "compatibility-matrix.yaml"
-    manifest.write_text("platformRelease: 2026.1.1-rc.1\n")
     matrix.write_text("contracts: {}\n")
     candidate = _write(tmp_path / "candidate.json", {
         "platform": {"id": "honua-2026.1.1-rc.1"},
