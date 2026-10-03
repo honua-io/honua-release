@@ -1,0 +1,642 @@
+{
+  "blockers": [
+    {
+      "boundary": "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request (a private repository is not distinguishable from a missing one) and https://plugins.qgis.org/plugins/honua/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). No signing secret is recorded here.",
+      "channels": [
+        "qgis:honua-qgis-plugin"
+      ],
+      "kind": "blocked-on-operator",
+      "publication": "QGIS plugin honua"
+    },
+    {
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.11-beta.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.11-beta.0': 200}; the platform manifest pins @honua/sdk-js 0.1.12. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "channels": [
+        "npm:create-honua-app"
+      ],
+      "kind": "blocked-on-republish",
+      "publication": "npm create-honua-app@0.1.5 template pins"
+    },
+    {
+      "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
+      "channels": [
+        "helm:oci://ghcr.io/honua-io/charts/honua"
+      ],
+      "kind": "blocked-on-candidate",
+      "publication": "oci://ghcr.io/honua-io/charts/honua"
+    }
+  ],
+  "channels": [
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip",
+          "sha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
+          "url": "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
+        }
+      ],
+      "http_status": 200,
+      "id": "bsr:buf.build/honua-io/geospatial-grpc",
+      "publication": "buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754",
+      "urls": [
+        "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
+      ]
+    },
+    {
+      "disposition": "blocked-on-candidate",
+      "http_status": 403,
+      "id": "helm:oci://ghcr.io/honua-io/charts/honua",
+      "publication": "oci://ghcr.io/honua-io/charts/honua",
+      "urls": [
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/charts/honua:pull"
+      ]
+    },
+    {
+      "disposition": "supported-by-git-url",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "v0.2.0.tar.gz",
+          "sha256": "c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/refs/tags/v0.2.0"
+        }
+      ],
+      "id": "iac:git-archive",
+      "publication": "honua-iac Git archive v0.2.0",
+      "registry_http_status": 404,
+      "urls": [
+        "https://registry.terraform.io/v1/modules/honua-io",
+        "https://github.com/honua-io/honua-iac/archive/refs/tags/v0.2.0.tar.gz"
+      ]
+    },
+    {
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
+      "http_status": 404,
+      "id": "npm:@honua-io/embed",
+      "publication": "npmjs @honua-io/embed",
+      "urls": [
+        "https://registry.npmjs.org/@honua-io%2Fembed"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "npm:@honua/sdk-js",
+      "publication": "npm @honua/sdk-js@0.1.12",
+      "registry_integrity": "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ==",
+      "urls": [
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.1.12"
+      ],
+      "version": "0.1.12"
+    },
+    {
+      "disposition": "blocked-on-republish",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "create-honua-app-0.1.5.tgz",
+          "registry_shasum": "135a0ee47659c9f0732298afbf96107fc32ed63d",
+          "sha256": "a8aa82304bb1797150772540e62e2f90a41ba9e81a69746727881d5f2646d601",
+          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.5.tgz"
+        }
+      ],
+      "http_status": 200,
+      "id": "npm:create-honua-app",
+      "manifest_sdk_pin": "0.1.12",
+      "maplibre_pins": [
+        "6.4.1"
+      ],
+      "publication": "npm create-honua-app@0.1.5",
+      "sdk_pin_statuses": {
+        "0.1.11-beta.0": 200
+      },
+      "templates": [
+        {
+          "dependencies": {
+            "@honua/sdk-js": "0.1.11-beta.0",
+            "maplibre-gl": "6.4.1"
+          },
+          "path": "package/templates/react-ts/package.json"
+        },
+        {
+          "dependencies": {
+            "@honua/sdk-js": "0.1.11-beta.0",
+            "maplibre-gl": "6.4.1"
+          },
+          "path": "package/templates/vanilla-ts/package.json"
+        }
+      ],
+      "urls": [
+        "https://registry.npmjs.org/create-honua-app",
+        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.5.tgz"
+      ],
+      "version": "0.1.5"
+    },
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "geospatial.grpc.1.0.0.nupkg",
+          "sha256": "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f",
+          "url": "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
+        }
+      ],
+      "http_status": 200,
+      "id": "nuget:Geospatial.Grpc",
+      "publication": "nuget.org Geospatial.Grpc 1.0.0",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/index.json",
+        "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
+      ],
+      "versions": [
+        "1.0.0",
+        "1.0.2",
+        "1.0.3"
+      ]
+    },
+    {
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
+      "http_status": 404,
+      "id": "nuget:Honua.Mobile.Maui",
+      "publication": "nuget.org Honua.Mobile.Maui",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.mobile.maui/index.json"
+      ]
+    },
+    {
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
+      "http_status": 404,
+      "id": "nuget:Honua.Mobile.Offline",
+      "publication": "nuget.org Honua.Mobile.Offline",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.mobile.offline/index.json"
+      ]
+    },
+    {
+      "component": "honua-mobile",
+      "deferral_reason": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+      "disposition": "deferred-experimental",
+      "http_status": 404,
+      "id": "nuget:Honua.Mobile.Sdk",
+      "publication": "nuget.org Honua.Mobile.Sdk",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.mobile.sdk/index.json"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk",
+      "publication": "nuget.org Honua.Sdk",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "honua.sdk.1.10.1.nupkg",
+          "sha256": "65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg"
+        },
+        {
+          "filename": "honua.sdk.1.10.1.snupkg",
+          "sha256": "0345993ebf7049aba3f2732da40bc7d4ca59b4134c53f0dff2cc508104c5c57c",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.1.snupkg"
+        }
+      ],
+      "flat_container_snupkg_status": 404,
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk-newest",
+      "publication": "nuget.org Honua.Sdk 1.10.1",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.1.snupkg"
+      ],
+      "version": "1.10.1"
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Abstractions",
+      "publication": "nuget.org Honua.Sdk.Abstractions",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.abstractions/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Admin",
+      "publication": "nuget.org Honua.Sdk.Admin",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.admin/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Catalogs",
+      "publication": "nuget.org Honua.Sdk.Catalogs",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.catalogs/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Cli",
+      "publication": "nuget.org Honua.Sdk.Cli",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.cli/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.ConsoleShare",
+      "publication": "nuget.org Honua.Sdk.ConsoleShare",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.consoleshare/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Field",
+      "publication": "nuget.org Honua.Sdk.Field",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.field/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.GeoServices",
+      "publication": "nuget.org Honua.Sdk.GeoServices",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.geoservices/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Geometry",
+      "publication": "nuget.org Honua.Sdk.Geometry",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.geometry/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Grpc",
+      "publication": "nuget.org Honua.Sdk.Grpc",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.grpc/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Offline",
+      "publication": "nuget.org Honua.Sdk.Offline",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.offline/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.OgcFeatures",
+      "publication": "nuget.org Honua.Sdk.OgcFeatures",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.ogcfeatures/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Processes",
+      "publication": "nuget.org Honua.Sdk.Processes",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.processes/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Scenes",
+      "publication": "nuget.org Honua.Sdk.Scenes",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.scenes/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Spec",
+      "publication": "nuget.org Honua.Sdk.Spec",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.spec/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "listed",
+      "evidence_class": "registry-index",
+      "http_status": 200,
+      "id": "nuget:Honua.Sdk.Studio",
+      "publication": "nuget.org Honua.Sdk.Studio",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/index.json"
+      ],
+      "versions": [
+        "1.6.4",
+        "1.7.0",
+        "1.8.0",
+        "1.9.0",
+        "1.10.0",
+        "1.10.1"
+      ]
+    },
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "honua_admin-0.1.9-py3-none-any.whl",
+          "registry_sha256": "3bcdc8eaadfafbb4bc45dd96b1c785c666843f34b950d678d958c9198a6f68b8",
+          "sha256": "3bcdc8eaadfafbb4bc45dd96b1c785c666843f34b950d678d958c9198a6f68b8",
+          "url": "https://files.pythonhosted.org/packages/95/61/4ca077245410cbdaa30233413f04dd97c09c5005e0cc956411ee2b262c85/honua_admin-0.1.9-py3-none-any.whl"
+        },
+        {
+          "filename": "honua_admin-0.1.9.tar.gz",
+          "registry_sha256": "a4c7df308dbe7c3a61a5fb0ab8c9586f348838fd6b70a4b0b0e5a650f1603b53",
+          "sha256": "a4c7df308dbe7c3a61a5fb0ab8c9586f348838fd6b70a4b0b0e5a650f1603b53",
+          "url": "https://files.pythonhosted.org/packages/76/ca/986cda005d4d1f0135e6dc3533e5ada0af503630c9b131b0f179ac586e5f/honua_admin-0.1.9.tar.gz"
+        }
+      ],
+      "http_status": 200,
+      "id": "pypi:honua-admin",
+      "publication": "PyPI honua-admin 0.1.9",
+      "urls": [
+        "https://pypi.org/pypi/honua-admin/json"
+      ],
+      "version": "0.1.9"
+    },
+    {
+      "disposition": "absent-retired",
+      "http_status": 404,
+      "id": "pypi:honua-esri-assess",
+      "publication": "PyPI honua-esri-assess",
+      "urls": [
+        "https://pypi.org/pypi/honua-esri-assess/json"
+      ]
+    },
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "honua_migrate-0.8.0-py3-none-any.whl",
+          "registry_sha256": "6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9",
+          "sha256": "6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9",
+          "url": "https://files.pythonhosted.org/packages/dc/90/6f24d09bfdb092bc98e25aa16be04fff0cab39640ad8356f9a4e25fc9b2b/honua_migrate-0.8.0-py3-none-any.whl"
+        },
+        {
+          "filename": "honua_migrate-0.8.0.tar.gz",
+          "registry_sha256": "9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44",
+          "sha256": "9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44",
+          "url": "https://files.pythonhosted.org/packages/f2/c6/6398c982edea0a27142dbce98037a65c8cb2515bbddeebe5c2555ebd4dd5/honua_migrate-0.8.0.tar.gz"
+        }
+      ],
+      "http_status": 200,
+      "id": "pypi:honua-migrate",
+      "publication": "PyPI honua-migrate 0.8.0",
+      "urls": [
+        "https://pypi.org/pypi/honua-migrate/json"
+      ],
+      "version": "0.8.0"
+    },
+    {
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "honua_sdk-0.1.12-py3-none-any.whl",
+          "registry_sha256": "4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2",
+          "sha256": "4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2",
+          "url": "https://files.pythonhosted.org/packages/29/7d/ad04a696860960b5cce865c9a8b2ea53b165da200c6b8a2156ba5501f926/honua_sdk-0.1.12-py3-none-any.whl"
+        },
+        {
+          "filename": "honua_sdk-0.1.12.tar.gz",
+          "registry_sha256": "6675c4cca09abed2c4b542cff1ea98fc176709488a3d239bd60b069e58638529",
+          "sha256": "6675c4cca09abed2c4b542cff1ea98fc176709488a3d239bd60b069e58638529",
+          "url": "https://files.pythonhosted.org/packages/f7/ec/738b2491c973b900b9a5c680584342260cd728cd1c41029187ead3909999/honua_sdk-0.1.12.tar.gz"
+        }
+      ],
+      "http_status": 200,
+      "id": "pypi:honua-sdk",
+      "publication": "PyPI honua-sdk 0.1.12",
+      "urls": [
+        "https://pypi.org/pypi/honua-sdk/json"
+      ],
+      "version": "0.1.12"
+    },
+    {
+      "disposition": "blocked-on-operator",
+      "http_status": 404,
+      "id": "qgis:honua-qgis-plugin",
+      "plugin_http_status": 404,
+      "publication": "QGIS plugin honua",
+      "urls": [
+        "https://api.github.com/repos/honua-io/honua-qgis-plugin",
+        "https://plugins.qgis.org/plugins/honua/"
+      ]
+    },
+    {
+      "client_artifact_registry": "nuget.org",
+      "client_artifact_version": "1.10.1",
+      "component_version": "1.6.2",
+      "disposition": "published",
+      "evidence_class": "downloaded-bytes",
+      "files": [
+        {
+          "filename": "honua.sdk.1.10.1.nupkg",
+          "sha256": "65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg"
+        },
+        {
+          "filename": "honua.sdk.studio.1.10.1.nupkg",
+          "sha256": "cdc7717801363891531783897c090ad7c3013aac088e1e860ae94d5db87ec76d",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.10.1/honua.sdk.studio.1.10.1.nupkg"
+        }
+      ],
+      "http_status": 200,
+      "id": "train:honua-sdk-dotnet",
+      "pin_package_statuses": {
+        "Honua.Sdk": 200,
+        "Honua.Sdk.Studio": 200
+      },
+      "publication": "nuget.org Honua.Sdk 1.10.1",
+      "urls": [
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg",
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.10.1/honua.sdk.studio.1.10.1.nupkg"
+      ]
+    }
+  ],
+  "deferred_experimental_components": {
+    "honua-collect": "platform-manifest.yaml lists honua-collect under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker.",
+    "honua-mobile": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker."
+  },
+  "issue": "honua-io/honua-release#57",
+  "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
+  "observed_at": "2026-10-03T00:03:58Z",
+  "schema": "honua.first-publication-preflight/v1"
+}

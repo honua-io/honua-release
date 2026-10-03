@@ -352,7 +352,11 @@ def test_committed_receipt_matches_the_manifest_pin_and_audits():
     pinned = manifest["clientArtifacts"]["honua-sdk-dotnet"]
     assert train["client_artifact_version"] == pinned["version"]
     assert train["client_artifact_registry"] == pinned["registry"]
-    assert train["disposition"] == "blocked-on-train-binding"
+    assert train["disposition"] == "published"
+    assert train["evidence_class"] == "downloaded-bytes"
+    sdk_file = next(item for item in train["files"] if item["filename"] == pinned["filename"])
+    assert "sha256:" + sdk_file["sha256"] == pinned["digest"]
+    assert not any(b["kind"] == "blocked-on-train-binding" for b in receipt["blockers"])
     archive = _channel(receipt, "iac:git-archive")
     assert archive["files"][0]["sha256"] == manifest["components"]["honua-iac"]["artifactSha256"].removeprefix("sha256:")
     sdk = _channel(receipt, "pypi:honua-sdk")
@@ -502,3 +506,26 @@ def test_a_listed_experimental_package_stays_deferred_and_records_the_listing():
     assert channel["registry_versions"] == ["0.1.0"]
     assert "files" not in channel
     preflight.audit(receipt, _experimental_manifest())
+
+
+def test_explicit_public_nuget_pin_requires_downloaded_matching_bytes():
+    world = World()
+    manifest = _manifest()
+    manifest['clientArtifacts']['honua-sdk-dotnet'].update(
+        version='1.10.0', registry='nuget.org', digest='sha256:' + _sha(NUPKG))
+    original = world._response
+    def present(url):
+        if url.endswith('/honua.sdk.studio/1.10.0/honua.sdk.studio.1.10.0.nupkg'):
+            return 200, NUPKG
+        return original(url)
+    world._response = present
+    receipt = preflight.build_receipt(world, manifest, observed_at='2026-10-02T00:00:00Z',
+                                      retained={'grpc_sha256': _sha(GRPC), 'bsr_sha256': _sha(BSR)})
+    train = _channel(receipt, 'train:honua-sdk-dotnet')
+    assert train['disposition'] == 'published'
+    assert len(train['files']) == 2
+    assert not any(b['kind'] == 'blocked-on-train-binding' for b in receipt['blockers'])
+    manifest['clientArtifacts']['honua-sdk-dotnet']['digest'] = 'sha256:' + '0' * 64
+    with pytest.raises(preflight.PreflightError, match='sha256'):
+        preflight.build_receipt(world, manifest, observed_at='2026-10-02T00:00:00Z',
+                                retained={'grpc_sha256': _sha(GRPC), 'bsr_sha256': _sha(BSR)})

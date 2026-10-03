@@ -382,8 +382,10 @@ def _check_client_artifacts(value: object, f: Findings) -> None:
             f.error(f"manifest: {path} requires a sha256 digest for immutable package bytes")
         if ecosystem == "pypi" and not str(artifact.get("filename", "")).strip():
             f.error(f"manifest: {path}.filename is required for an exact wheel pin")
-        if ecosystem == "nuget" and artifact.get("registry") != "github-packages":
-            f.error(f"manifest: {path}.registry must identify the GitHub Packages registry")
+        if ecosystem == "nuget" and artifact.get("registry") not in {"github-packages", "nuget.org"}:
+            f.error(f"manifest: {path}.registry must identify GitHub Packages or nuget.org")
+        if ecosystem == "nuget" and artifact.get("registry") == "nuget.org" and not str(artifact.get("filename", "")).strip():
+            f.error(f"manifest: {path}.filename is required for an exact nuget.org pin")
 
 
 def _check_evidence_sources(value: object, f: Findings) -> None:

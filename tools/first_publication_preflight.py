@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-09-26.json"
+RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-10-02.json"
 SCHEMA = "honua.first-publication-preflight/v1"
 ISSUE = "honua-io/honua-release#57"
 
@@ -242,6 +242,7 @@ def _manifest_view(manifest: dict) -> dict:
         "dotnet_package": str(dotnet["package"]),
         "dotnet_version": str(dotnet["version"]),
         "dotnet_registry": str(dotnet["registry"]),
+        "dotnet_sha256": str(dotnet.get("digest", "")).removeprefix("sha256:"),
         "dotnet_component_version": str(dotnet_component["version"]),
         "js_package": str(javascript["package"]),
         "js_version": str(javascript["version"]),
@@ -458,10 +459,34 @@ def build_receipt(
             version_lists_agree=len(version_sets) <= 1,
         ))
     elif pin_listed:
-        raise PreflightError(
-            "nuget.org now serves the manifest Honua.Sdk pin; record downloaded bytes and rebind "
-            "clientArtifacts before calling the train published"
-        )
+        if view["dotnet_registry"] != "nuget.org" or len(view["dotnet_sha256"]) != 64:
+            raise PreflightError(
+                "nuget.org now serves the manifest Honua.Sdk pin; record downloaded bytes and rebind "
+                "clientArtifacts before calling the train published"
+            )
+        if any(status != 200 for status in pin_statuses.values()):
+            raise PreflightError("nuget.org does not serve every required package at the manifest pin")
+        files = [
+            _download_matches(
+                transport, nuget_nupkg_url(package_id, pin),
+                view["dotnet_sha256"] if package_id == view["dotnet_package"] else None,
+                f"{package_id.lower()}.{pin}.nupkg",
+            )
+            for package_id in PINNED_NUPKG_IDS
+        ]
+        channels.append(_channel(
+            "train:honua-sdk-dotnet",
+            f"nuget.org {view['dotnet_package']} {pin}",
+            "published",
+            evidence_class="downloaded-bytes",
+            client_artifact_registry=view["dotnet_registry"],
+            client_artifact_version=pin,
+            component_version=view["dotnet_component_version"],
+            files=files,
+            http_status=200,
+            pin_package_statuses=pin_statuses,
+            urls=[nuget_nupkg_url(package_id, pin) for package_id in PINNED_NUPKG_IDS],
+        ))
 
     if representative:
         newest = _newest(representative)
