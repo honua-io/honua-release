@@ -16,6 +16,7 @@ import copy
 import hashlib
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -69,7 +70,8 @@ def publisher_attestations(repository: str, digest: str) -> list[dict]:
     from resolve_trunk_candidate import retry
     result = retry(lambda: subprocess.run(
         ['gh', 'api', f'repos/{repository}/attestations/{digest}', '--paginate', '--slurp'],
-        capture_output=True, text=True, check=True))
+        capture_output=True, text=True, check=True,
+        env={**os.environ, 'NO_COLOR': '1', 'GH_FORCE_TTY': '0'}))
     pages = json.loads(result.stdout)
     if not isinstance(pages, list) or any(not isinstance(page.get('attestations'), list) for page in pages):
         raise ValueError(f'{repository}: malformed publisher attestation response')
@@ -113,14 +115,18 @@ def published_artifact_bytes(artifact: dict) -> bytes:
     return raw
 
 
-def verify_publisher_bundle(raw: bytes, bundle: dict, artifact: dict, repository: str, predicate: str) -> None:
+def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repository: str, predicate: str) -> None:
     from resolve_trunk_candidate import retry
     with tempfile.TemporaryDirectory(prefix='verify-publisher-') as directory:
         package = Path(directory) / 'artifact.bin'
         document = Path(directory) / 'attestation.json'
-        package.write_bytes(raw)
+        if isinstance(raw, bytes):
+            package.write_bytes(raw)
+            target = str(package)
+        else:
+            target = raw  # A pinned OCI manifest can be verified without pulling runnable layers.
         document.write_text(json.dumps(bundle))
-        retry(lambda: subprocess.run(['gh', 'attestation', 'verify', str(package), '--bundle', str(document),
+        retry(lambda: subprocess.run(['gh', 'attestation', 'verify', target, '--bundle', str(document),
             '--repo', repository, '--source-digest', artifact['sourceRevision'],
             '--predicate-type', predicate, '--format', 'json'], capture_output=True, text=True, check=True))
 
@@ -148,7 +154,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     references = {'sbom': [], 'provenance': []}
     documents, pending = {}, []
 
-    def oci(name, coordinate, digest, context):
+    def oci(name, coordinate, digest, context, source_repository, source_revision):
         if not coordinate.startswith('ghcr.io/'):
             raise ValueError(f'{context}: no attestation reader for {coordinate}')
         repo = coordinate.removeprefix('ghcr.io/')
@@ -175,6 +181,28 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                                  'sha256': child['digest']}
                     if reference not in references[field]:
                         references[field].append(reference)
+        # Helm/OCI publishers can use signed GitHub attestations instead of BuildKit index
+        # layers. An attestation verified against the index digest covers every named child.
+        if any(covered != subjects for covered in coverage.values()):
+            source_repo = source_repository.removeprefix('https://github.com/')
+            try:
+                rows = attestations(source_repo, digest)
+                for number, row in enumerate(rows):
+                    bundle = row.get('bundle') or {}
+                    statement = json.loads(base64.b64decode(
+                        (bundle.get('dsseEnvelope') or {}).get('payload', ''), validate=True))
+                    field = statement_field(statement, {digest})
+                    if not field or coverage[field] == subjects:
+                        continue
+                    verifier(f'oci://{coordinate}@{digest}', bundle,
+                             {'sourceRevision': source_revision}, source_repo, statement['predicateType'])
+                    path = f'attestations/{name}/{digest.replace(":", "-")}/{field}-oci-{number}.json'
+                    documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
+                    pending.append((field, name, path))
+                    coverage[field] = subjects.copy()
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                errors.append(f'{context}: publisher attestations unavailable or unverified: '
+                              + str(getattr(exc, 'stderr', None) or exc).strip())
         for field, covered in coverage.items():
             if covered != subjects:
                 detail = ('; honua-server .github/workflows/nightly-container-build.yml '
@@ -187,7 +215,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     server = (data.get('components') or {}).get('honua-server') or {}
     if server.get('awsLambdaImage'):
         coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
-        oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda')
+        oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda',
+            server.get('repository', ''), server.get('sha', ''))
     for name, component in sorted(draft.lock['components'].items()):
         for number, artifact in enumerate(component['artifacts']):
             context = f'{name}.artifacts[{number}]'
@@ -196,7 +225,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 errors.append(f'{context}: cannot bind attestations without a published digest')
                 continue
             if artifact['kind'] in {'image', 'oci-chart'}:
-                oci(name, artifact['coordinate'], digest, context)
+                oci(name, artifact['coordinate'], digest, context,
+                    component['source']['repository'], artifact.get('sourceRevision', ''))
                 continue
             repo = component['source']['repository'].removeprefix('https://github.com/')
             try:
@@ -255,8 +285,9 @@ def regenerate_post_gate(source: Path, matrix: Path, frozen: dict, references: d
             if row['sha256'] != pinned:
                 raise ValueError(f'no lock minted: {field} reference hash differs from its immutable coordinate')
     from validate_platform_lock import validate
-    if validate(draft.lock).errors:
-        raise ValueError('no lock minted: ' + '; '.join(validate(draft.lock).errors))
+    validation_errors = validate(draft.lock).errors
+    if validation_errors:
+        raise ValueError('no lock minted: ' + '; '.join(validation_errors))
     return draft
 
 

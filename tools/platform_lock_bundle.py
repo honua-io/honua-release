@@ -42,6 +42,8 @@ def bind_post_gate(lock: dict, manifest: Path, matrix: Path, label: str, directo
     frozen = load_lock(frozen_path)
     bind(frozen, manifest, matrix, label, image_inspector=image_inspector)
     report = json.loads((directory / 'qualification-gate-report.json').read_bytes())
+    if report.get('platform_label') != label:
+        raise ValueError('qualification report label differs from the lock')
     errors = failures(report) + evidence_failures(report, 'sha256:' + _sha256(frozen_path))
     if errors:
         raise ValueError('; '.join(errors))

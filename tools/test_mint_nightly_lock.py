@@ -253,7 +253,8 @@ def test_lambda_without_attestations_reports_the_exact_upstream_blocker(inputs, 
             return {'schemaVersion': 2, 'layers': []}
     with pytest.raises(ValueError) as refused:
         nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=Registry(),
-                                  attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+                                  attestations=lambda repo, digest: [] if digest == 'sha256:' + '6' * 64
+                                      else publisher_bundles(repo, digest), artifact_bytes=lambda artifact: candidate[2],
                                   verifier=lambda *args: None)
     assert 'honua-server Lambda: missing sbom' in str(refused.value)
     assert 'honua-server Lambda: missing provenance' in str(refused.value)
@@ -273,6 +274,85 @@ def test_missing_notes_ref_never_falls_back_to_freeze_notes(inputs, tmp_path):
     refs = fresh_references(report, paths)
     refs['references']['notes'] = None
     refuses_before_signing(report, paths, tmp_path, 'immutable release-notes', post_gate_evidence=refs)
+
+
+def oci_candidate(report, paths, *, partial=False):
+    documents = {}
+    def store(value):
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        documents[digest] = value
+        return digest
+    child = store({'schemaVersion': 2, 'layers': []})
+    layers = []
+    for predicate in ('https://slsa.dev/provenance/v1', 'https://spdx.dev/Document'):
+        digest = store({'predicateType': predicate, 'subject': [{'digest': {'sha256': child.split(':')[1]}}]})
+        layers.append({'mediaType': 'application/vnd.in-toto+json', 'digest': digest})
+    attestation = store({'schemaVersion': 2, 'layers': layers})
+    children = [{'digest': child, 'platform': {'os': 'linux', 'architecture': 'amd64'}},
+                {'digest': attestation, 'platform': {'os': 'unknown', 'architecture': 'unknown'},
+                 'annotations': {'vnd.docker.reference.type': 'attestation-manifest'}}]
+    if partial:
+        children.append({'digest': store({'schemaVersion': 2, 'layers': [], 'arch': 'arm64'}),
+                         'platform': {'os': 'linux', 'architecture': 'arm64'}})
+    index = store({'schemaVersion': 2, 'manifests': children})
+    data = yaml.safe_load(paths[0].read_text())
+    data['components']['sdk'].update(image='ghcr.io/honua-io/sdk:test', digest=index,
+                                     architectures=['amd64'], platformDigests={'amd64': child})
+    paths[0].write_text(yaml.safe_dump(data))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    class Registry:
+        def document(self, repository, digest, **kwargs):
+            assert repository == 'honua-io/sdk'
+            return documents[digest]
+    return Registry(), index, attestation
+
+
+def test_registry_refs_bind_the_hashed_attestation_manifest(inputs, candidate, tmp_path):
+    report, paths = inputs
+    registry, index, attestation = oci_candidate(report, paths)
+    refs = nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None)
+    for field in ('sbom', 'provenance'):
+        assert {'component': 'sdk', 'uri': f'oci://ghcr.io/honua-io/sdk@{attestation}',
+                'sha256': attestation} in refs['references'][field]
+        assert not any(row['uri'] == f'oci://ghcr.io/honua-io/sdk@{index}' for row in refs['references'][field])
+
+
+def test_registry_coverage_cannot_hide_an_unattested_architecture(inputs, candidate, tmp_path):
+    report, paths = inputs
+    registry, index, _ = oci_candidate(report, paths, partial=True)
+    with pytest.raises(ValueError, match=r'sdk.artifacts\[0\]: missing'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+            attestations=lambda repo, digest: [] if digest == index else publisher_bundles(repo, digest),
+            artifact_bytes=lambda artifact: candidate[2], verifier=lambda *args: None)
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_signed_index_attestation_can_cover_all_architectures(inputs, candidate, tmp_path):
+    report, paths = inputs
+    registry, index, _ = oci_candidate(report, paths, partial=True)
+    verified = []
+    evidence = nightly.collect_post_gate(report, *paths, tmp_path / 'collected', registry=registry,
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+        verifier=lambda *args: verified.append(args))
+    assert any(args[0] == f'oci://ghcr.io/honua-io/sdk@{index}' for args in verified)
+    nightly.verify_reference_bundle(evidence, tmp_path / 'collected/release-notes.bundle', *paths, report)
+
+
+def test_promotion_bundle_verification_accepts_only_the_retained_delta(inputs, tmp_path):
+    import platform_lock_bundle as bundle
+    report, paths = inputs
+    output = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', output, signer=signer,
+         post_gate_evidence=fresh_references(report, paths))
+    lock = json.loads((output / 'platform-lock.json').read_bytes())
+    bundle.bind_post_gate(lock, *paths, '2026.1-rc.3', output)
+    frozen = json.loads((output / 'qualification-lock.json').read_bytes())
+    frozen['provenance'] = []
+    (output / 'qualification-lock.json').write_text(json.dumps(frozen))
+    with pytest.raises(ValueError):
+        bundle.bind_post_gate(lock, *paths, '2026.1-rc.3', output)
 
 
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])

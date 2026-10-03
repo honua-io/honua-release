@@ -648,6 +648,10 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
     assert 'label=2026.1-rc.3' in output.read_text()
     files = git(origin, 'ls-tree', '-r', '--name-only', 'refs/tags/nightly-lock/2026.1-rc.3').splitlines()
     assert files == ['bom.cdx.json', 'platform-lock.json', 'platform-lock.sigstore.json']
+    assert git(origin, 'rev-parse', 'refs/tags/nightly-lock/2026.1-rc.3^') == revision
+    assert git(origin, 'show', f'{revision}:notes.md') == 'generated notes'
+    assert git(origin, 'show', '-s', '--format=%cn <%ce>', 'refs/tags/nightly-lock/2026.1-rc.3') == \
+        'Mike McDougall <mike@honua.io>'
     assert git(origin, 'log', '--format=%an <%ae>|%s', '-1', 'refs/tags/nightly-lock/2026.1-rc.3') == \
         'Mike McDougall <mike@honua.io>|chore: nightly lock 2026.1-rc.3'
     # No force: a second publication of the same label is refused by git.
