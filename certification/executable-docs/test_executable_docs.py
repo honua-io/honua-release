@@ -232,7 +232,8 @@ def test_committed_inventory_matches_sources_and_records_every_block():
     for document in inventory["documents"]:
         assert [b["index"] for b in document["blocks"]] == list(range(len(document["blocks"])))
         for block in document["blocks"]:
-            assert block["intent"] in {"run", "compile", "file", "output", "alternative", "illustrative", "excluded"}
+            assert block["intent"] in {"run", "compile", "file", "output", "alternative", "illustrative", "excluded",
+                                       "teardown"}
             if block["intent"] == "excluded":
                 assert block["reason"].strip()
     for runtime, image in sources["runtimes"].items():
