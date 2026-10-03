@@ -6,5 +6,10 @@
       "documentedAt": "docs/sdks/javascript/javascript-getting-started.md:74 — \"Confirm `HONUA_API_KEY` is set\""
     }
   },
-  "substitute": {}
+  "substitute": {
+    "serviceId: \"default\",\n  layerId: 0,": {
+      "value": "serviceId: \"{fixture.featureService}\",\n  layerId: {fixture.featureLayerId},",
+      "documentedAt": "docs/sdks/javascript/javascript-getting-started.md:51 — \"swap `serviceId`/`layerId` for one of your own layers\""
+    }
+  }
 }

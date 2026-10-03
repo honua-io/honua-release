@@ -926,7 +926,9 @@ def main() -> int:
     base_url = "http://localhost:8080"   # what the docs' readers see: the candidate on its own port
     context: dict[str, Any] = {"candidate.baseUrl": base_url, "candidate.apiKey": api_key,
                                "candidate.adminPassword": api_key, "candidate.image": image,
-                               "candidate.mcpUrl": base_url + "/mcp", "candidate.grpcAddress": "localhost:8081"}
+                               "candidate.mcpUrl": base_url + "/mcp", "candidate.grpcAddress": "localhost:8081",
+                               # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2)
+                               "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2"}
     context["_pins"] = {str(v["package"]): str(v["version"]) for v in manifest.get("clientArtifacts", {}).values()
                         if v.get("package") and v.get("version") and not str(v["package"]).startswith("Honua.")}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
