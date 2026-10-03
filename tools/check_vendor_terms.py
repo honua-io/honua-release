@@ -301,7 +301,7 @@ class FileContext:
 
 
 def is_attributed(text: str) -> bool:
-    flattened = re.sub(r"(?m)^\s*(?:#+|//+|\*|>|<!--|-->)\s?", " ", text)
+    flattened = re.sub(r"(?m)^\s*(?:#+|//+|\*|>)\s?", " ", text)
     flattened = re.sub(r"[*_`]", "", flattened)
     return all(clause.search(flattened) for clause in ATTRIBUTION_CLAUSES)
 
