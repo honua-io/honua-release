@@ -132,6 +132,41 @@ def test_generator_refuses_conflicting_database_declarations(tmp_path):
     assert any("schemaVersions.database: conflicts with dbSchema" in refusal for refusal in draft.unresolved)
 
 
+def _version_refusals(tmp_path, **mobile):
+    manifest = evidence_manifest()
+    manifest["components"]["mobile"] = {"repository": "https://github.com/honua-io/honua-mobile",
+                                        "sha": REVISION, "lifecycleStatus": "Experimental", **mobile}
+    draft = draft_of(tmp_path, manifest)
+    return draft, [item for item in draft.unresolved if "$.components.mobile." in item and "Versions" in item]
+
+
+def test_generator_accepts_an_explicit_empty_set_for_a_source_pinned_component(tmp_path):
+    draft, refusals = _version_refusals(tmp_path, sourcePinnedOnly=True, contractVersions={}, schemaVersions={})
+    assert refusals == []
+    entry = draft.lock["components"]["mobile"]
+    assert entry["contractVersions"] == {} and entry["schemaVersions"] == {}
+    assert entry["artifactIdentityModel"] == "source-pinned"
+
+
+def test_generator_still_refuses_an_absent_set_for_a_source_pinned_component(tmp_path):
+    _, refusals = _version_refusals(tmp_path, sourcePinnedOnly=True)
+    assert any("mobile.contractVersions: not declared" in item for item in refusals), refusals
+    assert any("mobile.schemaVersions: not declared" in item for item in refusals), refusals
+
+
+@pytest.mark.parametrize("value", [None, [], {"api": "latest"}, {"api": "TBD"}])
+def test_generator_refuses_a_malformed_set_for_a_source_pinned_component(tmp_path, value):
+    _, refusals = _version_refusals(tmp_path, sourcePinnedOnly=True, contractVersions=value, schemaVersions={})
+    assert any("mobile.contractVersions:" in item and "[MECHANICAL]" in item for item in refusals), refusals
+
+
+def test_generator_refuses_an_empty_set_for_a_published_component(tmp_path):
+    _, refusals = _version_refusals(tmp_path, contractVersions={}, schemaVersions={})
+    for group in ("contractVersions", "schemaVersions"):
+        assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals), refusals
+        assert any(f"mobile.{group}: not declared" in item for item in refusals), refusals
+
+
 def test_refuses_tbd_anywhere():
     lock = valid_lock(); lock["notes"] = "TBD-at-publish"
     assert_refused(lock, "placeholder/TBD")

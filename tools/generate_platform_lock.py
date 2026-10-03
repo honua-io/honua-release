@@ -163,10 +163,11 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             "artifacts": [],
             "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
         }
+        source_pinned = bool(component.get("sourcePinnedOnly"))
         for group in ("contractVersions", "schemaVersions"):
             if group in component:
                 try:
-                    entry[group] = version_map(component[group])
+                    entry[group] = version_map(component[group], allow_empty=source_pinned)
                 except ValueError as exc:
                     refuse(f"{cpath}.{group}: {exc}", "MECHANICAL")
         if component.get("dbSchema") is not None:
@@ -201,10 +202,12 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             entry["supportTier"] = lifecycle_status.lower()
         else:
             refuse(f"{cpath}.lifecycleStatus: exact GA/Preview/Experimental/Excluded status is not declared", "DECISION")
-        if not entry["contractVersions"]:
+        # An explicit empty map is a declaration only for a sourcePinnedOnly component; an absent
+        # map, or an empty one anywhere else, is still undeclared.
+        if not entry["contractVersions"] and not (source_pinned and "contractVersions" in component):
             resolution = "PUBLISH" if name in {"honua-sdk-dotnet", "honua-sdk-js", "honua-sdk-python"} else "AT-CUT"
             refuse(f"{cpath}.contractVersions: not declared", resolution)
-        if not entry["schemaVersions"]:
+        if not entry["schemaVersions"] and not (source_pinned and "schemaVersions" in component):
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
         if not seed and not component.get("sourcePinnedOnly") and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")

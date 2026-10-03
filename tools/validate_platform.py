@@ -154,7 +154,8 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
             for group in ("contractVersions", "schemaVersions"):
                 if group in component:
                     try:
-                        versions = version_map(component[group])
+                        versions = version_map(component[group],
+                                               allow_empty=bool(component.get("sourcePinnedOnly")))
                         if group == "schemaVersions" and "database" in versions and component.get("dbSchema") is not None:
                             if versions["database"] != str(component["dbSchema"]):
                                 raise ValueError("database conflicts with dbSchema")

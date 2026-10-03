@@ -8,8 +8,10 @@ FLOATING_VERSION_RE = re.compile(
 )
 
 
-def version_map(value: object) -> dict[str, str]:
-    if not isinstance(value, dict) or not value:
+def version_map(value: object, *, allow_empty: bool = False) -> dict[str, str]:
+    """An exact name->version map. `allow_empty` is for sourcePinnedOnly components alone: their
+    explicit `{}` declares that no contract or schema is versioned, which absence never does."""
+    if not isinstance(value, dict) or (not value and not allow_empty):
         raise ValueError("must be a non-empty mapping of names to exact version strings")
     for name, version in value.items():
         if not isinstance(name, str) or not name.strip() or name != name.strip():

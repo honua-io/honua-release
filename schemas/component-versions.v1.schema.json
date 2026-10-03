@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/component-versions.v1.schema.json",
+  "title": "Honua component-version declaration v1",
+  "description": "release/component-versions.json at the root of one component repository: the contract and schema versions that repository's source declares at that revision. The nightly resolver reads it at the selected sha; see docs/COMPONENT-VERSION-DECLARATIONS.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "component", "contractVersions", "schemaVersions"],
+  "properties": {
+    "format": {"const": "honua.component-versions/v1"},
+    "component": {
+      "description": "The platform-manifest component key this repository declares for.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "contractVersions": {"$ref": "#/$defs/versionMap"},
+    "schemaVersions": {
+      "$ref": "#/$defs/versionMap",
+      "description": "`database` is reserved: the resolver derives it from the selected honua-server migration tree.",
+      "not": {"required": ["database"]}
+    }
+  },
+  "$defs": {
+    "versionMap": {
+      "description": "Name to exact version. An empty map is accepted here; the resolver permits it only for a component the platform manifest marks sourcePinnedOnly.",
+      "type": "object",
+      "propertyNames": {"pattern": "^\\S(.*\\S)?$"},
+      "additionalProperties": {"type": "string", "pattern": "^\\S(.*\\S)?$"}
+    }
+  }
+}
