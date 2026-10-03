@@ -50,7 +50,10 @@ def retry(operation):
         try:
             return operation()
         except (OSError, subprocess.CalledProcessError) as exc:
-            detail = (getattr(exc, 'stderr', '') or str(exc)).lower()
+            detail = getattr(exc, 'stderr', '') or str(exc)
+            if isinstance(detail, bytes):
+                detail = detail.decode('utf-8', errors='replace')
+            detail = detail.lower()
             transient = isinstance(exc, urllib.error.URLError) or any(term in detail for term in (
                 'error connecting', 'could not resolve host', 'connection reset',
                 'timeout', 'timed out', 'tls', '403'))
@@ -126,8 +129,33 @@ class GitHub:
         return row['decided'] == 'pass', row['why']
 
     def file(self, repository, revision, path):
+        """The exact blob bytes at `revision`, or a refusal; never a short or empty read."""
         response = self.json(f'repos/{repository}/contents/{path}?ref={revision}')
-        return base64.b64decode(response['content'])
+        if not isinstance(response, dict):
+            raise ResolutionError(f'{repository}@{revision}:{path} is not a file')
+        size, blob = response.get('size'), str(response.get('sha') or '')
+        if response.get('encoding') == 'base64':
+            raw = base64.b64decode(response.get('content') or '')
+        else:
+            # Over 1 MB the contents API answers encoding "none" and an empty content field; the
+            # raw media type serves the blob itself (up to 100 MB).
+            raw = self.raw(f'repos/{repository}/contents/{path}?ref={revision}')
+        # The blob sha the API reports binds the bytes, so a truncated or substituted body refuses.
+        actual = hashlib.sha1(b'blob %d\0' % len(raw) + raw).hexdigest()
+        if len(raw) != size or actual != blob:
+            raise ResolutionError(f'{repository}@{revision}:{path}: read {len(raw)} bytes (git blob {actual}), '
+                                  f'not the {size} bytes of blob {blob or "(none)"}')
+        return raw
+
+    def raw(self, path):
+        try:
+            result = retry(lambda: subprocess.run(
+                ['gh', 'api', path, '-H', 'Accept: application/vnd.github.raw+json'],
+                capture_output=True, check=True))
+        except subprocess.CalledProcessError as exc:
+            detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
+            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+        return result.stdout
 
 
 class Registry:
@@ -424,11 +452,11 @@ def migration_journal(github, paths, repository, sha):
 # repository at its commit).
 LEDGER = 'protocolCertification.ledger'
 OKF_CONTENT_SOURCE = ('honua-server', 'scripts/ci/okf-bundle.v1.json')
-# OPERATOR RULING PENDING (#231 WI-7): which bytes are "the catalog". Bound to the runtime capability
-# catalog as the selected server commits it: capability-keys.v1.json is generated from
-# CapabilityKeyCatalog.cs, the registry the capability matrix, licensing and route mapping join on.
-# The alternative identity, the honua-evidence catalog commit, is (LEDGER, 'data/protocol-certification.v1.json').
-CATALOG_CONTENT_SOURCE = ('honua-server', 'docs/gis/data/capability-keys.v1.json')
+# Ruling R24 (honua-release#376, 2026-10-03): the catalog is the server's runtime feature catalog at
+# the selected sha. feature-catalog.json is copied into the image (Dockerfile), embedded by
+# Honua.Server.csproj and Honua.Ai.csproj, and served by FeatureCatalogResource. It is ~1.6 MB, so
+# GitHub.file reads it through the raw media type.
+CATALOG_CONTENT_SOURCE = ('honua-server', 'docs/gis/data/feature-catalog.json')
 CONTENT_DIGEST_SOURCES = {'okf': OKF_CONTENT_SOURCE, 'catalog': CATALOG_CONTENT_SOURCE}
 
 

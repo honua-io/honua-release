@@ -460,6 +460,165 @@ def test_a_content_digest_is_never_read_at_a_moving_or_pending_revision(revision
         resolver.content_digest_declaration(Guard(), candidate, 'okf')
 
 
+def test_the_catalog_is_the_servers_runtime_feature_catalog_r24():
+    # Ruling R24 (#376): the bytes the server image embeds and FeatureCatalogResource serves.
+    assert resolver.CATALOG_CONTENT_SOURCE == ('honua-server', 'docs/gis/data/feature-catalog.json')
+
+
+def git_blob(raw):
+    return hashlib.sha1(b'blob %d\0' % len(raw) + raw).hexdigest()
+
+
+class ContentsApi:
+    """`gh api .../contents` as GitHub answers it: base64 up to 1 MB, encoding "none" above."""
+
+    def __init__(self, raw, served=None):
+        self.raw, self.served, self.calls = raw, raw if served is None else served, []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        assert cmd[:2] == ['gh', 'api'] and '/contents/' in cmd[2]
+        if 'Accept: application/vnd.github.raw+json' in cmd:
+            assert 'text' not in kwargs, 'raw bytes must not be decoded as text'
+            return type('Result', (), {'stdout': self.served, 'stderr': b'', 'returncode': 0})()
+        large = len(self.raw) > 1024 * 1024
+        body = {'type': 'file', 'size': len(self.raw), 'sha': git_blob(self.raw),
+                'encoding': 'none' if large else 'base64',
+                'content': '' if large else base64.b64encode(self.raw).decode()}
+        return type('Result', (), {'stdout': json.dumps(body), 'stderr': '', 'returncode': 0})()
+
+
+SERVER_AT_NEW = {'components': {'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW}}}
+EMPTY_SHA256 = 'sha256:' + hashlib.sha256(b'').hexdigest()
+
+
+def large_catalog():
+    """A >1 MB catalog like feature-catalog.json (~1.58 MB), deterministic and non-repeating."""
+    rows = [{'key': f'feature-{index}', 'digest': hashlib.sha256(str(index).encode()).hexdigest()}
+            for index in range(16000)]
+    raw = json.dumps({'features': rows}, indent=2).encode() + b'\n'
+    assert len(raw) > 1024 * 1024
+    return raw
+
+
+def test_a_catalog_over_one_megabyte_declares_the_digest_of_its_real_bytes(monkeypatch):
+    raw = large_catalog()
+    api = ContentsApi(raw)
+    monkeypatch.setattr(resolver.subprocess, 'run', api)
+    declaration = resolver.content_digest_declaration(resolver.GitHub(), SERVER_AT_NEW, 'catalog')
+    assert declaration['sha256'] == 'sha256:' + hashlib.sha256(raw).hexdigest()
+    assert declaration['sha256'] != EMPTY_SHA256
+    assert declaration['path'] == 'docs/gis/data/feature-catalog.json' and declaration['revision'] == NEW
+    assert [call[2] for call in api.calls] == [f'repos/honua-io/honua-server/contents/{declaration["path"]}?ref={NEW}'] * 2
+
+
+def test_a_small_file_is_still_read_from_the_base64_body(monkeypatch):
+    raw = b'{"version": "honua.okf-bundle/v1"}\n'
+    api = ContentsApi(raw)
+    monkeypatch.setattr(resolver.subprocess, 'run', api)
+    assert resolver.GitHub().file('honua-io/honua-server', NEW, 'scripts/ci/okf-bundle.v1.json') == raw
+    assert len(api.calls) == 1
+
+
+@pytest.mark.parametrize('served', [b'', b'truncated', None])
+def test_a_large_read_that_is_short_or_substituted_refuses(monkeypatch, served):
+    raw = large_catalog()
+    if served is None:
+        # Same length, different bytes: only the blob sha catches it.
+        served = raw[:-2] + b'X\n'
+    monkeypatch.setattr(resolver.subprocess, 'run', ContentsApi(raw, served))
+    with pytest.raises(resolver.ResolutionError, match=f'not the {len(raw)} bytes of blob {git_blob(raw)}'):
+        resolver.GitHub().file('honua-io/honua-server', NEW, 'docs/gis/data/feature-catalog.json')
+
+
+def test_an_encoding_none_body_without_raw_access_refuses_rather_than_hashing_nothing(monkeypatch):
+    raw = large_catalog()
+    api = ContentsApi(raw)
+
+    def run(cmd, **kwargs):
+        if 'Accept: application/vnd.github.raw+json' in cmd:
+            raise subprocess.CalledProcessError(1, cmd, output=b'', stderr=b'gh: Not Found (HTTP 404)')
+        return api(cmd, **kwargs)
+
+    monkeypatch.setattr(resolver.subprocess, 'run', run)
+    with pytest.raises(resolver.ResolutionError, match='HTTP 404'):
+        resolver.content_digest_declaration(resolver.GitHub(), SERVER_AT_NEW, 'catalog')
+
+
+def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch, tmp_path):
+    """#231 WI-7: the trunk manifest, resolved with and without the content-digest step, through the
+    real generate_platform_lock. Only $.contentDigests.okf and .catalog (inventory rows 33-34) clear."""
+    import generate_platform_lock as generator
+
+    manifest = yaml.safe_load((resolver.ROOT / 'platform-manifest.yaml').read_text())
+    matrix = yaml.safe_load((resolver.ROOT / 'compatibility-matrix.yaml').read_text())
+    # A bound ledger keeps resolve on its success path; the generator does not read it.
+    manifest['protocolCertification']['ledger']['status'] = 'bound'
+    server = manifest['components']['honua-server']
+    repository, sha = server['repository'].removeprefix('https://github.com/'), server['sha']
+    rows = {**manifest['components'], **(manifest.get('experimental') or {})}
+
+    class Server:
+        def file(self, repo, revision, path):
+            assert (repo, revision) == (repository, sha)
+            return CONTENT_FILES[path]
+
+    # Everything except the content-digest step carries the manifest through unchanged.
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'select_sdk', lambda name, component, *a: copy.deepcopy(component))
+    def versions(github, name, selected):
+        # The server's own declaration always carries schemaVersions; resolve adds the derived floor.
+        declared = {'schemaVersions': {}} if name == 'honua-server' else {}
+        declared.update({group: copy.deepcopy(rows[name][group])
+                         for group in ('contractVersions', 'schemaVersions') if group in rows[name]})
+        return declared
+
+    monkeypatch.setattr(resolver, 'component_versions', versions)
+    monkeypatch.setattr(resolver, 'migration_tree', lambda *a: [])
+    monkeypatch.setattr(resolver, 'migration_floor', lambda *a: server['dbSchema'])
+    monkeypatch.setattr(resolver, 'migration_journal', lambda *a: ['001_CreateHonuaSchema.sql'])
+    monkeypatch.setattr(resolver.validate_platform, 'validate', lambda *a, **k: type('Findings', (), {'errors': []})())
+    monkeypatch.setattr(resolver.validate_platform, 'check_legacy_evidence_pin_coherence', lambda *a: None)
+
+    def generated(label, sources):
+        monkeypatch.setattr(resolver, 'CONTENT_DIGEST_SOURCES', sources)
+        candidate, candidate_matrix = resolver.resolve(manifest, matrix, Server(), None)
+        # The cut timestamps are wall-clock; pin them so the two runs differ only in what is under test.
+        candidate['protocolCertification']['candidateCutAt'] = '2026-10-03T00:00:00Z'
+        candidate['snapshotDate'] = '2026-10-03'
+        out = tmp_path / label
+        out.mkdir()
+        (out / 'platform-manifest.yaml').write_text(yaml.safe_dump(candidate, sort_keys=False))
+        (out / 'compatibility-matrix.yaml').write_text(yaml.safe_dump(candidate_matrix, sort_keys=False))
+        return candidate, generator.generate(out / 'platform-manifest.yaml', out / 'compatibility-matrix.yaml')
+
+    sources = dict(resolver.CONTENT_DIGEST_SOURCES)
+    control_candidate, control = generated('control', {})
+    resolved_candidate, resolved = generated('resolved', sources)
+
+    cleared = [row for row in control.unresolved if row not in resolved.unresolved]
+    assert cleared == ['[AT-CUT] $.contentDigests.catalog: catalog digest is not declared',
+                       '[AT-CUT] $.contentDigests.okf: OKF digest is not declared']
+    assert [row for row in control.unresolved if row not in cleared] == resolved.unresolved
+    assert [row for row in control.deferred_until_cut if row not in cleared] == resolved.deferred_until_cut
+
+    expected = {name: 'sha256:' + hashlib.sha256(CONTENT_FILES[path]).hexdigest()
+                for name, (_, path) in sources.items()}
+    assert {k: v for k, v in resolved.lock['contentDigests'].items() if k in expected} == expected
+    # Nothing else in the lock moved: the same draft once the two digests and the manifest's own
+    # file identity (it now carries the declarations) are set aside.
+    for draft in (control, resolved):
+        for name in expected:
+            draft.lock['contentDigests'].pop(name, None)
+        draft.lock['sourceInputs'].pop('platformManifest')
+    assert resolved.lock == control.lock
+    for candidate in (control_candidate, resolved_candidate):
+        for name in expected:
+            candidate['platformLockEvidence']['contentDigests'].pop(name, None)
+    assert resolved_candidate == control_candidate
+
+
 # --- release/component-versions.json (honua-release#231 WI-3a) ---
 
 def declaration_bytes(component, **overrides):
@@ -500,7 +659,8 @@ def test_declaration_is_read_at_the_pinned_sha():
 def test_declaration_goes_through_the_contents_api_at_the_sha(monkeypatch):
     raw = declaration_bytes('honua-iac')
     gh = FakeGh({'repos/honua-io/honua-iac/contents/release/component-versions.json':
-                 {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'}})
+                 {'content': base64.b64encode(raw).decode(), 'encoding': 'base64',
+                  'size': len(raw), 'sha': git_blob(raw)}})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
     component = {'repository': 'https://github.com/honua-io/honua-iac', 'sha': NEW}
     assert resolver.component_versions(resolver.GitHub(), 'honua-iac', component)['contractVersions'] == {'admin': 'v1'}
