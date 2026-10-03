@@ -18,11 +18,19 @@ import tempfile
 import yaml
 
 from finalize_release import render_release_notes
+from candidate_binding import validate_live_report, _sha256
 from release_facts import notes_reference, source_reference
 
 
 def snapshot(manifest: Path, matrix: Path, report: dict, output: Path,
              documents: dict[str, bytes] | None = None) -> tuple[str, dict[str, str]]:
+    green, reason = validate_live_report(report)
+    if not green:
+        raise ValueError(f'notes require an all-green live report: {reason}')
+    for path in (manifest, matrix):
+        pin = report.get('candidate', {}).get('artifacts', {}).get(path.name) or {}
+        if pin.get('sha256') != _sha256(path) or pin.get('size') != path.stat().st_size:
+            raise ValueError(f'notes report is not bound to {path.name} bytes')
     repository = 'https://github.com/' + report['candidate']['source']['repository']
     label = report['platform_label']
     notes_path = f'release-notes/{label}.md'

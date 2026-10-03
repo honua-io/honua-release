@@ -453,7 +453,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0" pytest
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" pytest
 
       # Prove the exception ledger is well-formed (every entry names a real gate id and carries an
       # issue link) BEFORE the report consumes it, so a typo cannot quietly annotate nothing.
@@ -613,7 +613,6 @@ jobs:
           TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
           TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           NIGHTLY: ${{ inputs.nightly }}
-          GH_TOKEN: ${{ github.token }}
           CERTIFICATION_MODE: ${{ inputs.dry_run && 'dry-run' || 'live' }}
         run: |
           set -euo pipefail
@@ -649,14 +648,6 @@ jobs:
               --report out/certified-candidate/gate-report.json \
               --lock candidate-input/frozen-lock/platform-lock.json \
               --journey-reports journey-reports
-            # Freeze still requires a complete lock. Only a green gate_sbom and complete train
-            # reach collection; none of the pre-gate hand-declared references is reused.
-            python tools/mint_nightly_lock.py --collect-post-gate \
-              --report out/certified-candidate/gate-report.json \
-              --manifest out/certified-candidate/platform-manifest.yaml \
-              --matrix out/certified-candidate/compatibility-matrix.yaml \
-              --out-dir out/certified-candidate
-            cp candidate-input/frozen-lock/platform-lock.json out/certified-candidate/qualification-lock.json
           fi
           cp out/certified-candidate/gate-report.json out/gate-report.json
           # Use only the attested freeze output, never a second checkout of lock bytes.
@@ -669,6 +660,21 @@ jobs:
           python tools/generate_evidence_index.py \
             --manifest out/certified-candidate/platform-manifest.yaml \
             --out out/certified-candidate/release-evidence-pins.json
+
+      - name: Collect immutable post-gate SBOM, provenance and notes references
+        if: inputs.nightly && inputs.dry_run == false && steps.assemble.outputs.overall == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Freeze still requires a complete lock. Only a green gate_sbom and complete train
+          # reach collection; none of the pre-gate hand-declared references is reused.
+          python tools/mint_nightly_lock.py --collect-post-gate \
+            --report out/certified-candidate/gate-report.json \
+            --manifest out/certified-candidate/platform-manifest.yaml \
+            --matrix out/certified-candidate/compatibility-matrix.yaml \
+            --out-dir out/certified-candidate
+          cp candidate-input/frozen-lock/platform-lock.json out/certified-candidate/qualification-lock.json
 
       - name: Upload bound platform gate-report.json
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

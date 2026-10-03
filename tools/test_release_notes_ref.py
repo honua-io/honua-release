@@ -39,6 +39,18 @@ def test_snapshot_is_deterministic_and_uses_candidate_bytes(inputs, tmp_path):
     assert first == second
 
 
+def test_notes_refuses_a_red_or_different_candidate(inputs, tmp_path):
+    report, paths = inputs
+    report['gates'][0]['status'] = 'fail'
+    with pytest.raises(ValueError, match='all-green live report'):
+        snapshot(*paths, report, tmp_path / 'out')
+    report['gates'][0]['status'] = 'pass'
+    paths[0].write_text(paths[0].read_text() + '# different bytes\n')
+    with pytest.raises(ValueError, match='not bound'):
+        snapshot(*paths, report, tmp_path / 'out')
+    assert not (tmp_path / 'out').exists()
+
+
 @pytest.mark.parametrize('path', ['../outside', '/absolute', 'a/../outside', 'a\\outside'])
 def test_snapshot_refuses_escaped_document_paths(inputs, tmp_path, path):
     report, paths = inputs

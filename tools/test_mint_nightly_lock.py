@@ -355,6 +355,26 @@ def test_promotion_bundle_verification_accepts_only_the_retained_delta(inputs, t
         bundle.bind_post_gate(lock, *paths, '2026.1-rc.3', output)
 
 
+@pytest.mark.parametrize('kind', ['npm', 'nuget', 'wheel', 'spec', 'archive'])
+def test_published_byte_reader_checks_the_locked_hash(monkeypatch, kind):
+    import verify_client_artifacts as client
+    package = b'locked published bytes'
+    digest = 'sha256:' + hashlib.sha256(package).hexdigest()
+    coordinate = 'Honua.Package' if kind in {'npm', 'nuget', 'wheel'} else \
+        'https://github.com/honua-io/component/blob/' + 'a' * 40 + '/spec.json'
+    artifact = {'kind': kind, 'coordinate': coordinate, 'version': '1.2.3', 'sha256': digest}
+    if kind == 'npm':
+        artifact['integrity'] = 'sha512-' + base64.b64encode(hashlib.sha512(package).digest()).decode()
+    monkeypatch.setattr(client, '_request_json', lambda url: {
+        'dist': {'tarball': 'https://registry.npmjs.org/package.tgz'},
+        'urls': [{'digests': {'sha256': digest.split(':')[1]}, 'url': 'https://files.pythonhosted.org/package.whl'}]})
+    monkeypatch.setattr(client, '_request', lambda url: package)
+    assert nightly.published_artifact_bytes(artifact) == package
+    monkeypatch.setattr(client, '_request', lambda url: b'different bytes')
+    with pytest.raises(ValueError, match='does not match its locked hash'):
+        nightly.published_artifact_bytes(artifact)
+
+
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])
 def test_any_red_or_incomplete_gate_mints_nothing(inputs, tmp_path, status):
     report, paths = inputs
