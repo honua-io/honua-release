@@ -217,6 +217,15 @@ refuses until two facts are present in the lock. The first is a `honua-server` i
 version is the platform version (WI-2/R22). The second is the publication-history receipt pinned
 as `components.honua-server.publicationHistory`.
 
+WI-2 (R22) produces the first fact. When the nightly stamps its label, `mint_nightly_lock.py
+--stamp` gives honua-server, honua-console and the Helm chart `artifactVersion` set to the label's
+platform version (`platform_version.artifact_version`: `2026.1-rc.N` is `2026.1.0-rc.N`, GA
+`2026.1.0` is `2026.1.0`). It also sets honua-server's `releaseVersion` to that version. A component
+is stamped only when its digest, artifact source revision and per-architecture digests (for a
+chart, the package checksum) are bound. The resolver drops any version carried forward from another
+night, and the generator and `validate_platform.py` refuse a platform version without those bound
+facts. SDK, gRPC and MCP rows keep their own semver.
+
 Before #233 can close, protocol publishers must bind introduction evidence — for
 2026.1 that means the first-release model above, since no earlier server exists —
 each SDK repository must correct and gate its own declarations in a linked PR, and

@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+from platform_version import artifact_version
 from semver import parse
 
 SDK_COMPONENTS = ("honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python", "geospatial-mcp")
@@ -17,9 +18,6 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 # An SDK's baseline declaration may also say `first-release` for its whole floor, because the
 # SDK is published before any candidate names the release; the lock resolves it (below).
 FIRST_RELEASE = "first-release"
-# R22 (honua-release#376): every imaged component takes the lock's platform version
-# `YYYY.N.P-rc.N` (GA `YYYY.N.P`), derived from the platform id `honua-YYYY.N[.P][-rc.N]`.
-PLATFORM_ID = re.compile(r"honua-(?P<year>[0-9]{4})\.(?P<minor>[0-9]+)(?:\.(?P<patch>[0-9]+))?(?P<rc>-rc\.[0-9]+)?")
 
 
 def content_digest(value: Any) -> str:
@@ -29,10 +27,13 @@ def content_digest(value: Any) -> str:
 
 def platform_version(lock: dict[str, Any]) -> str | None:
     """The lock's platform version (R22): `honua-2026.1-rc.3` is `2026.1.0-rc.3`; else None."""
-    match = PLATFORM_ID.fullmatch(str((lock.get("platform") or {}).get("id") or ""))
-    if not match:
+    platform_id = str((lock.get("platform") or {}).get("id") or "")
+    if not platform_id.startswith("honua-"):
         return None
-    return f"{match['year']}.{match['minor']}.{match['patch'] or 0}{match['rc'] or ''}"
+    try:
+        return artifact_version(platform_id)
+    except ValueError:
+        return None
 
 
 def release_context(lock: dict[str, Any]) -> dict[str, Any]:
