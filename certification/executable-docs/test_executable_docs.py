@@ -601,6 +601,29 @@ def test_elapsed_serve_timer_never_proves_readiness(tmp_path, monkeypatch, readi
     assert result.exit_code == 124
 
 
+def test_ready_url_observed_once_survives_the_shutdown_at_the_window_end(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    class Process:
+        calls = 0
+        returncode = None
+        def poll(self):
+            self.calls += 1
+            if self.calls > 4:
+                self.returncode = 124
+            return self.returncode
+        def wait(self):
+            return self.returncode
+    probes = iter([1, 0, 1, 1])   # not yet listening, serving, then shutting down when the window ends
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: Process())
+    monkeypatch.setattr(run, "docker", lambda *args, **kwargs: subprocess.CompletedProcess(args, next(probes, 1)))
+    monkeypatch.setattr(run.time, "sleep", lambda seconds: None)
+    result = session.run_shell("npx serve src", "node", 600, True, {"url": "http://localhost:3000/"})
+    assert result.status == "pass", result.detail
+
+
 def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     import os
     import subprocess
