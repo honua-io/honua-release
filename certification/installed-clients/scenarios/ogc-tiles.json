@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-ogc-tiles",
+  "title": "OGC API Tiles: one vector tile, one raster tile with a pixel oracle, one empty tile",
+  "promise": "A customer fetches tiles of a published collection through the SDK's OGC API Tiles client and gets the fixture polygon where the fixture says it is.",
+  "steps": [
+    {
+      "id": "vector-tile",
+      "oracle": "vector-tile",
+      "description": "Fetch the painted tile as a Mapbox vector tile; it holds exactly the fixture polygon, at the projected fixture bounds."
+    },
+    {
+      "id": "raster-tile",
+      "oracle": "raster-tile",
+      "description": "Fetch the painted tile as PNG; sample pixels inside the fixture polygon are painted and pixels outside are transparent."
+    },
+    {
+      "id": "empty-tile",
+      "oracle": "empty-tile",
+      "description": "Fetch a tile no fixture feature intersects; the SDK reports an empty tile."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "vector-tile": "honua_sdk.OgcTilesClient.tile",
+      "raster-tile": "honua_sdk.OgcTilesClient.tile",
+      "empty-tile": "honua_sdk.OgcTilesClient.tile"
+    },
+    "honua-sdk-js": {
+      "vector-tile": "HonuaClient.fetchOgcTile",
+      "raster-tile": "HonuaClient.fetchOgcTile(extraParams f=png)",
+      "empty-tile": "HonuaClient.fetchOgcTile"
+    },
+    "honua-sdk-dotnet": {
+      "vector-tile": "(no OGC API Tiles client in Honua.Sdk)",
+      "raster-tile": "(no OGC API Tiles client in Honua.Sdk)",
+      "empty-tile": "(no OGC API Tiles client in Honua.Sdk)"
+    }
+  }
+}

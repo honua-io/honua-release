@@ -1000,7 +1000,8 @@ def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
 def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt():
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                        'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
@@ -1019,12 +1020,13 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
 
 
-def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
+def test_report_declaration_command_emits_all_sixteen_classes(tmp_path):
     import json
     import subprocess
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                        'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},

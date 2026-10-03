@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-admin-lifecycle",
+  "title": "Admin lifecycle: datasource create/test, publish a service and layer, list, unpublish",
+  "promise": "An operator publishes a PostGIS table as a service and layer, sees it served, and unpublishes it, entirely through the published SDK's admin client.",
+  "steps": [
+    {
+      "id": "create-datasource",
+      "oracle": "datasource-created",
+      "description": "Create a PostGIS datasource for the fixture database."
+    },
+    {
+      "id": "test-datasource",
+      "oracle": "datasource-healthy",
+      "description": "Test the stored datasource; the connection succeeds."
+    },
+    {
+      "id": "publish",
+      "oracle": "layer-published",
+      "description": "Publish the client's lifecycle table as a new service and layer."
+    },
+    {
+      "id": "list",
+      "oracle": "layer-listed",
+      "description": "List the datasource's layers for the service; the published layer is enabled."
+    },
+    {
+      "id": "served",
+      "oracle": "count",
+      "description": "Read the published layer's features through the data client; the count is the number of rows returned."
+    },
+    {
+      "id": "unpublish",
+      "oracle": "layer-disabled",
+      "description": "Unpublish (disable) the layer through the admin client."
+    },
+    {
+      "id": "unpublished-refused",
+      "oracle": "not-found",
+      "description": "Query the unpublished layer; the SDK must raise a not-found error."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "create-datasource": "honua_admin.HonuaAdminClient.create_connection",
+      "test-datasource": "honua_admin.HonuaAdminClient.test_connection",
+      "publish": "honua_admin.HonuaAdminClient.publish_layer",
+      "list": "honua_admin.HonuaAdminClient.list_layers",
+      "served": "honua_sdk.HonuaClient.feature_server(...).query",
+      "unpublish": "honua_admin.HonuaAdminClient.set_layer_enabled(False)",
+      "unpublished-refused": "honua_sdk.HonuaClient.feature_server(...).query"
+    },
+    "honua-sdk-js": {
+      "create-datasource": "HonuaAdminClient.call(createConnection)",
+      "test-datasource": "HonuaAdminClient.call(testConnection)",
+      "publish": "HonuaAdminClient.call(publishLayer)",
+      "list": "HonuaAdminClient.call(getPublishedLayers)",
+      "served": "HonuaClient.featureLayer().queryFeatures",
+      "unpublish": "HonuaAdminClient.call(setLayerEnabled)",
+      "unpublished-refused": "HonuaClient.featureLayer().queryFeatures"
+    },
+    "honua-sdk-dotnet": {
+      "create-datasource": "IHonuaAdminClient.CreateConnectionAsync",
+      "test-datasource": "IHonuaAdminClient.TestConnectionAsync",
+      "publish": "IHonuaAdminClient.PublishLayerAsync",
+      "list": "IHonuaAdminClient.ListLayersAsync",
+      "served": "IHonuaFeatureServerClient.QueryAsync",
+      "unpublish": "IHonuaAdminClient.SetLayerEnabledAsync(false)",
+      "unpublished-refused": "IHonuaFeatureServerClient.QueryAsync"
+    }
+  }
+}

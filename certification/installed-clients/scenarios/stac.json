@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-stac",
+  "title": "STAC item search",
+  "promise": "A customer searches the STAC API by collection and bounding box through the SDK's STAC client and gets exactly the fixture items inside the box.",
+  "steps": [
+    {
+      "id": "search",
+      "oracle": "items",
+      "description": "Search the sites collection inside the fixture bbox; item ids and ordinates equal the fixture rows inside it."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-sdk-python-wheel": {
+      "search": "honua_sdk.StacClient.search(json_body)"
+    },
+    "honua-sdk-js": {
+      "search": "HonuaStacSearch.search"
+    },
+    "honua-sdk-dotnet": {
+      "search": "IHonuaStacClient.PostSearchAsync"
+    }
+  }
+}

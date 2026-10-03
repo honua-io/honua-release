@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -22,9 +23,20 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
 DRIVERS = {"npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
+# SDK regression drivers: the published SDK drives the candidate through a scenario contract
+# (scenarios/*.json) with fixture-computed oracles (regression.py, oracles.py).
+SUITE_DRIVERS = {"pypi-sdk", "npm-sdk", "nuget-sdk"}
+# Receipt step rows carry these fields only: never a response body, credential or server message.
+SUITE_STEP_FIELDS = {"step", "api", "status", "oracle", "blockedBy"}
+DRIVERS |= SUITE_DRIVERS
+COMPOSE_BASE = ROOT / "e2e/harness/compose.candidate.yml"
+COMPOSE_OVERLAY = HERE / "compose.sdk-regression.yml"
+DEFAULT_ADMIN_KEY = "honua-console-dev-key"
+FIXTURE_DB_PASSWORD = "honua"
 # How each declared package executable is exercised. `--help` only proves anything for a CLI that
 # implements it; the MCP server bins are stdio servers that refuse to start without configuration.
 EXECUTABLE_CONTRACTS = {"help", "mcp-stdio", "mcp-proxy"}
@@ -35,6 +47,7 @@ NUGET_ORG = "https://api.nuget.org/v3/index.json"
 DOTNET_PROBE = ROOT / "e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.cs"
 _IMPORT_FIDELITY = None
 _PROBES = None
+_REGRESSION = None
 
 
 class CertificationError(RuntimeError):
@@ -76,6 +89,20 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
             raise CertificationError(f"{cell_id}: artifact lacks immutable byte integrity")
     if not seen:
         raise CertificationError("matrix has no cells")
+    suite = [cell for cell in matrix["cells"] if cell["driver"] in SUITE_DRIVERS]
+    if suite:
+        regression = _regression()
+        try:
+            scenarios = regression.load_scenarios()
+            for cell in suite:
+                regression.validate_suite_cell(cell, scenarios, BLOCKER)
+        except (regression.RegressionError, OSError, json.JSONDecodeError, re.error) as exc:
+            raise CertificationError(f"SDK regression contract is invalid: {exc}") from exc
+        covered = {(cell["artifact"], cell["scenario"]) for cell in suite}
+        for artifact in sorted({cell["artifact"] for cell in suite}):
+            missing_scenarios = sorted(set(scenarios) - {sid for art, sid in covered if art == artifact})
+            if missing_scenarios:
+                raise CertificationError(f"matrix omits SDK regression scenarios for {artifact}: {missing_scenarios}")
     missing = set(artifacts) - {cell["artifact"] for cell in matrix["cells"]}
     if missing:
         raise CertificationError(f"matrix omits required client artifacts: {sorted(missing)}")
@@ -91,8 +118,9 @@ def validate_cell(cell: dict[str, Any]) -> None:
         if "blockedBy" in cell:
             raise CertificationError(f"{cell_id}: an active cell cannot carry blockedBy")
     elif status == "blocked":
-        if not BLOCKER.fullmatch(str(cell.get("blockedBy", ""))):
-            raise CertificationError(f"{cell_id}: a blocked cell must name its blocking issue URL")
+        blockers = cell.get("blockedBy") if cell["driver"] in SUITE_DRIVERS else [cell.get("blockedBy", "")]
+        if not isinstance(blockers, list) or not blockers or not all(BLOCKER.fullmatch(str(url)) for url in blockers):
+            raise CertificationError(f"{cell_id}: a blocked cell must name its blocking issue URL(s)")
     else:
         raise CertificationError(f"{cell_id}: status must be active or blocked, not {status!r}")
     if cell["driver"] == "npm-mcp":
@@ -113,6 +141,35 @@ def validate_cell(cell: dict[str, Any]) -> None:
             or expect["toolCount"] < 1
         ):
             raise CertificationError(f"{cell_id}: setup-view cells must expect a workflowView and a positive toolCount")
+
+
+def boot_candidate(manifest: dict[str, Any]) -> list[str]:
+    """Boot the exact candidate image@digest the way e2e-local-docker does (local Docker,
+    licensing disabled, no AWS), plus the SDK regression overlay. Returns the compose command."""
+    port = os.environ.get("E2E_SERVER_PORT", "8080")
+    server = os.environ.setdefault("HONUA_SERVER_URL", f"http://localhost:{port}")
+    os.environ.setdefault("E2E_BASE", server)
+    os.environ.setdefault("HONUA_PUBLIC_BASE_URL", server)
+    # Bind compose to the already validated candidate, whichever manifest the caller selected.
+    os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
+    # A per-run issuer key for the operator-bearer scenarios; it never outlives the stack.
+    os.environ.setdefault("SDKREG_SIGNING_KEY", secrets.token_urlsafe(48))
+    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(COMPOSE_OVERLAY)]
+    os.environ["SDKREG_COMPOSE"] = " ".join(compose)
+    if subprocess.run([*compose, "pull", "server"], cwd=ROOT).returncode:
+        raise CertificationError(f"could not pull {os.environ['HONUA_SERVER_IMAGE']}")
+    if subprocess.run([*compose, "up", "-d", "--wait", "--wait-timeout", "300"], cwd=ROOT).returncode:
+        subprocess.run([*compose, "logs", "--tail", "120", "server"], cwd=ROOT)
+        subprocess.run([*compose, "down", "-v"], cwd=ROOT, capture_output=True)
+        raise CertificationError("the immutable server candidate did not become ready")
+    licensing = subprocess.run(
+        [sys.executable, str(ROOT / "e2e/licensing.py"), "--base-url", server,
+         "--output", str(ROOT / "e2e/out/licensing.json")],
+        cwd=ROOT, env={**os.environ, "HONUA_ADMIN_PASSWORD": os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY)})
+    if licensing.returncode:
+        subprocess.run([*compose, "down", "-v"], cwd=ROOT, capture_output=True)
+        raise CertificationError("the candidate must report licensing mode: disabled")
+    return compose
 
 
 def server_image_ref(manifest: dict[str, Any]) -> str:
@@ -291,7 +348,7 @@ def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tu
     if (
         view == "setup" and count == 25
         and result.get("nextCursor") is None
-        and meta.get("view") == "default" and meta.get("revision") == "default.v2"
+        and meta.get("view") == "default" and meta.get("revision") == "default.v1"
         and meta.get("toolCount") == 12
         and len(tools) == 12 and valid_tool_names(tools)
     ):
@@ -310,32 +367,20 @@ def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tu
     return True, f"installed proxy preserved the initialize-bound {view!r} view ({meta.get('revision')}) with {count} tools"
 
 
-def install_nuget(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
-    """Restore the pinned package from nuget.org into an isolated consumer and check the bytes."""
-    if pin.get("registry") != "nuget.org":
-        return False, f"NuGet pin registry {pin.get('registry')!r} is not anonymous nuget.org"
-    if not shutil.which("dotnet"):
-        return False, "dotnet is unavailable"
+def _nuget_framework(pin: dict[str, Any]) -> str:
     targets = pin.get("targets") or []
     framework = targets[0] if targets else ""
-    if not re.fullmatch(r"net[0-9]+\.[0-9]+", framework):
-        return False, f"NuGet pin has no consumer target framework: {targets!r}"
-    project = work / "consumer"
-    project.mkdir(parents=True)
+    return framework if re.fullmatch(r"net[0-9]+\.[0-9]+", framework) else ""
+
+
+def _restore_nuget(pin: dict[str, Any], work: Path, project: Path, build_args: list[str]) -> tuple[bool, str, dict[str, str]]:
+    """Restore and build ``project`` against the pinned package from anonymous nuget.org only."""
     config = work / "NuGet.config"
     config.write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n<configuration><packageSources><clear />'
         f'<add key="nuget.org" value="{NUGET_ORG}" protocolVersion="3" />'
         "</packageSources></configuration>\n"
     )
-    (project / "Consumer.csproj").write_text(
-        '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n'
-        f"    <TargetFramework>{framework}</TargetFramework>\n"
-        "    <ImplicitUsings>enable</ImplicitUsings>\n    <Nullable>enable</Nullable>\n  </PropertyGroup>\n"
-        f'  <ItemGroup>\n    <PackageReference Include="{pin["package"]}" Version="[{pin["version"]}]" />\n'
-        "  </ItemGroup>\n</Project>\n"
-    )
-    shutil.copy2(DOTNET_PROBE, project / "Probe.cs")
     packages = work / "packages"
     env = {
         **os.environ,
@@ -344,9 +389,9 @@ def install_nuget(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
         "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
         "DOTNET_NOLOGO": "1",
     }
-    restore = _run(["dotnet", "restore", "--configfile", str(config)], cwd=project, env=env)
+    restore = _run(["dotnet", "restore", "--configfile", str(config), *build_args], cwd=project, env=env)
     if restore.returncode:
-        return False, f"dotnet restore from nuget.org failed: {(restore.stdout + restore.stderr)[-2000:]}"
+        return False, f"dotnet restore from nuget.org failed: {(restore.stdout + restore.stderr)[-2000:]}", env
     package_id, version = pin["package"].lower(), pin["version"].lower()
     restored = packages / package_id / version / f"{package_id}.{version}.nupkg"
     try:
@@ -354,28 +399,52 @@ def install_nuget(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
         source = json.loads((restored.parent / ".nupkg.metadata").read_text()).get("source")
         libraries = json.loads((project / "obj" / "project.assets.json").read_text()).get("libraries", {})
     except (OSError, json.JSONDecodeError) as exc:
-        return False, f"could not inspect the restored NuGet package: {exc}"
+        return False, f"could not inspect the restored NuGet package: {exc}", env
     if actual != pin["digest"]:
-        return False, f"restored NuGet package digest mismatch: {actual}"
+        return False, f"restored NuGet package digest mismatch: {actual}", env
     if source != NUGET_ORG:
-        return False, f"restored NuGet package came from {source!r}, not nuget.org"
+        return False, f"restored NuGet package came from {source!r}, not nuget.org", env
     if f"{pin['package']}/{pin['version']}" not in libraries:
-        return False, "restored consumer does not resolve the exact pinned package version"
-    output = work / "out"
-    build = _run(["dotnet", "build", "--no-restore", "-c", "Release", "-o", str(output)], cwd=project, env=env)
+        return False, "restored consumer does not resolve the exact pinned package version", env
+    build = _run(["dotnet", "build", "--no-restore", "-c", "Release", "-o", str(work / "out"), *build_args], cwd=project, env=env)
     if build.returncode:
-        return False, f"consumer build against the published package failed: {(build.stdout + build.stderr)[-2000:]}"
+        return False, f"consumer build against the published package failed: {(build.stdout + build.stderr)[-2000:]}", env
+    return True, "exact nuget.org package sha256 matched in an isolated restore", env
+
+
+def install_nuget(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
+    """Restore the pinned package from nuget.org into an isolated consumer and check the bytes."""
+    if pin.get("registry") != "nuget.org":
+        return False, f"NuGet pin registry {pin.get('registry')!r} is not anonymous nuget.org"
+    if not shutil.which("dotnet"):
+        return False, "dotnet is unavailable"
+    framework = _nuget_framework(pin)
+    if not framework:
+        return False, f"NuGet pin has no consumer target framework: {pin.get('targets')!r}"
+    project = work / "consumer"
+    project.mkdir(parents=True)
+    (project / "Consumer.csproj").write_text(
+        '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n'
+        f"    <TargetFramework>{framework}</TargetFramework>\n"
+        "    <ImplicitUsings>enable</ImplicitUsings>\n    <Nullable>enable</Nullable>\n  </PropertyGroup>\n"
+        f'  <ItemGroup>\n    <PackageReference Include="{pin["package"]}" Version="[{pin["version"]}]" />\n'
+        "  </ItemGroup>\n</Project>\n"
+    )
+    shutil.copy2(DOTNET_PROBE, project / "Probe.cs")
+    ok, detail, env = _restore_nuget(pin, work, project, [])
+    if not ok:
+        return False, detail
     suffix = ""
     if os.environ.get("HONUA_SERVER_URL"):
-        probe = _run(["dotnet", str(output / "Consumer.dll")], cwd=work, env=env)
+        probe = _run(["dotnet", str(work / "out" / "Consumer.dll")], cwd=work, env=env)
         if probe.returncode:
             return False, (probe.stdout + probe.stderr)[-2000:]
         suffix = ", live GeoServices error probe passed"
-    return True, f"exact nuget.org package sha256 matched in an isolated restore{suffix}"
+    return True, f"{detail}{suffix}"
 
 
-def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
-    work.mkdir()
+def _download_wheel(pin: dict[str, Any], work: Path) -> tuple[Path | None, str]:
+    """Download exactly the pinned wheel from PyPI and check its sha256."""
     try:
         with urllib.request.urlopen(
             f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json", timeout=30
@@ -383,15 +452,23 @@ def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
             metadata = json.load(response)
         candidates = [item for item in metadata["urls"] if item["filename"] == pin.get("filename")]
         if len(candidates) != 1:
-            return False, "PyPI release metadata did not contain exactly the pinned wheel"
+            return None, "PyPI release metadata did not contain exactly the pinned wheel"
         wheel = work / pin["filename"]
         with urllib.request.urlopen(candidates[0]["url"], timeout=60) as response:
             wheel.write_bytes(response.read())
     except Exception as exc:
-        return False, f"PyPI download failed: {exc}"
+        return None, f"PyPI download failed: {exc}"
     actual = "sha256:" + hashlib.sha256(wheel.read_bytes()).hexdigest()
     if actual != pin["digest"]:
-        return False, f"wheel digest mismatch: {actual}"
+        return None, f"wheel digest mismatch: {actual}"
+    return wheel, ""
+
+
+def install_pypi(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
+    work.mkdir()
+    wheel, failure = _download_wheel(pin, work)
+    if wheel is None:
+        return False, failure
     target = work / "site-packages"
     target.mkdir()
     pip = _run([sys.executable, "-m", "pip", "--version"], cwd=work)
@@ -442,6 +519,130 @@ def _import_fidelity():
         spec.loader.exec_module(module)
         _IMPORT_FIDELITY = module
     return _IMPORT_FIDELITY
+
+
+def _regression():
+    global _REGRESSION
+    if _REGRESSION is None:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))  # regression.py imports its sibling oracles.py
+        spec = importlib.util.spec_from_file_location("sdk_regression", HERE / "regression.py")
+        if spec is None or spec.loader is None:
+            raise CertificationError("could not load the SDK regression suite")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _REGRESSION = module
+    return _REGRESSION
+
+
+def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple[bool, str, list[str], dict[str, str]]:
+    """Install only the manifest-pinned published SDK bytes and return the driver command."""
+    drivers = HERE / "drivers"
+    if driver == "npm-sdk":
+        ok, detail = install_npm(pins["honua-sdk-js"], work, sdk_probe=False)
+        if not ok:
+            return False, detail, [], {}
+        work.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(drivers / "js" / "driver.mjs", work / "driver.mjs")
+        return True, detail, ["node", str(work / "driver.mjs")], dict(os.environ)
+    if driver == "pypi-sdk":
+        work.mkdir()
+        wheels = []
+        for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
+            wheel, failure = _download_wheel(pins[key], work)
+            if wheel is None:
+                return False, f"{pins[key]['package']}: {failure}", [], {}
+            wheels.append(wheel)
+        target = work / "site-packages"
+        installed = _run([sys.executable, "-m", "pip", "install", "--quiet", "--target", str(target), *map(str, wheels)], cwd=work)
+        if installed.returncode:
+            return False, f"pip install of the pinned wheels failed: {installed.stderr[-2000:]}", [], {}
+        for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
+            pin = pins[key]
+            if not (target / f"{pin['package'].replace('-', '_')}-{pin['version']}.dist-info").is_dir():
+                return False, f"installed {pin['package']} is not the pinned {pin['version']}", [], {}
+        launcher = ("import runpy, sys; sys.path.insert(0, sys.argv[1]); "
+                    "runpy.run_path(sys.argv[2], run_name='__main__')")
+        command = [sys.executable, "-I", "-c", launcher, str(target), str(drivers / "python" / "driver.py")]
+        return True, "exact PyPI wheels (honua-sdk + honua-admin) sha256 matched and installed in isolation", command, dict(os.environ)
+    if driver == "nuget-sdk":
+        pin = pins["honua-sdk-dotnet"]
+        if pin.get("registry") != "nuget.org":
+            return False, f"NuGet pin registry {pin.get('registry')!r} is not anonymous nuget.org", [], {}
+        if not shutil.which("dotnet"):
+            return False, "dotnet is unavailable", [], {}
+        framework = _nuget_framework(pin)
+        if not framework:
+            return False, f"NuGet pin has no consumer target framework: {pin.get('targets')!r}", [], {}
+        project = work / "driver"
+        project.mkdir(parents=True)
+        for name in ("Driver.csproj", "Program.cs"):
+            shutil.copy2(drivers / "dotnet" / name, project / name)
+        ok, detail, env = _restore_nuget(pin, work, project, [
+            f"-p:SdkRegressionTargetFramework={framework}", f"-p:SdkRegressionHonuaSdkVersion={pin['version']}"])
+        if not ok:
+            return False, detail, [], {}
+        return True, detail, ["dotnet", str(work / "out" / "SdkRegressionDriver.dll")], env
+    return False, f"no SDK regression driver {driver!r}", [], {}
+
+
+def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
+    """Run every SDK regression cell: one install and one driver run per client."""
+    regression = _regression()
+    pins = manifest["clientArtifacts"]
+    cells = [cell for cell in matrix["cells"] if cell["driver"] in SUITE_DRIVERS]
+    if not cells:
+        return {}
+    scenarios, fixture = regression.load_scenarios(), regression.load_fixture()
+    results: dict[str, tuple[str, str, list[dict[str, Any]]]] = {}
+    server = os.environ.get("HONUA_SERVER_URL")
+    drivers = sorted({cell["driver"] for cell in cells})
+    published, bearer, harness_failure = None, "", ""
+    if server:
+        try:
+            slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers]
+            regression.seed(fixture, slugs)
+            admin_key = os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY)
+            published = regression.publish_harness(regression.AdminApi(server, admin_key), fixture, slugs, FIXTURE_DB_PASSWORD)
+            signing_key = os.environ.get("SDKREG_SIGNING_KEY")
+            if not signing_key:
+                raise regression.RegressionError("SDKREG_SIGNING_KEY is not set; the candidate cannot validate an operator bearer")
+            bearer = regression.mint_bearer(signing_key)
+        except regression.RegressionError as exc:
+            harness_failure = f"fixture preparation failed: {exc}"
+    for driver in drivers:
+        group = [cell for cell in cells if cell["driver"] == driver]
+        artifact = group[0]["artifact"]
+        pin = pins[artifact]
+        client = f"{pin['package']} {pin['version']}"
+        work = base / f"suite-{driver}"
+        ok, detail, command, env = install_suite_client(driver, pins, work)
+        if not ok:
+            for cell in group:
+                results[cell["id"]] = ("fail", f"{client} install failed: {detail}", [])
+            continue
+        if not server or harness_failure or published is None:
+            reason = harness_failure or "SDK regression scenarios need a live candidate (--live)"
+            for cell in group:
+                results[cell["id"]] = ("fail", f"{client}: {reason}", [])
+            continue
+        slug = regression.SUITE_DRIVERS[driver]
+        plan = regression.build_plan(fixture, published, slug, [cell["scenario"] for cell in group], scenarios, server)
+        plan_path = work / "plan.json"
+        plan_path.write_text(json.dumps(plan, indent=2))
+        code, stdout, stderr = regression.run_driver(command, work, regression.driver_env(
+            env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
+            db_password=FIXTURE_DB_PASSWORD, plan_path=plan_path))
+        regression.log(f"== {client} driver exited {code} ==\n{stderr[-6000:]}")
+        observations = regression.parse_observations(stdout)
+        for cell in group:
+            status, cell_detail, rows = regression.evaluate_cell(
+                cell, scenarios[cell["scenario"]], artifact, observations, fixture, plan, client)
+            if code and status != "fail":
+                status, cell_detail = "fail", f"{client} driver exited {code}; {cell_detail}"
+            results[cell["id"]] = (status, cell_detail, rows)
+    return results
 
 
 def evaluate_import_fidelity(manifest: dict[str, Any], receipt: dict[str, Any] | None) -> tuple[str, str]:
@@ -551,8 +752,33 @@ def verify_receipt(matrix: dict[str, Any], receipt: dict[str, Any]) -> list[str]
                 f"{cell['id']}: blocked cell must report blocked by {cell['blockedBy']}, "
                 f"got {result.get('status')}: {result.get('detail')}"
             )
+    violations.extend(verify_suite_steps(cells, by_id))
     if receipt.get("status") != receipt_status(results):
         violations.append(f"receipt status {receipt.get('status')!r} does not follow its cell results")
+    return violations
+
+
+def verify_suite_steps(cells: list[dict[str, Any]], by_id: dict[Any, dict[str, Any]]) -> list[str]:
+    """Every scenario step is reported once, in contract order, and only declared steps are blocked."""
+    suite = [cell for cell in cells if cell.get("driver") in SUITE_DRIVERS]
+    if not suite:
+        return []
+    scenarios = _regression().load_scenarios()
+    violations = []
+    for cell in suite:
+        result = by_id.get(cell["id"])
+        if result is None:
+            continue
+        rows = result.get("steps") if isinstance(result.get("steps"), list) else []
+        expected = [step["id"] for step in scenarios[cell["scenario"]]["steps"]]
+        if not (result.get("status") == "fail" and not rows) and [row.get("step") for row in rows] != expected:
+            violations.append(f"{cell['id']}: receipt steps do not match the {cell['scenario']} contract")
+        declared = set(cell.get("blockedSteps") or {})
+        for row in rows:
+            if row.get("status") not in {"pass", "fail", "blocked"} or set(row) - SUITE_STEP_FIELDS:
+                violations.append(f"{cell['id']}: step {row.get('step')!r} carries a non-allowlisted field or status")
+            if row.get("status") == "blocked" and row.get("step") not in declared:
+                violations.append(f"{cell['id']}: step {row.get('step')!r} is blocked without a matrix declaration")
     return violations
 
 
@@ -566,17 +792,25 @@ def execute(
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="honua-installed-client-") as tmp:
         base = Path(tmp)
+        # Blocked cells and blocked steps still execute so a fix is observed instead of assumed.
+        suite = run_suite(manifest, matrix, base)
         for cell in matrix["cells"]:
             pin = pins[cell["artifact"]]
-            # Blocked cells still execute so a fix is observed instead of assumed.
-            observed, detail = run_cell(cell, manifest, base / cell["id"], import_fidelity_receipt)
-            status, detail = classify(cell, observed, detail)
+            steps = None
+            if cell["driver"] in SUITE_DRIVERS:
+                # The suite judges each step against the matrix itself (blocked steps included).
+                status, detail, steps = suite.get(cell["id"], ("fail", "the suite produced no result for this cell", []))
+            else:
+                observed, detail = run_cell(cell, manifest, base / cell["id"], import_fidelity_receipt)
+                status, detail = classify(cell, observed, detail)
             result = {
                 "cell": cell["id"], "operationId": cell["scenario"], "target": cell["driver"],
                 "package": pin["package"], "version": pin["version"],
                 "integrity": pin.get("integrity") or pin.get("digest"), "sourceSha": pin["sourceSha"],
                 "matrixStatus": cell["status"], "status": status, "detail": detail,
             }
+            if steps is not None:
+                result["steps"] = steps
             if cell["status"] == "blocked":
                 result["blockedBy"] = cell["blockedBy"]
             results.append(result)
@@ -595,6 +829,12 @@ def main() -> int:
         help="check a receipt against the matrix expectations instead of running the cells",
     )
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument(
+        "--subset",
+        choices=("all", "fast"),
+        default="all",
+        help="fast: only the install/probe cells (the PR check); all: also the SDK regression scenarios (the gate)",
+    )
     parser.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
     parser.add_argument(
         "--import-fidelity-receipt",
@@ -604,6 +844,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         manifest, matrix = load_inputs(args.manifest, args.matrix)
+        if args.subset == "fast":
+            matrix["cells"] = [cell for cell in matrix["cells"] if cell.get("driver") not in SUITE_DRIVERS]
         validate_release_inputs(manifest, matrix)
         if args.verify_receipt:
             try:
@@ -627,22 +869,17 @@ def main() -> int:
             if not isinstance(import_fidelity_receipt, dict):
                 raise CertificationError("import fidelity receipt must be a JSON object")
         if args.live:
-            os.environ["HONUA_SERVER_URL"] = os.environ.get("HONUA_SERVER_URL", "http://localhost:8080")
-            # boot.sh normally reads the repository-root manifest. Bind it to the already
-            # validated candidate when the caller selected a different manifest.
-            os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
-            boot = subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "up"], cwd=ROOT)
-            if boot.returncode:
-                raise CertificationError("the immutable server candidate did not become ready")
+            compose = boot_candidate(manifest)
             try:
-                seed = subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT)
+                seed = subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT,
+                                      env={**os.environ, "E2E_PSQL": " ".join([*compose, "exec", "-T", "db", "psql", "-U", "honua", "-d", "honua"])})
                 if seed.returncode:
                     raise CertificationError("the immutable fixture could not be seeded")
                 receipt = execute(
                     manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
                 )
             finally:
-                subprocess.run(["bash", str(ROOT / "e2e/harness/boot.sh"), "down"], cwd=ROOT)
+                subprocess.run([*compose, "down", "-v"], cwd=ROOT, capture_output=True)
         else:
             receipt = execute(
                 manifest, matrix, args.evidence_uri, import_fidelity_receipt=import_fidelity_receipt
