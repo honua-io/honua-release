@@ -102,33 +102,45 @@ def _run_with_refusing_generator(command: str, root: Path, variables: dict) -> t
     return result, marker.exists()
 
 
-def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
-    found = False
-    for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
+def _generator_steps():
+    steps = []
+    for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
         workflow = _workflow(path.name)
         for job in workflow.get("jobs", {}).values():
             for index, step in enumerate(job.get("steps", [])):
-                command = step.get("run", "")
-                if "tools/generate_platform_lock.py" not in command:
-                    continue
-                found = True
-                assert "continue-on-error" not in step and "continue-on-error" not in job
-                assert "set +e" not in command, path.name
-                for line in command.replace("\\\n", " ").splitlines():
-                    if "generate_platform_lock.py" in line:
-                        assert not re.search(r"\|\|\s*(true|:)", line), (path.name, line)
-                # A swallowed refusal relabels the partial draft, reaches the marker and fails here.
-                case = tmp_path / f"{path.stem}-{index}"
-                variables = {**workflow.get("env", {}), **job.get("env", {}), **step.get("env", {})}
-                result, reached = _run_with_refusing_generator(command, case, variables)
-                assert result.returncode != 0 and not reached, (path.name, result.stderr)
-                # The harness itself must not be vacuous: the same step with its refusal suppressed
-                # by a form the static checks above do not recognise has to reach the marker.
-                suppressed = command.replace("python tools/generate_platform_lock.py",
-                                             "! python tools/generate_platform_lock.py")
-                result, reached = _run_with_refusing_generator(suppressed, tmp_path / f"{case.name}-suppressed", variables)
-                assert result.returncode == 0 and reached, (path.name, result.stderr)
-    assert found
+                if "tools/generate_platform_lock.py" in step.get("run", ""):
+                    steps.append((path, index, workflow, job, step))
+    assert steps
+    return steps
+
+
+def test_generator_refusal_is_not_statically_suppressed():
+    for path, _, _, job, step in _generator_steps():
+        command = step["run"]
+        assert "continue-on-error" not in step and "continue-on-error" not in job
+        assert "set +e" not in command, path.name
+        for line in command.replace("\\\n", " ").splitlines():
+            if "generate_platform_lock.py" in line:
+                assert not re.search(r"\|\|\s*(true|:)", line), (path.name, line)
+
+
+# These steps run on ubuntu runners and manifest-validate runs this suite there. On Windows `bash`
+# is the WSL launcher, which fails without running the step and so cannot prove anything.
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
+    for path, index, workflow, job, step in _generator_steps():
+        command = step["run"]
+        # A swallowed refusal relabels the partial draft, reaches the marker and fails here.
+        case = tmp_path / f"{path.stem}-{index}"
+        variables = {**workflow.get("env", {}), **job.get("env", {}), **step.get("env", {})}
+        result, reached = _run_with_refusing_generator(command, case, variables)
+        assert result.returncode != 0 and not reached, (path.name, result.stderr)
+        # The harness itself must not be vacuous: the same step with its refusal suppressed by a
+        # form the static checks do not recognise has to reach the marker.
+        suppressed = command.replace("python tools/generate_platform_lock.py",
+                                     "! python tools/generate_platform_lock.py")
+        result, reached = _run_with_refusing_generator(suppressed, tmp_path / f"{case.name}-suppressed", variables)
+        assert result.returncode == 0 and reached, (path.name, result.stderr)
 
 
 def test_live_release_aggregate_fails_on_any_skipped_required_gate():
