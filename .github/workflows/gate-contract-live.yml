@@ -1,0 +1,190 @@
+# Release gate — live contract versions (ruling R27, honua-release#376).
+#
+# honua-server's source tree declares its contract versions in release/component-versions.json at
+# the candidate sha (#231 WI-3a, PR #410). That declaration is the input for the lock. This gate
+# boots the EXACT candidate image (image@digest, never a tag) the way e2e-local-docker's Slice-1
+# does: same compose (e2e/harness/compose.candidate.yml), same boot.sh, licensing disabled, no
+# cloud. It then reads the anonymous /api/v1/admin/capabilities response and refuses when any
+# declared key is not advertised, any advertised key is not declared, or a value differs
+# (tools/check_contract_versions_live.py). The report carries both maps.
+#
+#   pass     every declared contract version is advertised unchanged
+#   fail     the candidate was read and disagrees with its declaration (every trigger)
+#   blocked  no evidence: the image is not digest-pinned or never booted, the capabilities read
+#            failed, or the declaration is unreadable. bootstrap tolerates it; strict fails.
+
+name: gate-contract-live
+run-name: "gate-contract-live ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_label: { description: "RC being checked", required: false, type: string, default: "dev-local" }
+      enforcement:
+        description: "bootstrap = tolerate blocked; strict = any non-pass fails"
+        required: false
+        type: choice
+        options: [bootstrap, strict]
+        default: bootstrap
+  workflow_call:
+    inputs:
+      candidate_ref: { required: false, type: string, default: "" }
+      platform_label: { required: false, type: string, default: "dev-local" }
+      enforcement:    { required: false, type: string, default: bootstrap }
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.live.outputs.overall_status }}
+
+permissions:
+  contents: read
+  packages: read          # pull the candidate honua-server image from ghcr
+
+concurrency:
+  group: gate-contract-live-${{ github.ref }}-${{ inputs.platform_label }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.verdict.outputs.status }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0"
+
+      # The candidate is the manifest's honua-server image at its immutable index digest. A tag
+      # alone could resolve to different bytes than the ones the lock binds, so no digest = blocked.
+      - name: Resolve the candidate image@digest
+        id: image
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import yaml
+          server = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))["components"]["honua-server"]
+          image, digest = str(server.get("image") or ""), str(server.get("digest") or "")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+              print("ref=")
+          elif "@" in image:
+              print(f"ref={image}" if image.endswith("@" + digest) else "ref=")
+          else:
+              print(f"ref={image}@{digest}")
+          PY
+
+      # A failed login is a red run, not a later "did not boot" blocked verdict.
+      - name: Log in to ghcr
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # boot.sh pulls the image, brings the compose stack up, waits for /healthz/ready and asserts
+      # licensing mode: disabled. Then the running container must be the candidate digest.
+      - name: Boot the exact candidate and read its admin capabilities
+        id: boot
+        env:
+          HONUA_SERVER_IMAGE: ${{ steps.image.outputs.ref }}
+          E2E_OUT: ${{ runner.temp }}/contract-live
+        run: |
+          set -uo pipefail
+          OUT="$E2E_OUT"; mkdir -p "$OUT"
+          booted=false; why=""
+          if [ -z "$HONUA_SERVER_IMAGE" ]; then
+            why="platform-manifest.yaml honua-server has no immutable image digest"
+          elif ! bash e2e/harness/boot.sh up; then
+            why="candidate $HONUA_SERVER_IMAGE did not boot (see boot.json)"
+          else
+            cid="$(docker compose -f e2e/harness/compose.candidate.yml ps -q server | head -1)"
+            repo="${HONUA_SERVER_IMAGE%%@*}"; repo="${repo%:*}"
+            if docker image inspect --format '{{join .RepoDigests "\n"}}' "$(docker inspect --format '{{.Image}}' "$cid")" \
+                | grep -qxF "${repo}@${HONUA_SERVER_IMAGE##*@}"; then
+              booted=true
+            else
+              why="the running server container is not ${HONUA_SERVER_IMAGE}"
+            fi
+          fi
+          if [ "$booted" = true ]; then
+            code="$(curl -sS --connect-timeout 5 --max-time 30 -o "$OUT/capabilities.json" -w '%{http_code}' \
+              http://localhost:8080/api/v1/admin/capabilities)" || code=000
+            if [ "$code" != 200 ]; then
+              mv -f "$OUT/capabilities.json" "$OUT/capabilities.http-$code.txt" 2>/dev/null || true
+              why="GET /api/v1/admin/capabilities returned HTTP $code"
+            fi
+          fi
+          bash e2e/harness/boot.sh down
+          [ -z "$why" ] || echo "::error::$why"
+          echo "why=$why" >> "$GITHUB_OUTPUT"
+
+      - name: Compare advertised contract versions with the declaration
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          BOOT_WHY: ${{ steps.boot.outputs.why }}
+          OUT: ${{ runner.temp }}/contract-live
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT"
+          python tools/check_contract_versions_live.py --manifest platform-manifest.yaml \
+            --capabilities "$OUT/capabilities.json" --image-ref "$IMAGE_REF" \
+            --out "$OUT/contract-live-report.json"
+          if [ -n "$BOOT_WHY" ]; then
+            # No response was read, so the checker cannot pass; record why the evidence is absent.
+            jq --arg why "$BOOT_WHY" '.status = "blocked" | .why = ([$why, .why] | join("; "))' "$OUT/contract-live-report.json" \
+              > "$OUT/report.tmp" && mv "$OUT/report.tmp" "$OUT/contract-live-report.json"
+          fi
+          status="$(jq -r .status "$OUT/contract-live-report.json")"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          {
+            echo "## gate-contract-live — $status";
+            echo "";
+            echo "$(jq -r .why "$OUT/contract-live-report.json")";
+            echo "";
+            echo "image: \`$IMAGE_REF\`";
+            echo "";
+            echo "| contract | declared | advertised |";
+            echo "|---|---|---|";
+            jq -r '.declared as $d | .advertised as $a | ((($d // {}) + ($a // {})) | keys[])
+                   | "| \(.) | \($d[.] // "—") | \($a[.] // "—") |"' "$OUT/contract-live-report.json";
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the contract-live report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contract-live-report
+          path: |
+            ${{ runner.temp }}/contract-live/contract-live-report.json
+            ${{ runner.temp }}/contract-live/capabilities*
+            ${{ runner.temp }}/contract-live/boot.json
+          if-no-files-found: warn
+
+      - name: Enforce
+        id: verdict
+        if: always()
+        env:
+          STATUS: ${{ steps.check.outputs.status }}
+          ENFORCEMENT: ${{ inputs.enforcement || 'bootstrap' }}
+        run: |
+          set -euo pipefail
+          status="${STATUS:-blocked}"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "contract-live: $status (enforcement=$ENFORCEMENT)"
+          if [ "$status" = fail ]; then
+            echo "::error::the candidate's advertised contract versions differ from its declaration"; exit 1
+          fi
+          if [ "$status" != pass ] && [ "$ENFORCEMENT" = strict ]; then
+            echo "::error::strict enforcement requires contract-live to pass (status: $status)"; exit 1
+          fi
