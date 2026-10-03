@@ -100,8 +100,10 @@ def predicate_valid(kind: str, predicate) -> bool:
             'creationInfo': obj(['creators', 'created'], {
                 'creators': {'type': 'array', 'minItems': 1, 'items': {**text, 'pattern': '^(Person|Organization|Tool): .+'}},
                 'created': {'type': 'string', 'format': 'date-time'}}),
-            'packages': {'type': 'array', 'minItems': 1, 'items': obj(['SPDXID', 'name'], {
-                'SPDXID': {'type': 'string', 'pattern': '^SPDXRef-[A-Za-z0-9.-]+$'}, 'name': text})}})
+            'packages': {'type': 'array', 'minItems': 1, 'items': obj(['SPDXID', 'name', 'downloadLocation'], {
+                'SPDXID': {'type': 'string', 'pattern': '^SPDXRef-[A-Za-z0-9.-]+$'}, 'name': text,
+                'downloadLocation': {'anyOf': [uri, {'enum': ['NONE', 'NOASSERTION']}]},
+                'filesAnalyzed': {'type': 'boolean'}, 'versionInfo': text})}})
     elif kind == 'https://cyclonedx.org/bom':
         component = obj(['type', 'name'], {'type': {'enum': ['application', 'framework', 'library',
             'container', 'platform', 'operating-system', 'device', 'firmware', 'file', 'data',

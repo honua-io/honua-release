@@ -202,7 +202,8 @@ def valid_predicate(kind):
         return {'spdxVersion': 'SPDX-2.3', 'SPDXID': 'SPDXRef-DOCUMENT', 'name': 'package',
                 'dataLicense': 'CC0-1.0', 'documentNamespace': 'https://publisher.test/bom/123',
                 'creationInfo': {'creators': ['Tool: scanner'], 'created': '2026-10-02T00:00:00Z'},
-                'packages': [{'SPDXID': 'SPDXRef-package', 'name': 'published-package'}]}
+                'packages': [{'SPDXID': 'SPDXRef-package', 'name': 'published-package',
+                              'downloadLocation': 'NOASSERTION'}]}
     if kind == 'https://cyclonedx.org/bom':
         return {'bomFormat': 'CycloneDX', 'specVersion': '1.6', 'version': 1,
                 'components': [{'type': 'library', 'name': 'published-package'}]}
@@ -1005,6 +1006,9 @@ def test_statement_requires_real_predicate_and_exact_subject(kind):
     ('https://spdx.dev/Document', lambda p: p.pop('creationInfo')),
     ('https://spdx.dev/Document', lambda p: p.update(packages=[{}])),
     ('https://spdx.dev/Document', lambda p: p.update(documentNamespace='not-a-uri')),
+    ('https://spdx.dev/Document', lambda p: p['packages'][0].pop('downloadLocation')),
+    ('https://spdx.dev/Document', lambda p: p['packages'][0].update(downloadLocation='')),
+    ('https://spdx.dev/Document', lambda p: p['packages'][0].update(filesAnalyzed=1)),
     ('https://cyclonedx.org/bom', lambda p: p.update(version=True)),
     ('https://cyclonedx.org/bom', lambda p: p.update(components=[{'name': 'missing-type'}])),
     ('https://slsa.dev/provenance/v1', lambda p: p['buildDefinition'].update(buildType='')),
