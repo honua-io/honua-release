@@ -7,7 +7,8 @@ For each document in sources.json (read at its release revision, see inventory.p
 starts clean containers from digest-pinned node / python / dotnet images, points npm, pip and NuGet
 at the registry guard (only manifest-pinned Honua packages are installable), and executes the
 document's blocks in order against the candidate `image@digest` booted by e2e/harness/boot.sh with
-licensing disabled. Result per block: pass, fail (with the stdout/stderr tail) or needs-input. A
+licensing disabled. Result per block: pass, fail (with the stdout/stderr tail), needs-input, or
+blocked (a failing block the document marks `doc-run: blocked <issue>`). A
 document is red when any block fails; the run is red when any document is.
 """
 from __future__ import annotations
@@ -182,7 +183,10 @@ def docker(*args: str, timeout: int = 600, check: bool = False) -> subprocess.Co
     return proc
 
 
-APT_PREREQUISITES = {"jq"}
+# A documented prerequisite tool -> the Debian packages a reader would install for it. `sudo` stands for
+# "the reader can administer their machine" (for example `npx playwright install --with-deps`, which
+# installs Chromium's system libraries through sudo): the host-UID reader gets a passwordless sudo.
+APT_PREREQUISITES = {"jq": ["jq"], "python": ["python-is-python3"], "sudo": ["sudo"]}
 LANGUAGE_RUNTIME = {"python": "python", "javascript": "node", "typescript": "node", "csharp": "dotnet"}
 
 
@@ -275,10 +279,18 @@ class Session:
         docker("rm", "-f", name)
         docker(*args, check=True, timeout=1800)
         self.containers[runtime] = name
-        packages = sorted(p for p in self.prerequisites if p in APT_PREREQUISITES)
+        packages = sorted({pkg for p in self.prerequisites for pkg in APT_PREREQUISITES.get(p, [])})
         if packages:   # a tool the document lists under its prerequisites, installed as the reader would
-            setup = docker("exec", "--user", "0", name, "bash", "-c", "apt-get update -qq && DEBIAN_FRONTEND=noninteractive "
-                           "apt-get install -y -qq " + " ".join(packages), timeout=900)
+            script = ("apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
+                      + " ".join(packages))
+            if "sudo" in self.prerequisites:
+                uid, gid = os.getuid(), os.getgid()
+                script += (f" && (getent group {gid} >/dev/null || groupadd -g {gid} reader)"
+                           f" && (getent passwd {uid} >/dev/null || useradd -o -u {uid} -g {gid} -M"
+                           f" -d {shlex.quote(str(self.home))} reader)"
+                           f" && echo '#{uid} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/reader"
+                           " && chmod 0440 /etc/sudoers.d/reader")
+            setup = docker("exec", "--user", "0", name, "bash", "-c", script, timeout=900)
             if setup.returncode:
                 raise RunError(f"could not install the documented prerequisites {packages}: {setup.stderr[-300:]}")
         base = docker("exec", name, "env", "-0").stdout
@@ -631,7 +643,8 @@ def summarize(result: dict[str, Any]) -> None:
         checks.append({"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"})
     result["checks"] = checks
     statuses = [r["status"] for r in result["blocks"]] + [c["status"] for c in result.get("checks", [])]
-    result["status"] = "fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else ("needs-input" if "needs-input" in statuses else "pass")
+    result["status"] = ("fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else
+                        "needs-input" if "needs-input" in statuses else "blocked" if "blocked" in statuses else "pass")
     result["counts"] = {s: statuses.count(s) for s in sorted(set(statuses))}
 
 
@@ -682,6 +695,17 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             row["reason"] = block.reason
         if block.marker_error:
             row["markerError"] = block.marker_error
+        if block.blocked_by:
+            # The document says this command is right and links the issue that tracks the misbehaviour:
+            # a failure is recorded against that issue (the gate stays blocked); a pass means the marker is stale.
+            row["blockedBy"] = block.blocked_by
+            if status == "fail":
+                row["status"] = "blocked"
+                row["detail"] = scrub(f"blocked by {block.blocked_by}: {detail}", secrets)
+            elif status == "pass":
+                row["staleBlockedMarker"] = True
+                row["detail"] = scrub(f"{detail}; passes, so the doc-run: blocked marker ({block.blocked_by}) "
+                                      "no longer applies: remove it", secrets)
         if outcome is not None:
             row["durationSec"] = round(outcome.duration, 1)
             row["exitCode"] = outcome.exit_code
@@ -870,13 +894,14 @@ def candidate_from_manifest(manifest: dict[str, Any]) -> tuple[str, str]:
 def markdown_summary(report: dict[str, Any]) -> str:
     lines = [f"## Executable docs — {report['status']}", "",
              f"Candidate `{report['candidate']['image']}` · {report['summary']}", "",
-             "| document | revision | status | pass | fail | needs-input | not-run |", "|---|---|---|---|---|---|---|"]
+             "| document | revision | status | pass | fail | needs-input | blocked | not-run |",
+             "|---|---|---|---|---|---|---|---|"]
     for doc in report["documents"]:
         c = doc.get("counts", {})
         lines.append(f"| [{doc['repo'].split('/')[-1]}:{doc['path']}]({doc['url']}) | `{doc['revision'][:8]}` | "
                      f"**{doc['status']}** | {c.get('pass', 0)} | {c.get('fail', 0)} | {c.get('needs-input', 0)} | "
-                     f"{c.get('not-run', 0)} |")
-    failing = [(d, b) for d in report["documents"] for b in d.get("blocks", []) if b["status"] in {"fail", "needs-input"}]
+                     f"{c.get('blocked', 0)} | {c.get('not-run', 0)} |")
+    failing = [(d, b) for d in report["documents"] for b in d.get("blocks", []) if b["status"] in {"fail", "needs-input", "blocked"}]
     if failing:
         lines += ["", "### Blocks that do not run", ""]
         for doc, block in failing:
@@ -1144,7 +1169,8 @@ def main() -> int:
     order = {doc_id(d["repo"], d["path"]): i for i, d in enumerate(sources["documents"])}
     report_docs.sort(key=lambda d: order.get(d["id"], len(order)))
     statuses = [d["status"] for d in report_docs]
-    status = "fail" if drift_lines or "fail" in statuses or not report_docs else ("blocked" if "needs-input" in statuses else "pass")
+    status = ("fail" if drift_lines or "fail" in statuses or not report_docs else
+              "blocked" if {"needs-input", "blocked"} & set(statuses) else "pass")
     report = {
         "schemaVersion": 1,
         "gate": "executable-docs",

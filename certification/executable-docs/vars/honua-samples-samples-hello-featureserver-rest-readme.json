@@ -1,10 +1,10 @@
 {
   "document": "honua-samples-samples-hello-featureserver-rest-readme",
-  "env": {
-    "HONUA_BASE_URL": {
-      "value": "{candidate.baseUrl}",
-      "documentedAt": "samples/hello-featureserver-rest/README.md:24 — \"Set `HONUA_BASE_URL` ... to point the same code at your\" server"
+  "env": {},
+  "substitute": {
+    "<your-feature-service>": {
+      "value": "{fixture.featureService}",
+      "documentedAt": "samples/hello-featureserver-rest/README.md:13 — \"`HONUA_SAMPLE_SERVICE` ... An anonymous FeatureServer service on that server with at least three features\""
     }
-  },
-  "substitute": {}
+  }
 }

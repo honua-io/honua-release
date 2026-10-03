@@ -38,6 +38,47 @@ def test_skip_marker_requires_a_reason():
     assert blocks[1].intent == "run" and "without a reason" in blocks[1].marker_error
 
 
+def test_blocked_marker_requires_a_linked_issue():
+    text = ("<!-- doc-run: blocked https://github.com/honua-io/honua-samples/issues/57 -->\n```sh\nnode a.mjs\n```\n\n"
+            "<!-- doc-run: blocked honua-io/honua-server#5386 -->\n```sh\nnode b.mjs\n```\n\n"
+            "<!-- doc-run: blocked -->\n```sh\nnode c.mjs\n```\n")
+    blocks = by_index(text)
+    assert blocks[0].intent == "run" and blocks[0].blocked_by == "https://github.com/honua-io/honua-samples/issues/57"
+    assert blocks[0].record()["blockedBy"] == blocks[0].blocked_by
+    assert blocks[1].intent == "run" and blocks[1].blocked_by == "honua-io/honua-server#5386"
+    assert blocks[2].intent == "run" and blocks[2].blocked_by is None and "linked issue" in blocks[2].marker_error
+
+
+@pytest.mark.parametrize("exit_code,block_status,doc_status", [(1, "blocked", "blocked"), (0, "pass", "pass")])
+def test_blocked_block_still_runs_and_records_the_issue(tmp_path, exit_code, block_status, doc_status):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    ran = []
+
+    def run_shell(code, *args):
+        ran.append(code)
+        return Outcome("pass" if exit_code == 0 else "fail", f"exit code {exit_code}", exit_code=exit_code)
+
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    text = "<!-- doc-run: blocked https://github.com/o/r/issues/1 -->\n```sh\nnode build.mjs\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}, "_closure": lambda: {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    row = result["blocks"][0]
+    assert ran and row["status"] == block_status and row["blockedBy"] == "https://github.com/o/r/issues/1"
+    assert result["status"] == doc_status
+    assert row.get("staleBlockedMarker", False) is (exit_code == 0)
+
+
+def test_blocked_outranks_pass_but_not_fail_or_needs_input():
+    from run import summarize
+    for statuses, expected in [(["pass", "blocked"], "blocked"), (["blocked", "needs-input"], "needs-input"),
+                               (["blocked", "fail"], "fail")]:
+        result = {"blocks": [{"status": s, "durationSec": 1} for s in statuses], "checks": []}
+        summarize(result)
+        assert result["status"] == expected
+
+
 def test_existing_doc_test_fence_attributes_are_honoured():
     blocks = by_index('```ts doc-test=compile\nconst a: number = 1\n```\n\n'
                       '```ts doc-test=skip reason="partial excerpt"\nfoo()\n```\n\n'

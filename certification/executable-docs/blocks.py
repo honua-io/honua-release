@@ -13,6 +13,10 @@ Intent of a block:
   excluded     the author marked it `<!-- doc-run: skip reason="..." -->` or `doc-test=skip reason=...`
   teardown     stops what the reader started (`docker compose down`); run when the reader is done with
                the session, after any document that continues this one
+
+A run block may also carry `<!-- doc-run: blocked <issue> -->`: the command is right and the product
+(or another repository) misbehaves, tracked in the linked issue. The block still runs; a failure is
+recorded as `blocked` with that issue instead of `fail`, and the gate stays blocked, not green.
 """
 from __future__ import annotations
 
@@ -48,6 +52,7 @@ COMMAND_START = re.compile(
 TEARDOWN_LINE = re.compile(r"^\s*(?:#.*|docker\s+compose\s+(?:-f\s+\S+\s+)*(?:down|stop|rm)\b.*|docker\s+(?:stop|rm)\b.*|)$")
 EXPECT_FAILURE = re.compile(r"\bdeliberately (?:broken|invalid|bad|wrong)\b|\bto see it (?:catch|fail|reject|refuse)", re.I)
 DOC_RUN = re.compile(r"<!--\s*doc-run:\s*(.*?)\s*-->", re.S)
+ISSUE_REF = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|\b[\w.-]+/[\w.-]+#\d+")
 ATTR = re.compile(r'([\w-]+)(?:=(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?')
 
 
@@ -66,6 +71,7 @@ class Block:
     expected_output: str | None = None
     marker_error: str | None = None
     expect_failure: bool = False
+    blocked_by: str | None = None   # the issue a `doc-run: blocked` marker links
     preceding_text: str = field(default="", repr=False)
     info_attrs: dict[str, str] = field(default_factory=dict, repr=False)
     marker: dict[str, str] | None = field(default=None, repr=False)
@@ -83,7 +89,7 @@ class Block:
         if self.expect_failure:
             row["expectFailure"] = True
         for key, value in (("reason", self.reason), ("file", self.file), ("outputOf", self.output_of),
-                           ("markerError", self.marker_error)):
+                           ("markerError", self.marker_error), ("blockedBy", self.blocked_by)):
             if value not in (None, ""):
                 row[key] = value
         return row
@@ -185,7 +191,13 @@ def _markers(prose: str) -> dict[str, str] | None:
     for match in DOC_RUN.finditer(tail):
         if tail[match.end():].strip() == "":
             found = match
-    return _attrs(found.group(1)) if found else None
+    if not found:
+        return None
+    attrs = _attrs(found.group(1))
+    if re.match(r"blocked\b", found.group(1)):
+        issue = ISSUE_REF.search(found.group(1))
+        attrs = {"blocked": issue.group(0) if issue else ""}
+    return attrs
 
 
 def _last_paragraph(prose: str) -> str:
@@ -217,7 +229,16 @@ def classify(blocks: list[Block]) -> list[Block]:
         # 1. explicit author declarations win
         if marker is not None:
             block.intent_source = "marker"
-            if "skip" in marker:
+            if "blocked" in marker:
+                if marker["blocked"] and block.language in set(RUN_LANGUAGES.values()):
+                    block.intent, block.blocked_by = "run", marker["blocked"]
+                    previous_run = block
+                    continue
+                block.marker_error = ("doc-run: blocked needs a linked issue (https://github.com/<owner>/<repo>/issues/<n>); "
+                                      "the block runs as usual" if not marker["blocked"] else
+                                      f"doc-run: blocked on a language this gate cannot execute ({block.language})")
+                block.intent_source = "heuristic"
+            elif "skip" in marker:
                 if marker.get("reason", "").strip():
                     block.intent, block.reason = "excluded", marker["reason"].strip()
                     continue
