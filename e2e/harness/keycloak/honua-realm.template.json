@@ -1,0 +1,76 @@
+{
+  "realm": "honua",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 0,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Honua operator admin role" },
+      { "name": "user", "description": "Honua operator base role" }
+    ]
+  },
+  "users": [
+    {
+      "username": "",
+      "enabled": true,
+      "email": "operator@s4.honua.test",
+      "emailVerified": true,
+      "firstName": "S4",
+      "lastName": "Operator",
+      "credentials": [
+        { "type": "password", "value": "", "temporary": false }
+      ],
+      "realmRoles": ["admin", "user"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "honua-console-bff",
+      "name": "Honua Console BFF (release S4)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": ""
+      },
+      "protocolMappers": [
+        {
+          "name": "fixture-tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "public",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}
