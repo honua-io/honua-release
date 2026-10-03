@@ -366,9 +366,9 @@ def test_migration_journal_refuses_instead_of_guessing(source, message):
         resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
 
 
-def resolve_fixture(monkeypatch, source, stale_journal, extra=None):
+def resolve_fixture(monkeypatch, source, stale_journal, extra=None, **server_fields):
     server = {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1',
-              'migrationJournalSha256': stale_journal}
+              'migrationJournalSha256': stale_journal, **server_fields}
     manifest = {'components': {'honua-server': server},
                 'protocolCertification': {'ledger': {'status': 'bound'}}}
     manifest.update(extra or {})
@@ -387,6 +387,16 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
     assert server['migrationJournalSha256'] == FIXTURE_JOURNAL_SHA256
     assert server['dbSchema'] == '109'
     assert matrix['data']['honua-server']['requiresDbSchema'] == '109'
+
+
+def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(monkeypatch):
+    # R22 (#231 WI-2): mint stamps the platform version of tonight's label beside tonight's image.
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   version='pre-release', artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2')
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+    assert server['version'] == 'pre-release'
 
 
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):

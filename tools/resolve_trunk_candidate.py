@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
+from platform_version import IMAGED_COMPONENTS, PUBLISHER
 import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
@@ -639,6 +640,15 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             failures.append(detail)
             continue
         declare(name, selected)
+    # R22: an imaged component's artifact version is the platform version of tonight's label, which
+    # mint stamps beside the identity selected here (platform_version.stamp_platform_version). A
+    # version carried forward from another night's label or image never survives selection.
+    for name in IMAGED_COMPONENTS:
+        selected = candidate['components'].get(name)
+        if isinstance(selected, dict):
+            selected.pop('artifactVersion', None)
+            if name == PUBLISHER:
+                selected.pop('releaseVersion', None)
     # Experimental rows are not selected from trunk; they declare at the sha the manifest pins.
     for name, selected in (candidate.get('experimental') or {}).items():
         declare(name, selected)
