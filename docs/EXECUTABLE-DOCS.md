@@ -60,7 +60,11 @@ image's Debian archive. A tool that a document uses but does not list (for examp
 (`registry_guard.py`). Third-party packages pass through. A Honua package (`@honua/*`, `@honua-io/*`,
 `create-honua*`, `honua*` on npm; `honua*` on PyPI; `Honua.*` on NuGet) is visible only at the
 version `clientArtifacts` pins, plus the dependency closure that a pinned package itself declares
-(reported as `guardAdmittedClosure`). A doc that installs an old scope, a beta or an unpinned package
+(reported as `guardAdmittedClosure`). A pin's declared hash binds its bytes as well: the npm
+packument `integrity` and the PyPI simple-index `#sha256=` fragment must equal the manifest's (npm and pip
+verify the download against them), and the guard hashes the pinned npm tarball and NuGet package it serves.
+A mismatch, or registry metadata without the hash, is a refusal. Closure packages and the `Honua.Sdk.*` family members carry no
+manifest hash, so only their version is checked. A doc that installs an old scope, a beta or an unpinned package
 fails at install, and the report lists the refusal under `guardRefusals`.
 
 ## Results

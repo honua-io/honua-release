@@ -4,12 +4,17 @@ Doc containers point npm, pip and NuGet at this front. Third-party packages pass
 public registries unchanged. A Honua package (npm `@honua/*`, `@honua-io/*`, `create-honua*`,
 `honua*`; PyPI `honua*`; NuGet `Honua.*`) is visible only at the version platform-manifest.yaml
 pins in clientArtifacts, so a doc that installs an unpinned, renamed or newer package fails the
-install the way it would be wrong for the release, and the guard records the refusal.
+install the way it would be wrong for the release, and the guard records the refusal. A pin's
+declared hash (npm `integrity`, PyPI/NuGet `digest`) binds the bytes too: the packument integrity and
+the simple-index `#sha256=` fragment must equal it (npm and pip verify the download against those),
+and the guard hashes the pinned npm tarball and NuGet package it serves.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
+import hashlib
 import json
 import re
 import threading
@@ -33,21 +38,41 @@ def pypi_normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def pins_from_manifest(manifest: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """{"npm": {name: version}, "pypi": {name: filename}, "nuget": {id-lower: version}}"""
-    pins: dict[str, dict[str, str]] = {"npm": {}, "pypi": {}, "nuget": {}}
+def pins_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """{"npm": {name: version}, "pypi": {name: filename}, "nuget": {id-lower: version},
+    "digests": the same keys mapped to the declared hash, for the pins that declare one}"""
+    pins: dict[str, Any] = {"npm": {}, "pypi": {}, "nuget": {}}
+    digests: dict[str, dict[str, str]] = {"npm": {}, "pypi": {}, "nuget": {}}
     for pin in (manifest.get("clientArtifacts") or {}).values():
         package, version = str(pin.get("package", "")), str(pin.get("version", ""))
         if not package or not version:
             continue
         registry = str(pin.get("registry") or "").lower()
         if package.startswith("@") or registry == "npm" or pin.get("integrity", "").startswith("sha512-"):
+            ecosystem, key, declared = "npm", package, pin.get("integrity")
             pins["npm"][package] = version
         elif registry == "nuget.org" or package.startswith("Honua."):
-            pins["nuget"][package.lower()] = version
+            ecosystem, key, declared = "nuget", package.lower(), pin.get("digest")
+            pins["nuget"][key] = version
         elif pin.get("filename"):
-            pins["pypi"][pypi_normalize(package)] = str(pin["filename"])
+            ecosystem, key, declared = "pypi", pypi_normalize(package), pin.get("digest")
+            pins["pypi"][key] = str(pin["filename"])
+        else:
+            continue
+        if declared:
+            digests[ecosystem][key] = str(declared)
+    pins["digests"] = digests
     return pins
+
+
+def digest_matches(data: bytes, declared: str) -> bool:
+    """A manifest hash over the bytes: npm SRI (`sha512-<base64>`) or `sha256:<hex>`."""
+    if declared.startswith("sha256:"):
+        return hashlib.sha256(data).hexdigest() == declared[len("sha256:"):].lower()
+    algorithm, _, value = declared.partition("-")
+    if algorithm not in {"sha256", "sha384", "sha512"}:
+        return False
+    return base64.b64encode(hashlib.new(algorithm, data).digest()).decode() == value
 
 
 def nuget_family_pins(pins: dict[str, dict[str, str]]) -> dict[str, str]:
@@ -73,13 +98,16 @@ def honua_dependencies(manifest_entry: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def filter_npm_packument(name: str, body: dict[str, Any], pins: dict[str, str]) -> dict[str, Any] | None:
+def filter_npm_packument(name: str, body: dict[str, Any], pins: dict[str, str],
+                         integrity: str | None = None) -> dict[str, Any] | None:
     if not NPM_HONUA.match(name):
         return body
     version = pins.get(name)
     if version == "*":
         return body
     if not version or version not in (body.get("versions") or {}):
+        return None
+    if integrity and ((body["versions"][version] or {}).get("dist") or {}).get("integrity") != integrity:
         return None
     body = dict(body)
     body["versions"] = {version: body["versions"][version]}
@@ -90,15 +118,19 @@ def filter_npm_packument(name: str, body: dict[str, Any], pins: dict[str, str]) 
 
 
 ANCHOR = re.compile(r"<a\b[^>]*>([^<]+)</a>\s*(?:<br\s*/?>)?", re.I)
+SHA256_FRAGMENT = re.compile(r'href="[^"#]*#sha256=([0-9a-fA-F]{64})"')
 
 
-def filter_pypi_simple(name: str, html: str, pins: dict[str, str]) -> str | None:
+def filter_pypi_simple(name: str, html: str, pins: dict[str, str], digest: str | None = None) -> str | None:
     if not PYPI_HONUA.match(name):
         return html
     filename = pins.get(pypi_normalize(name))
     if not filename:
         return None
     kept = [m.group(0) for m in ANCHOR.finditer(html) if m.group(1).strip() == filename]
+    if digest:   # pip verifies the download against this fragment, so the fragment must be the pin
+        kept = [a for a in kept if (f := SHA256_FRAGMENT.search(a))
+                and "sha256:" + f.group(1).lower() == digest.lower()]
     if not kept:
         return None
     return "<!DOCTYPE html><html><body>\n" + "\n".join(kept) + "\n</body></html>\n"
@@ -132,6 +164,7 @@ class Guard:
     def __init__(self, pins: dict[str, dict[str, str]], host: str = "127.0.0.1", port: int = 0,
                  refusals_path: str | None = None):
         self.pins = pins
+        self.digests: dict[str, dict[str, str]] = pins.get("digests") or {"npm": {}, "pypi": {}, "nuget": {}}
         self.npm_closure: dict[str, str] = {}     # exact Honua dependencies of pinned npm packages
         self.nuget_pins = dict(self.pins["nuget"], **nuget_family_pins(self.pins))
         self.refusals: list[dict[str, str]] = []
@@ -237,6 +270,10 @@ class Guard:
                     self.refuse(handler, "npm", f"{name} ({filename})")
                     return
             code, data, ctype = self._fetch(f"{NPM_UPSTREAM}/{name}/-/{filename}")
+            declared = self.digests["npm"].get(name)
+            if code == 200 and declared and not digest_matches(data, declared):
+                self.refuse(handler, "npm", f"{name} ({filename}) differs from the manifest integrity")
+                return
             self._send(handler, code, data, ctype, head)
             return
         name = rest.rstrip("/")
@@ -248,7 +285,8 @@ class Guard:
                 return
             self._send(handler, code, data, ctype, head)
             return
-        body = filter_npm_packument(name, json.loads(data), {**self.npm_closure, **self.pins["npm"]})
+        body = filter_npm_packument(name, json.loads(data), {**self.npm_closure, **self.pins["npm"]},
+                                    self.digests["npm"].get(name))
         if body is None:
             self.refuse(handler, "npm", name)
             return
@@ -271,7 +309,8 @@ class Guard:
                 return
             self._send(handler, code, data, ctype, head)
             return
-        text = filter_pypi_simple(name, data.decode("utf-8"), self.pins["pypi"])
+        text = filter_pypi_simple(name, data.decode("utf-8"), self.pins["pypi"],
+                                  self.digests["pypi"].get(pypi_normalize(name)))
         if text is None:
             self.refuse(handler, "pypi", name)
             return
@@ -339,6 +378,10 @@ class Guard:
                 self.refuse(handler, "nuget", f"{package_id} {parts[1]}")
                 return
         code, data, ctype = self._fetch(f"{NUGET_FLAT_UPSTREAM}/{rest.lower()}")
+        declared = self.digests["nuget"].get(package_id.lower())
+        if code == 200 and declared and parts[-1].lower().endswith(".nupkg") and not digest_matches(data, declared):
+            self.refuse(handler, "nuget", f"{package_id} {parts[1]} differs from the manifest digest")
+            return
         self._send(handler, code, data, ctype, head)
 
 

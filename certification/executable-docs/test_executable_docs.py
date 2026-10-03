@@ -14,7 +14,7 @@ from blocks import extract, parse_html  # noqa: E402
 from inputs import doc_id, load_vars, needs, render  # noqa: E402
 from inventory import Resolver, build, drift  # noqa: E402
 from registry_guard import (filter_npm_packument, filter_nuget_registration, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
-                            nuget_family_pins, pins_from_manifest)
+                            digest_matches, nuget_family_pins, pins_from_manifest, Guard)
 from run import (assert_output, combine_csharp, combine_js, continuation_error, scrub,  # noqa: E402
                  split_csharp, substitute, SERVE)
 
@@ -185,7 +185,7 @@ MANIFEST = {
 def test_guard_pins_and_filters():
     pins = pins_from_manifest(MANIFEST)
     assert pins == {"npm": {"@honua/sdk-js": "0.1.12"}, "pypi": {"honua-sdk": "honua_sdk-0.1.12-py3-none-any.whl"},
-                    "nuget": {"honua.sdk": "1.10.1"}}
+                    "nuget": {"honua.sdk": "1.10.1"}, "digests": {"npm": {"@honua/sdk-js": "sha512-x"}, "pypi": {}, "nuget": {}}}
     packument = {"name": "@honua/sdk-js", "versions": {"0.1.11": {}, "0.1.12": {}, "0.2.0-beta.0": {}},
                  "dist-tags": {"latest": "0.2.0-beta.0", "next": "0.2.0-beta.0"}, "time": {"0.1.12": "t", "created": "c"}}
     filtered = filter_npm_packument("@honua/sdk-js", packument, pins["npm"])
@@ -256,6 +256,74 @@ def test_vars_files_name_declared_documents_and_cite_them():
     for path in sorted((HERE / "vars").glob("*.json")):
         assert path.stem in ids, path.name
         load_vars(HERE / "vars", path.stem)
+
+
+def test_guard_binds_pinned_artifacts_to_manifest_digests(monkeypatch):
+    import base64
+    import hashlib
+    tgz, wheel, nupkg = b"npm-bytes", b"wheel-bytes", b"nupkg-bytes"
+    sri = "sha512-" + base64.b64encode(hashlib.sha512(tgz).digest()).decode()
+    wheel_hex, nupkg_hex = hashlib.sha256(wheel).hexdigest(), hashlib.sha256(nupkg).hexdigest()
+    manifest = {"clientArtifacts": {
+        "js": {"package": "@honua/sdk-js", "version": "0.1.12", "integrity": sri},
+        "py": {"package": "honua-sdk", "version": "0.1.12", "filename": "honua_sdk-0.1.12-py3-none-any.whl",
+               "digest": "sha256:" + wheel_hex},
+        "net": {"package": "Honua.Sdk", "version": "1.10.1", "registry": "nuget.org", "digest": "sha256:" + nupkg_hex},
+    }}
+    pins = pins_from_manifest(manifest)
+    assert pins["digests"] == {"npm": {"@honua/sdk-js": sri}, "pypi": {"honua-sdk": "sha256:" + wheel_hex},
+                               "nuget": {"honua.sdk": "sha256:" + nupkg_hex}}
+    assert digest_matches(tgz, sri) and not digest_matches(b"tampered", sri)
+    assert digest_matches(nupkg, "sha256:" + nupkg_hex) and not digest_matches(b"tampered", "sha256:" + nupkg_hex)
+    assert not digest_matches(tgz, "md5-" + base64.b64encode(hashlib.md5(tgz).digest()).decode())
+
+    packument = lambda integrity: {"versions": {"0.1.12": {"dist": {"integrity": integrity}} if integrity else {}}}
+    assert filter_npm_packument("@honua/sdk-js", packument(sri), pins["npm"], sri) is not None
+    assert filter_npm_packument("@honua/sdk-js", packument("sha512-drift"), pins["npm"], sri) is None
+    assert filter_npm_packument("@honua/sdk-js", packument(None), pins["npm"], sri) is None
+    anchor = '<a href="https://f/honua_sdk-0.1.12-py3-none-any.whl{}">honua_sdk-0.1.12-py3-none-any.whl</a>'
+    digest = pins["digests"]["pypi"]["honua-sdk"]
+    assert filter_pypi_simple("honua-sdk", anchor.format("#sha256=" + wheel_hex), pins["pypi"], digest)
+    assert filter_pypi_simple("honua-sdk", anchor.format("#sha256=" + "0" * 64), pins["pypi"], digest) is None
+    assert filter_pypi_simple("honua-sdk", anchor.format(""), pins["pypi"], digest) is None
+
+    class Handler:
+        def __init__(self):
+            self.code, self.body = None, b""
+            self.wfile = self
+
+        def send_response(self, code):
+            self.code = code
+
+        def send_header(self, *_):
+            pass
+
+        def end_headers(self):
+            pass
+
+        def write(self, data):
+            self.body += data
+
+    served = {"tgz": tgz, "nupkg": nupkg}
+    monkeypatch.setattr(Guard, "_fetch", staticmethod(
+        lambda url, accept=None: (200, served["tgz" if url.endswith(".tgz") else "nupkg"], "application/octet-stream")))
+    guard = Guard(pins)
+    try:
+        def get(route, rest):
+            handler = Handler()
+            route(handler, rest, False)
+            return handler.code
+        assert get(guard._npm, "@honua/sdk-js/-/sdk-js-0.1.12.tgz") == 200
+        assert get(guard._nuget_flat, "honua.sdk/1.10.1/honua.sdk.1.10.1.nupkg") == 200
+        served.update(tgz=b"tampered", nupkg=b"tampered")
+        assert get(guard._npm, "@honua/sdk-js/-/sdk-js-0.1.12.tgz") == 404
+        assert get(guard._nuget_flat, "Honua.Sdk/1.10.1/honua.sdk.1.10.1.nupkg") == 404
+        assert get(guard._nuget_flat, "honua.sdk.geoservices/1.10.1/honua.sdk.geoservices.1.10.1.nupkg") == 200
+        assert {r["package"] for r in guard.refusals} == {
+            "@honua/sdk-js (sdk-js-0.1.12.tgz) differs from the manifest integrity",
+            "Honua.Sdk 1.10.1 differs from the manifest digest"}
+    finally:
+        guard.server.server_close()
 
 
 def test_guard_admits_the_dependency_closure_of_a_pin():
