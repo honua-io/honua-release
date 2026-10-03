@@ -9,6 +9,9 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
+from generate_platform_lock import _artifact_seed
 from image_platforms import verify_image_platform_digests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
@@ -40,6 +43,18 @@ def verify_frozen_sources(candidate: dict, manifest: Path, matrix: Path) -> dict
         if (declared.get(name) or {}).get("sha256") != digest:
             raise rollback.RollbackError(f"candidate lock does not bind exact {name} bytes")
     return observed
+
+
+def declared_image_owners(manifest: Path) -> dict[str, str]:
+    """Map each image coordinate the frozen manifest declares to the component that owns it."""
+    value = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+    owners: dict[str, str] = {}
+    for section in ("components", "experimental"):
+        for name, component in (value.get(section) or {}).items():
+            seed = _artifact_seed(component) if isinstance(component, dict) else None
+            if seed and seed["kind"] == "image":
+                owners[seed["coordinate"]] = name
+    return owners
 
 
 def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_inputs: dict[str, str], fail_provider: str = "") -> Path:
@@ -92,6 +107,7 @@ def certify(args, report: dict) -> int:
         raise rollback.RollbackError("ROLLBACK_RESOLVED_BYTES_CHANGED")
     report.update(candidate_lock_digest=candidate_digest, rollback_target_digest=target_digest)
     sources = verify_frozen_sources(b, args.candidate_manifest, args.compatibility_matrix)
+    owners = declared_image_owners(args.candidate_manifest)
     # Challenge architecture labels against each lock's immutable registry index before mutation.
     for role, lock in (("CANDIDATE", b), ("RETAINED", a)):
         image = rollback.pointer(lock, artifact_path(lock, "honua-server", "image", ""))
@@ -101,6 +117,16 @@ def certify(args, report: dict) -> int:
         for name, component in lock["components"].items():
             for artifact in component.get("artifacts", []):
                 if artifact.get("kind") == "image":
+                    # The registry check proves the bytes behind a coordinate, not that the
+                    # coordinate is this component's: a console index must never certify as server.
+                    # The candidate must carry exactly the coordinate its frozen manifest declares.
+                    # The retained lock is attested against its own manifest, so a renamed repository
+                    # stays valid; it may only not claim a coordinate another component now owns.
+                    coordinate = artifact.get("coordinate")
+                    owner = owners.get(coordinate)
+                    if (owner != name) if role == "CANDIDATE" else (owner not in (None, name)):
+                        raise rollback.RollbackError(
+                            f"ROLLBACK_{role}_IMAGE_COORDINATE_MISMATCH: {name}: {coordinate!r}")
                     try:
                         verify_image_platform_digests(artifact)
                     except (OSError, TypeError, ValueError) as exc:
