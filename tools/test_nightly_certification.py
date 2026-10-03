@@ -630,6 +630,16 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
         (work / path).parent.mkdir(parents=True, exist_ok=True)
         (work / path).write_text(path)
     (work / 'mint.txt').write_text('MINTED: 2026.1-rc.3 -> nightly-lock\n')
+    notes = tmp_path / 'notes'
+    notes.mkdir()
+    git(notes, 'init', '-q')
+    (notes / 'notes.md').write_text('generated notes\n')
+    git(notes, 'add', 'notes.md')
+    git(notes, '-c', 'user.name=Mike McDougall', '-c', 'user.email=mike@honua.io',
+        'commit', '-qm', 'retain notes')
+    revision = git(notes, 'rev-parse', 'HEAD')
+    git(notes, 'bundle', 'create', str(work / 'certified/release-notes.bundle'), 'HEAD')
+    (work / 'certified/release-notes-revision.txt').write_text(revision + '\n')
     runner_temp = tmp_path / 'runner-temp'
     runner_temp.mkdir()
     output = tmp_path / 'out.txt'

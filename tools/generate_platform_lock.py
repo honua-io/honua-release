@@ -73,7 +73,8 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     return {"kind": kinds.get(prefix, "other"), "coordinate": name or str(coordinate)}
 
 
-def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) -> Draft:
+def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
+             post_gate_evidence=None) -> Draft:
     """Derive a draft; the CLI also requires live registry architecture verification."""
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
@@ -305,6 +306,13 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             for component in lock["components"].values()
         ):
             unresolved.append(f"$.components: compatibility contract {contract!r} version {expected!r} has no component declaration")
+    if post_gate_evidence is not None:
+        if set(post_gate_evidence) != {"sbom", "provenance", "notes"}:
+            raise ValueError("post-gate regeneration may supply only sbom, provenance and notes")
+        # Source identities still hash the exact frozen files. No component, fixture or other
+        # release fact can be supplied through this channel; freeze uses no override at all.
+        manifest = {**manifest, "platformLockEvidence": {
+            **(manifest.get("platformLockEvidence") or {}), **post_gate_evidence}}
     _release_facts(manifest, lock, refuse)
     return Draft(lock=lock, unresolved=unresolved, deferred_until_cut=deferred)
 

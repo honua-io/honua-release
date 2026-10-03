@@ -613,6 +613,7 @@ jobs:
           TRAIN_RUN_ATTEMPT: ${{ github.run_attempt }}
           TRAIN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           NIGHTLY: ${{ inputs.nightly }}
+          GH_TOKEN: ${{ github.token }}
           CERTIFICATION_MODE: ${{ inputs.dry_run && 'dry-run' || 'live' }}
         run: |
           set -euo pipefail
@@ -648,6 +649,14 @@ jobs:
               --report out/certified-candidate/gate-report.json \
               --lock candidate-input/frozen-lock/platform-lock.json \
               --journey-reports journey-reports
+            # Freeze still requires a complete lock. Only a green gate_sbom and complete train
+            # reach collection; none of the pre-gate hand-declared references is reused.
+            python tools/mint_nightly_lock.py --collect-post-gate \
+              --report out/certified-candidate/gate-report.json \
+              --manifest out/certified-candidate/platform-manifest.yaml \
+              --matrix out/certified-candidate/compatibility-matrix.yaml \
+              --out-dir out/certified-candidate
+            cp candidate-input/frozen-lock/platform-lock.json out/certified-candidate/qualification-lock.json
           fi
           cp out/certified-candidate/gate-report.json out/gate-report.json
           # Use only the attested freeze output, never a second checkout of lock bytes.

@@ -88,8 +88,11 @@ PROTECTED = [{'id': 7, 'target': 'tag', 'enforcement': 'active',
 
 def mint(report, paths, history, output, *, signer, **overrides):
     """The production call shape: trusted identity, complete published history, protected lock refs."""
+    declared = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
     options = {'rulesets': PROTECTED, 'published': {}, 'source_sha': SOURCE, 'run_id': RUN,
-               'fixture_records': records()}
+               'fixture_records': records(), 'qualification_lock': paths[0].parent / 'qualification-lock.json',
+               'post_gate_evidence': {'candidate': copy.deepcopy(report['candidate']),
+                                     'references': {field: declared[field] for field in nightly.POST_GATE_FIELDS}}}
     options.update(overrides)
     return nightly.mint(report, *paths, history, output, 'trusted', signer=signer, **options)
 

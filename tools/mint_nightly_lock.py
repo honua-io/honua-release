@@ -11,6 +11,7 @@ moving them, or a deleted lock would let the next night reuse its rc number.
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ import yaml
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
 from fixture_revisions import RECORD as FIXTURE_RECORD, declare as declare_fixtures, load as load_fixtures
 from generate_platform_lock import generate
+from release_notes_ref import snapshot
 from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
 
@@ -40,6 +42,156 @@ SHA = re.compile(r'[0-9a-f]{40}\Z')
 DELAYS = (0, 10, 30, 60, 120, 60)
 TRANSIENT = ('could not resolve host', 'connection reset', 'connection timed out',
              'operation timed out', 'tls', 'early eof', 'unable to access', 'http 5')
+POST_GATE_FIELDS = frozenset({'sbom', 'provenance', 'notes'})
+PREDICATES = {'https://slsa.dev/provenance/v0.2': 'provenance',
+              'https://slsa.dev/provenance/v1': 'provenance',
+              'https://spdx.dev/Document': 'sbom', 'https://cyclonedx.org/bom': 'sbom'}
+
+
+def artifact_subject(artifact: dict) -> str:
+    if artifact.get('integrity'):
+        return 'sha512:' + base64.b64decode(artifact['integrity'].removeprefix('sha512-'),
+                                          validate=True).hex()
+    return artifact.get('digest') or artifact.get('sha256') or ''
+
+
+def statement_field(statement: dict, subjects: set[str]) -> str | None:
+    """Keep only SBOM/provenance statements naming these exact published bytes."""
+    field = PREDICATES.get(statement.get('predicateType'))
+    named = {f'{algorithm}:{digest}' for row in statement.get('subject', [])
+             for algorithm, digest in (row.get('digest') or {}).items()}
+    return field if field and named & subjects else None
+
+
+def publisher_attestations(repository: str, digest: str) -> list[dict]:
+    from resolve_trunk_candidate import retry
+    result = retry(lambda: subprocess.run(
+        ['gh', 'api', f'repos/{repository}/attestations/{digest}', '--paginate', '--slurp'],
+        capture_output=True, text=True, check=True))
+    pages = json.loads(result.stdout)
+    if not isinstance(pages, list) or any(not isinstance(page.get('attestations'), list) for page in pages):
+        raise ValueError(f'{repository}: malformed publisher attestation response')
+    return [row for page in pages for row in page['attestations']]
+
+
+def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
+                      github=None, registry=None, attestations=publisher_attestations) -> dict:
+    """Collect actual registry statements/bundles; never reuse manifest evidence declarations.
+
+    OCI indexes must cover each runnable child, including the separately deployed Lambda image.
+    Package attestations are retained verbatim, including signatures, in the notes Git parent.
+    A missing publisher SBOM/provenance is a blocker, never replaced by a platform BOM.
+    """
+    from resolve_trunk_candidate import GitHub, Registry
+    errors = failures(report)
+    for path in (manifest, matrix):
+        pin = report.get('candidate', {}).get('artifacts', {}).get(path.name) or {}
+        if pin.get('sha256') != _sha256(path) or pin.get('size') != path.stat().st_size:
+            errors.append(f'no lock minted: report is not bound to {path.name} bytes')
+    if errors:
+        raise ValueError('\n'.join(errors))
+    github = github or GitHub()
+    registry = registry or Registry(github)
+    draft = generate(manifest, matrix)
+    references = {'sbom': [], 'provenance': []}
+    documents, pending = {}, []
+
+    def oci(name, coordinate, digest, context):
+        if not coordinate.startswith('ghcr.io/'):
+            raise ValueError(f'{context}: no attestation reader for {coordinate}')
+        repo = coordinate.removeprefix('ghcr.io/')
+        index = registry.document(repo, digest, manifest=True)
+        children = [child for child in index.get('manifests', [])
+                    if (child.get('platform') or {}).get('os') == 'linux']
+        subjects = {child['digest'] for child in children} or {digest}
+        coverage = {field: set() for field in references}
+        # BuildKit stores in-toto layers in attestation manifests in the same immutable index.
+        for child in index.get('manifests', []):
+            if (child.get('annotations') or {}).get('vnd.docker.reference.type') != 'attestation-manifest':
+                continue
+            attestation = registry.document(repo, child['digest'], manifest=True)
+            for layer in attestation.get('layers', []):
+                if layer.get('mediaType') != 'application/vnd.in-toto+json':
+                    continue
+                statement = registry.document(repo, layer['digest'])
+                field = statement_field(statement, subjects)
+                if field:
+                    named = {f'{algorithm}:{value}' for subject in statement['subject']
+                             for algorithm, value in subject['digest'].items()}
+                    coverage[field].update(named & subjects)
+                    reference = {'component': name, 'uri': f'oci://{coordinate}@{child["digest"]}',
+                                 'sha256': child['digest']}
+                    if reference not in references[field]:
+                        references[field].append(reference)
+        for field, covered in coverage.items():
+            if covered != subjects:
+                detail = ('; honua-server .github/workflows/nightly-container-build.yml '
+                          'build-lambda-aot must publish SBOM and provenance (inventory: '
+                          'provenance: false at line 326; sbom: false at line 327)'
+                          if context.endswith('Lambda') else '')
+                errors.append(f'{context}: missing {field} for {", ".join(sorted(subjects - covered))}{detail}')
+
+    data = yaml.safe_load(manifest.read_text())
+    server = (data.get('components') or {}).get('honua-server') or {}
+    if server.get('awsLambdaImage'):
+        coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
+        oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda')
+    for name, component in sorted(draft.lock['components'].items()):
+        for number, artifact in enumerate(component['artifacts']):
+            context = f'{name}.artifacts[{number}]'
+            digest = artifact_subject(artifact)
+            if not digest:
+                errors.append(f'{context}: cannot bind attestations without a published digest')
+                continue
+            if artifact['kind'] in {'image', 'oci-chart'}:
+                oci(name, artifact['coordinate'], digest, context)
+                continue
+            repo = component['source']['repository'].removeprefix('https://github.com/')
+            try:
+                rows = attestations(repo, digest)
+            except (ValueError, subprocess.CalledProcessError) as exc:
+                errors.append(f'{context}: publisher attestations unavailable: '
+                              + str(getattr(exc, 'stderr', None) or exc).strip())
+                continue
+            covered = set()
+            for number, row in enumerate(rows):
+                bundle = row.get('bundle') or {}
+                envelope = bundle.get('dsseEnvelope') or {}
+                statement = json.loads(base64.b64decode(envelope.get('payload', ''), validate=True))
+                field = statement_field(statement, {digest})
+                if not field:
+                    continue
+                path = f'attestations/{name}/{digest.replace(":", "-")}/{field}-{number}.json'
+                documents[path] = json.dumps(bundle, sort_keys=True, separators=(',', ':')).encode()
+                pending.append((field, name, path))
+                covered.add(field)
+            errors.extend(f'{context}: publisher has no {field} attestation for {digest}'
+                          for field in references if field not in covered)
+    if errors:
+        raise ValueError('no lock minted: post-gate reference collection refused:\n' + '\n'.join(errors))
+    revision, stored = snapshot(manifest, matrix, report, output, documents)
+    for field, name, path in pending:
+        references[field].append({'component': name, 'uri': stored[path],
+                                  'sha256': stored[path].rsplit('#', 1)[1]})
+    references['notes'] = stored[f'release-notes/{report["platform_label"]}.md']
+    result = {'candidate': report['candidate'], 'references': references, 'notesRevision': revision}
+    (output / 'post-gate-references.json').write_text(json.dumps(result, indent=2) + '\n')
+    return result
+
+
+def regenerate_post_gate(source: Path, matrix: Path, frozen: dict, references: dict):
+    """Regenerate from frozen inputs and prove the only delta is the three produced fields."""
+    draft = generate(source, matrix, post_gate_evidence=references)
+    if draft.unresolved:
+        raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
+    before = {key: value for key, value in frozen.items() if key not in POST_GATE_FIELDS}
+    after = {key: value for key, value in draft.lock.items() if key not in POST_GATE_FIELDS}
+    if before != after:
+        raise ValueError('no lock minted: regeneration changed facts outside sbom, provenance and notes')
+    from validate_platform_lock import validate
+    if validate(draft.lock).errors:
+        raise ValueError('no lock minted: ' + '; '.join(validate(draft.lock).errors))
+    return draft
 
 
 # Each receipt derives its verdict from the gate that actually consumes that class.
@@ -319,7 +471,7 @@ def sign_blob(lock_path: Path, bundle_path: Path, identity: str, issuer: str) ->
 def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path,
          identity: str, issuer='https://token.actions.githubusercontent.com', *, signer=sign_blob,
          rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None,
-         fixture_records=()) -> str:
+         fixture_records=(), post_gate_evidence=None, qualification_lock=None) -> str:
     from platform_lock_bundle import canonical_bytes
 
     errors = failures(report, repository=repository, source_sha=source_sha, run_id=run_id)
@@ -350,6 +502,26 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         if draft.unresolved:
             raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
         bind(draft.lock, source, matrix, label)
+        if qualification_lock is None or post_gate_evidence is None:
+            raise ValueError('no lock minted: qualification lock and post-gate references are required')
+        frozen = json.loads(qualification_lock.read_bytes())
+        if frozen != draft.lock:
+            raise ValueError('no lock minted: qualification lock differs from frozen inputs')
+        errors = evidence_failures(report, 'sha256:' + _sha256(qualification_lock))
+        if errors:
+            raise ValueError('no lock minted:\n' + '\n'.join(errors))
+        if post_gate_evidence.get('candidate') != report['candidate']:
+            raise ValueError('no lock minted: post-gate references belong to another candidate or run')
+        draft = regenerate_post_gate(source, matrix, frozen, post_gate_evidence['references'])
+        # The green receipts described the freeze lock. Only after checking that binding and the
+        # three-field delta can their lock digest be retargeted. No status/time/class is changed.
+        report = copy.deepcopy(report)
+        digest = 'sha256:' + hashlib.sha256(canonical_bytes(draft.lock)).hexdigest()
+        for receipt in report['evidenceReceipts'].values():
+            receipt['lockDigest'] = digest
+            for cell in receipt.get('cells', []):
+                for attempt in cell.get('attempts', []):
+                    attempt['lockDigest'] = digest
         if sorted(map(_fixture_key, draft.lock['fixtures'])) != sorted(map(_fixture_key, fixtures)):
             raise ValueError('no lock minted: lock fixtures differ from the revisions the gates used')
         if output.exists():
@@ -379,6 +551,8 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
                 retained_report['candidate']['artifacts'][manifest.name] = {
                     **pins[manifest.name], 'sha256': _sha256(source), 'size': source.stat().st_size}
             (staging / 'gate-report.json').write_bytes(canonical_bytes(retained_report))
+            (staging / 'post-gate-references.json').write_bytes(canonical_bytes(post_gate_evidence))
+            (staging / 'qualification-lock.json').write_bytes(qualification_lock.read_bytes())
             for name, receipt in report['evidenceReceipts'].items():
                 path = staging / 'promotion-receipts' / name / 'receipt.json'
                 path.parent.mkdir(parents=True)
@@ -396,6 +570,8 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--declare-evidence', action='store_true')
+    parser.add_argument('--collect-post-gate', action='store_true')
+    parser.add_argument('--post-gate-references', type=Path)
     parser.add_argument('--lock', type=Path)
     parser.add_argument('--journey-reports', type=Path)
     parser.add_argument('--history', type=Path, default=Path('nightly-history'))
@@ -416,6 +592,11 @@ def main(argv=None):
                         help='directory holding every fixture gate\'s fixture-revisions.json from this run')
     args = parser.parse_args(argv)
     try:
+        if args.collect_post_gate:
+            if not all((args.report, args.manifest, args.matrix)):
+                raise ValueError('post-gate collection requires report, manifest and matrix')
+            collect_post_gate(json.loads(args.report.read_text()), args.manifest, args.matrix, args.out_dir)
+            return 0
         if args.declare_evidence:
             if not args.report or not args.lock or not args.journey_reports:
                 raise ValueError('declaration requires report, lock and journey reports')
@@ -436,9 +617,11 @@ def main(argv=None):
             print(next_label(args.history))
         else:
             if not all((args.report, args.manifest, args.matrix, args.certificate_identity, args.rulesets,
-                        args.expected_source_sha, args.expected_run_id, args.fixture_revisions)):
+                        args.expected_source_sha, args.expected_run_id, args.fixture_revisions,
+                        args.lock, args.post_gate_references)):
                 raise ValueError('report, candidate inputs, trusted signing identity, rulesets, '
-                                 'the expected source sha and run id, and fixture revisions are required')
+                                 'the expected source sha and run id, and fixture revisions are required; '
+                                 'qualification lock and post-gate references are required')
             if published is None:
                 raise ValueError('minting requires --sync-from so the published lock history is complete')
             label = mint(json.loads(args.report.read_text()), args.manifest, args.matrix,
@@ -446,7 +629,9 @@ def main(argv=None):
                          rulesets=json.loads(args.rulesets.read_text()), published=published,
                          repository=args.expected_repository, source_sha=args.expected_source_sha,
                          run_id=args.expected_run_id,
-                         fixture_records=load_fixtures(args.fixture_revisions))
+                         fixture_records=load_fixtures(args.fixture_revisions),
+                         post_gate_evidence=json.loads(args.post_gate_references.read_text()),
+                         qualification_lock=args.lock)
             print(f'MINTED: {label} -> {args.out_dir}')
         return 0
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
