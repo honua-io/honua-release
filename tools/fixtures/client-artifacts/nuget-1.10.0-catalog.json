@@ -1,0 +1,241 @@
+{
+  "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json",
+  "@type": [
+    "PackageDetails",
+    "catalog:Permalink"
+  ],
+  "authors": "Honua",
+  "catalog:commitId": "68fa7c08-e965-4528-8ab2-3d4cdf8b199e",
+  "catalog:commitTimeStamp": "2026-09-25T19:42:48.4328557Z",
+  "copyright": "Copyright (c) Honua",
+  "created": "2026-09-25T19:40:11.85Z",
+  "description": "Umbrella / meta package for the Honua .NET SDK. Installing this package brings in every other Honua.Sdk.* package and exposes a single AddHonua(o => o.BaseAddress = ...) DI registration that fans out across every enabled sub-package. Use the narrower per-package facades (Honua.Sdk.Grpc, Honua.Sdk.Admin, etc.) directly if you want to depend on less.",
+  "id": "Honua.Sdk",
+  "isPrerelease": false,
+  "lastEdited": "2026-09-25T19:42:46.093Z",
+  "licenseExpression": "Apache-2.0",
+  "licenseUrl": "https://licenses.nuget.org/Apache-2.0",
+  "listed": true,
+  "packageHash": "9++AhB9iQopLT83GYXj46uUodNzUlyckV6q1JCNYPLBrw3d5GCKvX4iXW0WJhsFQqs80aV8mSNm9PNMvWiewjw==",
+  "packageHashAlgorithm": "SHA512",
+  "packageSize": 29403,
+  "projectUrl": "https://github.com/honua-io/honua-sdk-dotnet",
+  "published": "2026-09-25T19:40:11.85Z",
+  "readmeFile": "README.md",
+  "repository": {
+    "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#repository",
+    "commit": "d81067a035854a1bc4c396ed763ba0de6b18864e",
+    "type": "git",
+    "url": "https://github.com/honua-io/honua-sdk-dotnet"
+  },
+  "verbatimVersion": "1.10.0",
+  "version": "1.10.0",
+  "dependencyGroups": [
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0",
+      "@type": "PackageDependencyGroup",
+      "dependencies": [
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.abstractions",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Abstractions",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.admin",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Admin",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.catalogs",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Catalogs",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.consoleshare",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.ConsoleShare",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.field",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Field",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.geoservices",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.GeoServices",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.geometry",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Geometry",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.grpc",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Grpc",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.offline",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Offline",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.ogcfeatures",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.OgcFeatures",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.processes",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Processes",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.scenes",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Scenes",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.spec",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Spec",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/honua.sdk.studio",
+          "@type": "PackageDependency",
+          "id": "Honua.Sdk.Studio",
+          "range": "[1.10.0, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/microsoft.extensions.dependencyinjection",
+          "@type": "PackageDependency",
+          "id": "Microsoft.Extensions.DependencyInjection",
+          "range": "[10.0.7, )"
+        },
+        {
+          "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#dependencygroup/net10.0/microsoft.extensions.options",
+          "@type": "PackageDependency",
+          "id": "Microsoft.Extensions.Options",
+          "range": "[10.0.7, )"
+        }
+      ],
+      "targetFramework": "net10.0"
+    }
+  ],
+  "packageEntries": [
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#Honua.Sdk.nuspec",
+      "@type": "PackageEntry",
+      "compressedLength": 850,
+      "fullName": "Honua.Sdk.nuspec",
+      "length": 2664,
+      "name": "Honua.Sdk.nuspec"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#README.md",
+      "@type": "PackageEntry",
+      "compressedLength": 2447,
+      "fullName": "README.md",
+      "length": 6712,
+      "name": "README.md"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#lib/net10.0/Honua.Sdk.dll",
+      "@type": "PackageEntry",
+      "compressedLength": 7810,
+      "fullName": "lib/net10.0/Honua.Sdk.dll",
+      "length": 20480,
+      "name": "Honua.Sdk.dll"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#lib/net10.0/Honua.Sdk.xml",
+      "@type": "PackageEntry",
+      "compressedLength": 3261,
+      "fullName": "lib/net10.0/Honua.Sdk.xml",
+      "length": 15431,
+      "name": "Honua.Sdk.xml"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2026.09.25.19.42.48/honua.sdk.1.10.0.json#.signature.p7s",
+      "@type": "PackageEntry",
+      "compressedLength": 12993,
+      "fullName": ".signature.p7s",
+      "length": 12993,
+      "name": ".signature.p7s"
+    }
+  ],
+  "tags": [
+    "geospatial",
+    "mobile",
+    "gis",
+    "grpc",
+    "rest",
+    "ogc",
+    "wfs",
+    "stac",
+    "sync",
+    "honua",
+    "meta"
+  ],
+  "@context": {
+    "@vocab": "http://schema.nuget.org/schema#",
+    "catalog": "http://schema.nuget.org/catalog#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "dependencies": {
+      "@id": "dependency",
+      "@container": "@set"
+    },
+    "dependencyGroups": {
+      "@id": "dependencyGroup",
+      "@container": "@set"
+    },
+    "packageEntries": {
+      "@id": "packageEntry",
+      "@container": "@set"
+    },
+    "packageTypes": {
+      "@id": "packageType",
+      "@container": "@set"
+    },
+    "supportedFrameworks": {
+      "@id": "supportedFramework",
+      "@container": "@set"
+    },
+    "tags": {
+      "@id": "tag",
+      "@container": "@set"
+    },
+    "vulnerabilities": {
+      "@id": "vulnerability",
+      "@container": "@set"
+    },
+    "published": {
+      "@type": "xsd:dateTime"
+    },
+    "created": {
+      "@type": "xsd:dateTime"
+    },
+    "lastEdited": {
+      "@type": "xsd:dateTime"
+    },
+    "catalog:commitTimeStamp": {
+      "@type": "xsd:dateTime"
+    },
+    "reasons": {
+      "@container": "@set"
+    }
+  }
+}

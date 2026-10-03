@@ -1,0 +1,32 @@
+{
+  "js": {
+    "ecosystem": "npm",
+    "package": "@honua/sdk-js",
+    "version": "0.1.12",
+    "integrity": "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "1102d2d55916340edca13cb28411df8da8206f92",
+    "publicationState": "published"
+  },
+  "python": {
+    "ecosystem": "pypi",
+    "package": "honua-sdk",
+    "version": "0.1.12",
+    "filename": "honua_sdk-0.1.12-py3-none-any.whl",
+    "digest": "sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2",
+    "repository": "honua-io/honua-sdk-python",
+    "sourceSha": "12670676a1e8acb835e911c358adbf46a731120a",
+    "publicationState": "published"
+  },
+  "dotnet": {
+    "ecosystem": "nuget",
+    "registry": "nuget.org",
+    "package": "Honua.Sdk",
+    "version": "1.10.1",
+    "filename": "honua.sdk.1.10.1.nupkg",
+    "digest": "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+    "repository": "honua-io/honua-sdk-dotnet",
+    "sourceSha": "8a0a06c815baefd49e7398d38a9f22642a8c80c5",
+    "publicationState": "published"
+  }
+}

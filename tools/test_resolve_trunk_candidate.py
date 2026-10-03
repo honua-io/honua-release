@@ -6,6 +6,9 @@ import re
 import subprocess
 
 import pytest
+import yaml
+
+import verify_client_artifacts as verifier
 
 import resolve_trunk_candidate as resolver
 
@@ -182,29 +185,32 @@ def failing(stderr):
     return subprocess.CalledProcessError(1, ['gh', 'api'], stderr=stderr)
 
 
-def manifest_file(tmp_path):
+def manifest_file(tmp_path, component_name="honua-sdk-js"):
+    pins = recorded_pins()
     import yaml
     path = tmp_path / 'platform-manifest.yaml'
-    path.write_text(yaml.safe_dump({'components': {'honua-sdk-js': {
-        'repository': 'https://github.com/honua-io/honua-sdk-js', 'sha': OLD, 'artifact': 'npm:@honua/sdk'}}}))
+    path.write_text(yaml.safe_dump({'components': {component_name: {
+        'repository': f'https://github.com/honua-io/{component_name}', 'sha': OLD,
+        'artifact': 'npm:@honua/sdk-js'}}, 'clientArtifacts': pins}))
     matrix = tmp_path / 'compatibility-matrix.yaml'
     matrix.write_text('{}\n')
     return ['--manifest', str(path), '--matrix', str(matrix), '--out-dir', str(tmp_path / 'out')]
 
 
 def test_a_404_from_a_repository_the_token_cannot_see_refuses_the_night(monkeypatch, tmp_path, capsys):
-    gh = FakeGh({'repos/honua-io/honua-sdk-js/commits': failing('gh: Not Found (HTTP 404)')})
+    replay_registry(monkeypatch)
+    gh = FakeGh({'repos/honua-io/honua-iac/commits': failing('gh: Not Found (HTTP 404)')})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
     monkeypatch.setattr(resolver.time, 'sleep', lambda _: pytest.fail('a 404 is not transient'))
-    assert resolver.main(manifest_file(tmp_path)) == 1
+    assert resolver.main(manifest_file(tmp_path, 'honua-iac')) == 1
     err = capsys.readouterr().err
-    assert err.startswith('REFUSED:') and 'honua-sdk-js' in err and 'HTTP 404' in err
+    assert err.startswith('REFUSED:') and 'honua-iac' in err and 'HTTP 404' in err
     assert not (tmp_path / 'out').exists()
 
 
 def test_a_404_on_check_runs_refuses_rather_than_reading_as_no_checks(monkeypatch, tmp_path, capsys):
-    gh = FakeGh({'repos/honua-io/honua-sdk-js/commits?': [{'sha': NEW}],
-                 f'repos/honua-io/honua-sdk-js/commits/{NEW}/check-runs': failing('gh: Not Found (HTTP 404)')})
+    replay_registry(monkeypatch)
+    gh = FakeGh({'repos/honua-io/honua-sdk-js/commits/1102d2d55916340edca13cb28411df8da8206f92/check-runs': failing('gh: Not Found (HTTP 404)')})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
     assert resolver.main(manifest_file(tmp_path)) == 1
     assert re.search(r'check-runs\S* failed: gh: Not Found \(HTTP 404\)', capsys.readouterr().err)
@@ -213,11 +219,12 @@ def test_a_404_on_check_runs_refuses_rather_than_reading_as_no_checks(monkeypatc
 
 def test_an_exhausted_rate_limit_retries_then_refuses(monkeypatch, tmp_path, capsys):
     limited = failing('gh: API rate limit exceeded for installation ID 1. (HTTP 403)')
-    gh = FakeGh({'repos/honua-io/honua-sdk-js/commits': limited})
+    replay_registry(monkeypatch)
+    gh = FakeGh({'repos/honua-io/honua-iac/commits': limited})
     sleeps = []
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
     monkeypatch.setattr(resolver.time, 'sleep', sleeps.append)
-    assert resolver.main(manifest_file(tmp_path)) == 1
+    assert resolver.main(manifest_file(tmp_path, 'honua-iac')) == 1
     assert sleeps == [10, 30, 60, 120, 60]
     assert len(gh.calls) == len(resolver.DELAYS)
     assert 'rate limit exceeded' in capsys.readouterr().err
@@ -559,3 +566,166 @@ def test_false_does_not_allow_empty_version_sets():
     with pytest.raises(resolver.ResolutionError, match='contractVersions must be a non-empty mapping'):
         declared('honua-mobile', declaration_bytes('honua-mobile', contractVersions={}, schemaVersions={}),
                  sourcePinnedOnly=False)
+
+
+# --- Published SDK identities (honua-release#231 WI-4) ---
+RECORDED = resolver.ROOT / 'tools' / 'fixtures' / 'client-artifacts'
+
+
+def recorded_pins():
+    return json.loads((RECORDED / 'pins.json').read_text())
+
+
+def replay_registry(monkeypatch):
+    urls = json.loads((RECORDED / 'urls.json').read_text())
+    responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
+    monkeypatch.setattr(verifier, '_request', lambda url, **kw: responses[url])
+
+
+class PublishedSource(TreeAndDeclarations):
+    def __init__(self, pins, red=False):
+        files = {(pin['repository'], pin['sourceSha'], resolver.COMPONENT_VERSIONS_PATH):
+                 declaration_bytes('honua-sdk-' + name)
+                 for name, pin in pins.items()}
+        super().__init__(files)
+        self.checked, self.red = [], red
+
+    def commits(self, repository, limit):
+        assert repository == 'honua-io/honua-server', 'SDK must never select an unpublished trunk head'
+        return iter([NEW])
+
+    def green(self, name, repository, sha):
+        self.checked.append((name, repository, sha))
+        return (not self.red or name == 'honua-server'), 'required suite failed' if self.red else 'green'
+
+
+def resolve_published(monkeypatch, pins=None, source=None):
+    pins = recorded_pins() if pins is None else pins
+    replay_registry(monkeypatch)
+    source = source or PublishedSource(pins)
+    components = {'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW}}
+    for name, pin in pins.items():
+        components['honua-sdk-' + name] = {
+            'repository': 'https://github.com/' + pin['repository'],
+            'artifact': pin['ecosystem'] + ':' + pin['package'], 'sha': NEW, 'version': '9.9.9',
+            'artifactVersion': 'hand-version', 'artifactSourceRevision': NEW,
+            'artifactSha256': 'sha256:' + 'f' * 64, 'contractVersions': {'hand': '9'},
+        }
+    manifest = {'components': components, 'clientArtifacts': pins,
+                'platformRelease': '2026.1.0-rc.3', 'protocolCertification': {'ledger': {'status': 'bound'}}}
+    monkeypatch.setattr(resolver.validate_platform, 'validate',
+                        lambda *a, **kw: type('Findings', (), {'errors': []})())
+    monkeypatch.setattr(resolver.validate_platform, 'check_legacy_evidence_pin_coherence', lambda *a: None)
+    candidate, matrix = resolver.resolve(manifest, {}, source, None, limit=1)
+    assert manifest['components']['honua-sdk-dotnet']['sha'] == NEW  # input is not mutated
+    return candidate, matrix, source
+
+
+def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declarations_there(monkeypatch, tmp_path):
+    import generate_platform_lock as generator
+    import convergence_rebind
+    candidate, matrix, source = resolve_published(monkeypatch)
+    expected = {
+        'dotnet': ('1.10.1', '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
+                   'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'),
+        'js': ('0.1.12', '1102d2d55916340edca13cb28411df8da8206f92',
+               'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'),
+        'python': ('0.1.12', '12670676a1e8acb835e911c358adbf46a731120a',
+                   'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'),
+    }
+    for name, (version, revision, digest) in expected.items():
+        sdk = candidate['components']['honua-sdk-' + name]
+        assert (sdk['sha'], sdk['artifactSourceRevision'], sdk['artifactVersion'], sdk['artifactSha256']) == (
+            revision, revision, version, digest)
+        assert sdk['version'] == sdk['artifactVersion'] == version
+        assert sdk['contractVersions'] == {'admin': 'v1'}
+        assert ('honua-sdk-' + name, 'honua-io/honua-sdk-' + name, revision) in source.checked
+        assert ('honua-io/honua-sdk-' + name, revision, 'release/component-versions.json') in source.declarations.reads
+    # Use the ledger's canonical client row names to prove S5 is removed.
+    candidate['clientArtifacts'] = {dict(dotnet='honua-sdk-dotnet', js='honua-sdk-js',
+                                       python='honua-sdk-python-wheel')[name]: pin
+                                    for name, pin in candidate['clientArtifacts'].items()}
+    convergence_rebind.require_published_sdk_pins(candidate)
+    manifest_path, matrix_path = tmp_path / 'manifest.yaml', tmp_path / 'matrix.yaml'
+    manifest_path.write_text(yaml.safe_dump(candidate))
+    matrix_path.write_text(yaml.safe_dump(matrix))
+    draft = generator.generate(manifest_path, matrix_path)
+    for name, (version, revision, digest) in expected.items():
+        sdk = draft.lock['components']['honua-sdk-' + name]
+        assert sdk['source']['revision'] == revision
+        artifact = sdk['artifacts'][0]
+        assert artifact['version'] == version and artifact['sourceRevision'] == revision
+        if name != 'js':
+            assert artifact['sha256'] == digest
+        else:
+            assert artifact['integrity'] == 'sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ=='
+    assert not any('published identity conflicts' in row or 'package hash is not declared' in row
+                   or 'registry provenance must bind' in row and 'honua-sdk-' in row
+                   for row in draft.unresolved)
+    assert any('serverCompatibility' in row for row in draft.unresolved)  # unrelated gates still refuse
+
+
+def test_a_new_published_pin_advances_source_and_artifact_identity_together(monkeypatch):
+    old_pins = recorded_pins()
+    old_pins['dotnet'].update(version='1.10.0', filename='honua.sdk.1.10.0.nupkg',
+        sourceSha='d81067a035854a1bc4c396ed763ba0de6b18864e',
+        digest='sha256:dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa')
+    older, _, _ = resolve_published(monkeypatch, old_pins)
+    newer, _, _ = resolve_published(monkeypatch)
+    old = older['components']['honua-sdk-dotnet']
+    new = newer['components']['honua-sdk-dotnet']
+    assert old['version'] == old['artifactVersion'] == '1.10.0'
+    assert new['version'] == new['artifactVersion'] == '1.10.1'
+    assert (old['sha'], old['artifactVersion'], old['artifactSha256']) == (
+        'd81067a035854a1bc4c396ed763ba0de6b18864e', '1.10.0',
+        'sha256:dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa')
+    assert (new['sha'], new['artifactVersion'], new['artifactSha256']) == (
+        '8a0a06c815baefd49e7398d38a9f22642a8c80c5', '1.10.1',
+        'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd')
+
+
+def test_red_published_sdk_source_refuses_without_advancing_to_green_head(monkeypatch):
+    pins = recorded_pins()
+    with pytest.raises(resolver.ResolutionError, match='honua-sdk-dotnet: published source .*required suite failed'):
+        resolve_published(monkeypatch, pins, PublishedSource(pins, red=True))
+
+
+@pytest.mark.parametrize('change,message', [
+    ('missing', 'exactly one'), ('duplicate', 'exactly one'), ('wrong-repository', 'repository'),
+    ('optional', 'not verified'), ('unpublished', 'not published/promoted'),
+    ('wrong-digest', 'manifest digest'),
+])
+def test_ambiguous_or_unverified_primary_package_refuses(monkeypatch, change, message):
+    pins = recorded_pins()
+    replay_registry(monkeypatch)
+    component = {'repository': 'https://github.com/honua-io/honua-sdk-dotnet', 'artifact': 'nuget:Honua.Sdk'}
+    if change == 'missing':
+        del pins['dotnet']
+    elif change == 'duplicate':
+        pins['also-dotnet'] = copy.deepcopy(pins['dotnet'])
+    elif change == 'wrong-repository':
+        component['repository'] = 'https://github.com/other/repo'
+    elif change == 'optional':
+        pins['dotnet']['required'] = False
+    elif change == 'unpublished':
+        pins['dotnet']['publicationState'] = 'pending'
+    elif change == 'wrong-digest':
+        pins['dotnet']['digest'] = 'sha256:' + '0' * 64
+    with pytest.raises(ValueError, match=message):
+        identities = verifier.verify_manifest({'clientArtifacts': pins}, include_identities=True)
+        resolver.select_sdk('honua-sdk-dotnet', component, pins, identities, PublishedSource(recorded_pins()))
+
+
+def test_companion_publication_cannot_choose_the_sdk_source(monkeypatch):
+    pins = recorded_pins()
+    replay_registry(monkeypatch)
+    identities = verifier.verify_manifest({'clientArtifacts': pins}, include_identities=True)
+    # The companion's publication is distinct and already verified by the manifest verifier;
+    # this selector only joins the primary coordinate, regardless of row ordering or naming.
+    pins = {'companion': {'ecosystem': 'npm', 'package': '@honua/mcp-server',
+                         'repository': 'honua-io/honua-sdk-js', 'sourceSha': NEW}, **pins}
+    identities['companion'] = {'version': '0.1.12', 'sourceRevision': NEW, 'sha256': 'sha256:' + 'e' * 64}
+    component = {'repository': 'https://github.com/honua-io/honua-sdk-js', 'artifact': 'npm:@honua/sdk-js'}
+    selected = resolver.select_sdk('honua-sdk-js', component, pins, identities, PublishedSource(recorded_pins()))
+    assert selected['sha'] == '1102d2d55916340edca13cb28411df8da8206f92'
+    assert pins['companion']['sourceSha'] == NEW
