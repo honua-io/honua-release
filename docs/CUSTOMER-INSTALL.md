@@ -12,14 +12,15 @@ image comes from the successful Windows rehearsal in
 OCI index digest and amd64 source label were rechecked on 2026-09-08. Both Honua
 Python clients are pinned in `platform-manifest.yaml`; their wheel identities
 and the MCP transport wheel come from the linked version-specific PyPI JSON.
-The admin source revision is the published `python-admin-v0.1.8` release target.
-Alternative npm and NuGet pins are copied from the platform manifest; they are
-not required by the Python journey and are not new compatibility claims.
+Both Python source revisions are the commit in the PyPI publication certificate of
+the pinned wheel. Alternative npm and NuGet pins are copied from the platform manifest;
+they are not required by the Python journey and are not new compatibility claims.
 
-Public GHCR, npm and PyPI artifacts in this profile require no package-read
-credential. Only the optional `Honua.Sdk` GitHub Packages feed requires a GitHub
-account with package access and a classic PAT scoped to `read:packages` (authorize
-organization SSO if required). Do not require GitHub login for the Python journey.
+Every artifact in this profile is public and requires no package-read credential:
+GHCR, npm, PyPI, and the optional .NET client `Honua.Sdk` 1.10.1, which installs
+anonymously from nuget.org (`dotnet add package Honua.Sdk --version 1.10.1`; no
+GitHub Packages feed, PAT, or `nuget.config` source is needed). Do not require
+GitHub login for any journey.
 
 When updating this profile, verify registry bytes and run
 `python3 tools/validate_customer_install_manifest.py`. The required `validate` check

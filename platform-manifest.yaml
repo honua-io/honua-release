@@ -605,18 +605,24 @@ components:
 # immutable artifacts came from commits that postdate them — a false provenance claim about bytes
 # customers can download today. No validator would catch it either: `sourceSha` is checked only for
 # 40-hex shape (validate_platform._check_client_artifacts), so this discipline rests entirely on the
-# manifest being honest. The file already models the split — components.honua-sdk-js.sha has moved
-# four times while this block's sourceSha has not.
+# manifest being honest. The file already models the split — components.honua-sdk-js.sha moves with
+# trunk, while this block's sourceSha moves only when the published bytes themselves are re-pinned.
 #
-# Each pin was re-verified against the actual publish provenance on 2026-09-01:
-#   honua-sdk-js         c99e7119 = tag js-sdk-v0.1.9-beta.0 -> commit c99e7119        MATCHES
-#   honua-mcp-server     ac29d160 = npm registry gitHead for 0.1.4-beta.0              MATCHES
-#   honua-sdk-python-wheel f7930b6e = tag python-sdk-v0.1.11 -> commit f7930b6e        MATCHES
-#   honua-sdk-dotnet     a88a7fbb = annotated tag dotnet-sdk-v1.6.0 -> commit a88a7fbb MATCHES
-#   nuget.org later published Honua.Sdk 1.6.4-1.10.0; those commits are not selected here.
-# @honua/mcp-server 0.1.8-beta.0 is also published; its separate coordinate remains release-cut work.
-# Python admin pin: PyPI /pypi/honua-admin/0.1.8/json and release
-# python-admin-v0.1.8, verified 2026-09-08. Customer pre-cut install profile:
+# Each pin was re-verified against the actual publish provenance on 2026-10-02, when every pin
+# advanced to its newest published registry identity (honua-release#408):
+#   honua-sdk-js         1102d2d5 = npm registry gitHead for @honua/sdk-js 0.1.12           MATCHES
+#   honua-mcp-server     44289c02 = npm registry gitHead for @honua/mcp-server 0.1.12       MATCHES
+#   honua-sdk-python-wheel 12670676 = PyPI publication certificate GitHub SHA (OID
+#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.12-py3-none-any.whl       MATCHES
+#   honua-admin-python-wheel 12670676 = same certificate extension for
+#                        honua_admin-0.1.9-py3-none-any.whl                                 MATCHES
+#   honua-sdk-dotnet     8a0a06c8 = nuget.org catalog repository.commit and nuspec
+#                        <repository commit> for Honua.Sdk 1.10.1 (anonymous nuget.org)    MATCHES
+# tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog
+# SHA-512, listing, and catalog + nuspec repository commit against `sourceSha`.
+# Superseded selection (verified 2026-09-01/09-08): JS 0.1.9-beta.0 c99e7119, MCP 0.1.4-beta.0
+# ac29d160, Python SDK 0.1.11 f7930b6e, Python admin 0.1.8, .NET 1.6.0 a88a7fbb on GitHub Packages.
+# Customer pre-cut install profile:
 # customer-install-manifest.json (does not replace the certified candidate). Its consumer is the
 # public site (honua-io/honua-site data/customer-install-manifest.json, copied byte-for-byte) and
 # the customer install guides; the required `validate` check runs

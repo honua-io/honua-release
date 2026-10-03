@@ -1,11 +1,13 @@
 """#57: the anonymous first-publication preflight must not invent package bytes."""
 from __future__ import annotations
 
+import base64
 import gzip
 import hashlib
 import io
 import json
 import tarfile
+import zipfile
 
 import pytest
 import yaml
@@ -508,24 +510,98 @@ def test_a_listed_experimental_package_stays_deferred_and_records_the_listing():
     preflight.audit(receipt, _experimental_manifest())
 
 
-def test_explicit_public_nuget_pin_requires_downloaded_matching_bytes():
-    world = World()
-    manifest = _manifest()
-    manifest['clientArtifacts']['honua-sdk-dotnet'].update(
-        version='1.10.0', registry='nuget.org', digest='sha256:' + _sha(NUPKG))
+def _nupkg(package_id: str, version: str) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr(
+            f"{package_id}.nuspec",
+            '<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata>'
+            f"<id>{package_id}</id><version>{version}</version></metadata></package>",
+        )
+    return output.getvalue()
+
+
+def _public_pin_world(version: str = "1.10.0", *, bodies=None, catalog_hash=None, versions=None):
+    """Serve every PINNED_NUPKG_IDS entry at `version` with registration and catalog leaves."""
+    world = World(nuget_versions=versions)
+    bodies = dict(bodies or {})
+    for package_id in preflight.PINNED_NUPKG_IDS:
+        bodies.setdefault(package_id, _nupkg(package_id, version))
     original = world._response
+
     def present(url):
-        if url.endswith('/honua.sdk.studio/1.10.0/honua.sdk.studio.1.10.0.nupkg'):
-            return 200, NUPKG
+        for package_id, body in bodies.items():
+            catalog_url = f"https://api.nuget.org/v3/catalog0/data/{package_id.lower()}.{version}.json"
+            if url == preflight.nuget_nupkg_url(package_id, version):
+                return 200, body
+            if url == preflight.nuget_registration_url(package_id, version):
+                return 200, json.dumps({
+                    "catalogEntry": catalog_url,
+                    "listed": True,
+                    "packageContent": preflight.nuget_nupkg_url(package_id, version),
+                }).encode()
+            if url == catalog_url:
+                digest = hashlib.sha512(_nupkg(package_id, version) if catalog_hash == "honest" else body).digest()
+                return 200, json.dumps({
+                    "id": package_id,
+                    "version": version,
+                    "listed": True,
+                    "packageHashAlgorithm": "SHA512",
+                    "packageHash": base64.b64encode(digest).decode("ascii"),
+                }).encode()
         return original(url)
+
     world._response = present
-    receipt = preflight.build_receipt(world, manifest, observed_at='2026-10-02T00:00:00Z',
-                                      retained={'grpc_sha256': _sha(GRPC), 'bsr_sha256': _sha(BSR)})
-    train = _channel(receipt, 'train:honua-sdk-dotnet')
-    assert train['disposition'] == 'published'
-    assert len(train['files']) == 2
-    assert not any(b['kind'] == 'blocked-on-train-binding' for b in receipt['blockers'])
-    manifest['clientArtifacts']['honua-sdk-dotnet']['digest'] = 'sha256:' + '0' * 64
-    with pytest.raises(preflight.PreflightError, match='sha256'):
-        preflight.build_receipt(world, manifest, observed_at='2026-10-02T00:00:00Z',
-                                retained={'grpc_sha256': _sha(GRPC), 'bsr_sha256': _sha(BSR)})
+    return world
+
+
+def _public_pin_manifest(version: str = "1.10.0") -> dict:
+    manifest = _manifest()
+    manifest["clientArtifacts"]["honua-sdk-dotnet"].update(
+        version=version, registry="nuget.org", digest="sha256:" + _sha(_nupkg("Honua.Sdk", version)))
+    return manifest
+
+
+def _public_pin_receipt(world, manifest) -> dict:
+    return preflight.build_receipt(world, manifest, observed_at="2026-10-02T00:00:00Z",
+                                   retained={"grpc_sha256": _sha(GRPC), "bsr_sha256": _sha(BSR)})
+
+
+def test_explicit_public_nuget_pin_requires_downloaded_matching_bytes():
+    receipt = _public_pin_receipt(_public_pin_world(), _public_pin_manifest())
+    train = _channel(receipt, "train:honua-sdk-dotnet")
+    assert train["disposition"] == "published"
+    assert len(train["files"]) == 2
+    assert not any(b["kind"] == "blocked-on-train-binding" for b in receipt["blockers"])
+    manifest = _public_pin_manifest()
+    manifest["clientArtifacts"]["honua-sdk-dotnet"]["digest"] = "sha256:" + "0" * 64
+    with pytest.raises(preflight.PreflightError, match="sha256"):
+        _public_pin_receipt(_public_pin_world(), manifest)
+
+
+def test_public_nuget_pin_refuses_a_train_missing_the_pin_on_any_sdk_package():
+    world = _public_pin_world()
+    original = world._response
+
+    def lagging(url):
+        if url == preflight.nuget_index_url("Honua.Sdk.Geometry"):
+            return 200, json.dumps({"versions": ["1.6.4"]}).encode()
+        return original(url)
+
+    world._response = lagging
+    with pytest.raises(preflight.PreflightError, match="Honua.Sdk.Geometry"):
+        _public_pin_receipt(world, _public_pin_manifest())
+
+
+def test_public_nuget_pin_refuses_studio_bytes_the_catalog_does_not_bind():
+    corrupt = {"Honua.Sdk.Studio": b"nupkg-bytes"}
+    with pytest.raises(preflight.PreflightError, match="catalog SHA-512"):
+        _public_pin_receipt(_public_pin_world(bodies=corrupt, catalog_hash="honest"), _public_pin_manifest())
+
+
+def test_public_nuget_pin_refuses_studio_bytes_that_are_not_the_named_package():
+    wrong = {"Honua.Sdk.Studio": _nupkg("Honua.Sdk.Studio", "1.6.4")}
+    with pytest.raises(preflight.PreflightError, match="nuspec does not identify"):
+        _public_pin_receipt(_public_pin_world(bodies=wrong), _public_pin_manifest())
+    with pytest.raises(preflight.PreflightError, match="not a valid .nupkg"):
+        _public_pin_receipt(_public_pin_world(bodies={"Honua.Sdk.Studio": b"nupkg-bytes"}), _public_pin_manifest())
