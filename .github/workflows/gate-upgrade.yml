@@ -667,7 +667,14 @@ jobs:
           # candidate-bound recovery-receipt (validated above) is that scenario's evidence instead.
           if [ "${status:-fail}" = pass ] && [ -f /tmp/install-identity.json ] && [ -f /tmp/candidate-identity.json ] \
              && [ -f /tmp/rollback-identity.json ] && [ -f /tmp/migration-journal.json ]; then
-            JOURNAL_SHA="sha256:$(sha256sum /tmp/migration-journal.json | awk '{print $1}')"
+            # honua.migration-journal/v1 (tools/upgrade_lock_binding.py): the lock's migrationJournalSha256
+            # is the digest of the canonical journal bytes, never of psql's json_agg formatting.
+            if ! JOURNAL_SHA="$(python tools/upgrade_lock_binding.py journal-digest /tmp/migration-journal.json \
+                 --canonical-output /tmp/upg/migration-journal.canonical.json)"; then
+              echo "status=fail" >> "$GITHUB_ENV"
+              echo "why=observed migration journal is not a canonical script-name set" >> "$GITHUB_ENV"
+              exit 1
+            fi
             jq -n \
               --arg arch amd64 --arg priorLock "${{ steps.images.outputs.prior_lock_digest }}" \
               --arg candidateLock "${{ steps.images.outputs.candidate_lock_digest }}" \
@@ -679,11 +686,12 @@ jobs:
               --arg declaredJournal "${{ steps.images.outputs.declared_journal_sha }}" \
               --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --arg commit "$GITHUB_SHA" \
               --slurpfile install /tmp/install-identity.json --slurpfile candidate /tmp/candidate-identity.json --slurpfile rollback /tmp/rollback-identity.json \
+              --slurpfile journalNames /tmp/upg/migration-journal.canonical.json \
               '{architecture:$arch,priorLockDigest:$priorLock,candidateLockDigest:$candidateLock,lockValidation:{prior:"verified",candidate:"verified"},
                 charts:{install:{coordinate:$priorCoordinate,version:$priorVersion,digest:$priorChartDigest,sha256:$priorChartSha},
                         candidate:{coordinate:$candidateCoordinate,version:$candidateVersion,digest:$candidateChartDigest,sha256:$candidateChartSha}},
                 phases:{install:$install[0],candidate:$candidate[0],rollback:$rollback[0]},
-                schema:{observed:$schema,journalSha256:$journal,declaredJournalSha256:$declaredJournal},
+                schema:{observed:$schema,journal:$journalNames[0],journalSha256:$journal,declaredJournalSha256:$declaredJournal},
                 seededData:{checksumsMatched:true,rollbackQueryPassed:true},timings:{},workflow:{run:$run,commit:$commit}}' \
               > /tmp/upg/exact-lock-evidence.json
             if ! python tools/upgrade_lock_binding.py --prior-lock _locks/prior.json --candidate-lock _locks/candidate.json \
