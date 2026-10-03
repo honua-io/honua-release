@@ -1,0 +1,10 @@
+{
+  "document": "honua-sdk-python-packages-honua-sdk-readme",
+  "env": {},
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "packages/honua-sdk/README.md:54 — the `your-honua-server.com` placeholder for the reader's server"
+    }
+  }
+}

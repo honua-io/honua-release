@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-stac-search-rest-readme",
+  "env": {
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "samples/stac-search-rest/README.md:17 — \"Set `HONUA_BASE_URL` to inspect another STAC deployment\""
+    }
+  },
+  "substitute": {}
+}

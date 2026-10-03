@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "description": "The public getting-started documents a new user follows, and the revision each is read at. inventory.py lists every fenced block of these documents; run.py runs them against the booted candidate.",
+  "runtimes": {
+    "node": "node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7",
+    "python": "python:3.12-bookworm@sha256:e91fec3d1ac69f04e4eddcd29c327e630ce34658cf31075bfa7e8b0e052bafea",
+    "dotnet": "mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317",
+    "dockerCli": "docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d"
+  },
+  "revisionRules": {
+    "clientArtifact": "platform-manifest.yaml clientArtifacts.<key>.sourceSha: the commit the published registry package (and its README) was built from",
+    "component": "platform-manifest.yaml components.<key>.sha: the pinned component revision",
+    "npmPublished": "gitHead of the npm dist-tag `latest` of the package: what npmjs.com shows today (the package is not a manifest pin)",
+    "defaultBranch": "head of the repository's default branch at run time: the published site/samples a reader sees today",
+    "checkout": "this repository's own checkout: the release docs that ship with the candidate"
+  },
+  "documents": [
+    {"repo": "honua-io/honua-sdk-js", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "mcp/README.md", "revision": {"clientArtifact": "honua-mcp-server"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "packages/create-honua-app/README.md", "revision": {"npmPublished": "create-honua-app"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-python", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-python", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-python", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-python", "path": "packages/honua-sdk/README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-python", "path": "packages/honua-admin/README.md", "revision": {"clientArtifact": "honua-admin-python-wheel"}, "runtime": "python"},
+    {"repo": "honua-io/honua-sdk-dotnet", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-dotnet"}, "runtime": "dotnet"},
+    {"repo": "honua-io/honua-sdk-dotnet", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-dotnet"}, "runtime": "dotnet"},
+    {"repo": "honua-io/honua-sdk-dotnet", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-dotnet"}, "runtime": "dotnet"},
+    {"repo": "honua-io/honua-release", "path": "docs/INSTALL-2026.1.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
+    {"repo": "honua-io/honua-release", "path": "docs/CUSTOMER-INSTALL.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"component": "honua-server"}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/registry-clients.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
+    {"repo": "honua-io/honua-server", "path": "docs/sdks/javascript/javascript-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "node"},
+    {"repo": "honua-io/honua-server", "path": "docs/sdks/python/python-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "python"},
+    {"repo": "honua-io/honua-server", "path": "docs/sdks/dotnet/dotnet-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
+    {"repo": "honua-io/honua-samples", "path": "README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}},
+    {"repo": "honua-io/honua-samples", "path": "samples/browser-featureserver-query/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/browser-featureserver-query"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/geocode-single-line/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/geocode-single-line"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/hello-featureserver-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/hello-featureserver-rest"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/odata-query-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/odata-query-rest"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/ogc-features-python/README.md", "revision": {"defaultBranch": true}, "runtime": "python", "checkout": {"cwd": "samples/ogc-features-python"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/stac-search-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/stac-search-rest"}},
+    {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:9 — \"Bash, `curl`, `jq`, and `od`\""}},
+    {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
+    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "revision": {"defaultBranch": true}, "runtime": "node"}
+  ],
+  "outOfScope": [
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/linux-packages.md", "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/windows-packages.md", "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."}
+  ],
+  "toolchain": {
+    "typescript": "5.9.3"
+  },
+  "prerequisites": "a document's stated prerequisite tool beyond its runtime image, with the citation; `node` mounts the pinned node runtime's node/npm/npx into the session's other containers, `jq` is installed from the image's Debian archive",
+  "contexts": {
+    "dotnetProject": "a document whose runtime is dotnet is read by someone with a project of their own: the session starts in a fresh `dotnet new console` project, so `dotnet add package` and Program.cs have somewhere to go",
+    "checkout": "the document is a README inside a repository: the reader has cloned that repository at the document's revision and runs from `cwd` (relative to the clone)"
+  }
+}

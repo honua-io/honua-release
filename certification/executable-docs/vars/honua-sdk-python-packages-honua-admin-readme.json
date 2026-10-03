@@ -1,0 +1,14 @@
+{
+  "document": "honua-sdk-python-packages-honua-admin-readme",
+  "env": {},
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "packages/honua-admin/README.md:65 — the `your-honua-server.com` placeholder for the reader's server"
+    },
+    "\"honua-api-key\"": {
+      "value": "\"{candidate.apiKey}\"",
+      "documentedAt": "packages/honua-admin/README.md:65 — `api_key=\"honua-api-key\"` placeholder for the server's admin key"
+    }
+  }
+}

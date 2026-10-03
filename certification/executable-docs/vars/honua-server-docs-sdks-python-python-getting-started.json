@@ -1,0 +1,15 @@
+{
+  "document": "honua-server-docs-sdks-python-python-getting-started",
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/sdks/python/python-getting-started.md:55 — `api_key=os.environ[\"HONUA_API_KEY\"]`; the page's prerequisites point at the quickstart's admin key"
+    }
+  },
+  "substitute": {
+    "locator=SourceLocator(service_id=\"default\", layer_id=0)": {
+      "value": "locator=SourceLocator(service_id=\"{fixture.featureService}\", layer_id={fixture.featureLayerId})",
+      "documentedAt": "docs/sdks/python/python-getting-started.md:50 — \"point the `SourceLocator` at one of your own services\""
+    }
+  }
+}

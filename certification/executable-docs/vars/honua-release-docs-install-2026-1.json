@@ -1,0 +1,14 @@
+{
+  "document": "honua-release-docs-install-2026-1",
+  "env": {
+    "HONUA_ADMIN_PASSWORD": {
+      "value": "{candidate.adminPassword}",
+      "documentedAt": "docs/INSTALL-2026.1.md:30 — \"authenticate with the installer-provisioned admin key\""
+    },
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "docs/INSTALL-2026.1.md:30-34 — \"After readiness ... verify\" against the installed server's base URL"
+    }
+  },
+  "substitute": {}
+}

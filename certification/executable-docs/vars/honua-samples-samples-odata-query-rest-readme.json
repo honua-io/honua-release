@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-odata-query-rest-readme",
+  "env": {
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "samples/odata-query-rest/README.md:16 — \"Set `HONUA_BASE_URL` to point the same code at your own anonymous OData surface\""
+    }
+  },
+  "substitute": {}
+}

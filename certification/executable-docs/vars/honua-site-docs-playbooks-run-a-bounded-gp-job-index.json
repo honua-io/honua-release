@@ -1,0 +1,10 @@
+{
+  "document": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
+  "env": {},
+  "substitute": {
+    "quickstart-admin-password": {
+      "value": "{candidate.adminPassword}",
+      "documentedAt": "docs/playbooks/run-a-bounded-gp-job/index.md:22 — \"The admin password doubles as the `X-API-Key` on a compose install\""
+    }
+  }
+}

@@ -85,6 +85,7 @@
         "protocol-ledger",
         "deterministic-journey",
         "nightly-model-journey",
+        "executable-docs",
         "genuine-model-journey",
         "update-rollback",
         "esri-bundle",
@@ -122,6 +123,9 @@
           "const": "nightly"
         },
         "nightly-model-journey": {
+          "const": "nightly"
+        },
+        "executable-docs": {
           "const": "nightly"
         },
         "genuine-model-journey": {

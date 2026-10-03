@@ -1,0 +1,10 @@
+{
+  "document": "honua-server-docs-sdks-dotnet-dotnet-getting-started",
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:116 — \"`ApiKey` is unset or wrong; set it\""
+    }
+  },
+  "substitute": {}
+}

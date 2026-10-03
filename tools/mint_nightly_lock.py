@@ -36,7 +36,7 @@ from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
 
 REQUIRED_NIGHTLY_GATES = REQUIRED_RELEASE_GATES | {'capacity-soak', 'one-operation-rollback', 'journey',
-                                                   'installed-clients'}
+                                                   'executable-docs', 'installed-clients'}
 LABEL = re.compile(r'(?:honua-)?2026\.1-rc\.([1-9][0-9]*)\Z')
 LOCK_REFS = 'refs/tags/nightly-lock/'
 TRUSTED_REPOSITORY = 'honua-io/honua-release'
@@ -463,6 +463,7 @@ CLASS_GATES = {
     'dr': 'dr', 'lambda-certification': 'cloud-parity',
     'protocol-ledger': 'protocol-certification',
     'deterministic-journey': 'journey', 'nightly-model-journey': 'journey',
+    'executable-docs': 'executable-docs',
     'installed-clients': 'installed-clients',
 }
 

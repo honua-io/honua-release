@@ -1,6 +1,7 @@
 """Trust-boundary contracts for release workflow triggers and gates."""
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1001,7 +1002,7 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                        'installed-clients')
+                        'executable-docs', 'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
@@ -1020,13 +1021,13 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
 
 
-def test_report_declaration_command_emits_all_sixteen_classes(tmp_path):
+def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
     import json
     import subprocess
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                         'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                        'installed-clients')
+                        'executable-docs', 'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
@@ -1057,3 +1058,61 @@ def test_report_declaration_command_emits_all_sixteen_classes(tmp_path):
     for name in QUALIFYING_EXPECTED:
         assert emitted['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert name not in emitted['evidenceReceipts']
+
+
+def _posix_bash():
+    """The bash GitHub's `shell: bash` uses. On Windows PATH's `bash` is the WSL launcher, which runs
+    nothing and prints UTF-16; the runner's bash is Git for Windows'."""
+    if os.name != "nt":
+        return "bash"
+    git = shutil.which("git")
+    candidates = [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git/bin/bash.exe"]
+    if git:
+        candidates.insert(0, Path(git).resolve().parents[1] / "bin/bash.exe")
+    found = next((str(path) for path in candidates if path.is_file()), None)
+    assert found, f"Git for Windows bash not found in {candidates}"
+    return found
+
+
+@pytest.mark.parametrize("scenario,event,success", [
+    ("subset", "workflow_call", False), ("candidate", "workflow_call", False),
+    ("read-document", "pull_request", False), ("checkout", "pull_request", False),
+    ("runner", "pull_request", False), ("document-failure", "pull_request", True),
+    ("nothing-executed", "pull_request", True), ("nothing-executed", "workflow_call", False),
+    ("pass", "workflow_call", True),
+])
+def test_executable_docs_verdict_outputs_fail_on_incomplete_or_broken_harness(tmp_path, scenario, event, success):
+    import json
+    steps = _workflow("gate-executable-docs.yml")["jobs"]["run"]["steps"]
+    command = next(step["run"] for step in steps if step.get("id") == "verdict")
+    sources = {"documents": [{"id": "a"}, {"id": "b"}]}
+    rows = [{"id": "a", "checks": []}, {"id": "b", "checks": []}]
+    status = "pass"
+    if scenario == "subset":
+        rows.pop()
+    elif scenario == "candidate":
+        rows.append({"id": "candidate", "checks": []})
+    elif scenario in {"read-document", "checkout", "runner"}:
+        rows[0]["checks"] = [{"check": scenario, "status": "fail"}]
+        status = "fail"
+    elif scenario == "document-failure":
+        rows[0]["checks"] = [{"check": "boots-candidate-image", "status": "fail"}]
+        status = "fail"
+    elif scenario == "nothing-executed":
+        # A document whose blocks all need input or were not run is a docs finding, not a harness failure.
+        rows[0]["checks"] = [{"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"}]
+        status = "fail"
+    for name, body in [("certification/executable-docs/sources.json", sources),
+                       ("artifacts/executable-docs/report.json", {"status": status, "documents": rows})]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body))
+    (tmp_path / "artifacts/executable-docs/summary.md").write_text("summary")
+    output = tmp_path / "output"
+    proc = subprocess.run([_posix_bash(), "-c", command], cwd=tmp_path, capture_output=True,
+                          env={**os.environ, "EVENT": event, "GITHUB_OUTPUT": output.as_posix(),
+                               "GITHUB_STEP_SUMMARY": (tmp_path / "summary").as_posix()})
+    assert (proc.returncode == 0) is success, (proc.stdout, proc.stderr)
+    # GitHub parses GITHUB_OUTPUT as UTF-8 key=value lines: no BOM, no NULs, no carriage returns.
+    assert output.read_bytes().split(b"\n")[-2:] == [f"overall_status={status if success else 'fail'}".encode(), b""]
+    assert b"\r" not in output.read_bytes() and b"\x00" not in output.read_bytes()

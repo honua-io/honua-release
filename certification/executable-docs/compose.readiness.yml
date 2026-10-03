@@ -1,0 +1,6 @@
+# The init-time PostgreSQL server accepts Unix sockets but not TCP. The candidate's migrations
+# connect over TCP and fail permanently if compose starts the server during that init window.
+services:
+  db:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]

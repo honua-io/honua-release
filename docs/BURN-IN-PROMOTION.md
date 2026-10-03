@@ -36,7 +36,7 @@ The checker requires these classes and refuses an undeclared, missing, duplicate
 
 | Tier | Required classes |
 | --- | --- |
-| Nightly | `build-test`, `contract`, `sbom`, `security`, `upgrade`, `capacity-soak`, `dr`, `lambda-certification`, `protocol-ledger`, `deterministic-journey`, `nightly-model-journey` |
+| Nightly | `build-test`, `contract`, `sbom`, `security`, `upgrade`, `capacity-soak`, `dr`, `lambda-certification`, `protocol-ledger`, `deterministic-journey`, `nightly-model-journey`, `executable-docs` |
 | Qualifying | `genuine-model-journey`, `update-rollback`, `esri-bundle`, `cite` |
 
 Nightly classes come from the minting train and appear in its report's `evidenceClasses` array.
