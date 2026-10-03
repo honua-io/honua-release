@@ -156,17 +156,20 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
     release_ctx = release_context({"components": {PUBLISHER: publisher_source}})
     for name, component in combined:
         cpath = f"$.components.{name}"
+        if "sourcePinnedOnly" in component and not isinstance(component["sourcePinnedOnly"], bool):
+            refuse(f"{cpath}.sourcePinnedOnly: must be a boolean", "MECHANICAL")
+        source_pinned = component.get("sourcePinnedOnly") is True
         entry: dict[str, Any] = {
             "source": {"repository": component.get("repository"), "revision": component.get("sha")},
             "contractVersions": {},
             "schemaVersions": {},
             "artifacts": [],
-            "artifactIdentityModel": "source-pinned" if component.get("sourcePinnedOnly") else "published",
+            "artifactIdentityModel": "source-pinned" if source_pinned else "published",
         }
         for group in ("contractVersions", "schemaVersions"):
             if group in component:
                 try:
-                    entry[group] = version_map(component[group])
+                    entry[group] = version_map(component[group], allow_empty=source_pinned)
                 except ValueError as exc:
                     refuse(f"{cpath}.{group}: {exc}", "MECHANICAL")
         if component.get("dbSchema") is not None:
@@ -201,12 +204,14 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None) ->
             entry["supportTier"] = lifecycle_status.lower()
         else:
             refuse(f"{cpath}.lifecycleStatus: exact GA/Preview/Experimental/Excluded status is not declared", "DECISION")
-        if not entry["contractVersions"]:
+        # An explicit empty map is a declaration only for a sourcePinnedOnly component; an absent
+        # map, or an empty one anywhere else, is still undeclared.
+        if not entry["contractVersions"] and not (source_pinned and "contractVersions" in component):
             resolution = "PUBLISH" if name in {"honua-sdk-dotnet", "honua-sdk-js", "honua-sdk-python"} else "AT-CUT"
             refuse(f"{cpath}.contractVersions: not declared", resolution)
-        if not entry["schemaVersions"]:
+        if not entry["schemaVersions"] and not (source_pinned and "schemaVersions" in component):
             refuse(f"{cpath}.schemaVersions: not declared", "AT-CUT")
-        if not seed and not component.get("sourcePinnedOnly") and not published_by_component[name]:
+        if not seed and not source_pinned and not published_by_component[name]:
             refuse(f"{cpath}.artifacts: no artifact coordinate is declared", "DECISION")
         elif seed:
             apath = f"{cpath}.artifacts[0]"

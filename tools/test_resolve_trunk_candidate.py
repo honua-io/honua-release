@@ -1,3 +1,4 @@
+import base64
 import copy
 import hashlib
 import json
@@ -300,6 +301,8 @@ class MigrationSource:
     def file(self, repository, revision, path):
         self.reads.append(path)
         assert (repository, revision) == ('honua-io/honua-server', NEW)
+        if path == resolver.COMPONENT_VERSIONS_PATH:
+            return declaration_bytes('honua-server', schemaVersions={})
         assert path == 'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs'
         return self.declaration
 
@@ -333,11 +336,12 @@ def test_migration_journal_refuses_instead_of_guessing(source, message):
         resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
 
 
-def resolve_fixture(monkeypatch, source, stale_journal):
+def resolve_fixture(monkeypatch, source, stale_journal, extra=None):
     server = {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1',
               'migrationJournalSha256': stale_journal}
     manifest = {'components': {'honua-server': server},
                 'protocolCertification': {'ledger': {'status': 'bound'}}}
+    manifest.update(extra or {})
     matrix = {'data': {'honua-server': {'requiresDbSchema': '1'}}}
     monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
@@ -358,3 +362,200 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
     with pytest.raises(resolver.ResolutionError, match='honua-server migrations: .*truncated'):
         resolve_fixture(monkeypatch, MigrationSource(truncated=True), 'sha256:' + 'f' * 64)
+
+
+# --- release/component-versions.json (honua-release#231 WI-3a) ---
+
+def declaration_bytes(component, **overrides):
+    body = {'format': 'honua.component-versions/v1', 'component': component,
+            'contractVersions': {'admin': 'v1'}, 'schemaVersions': {'metadata': '2.0.0'}}
+    body.update(overrides)
+    return json.dumps(body).encode()
+
+
+class Declarations:
+    """`GitHub.file` for one declaration per (repository, sha); anything else is a 404."""
+
+    def __init__(self, files):
+        self.files, self.reads = files, []
+
+    def file(self, repository, revision, path):
+        self.reads.append((repository, revision, path))
+        try:
+            return self.files[(repository, revision, path)]
+        except KeyError:
+            raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={revision} '
+                                           'failed: gh: Not Found (HTTP 404)') from None
+
+
+def declared(name, raw, **component):
+    row = {'repository': f'https://github.com/honua-io/{name}', 'sha': NEW, **component}
+    source = Declarations({(f'honua-io/{name}', NEW, resolver.COMPONENT_VERSIONS_PATH): raw})
+    return resolver.component_versions(source, name, row), source
+
+
+def test_declaration_is_read_at_the_pinned_sha():
+    versions, source = declared('honua-console', declaration_bytes(
+        'honua-console', contractVersions={'console-api': '1.0.0'}, schemaVersions={'workspace': '3'}))
+    assert versions == {'contractVersions': {'console-api': '1.0.0'}, 'schemaVersions': {'workspace': '3'}}
+    assert source.reads == [('honua-io/honua-console', NEW, 'release/component-versions.json')]
+
+
+def test_declaration_goes_through_the_contents_api_at_the_sha(monkeypatch):
+    raw = declaration_bytes('honua-iac')
+    gh = FakeGh({'repos/honua-io/honua-iac/contents/release/component-versions.json':
+                 {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'}})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    component = {'repository': 'https://github.com/honua-io/honua-iac', 'sha': NEW}
+    assert resolver.component_versions(resolver.GitHub(), 'honua-iac', component)['contractVersions'] == {'admin': 'v1'}
+    assert gh.calls == [f'repos/honua-io/honua-iac/contents/release/component-versions.json?ref={NEW}']
+
+
+def test_a_missing_declaration_refuses_the_component(monkeypatch):
+    gh = FakeGh({'repos/honua-io/honua-helm/contents/': failing('gh: Not Found (HTTP 404)')})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    component = {'repository': 'https://github.com/honua-io/honua-helm', 'sha': NEW}
+    with pytest.raises(resolver.ResolutionError,
+                       match=rf'^honua-helm: honua-io/honua-helm@{NEW}:release/component-versions.json '
+                             r'is missing or unreadable: .*HTTP 404'):
+        resolver.component_versions(resolver.GitHub(), 'honua-helm', component)
+
+
+@pytest.mark.parametrize('raw,message', [
+    (b'{"format": ', 'is not a JSON document'),
+    (b'\xff\xfe', 'is not a JSON document'),
+    (b'{"format": "honua.component-versions/v1", "format": "x", "component": "honua-console", '
+     b'"contractVersions": {}, "schemaVersions": {}}', "duplicate key 'format'"),
+    (b'{"contractVersions": {"a": "1", "a": "2"}}', "duplicate key 'a'"),
+    (b'[]', 'does not match'),
+    (declaration_bytes('honua-console', format='honua.component-versions/v2'), 'format'),
+    (declaration_bytes('honua-console', contractVersions=None), 'contractVersions'),
+    (json.dumps({'format': 'honua.component-versions/v1', 'component': 'honua-console',
+                 'contractVersions': {'a': '1'}}).encode(), "'schemaVersions' is a required property"),
+    (declaration_bytes('honua-console', extra='x'), 'Additional properties'),
+    (declaration_bytes('honua-console', contractVersions={'api': 1}), 'contractVersions/api'),
+    (declaration_bytes('honua-console', contractVersions={'api': ' 1'}), 'contractVersions/api'),
+    (declaration_bytes('honua-console', schemaVersions={'database': '120'}), 'schemaVersions'),
+    (declaration_bytes('honua-sdk-js'), "declares component 'honua-sdk-js', not 'honua-console'"),
+    (declaration_bytes('honua-console', contractVersions={'api': 'pending'}), 'not an exact version'),
+    (declaration_bytes('honua-console', contractVersions={'api': '^1.0.0'}), 'not an exact version'),
+    (declaration_bytes('honua-console', schemaVersions={'workspace': 'latest'}), 'not an exact version'),
+])
+def test_an_invalid_declaration_refuses_the_component(raw, message):
+    with pytest.raises(resolver.ResolutionError, match=r'^honua-console: .*' + re.escape(message)):
+        declared('honua-console', raw)
+
+
+@pytest.mark.parametrize('group', ['contractVersions', 'schemaVersions'])
+def test_an_empty_map_is_refused_for_a_component_that_is_not_source_pinned(group):
+    with pytest.raises(resolver.ResolutionError, match=f'{group} must be a non-empty mapping.*sourcePinnedOnly'):
+        declared('honua-helm', declaration_bytes('honua-helm', **{group: {}}))
+
+
+def test_an_explicit_empty_set_is_a_declaration_for_a_source_pinned_component():
+    versions, _ = declared('honua-mobile', declaration_bytes(
+        'honua-mobile', contractVersions={}, schemaVersions={}), sourcePinnedOnly=True)
+    assert versions == {'contractVersions': {}, 'schemaVersions': {}}
+
+
+def test_server_may_leave_schema_versions_to_the_derived_database_floor():
+    versions, _ = declared('honua-server', declaration_bytes('honua-server', schemaVersions={}))
+    assert versions['schemaVersions'] == {}
+    with pytest.raises(resolver.ResolutionError, match='contractVersions must be a non-empty'):
+        declared('honua-server', declaration_bytes('honua-server', contractVersions={}))
+
+
+def test_a_source_pinned_component_still_needs_the_file():
+    with pytest.raises(resolver.ResolutionError, match='honua-collect: .*missing or unreadable'):
+        resolver.component_versions(Declarations({}), 'honua-collect', {
+            'repository': 'https://github.com/honua-io/honua-collect', 'sha': NEW, 'sourcePinnedOnly': True})
+
+
+def test_a_declaration_is_never_read_at_a_moving_ref():
+    with pytest.raises(resolver.ResolutionError, match='no immutable revision'):
+        resolver.component_versions(Declarations({}), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': 'trunk'})
+
+
+class TreeAndDeclarations(MigrationSource):
+    """The selected server tree, plus one declaration per other repository at its pinned sha."""
+
+    def __init__(self, files, **kwargs):
+        super().__init__(**kwargs)
+        self.declarations = Declarations(files)
+
+    def file(self, repository, revision, path):
+        if repository == 'honua-io/honua-server':
+            return super().file(repository, revision, path)
+        return self.declarations.file(repository, revision, path)
+
+
+def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
+    path = resolver.COMPONENT_VERSIONS_PATH
+    source = TreeAndDeclarations({
+        ('honua-io/honua-console', NEW, path): declaration_bytes(
+            'honua-console', contractVersions={'console-api': '2'}, schemaVersions={'workspace': '3'}),
+        ('honua-io/honua-mobile', OLD, path): declaration_bytes(
+            'honua-mobile', contractVersions={}, schemaVersions={}),
+    })
+    experimental = {'honua-mobile': {'repository': 'https://github.com/honua-io/honua-mobile', 'sha': OLD,
+                                     'sourcePinnedOnly': True, 'contractVersions': {'hand': '1'}}}
+    candidate, _ = resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64, extra={
+        'experimental': experimental, 'components': {
+            'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW,
+                             'dbSchema': '1', 'contractVersions': {'hand': '9'},
+                             'schemaVersions': {'database': '1'}},
+            'honua-console': {'repository': 'https://github.com/honua-io/honua-console', 'sha': NEW,
+                              'contractVersions': {'hand': '9'}}}})
+    server = candidate['components']['honua-server']
+    # The server declares its contracts; the database floor comes from the selected migration tree.
+    assert server['contractVersions'] == {'admin': 'v1'}
+    assert server['schemaVersions'] == {'database': '109'} and server['dbSchema'] == '109'
+    assert candidate['components']['honua-console']['contractVersions'] == {'console-api': '2'}
+    assert candidate['components']['honua-console']['schemaVersions'] == {'workspace': '3'}
+    # An experimental row declares at the sha the manifest pins, not at a trunk head.
+    assert candidate['experimental']['honua-mobile']['contractVersions'] == {}
+    assert candidate['experimental']['honua-mobile']['schemaVersions'] == {}
+    assert ('honua-io/honua-mobile', OLD, path) in source.declarations.reads
+
+
+def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_map(monkeypatch):
+    source = TreeAndDeclarations({})
+    hand = {'contractVersions': {'hand': '9'}, 'schemaVersions': {'hand': '9'}}
+    components = {
+        'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1'},
+        'honua-console': {'repository': 'https://github.com/honua-io/honua-console', 'sha': NEW, **hand},
+        'honua-helm': {'repository': 'https://github.com/honua-io/honua-helm', 'sha': NEW, **hand},
+    }
+    experimental = {'honua-collect': {'repository': 'https://github.com/honua-io/honua-collect', 'sha': OLD,
+                                      'sourcePinnedOnly': True}}
+    with pytest.raises(resolver.ResolutionError) as refused:
+        resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64,
+                        extra={'components': components, 'experimental': experimental})
+    lines = str(refused.value).splitlines()
+    for name in ('honua-console', 'honua-helm', 'honua-collect'):
+        assert any(line.startswith(f'{name}: ') and 'release/component-versions.json is missing' in line
+                   for line in lines), (name, lines)
+    assert not any(line.startswith('honua-server: ') for line in lines)
+
+
+def test_the_documented_example_is_a_valid_declaration():
+    doc = (resolver.ROOT / 'docs' / 'COMPONENT-VERSION-DECLARATIONS.md').read_text(encoding='utf-8')
+    example = re.search(r'```json\n(.*?)```', doc, re.S).group(1)
+    name = json.loads(example)['component']
+    versions, _ = declared(name, example.encode())
+    assert versions['contractVersions'] and versions['schemaVersions']
+
+
+@pytest.mark.parametrize('value', ['false', 'true', 1, None])
+@pytest.mark.parametrize('empty', [True, False])
+def test_source_pinned_only_requires_a_boolean(value, empty):
+    maps = {'contractVersions': {}, 'schemaVersions': {}} if empty else {}
+    with pytest.raises(resolver.ResolutionError, match='sourcePinnedOnly must be a boolean'):
+        declared('honua-mobile', declaration_bytes('honua-mobile', **maps), sourcePinnedOnly=value)
+
+
+def test_false_does_not_allow_empty_version_sets():
+    with pytest.raises(resolver.ResolutionError, match='contractVersions must be a non-empty mapping'):
+        declared('honua-mobile', declaration_bytes('honua-mobile', contractVersions={}, schemaVersions={}),
+                 sourcePinnedOnly=False)

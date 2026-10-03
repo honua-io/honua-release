@@ -27,7 +27,12 @@
     "components": {
       "type": "object",
       "minProperties": 1,
-      "description": "Deployable runtime components only; consumed by BOM and upgrade tooling."
+      "description": "Deployable runtime components only; consumed by BOM and upgrade tooling.",
+      "additionalProperties": {"$ref": "#/$defs/component"}
+    },
+    "experimental": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/component"}
     },
     "clientArtifacts": {
       "type": "object",
@@ -61,6 +66,12 @@
     }
   },
   "$defs": {
+    "component": {
+      "type": "object",
+      "properties": {
+        "sourcePinnedOnly": {"type": "boolean"}
+      }
+    },
     "disasterRecovery": {
       "type": "object",
       "additionalProperties": false,

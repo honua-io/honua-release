@@ -23,11 +23,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from jsonschema import Draft202012Validator
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
+from component_versions import version_map
 import upgrade_lock_binding
 import validate_platform
 from verify_client_artifacts import verify_manifest
@@ -278,6 +280,63 @@ def select_component(name, component, github, registry, limit):
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
 
 
+# Each component repository declares its own contract and schema versions in this file
+# (schemas/component-versions.v1.schema.json, docs/COMPONENT-VERSION-DECLARATIONS.md). It is read
+# at the revision the candidate pins, so a version map in the manifest is never a hand value.
+COMPONENT_VERSIONS_PATH = 'release/component-versions.json'
+COMPONENT_VERSIONS_SCHEMA = ROOT / 'schemas' / 'component-versions.v1.schema.json'
+# Schema versions the resolver derives itself; the component declares every other one.
+DERIVED_SCHEMA_VERSIONS = {'honua-server': 'database'}
+
+
+def _unique_keys(pairs):
+    keys = [key for key, _ in pairs]
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicates:
+        raise ResolutionError('duplicate key ' + ', '.join(map(repr, duplicates)))
+    return dict(pairs)
+
+
+def component_versions(github, name, component):
+    """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
+
+    A missing, unreadable or invalid declaration refuses the component. An explicit empty map is a
+    declaration only where the manifest marks the component sourcePinnedOnly.
+    """
+    if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
+        raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
+    repository = str(component.get('repository') or '').removeprefix('https://github.com/')
+    sha = str(component.get('sha') or '')
+    if not SHA.fullmatch(sha):
+        raise ResolutionError(f'{name}: no immutable revision to read {COMPONENT_VERSIONS_PATH} at')
+    where = f'{name}: {repository}@{sha}:{COMPONENT_VERSIONS_PATH}'
+    try:
+        raw = github.file(repository, sha, COMPONENT_VERSIONS_PATH)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+    try:
+        declaration = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is not a JSON document: {exc}') from exc
+    schema = json.loads(COMPONENT_VERSIONS_SCHEMA.read_text(encoding='utf-8'))
+    errors = sorted(Draft202012Validator(schema).iter_errors(declaration), key=lambda e: list(e.absolute_path))
+    if errors:
+        raise ResolutionError(f'{where} does not match {COMPONENT_VERSIONS_SCHEMA.name}: ' + '; '.join(
+            f"{'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message}" for error in errors[:5]))
+    if declaration['component'] != name:
+        raise ResolutionError(f"{where} declares component {declaration['component']!r}, not {name!r}")
+    source_pinned = component.get('sourcePinnedOnly') is True
+    declared = {}
+    for group in ('contractVersions', 'schemaVersions'):
+        derived = group == 'schemaVersions' and name in DERIVED_SCHEMA_VERSIONS
+        try:
+            declared[group] = version_map(declaration[group], allow_empty=source_pinned or derived)
+        except ValueError as exc:
+            hint = '' if declaration[group] else ' (an empty map is permitted only for a sourcePinnedOnly component)'
+            raise ResolutionError(f'{where}: {group} {exc}{hint}') from exc
+    return declared
+
+
 def migration_tree(github, repository, sha):
     """Every migration script path in the selected source tree, or a refusal."""
     tree = github.json(f'repos/{repository}/git/trees/{sha}?recursive=1')
@@ -329,6 +388,17 @@ def migration_journal(github, paths, repository, sha):
 def resolve(manifest, matrix, github, registry, limit=100):
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
+
+    def declare(name, selected):
+        # A version map carried in the manifest never survives: the declaration at the pinned
+        # sha replaces it, or the component has none and the night refuses.
+        for group in ('contractVersions', 'schemaVersions'):
+            selected.pop(group, None)
+        try:
+            selected.update(component_versions(github, name, selected))
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            failures.append(str(exc) if str(exc).startswith(f'{name}:') else f'{name}: {exc}')
+
     for name, component in manifest['components'].items():
         try:
             candidate['components'][name] = select_component(name, component, github, registry, limit)
@@ -340,6 +410,11 @@ def resolve(manifest, matrix, github, registry, limit=100):
             if not detail.startswith(f'{name}:'):
                 detail = f'{name}: {detail}'
             failures.append(detail)
+            continue
+        declare(name, selected)
+    # Experimental rows are not selected from trunk; they declare at the sha the manifest pins.
+    for name, selected in (candidate.get('experimental') or {}).items():
+        declare(name, selected)
     if failures:
         raise ResolutionError('\n'.join(failures))
     server_component = candidate['components']['honua-server']
@@ -364,6 +439,7 @@ def resolve(manifest, matrix, github, registry, limit=100):
         journal = migration_journal(github, paths, repository, server)
         server_component['migrationJournalSha256'] = upgrade_lock_binding.journal_digest(journal)
         server_component['dbSchema'] = floor
+        server_component['schemaVersions'][DERIVED_SCHEMA_VERSIONS['honua-server']] = floor
         data = candidate_matrix.setdefault('data', {}).setdefault('honua-server', {})
         if 'requiresDbSchema' in data and not str(data['requiresDbSchema']).startswith('>'):
             data['requiresDbSchema'] = floor

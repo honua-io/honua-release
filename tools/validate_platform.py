@@ -151,10 +151,13 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
         for name, component in (manifest.get(section) or {}).items():
             if not isinstance(component, dict):
                 continue
+            if "sourcePinnedOnly" in component and not isinstance(component["sourcePinnedOnly"], bool):
+                f.error(f"manifest: {section}.{name}.sourcePinnedOnly must be a boolean")
             for group in ("contractVersions", "schemaVersions"):
                 if group in component:
                     try:
-                        versions = version_map(component[group])
+                        versions = version_map(component[group],
+                                               allow_empty=component.get("sourcePinnedOnly") is True)
                         if group == "schemaVersions" and "database" in versions and component.get("dbSchema") is not None:
                             if versions["database"] != str(component["dbSchema"]):
                                 raise ValueError("database conflicts with dbSchema")
