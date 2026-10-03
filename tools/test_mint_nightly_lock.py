@@ -10,7 +10,7 @@ import yaml
 
 import fixture_revisions
 import mint_nightly_lock as nightly
-from candidate_binding import _sha256
+from candidate_binding import _sha256, verify_candidate_binding
 from test_platform_lock_bundle import candidate
 
 
@@ -40,8 +40,10 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None):
         'generatedAt': datetime.now(timezone.utc).isoformat(),
         'gates': [{'gate': name, 'status': 'pass'} for name in sorted(nightly.REQUIRED_NIGHTLY_GATES)],
         'candidate': {
+            'schemaVersion': 1,
             'source': {'repository': 'honua-io/honua-release', 'sha': SOURCE, 'branch': 'trunk'},
             'train': {'workflowPath': '.github/workflows/nightly-certification.yml', 'runId': RUN,
+                      'runUrl': f'https://github.com/honua-io/honua-release/actions/runs/{RUN}',
                       'runAttempt': 1, 'certificationMode': 'live'},
             'artifacts': {p.name: {'sha256': _sha256(p), 'size': p.stat().st_size} for p in real_paths}}}
     # Recorded gate observations: the four deterministic cells and the nightly genuine-model cell.
@@ -418,6 +420,8 @@ GATE_USES = {
         {'repository': 'https://github.com/honua-io/honua-sdk-dotnet', 'revision': '3' * 40}],
     ('gate-dr', 'contract'): [{'repository': 'https://github.com/honua-io/honua-server', 'revision': '4' * 40}],
     ('gate-dr', 'receipt'): [{'repository': 'https://github.com/honua-io/honua-server', 'revision': '4' * 40}],
+    ('gate-observability', 'slo'): [
+        {'repository': 'https://github.com/honua-io/honua-devops', 'revision': '6' * 40}],
     ('terminal-journey-contract', 'terminal-contract'): [
         {'repository': 'https://github.com/honua-io/honua-release', 'revision': '5' * 40,
          'path': 'certification/terminal-journey/fixtures'}],
@@ -437,16 +441,34 @@ def test_mint_declares_fixtures_from_every_gate_record(candidate, tmp_path):
     # One entry per repository; the two gate-dr jobs agree, untouched jobs report the default repo.
     assert {f['repository'].rsplit('/', 1)[1]: f['revision'] for f in lock['fixtures']} == {
         'fixtures': 'a' * 40, 'geospatial-mcp': '1' * 40, 'honua-sdk-python': '2' * 40,
-        'honua-sdk-dotnet': '3' * 40, 'honua-server': '4' * 40, 'honua-release': '5' * 40}
+        'honua-sdk-dotnet': '3' * 40, 'honua-server': '4' * 40, 'honua-release': '5' * 40,
+        'honua-devops': '6' * 40}
     assert {'repository': 'https://github.com/honua-io/honua-release', 'revision': '5' * 40,
             'path': 'certification/terminal-journey/fixtures'} in lock['fixtures']
-    # The lock names the declared manifest, which ships beside it; the certified manifest is untouched.
-    shipped = output / 'fixture-declaration' / 'platform-manifest.yaml'
+    # Promotion checks the canonical manifest and the report binding after overlaying the bundle.
+    shipped = output / 'platform-manifest.yaml'
     assert lock['sourceInputs']['platformManifest']['sha256'] == 'sha256:' + _sha256(shipped)
     assert yaml.safe_load(shipped.read_text())['platformLockEvidence']['fixtures'] == declared
     assert report['candidate']['artifacts']['platform-manifest.yaml']['sha256'] == _sha256(paths[0])
+    retained_report = json.loads((output / 'gate-report.json').read_bytes())
+    assert retained_report['candidate']['artifacts']['platform-manifest.yaml'] == {
+        'sha256': _sha256(shipped), 'size': shipped.stat().st_size}
+    assert retained_report['evidenceReceipts'] == report['evidenceReceipts']
+    assert (output / 'qualification-inputs' / 'platform-manifest.yaml').read_bytes() == paths[0].read_bytes()
+    assert json.loads((output / 'qualification-inputs' / 'gate-report.json').read_bytes()) == report
+    (output / paths[1].name).write_bytes(paths[1].read_bytes())
+    ok, why = verify_candidate_binding(retained_report, shipped, output / paths[1].name,
+        source_repository='honua-io/honua-release', source_sha=SOURCE, source_branch='trunk',
+        workflow_path='.github/workflows/nightly-certification.yml', train_run_id=RUN,
+        train_run_attempt=1, train_run_url=report['candidate']['train']['runUrl'], certification_mode='live')
+    assert ok, why
+    checked = subprocess.run([sys.executable, str(Path(nightly.__file__).with_name('platform_lock_bundle.py')),
+                              str(output / 'platform-lock.json'), '--manifest', str(shipped),
+                              '--matrix', str(output / paths[1].name), '--label', '2026.1-rc.3',
+                              '--out-dir', str(output), '--check'], capture_output=True, text=True)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
     retained = json.loads((output / 'fixture-revisions.json').read_bytes())
-    assert retained['fixtures'] == declared and len(retained['records']) == 7
+    assert retained['fixtures'] == declared and len(retained['records']) == 8
 
 
 def test_a_candidate_that_declares_the_gate_fixtures_keeps_its_exact_bytes(inputs, tmp_path):
@@ -589,6 +611,30 @@ def test_every_fixture_gate_job_records_each_repository_it_checks_out():
     terminal = _workflow('terminal-journey-contract.yml')['jobs']['terminal-contract']['steps']
     assert '"honua-io/honua-release=.=certification/terminal-journey/fixtures"' in next(
         s['run'] for s in terminal if 'fixture_revisions.py' in s.get('run', ''))
+
+
+def test_observability_records_its_pinned_rules_and_contract_consumers():
+    assert fixture_revisions.FIXTURE_GATES['gate-observability'] == ('slo',)
+    steps = _workflow('gate-observability.yml')['jobs']['slo']['steps']
+    clone = next(i for i, s in enumerate(steps) if s.get('name') == 'Clone the alert-rule consumers')
+    emit = next(i for i, s in enumerate(steps) if 'fixture_revisions.py' in s.get('run', ''))
+    contract = next(i for i, s in enumerate(steps) if s.get('id') == 'contract')
+    assert clone < emit < contract
+    assert fixture_revisions.SHA.fullmatch(steps[clone]['env']['DEVOPS_REVISION'])
+    assert 'checkout_component.sh" honua-devops "$DEVOPS_REVISION"' in steps[clone]['run']
+    for repo in ('honua-devops', 'honua-server', 'honua-helm'):
+        assert f'"honua-io/{repo}=$REPOS_ROOT/{repo}"' in steps[emit]['run']
+
+
+def test_terminal_concurrency_is_isolated_from_standalone_runs():
+    concurrency = _workflow('terminal-journey-contract.yml')['concurrency']
+    group = concurrency['group']
+    # github.workflow is the top-level caller, including for nested reusable workflows.
+    standalone = group.replace('${{ github.workflow }}', 'Terminal journey contract')
+    nightly = group.replace('${{ github.workflow }}', _workflow('nightly-certification.yml')['name'])
+    assert standalone != nightly
+    assert '${{ github.ref }}' in group
+    assert concurrency['cancel-in-progress'] is True
 
 
 def test_the_nightly_train_runs_every_fixture_gate_and_mints_from_their_records():

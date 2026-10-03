@@ -31,6 +31,7 @@ FIXTURE_GATES = {
     'certification': ('conformance-mcp', 'conformance-esri-geoservices'),
     'e2e-local-docker': ('seam', 'slice1'),
     'gate-dr': ('contract', 'receipt'),
+    'gate-observability': ('slo',),
     'terminal-journey-contract': ('terminal-contract',),
 }
 

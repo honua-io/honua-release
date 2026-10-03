@@ -32,7 +32,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: terminal-journey-contract-${{ github.ref }}
+  # In a reusable run github.workflow is the caller; keep standalone dispatches separate.
+  group: terminal-journey-contract-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

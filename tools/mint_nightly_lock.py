@@ -367,18 +367,25 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
             errors = evidence_failures(report, digest)
             if errors:
                 raise ValueError('no lock minted:\n' + '\n'.join(errors))
-            (staging / 'gate-report.json').write_bytes(canonical_bytes(report))
+            retained_report = copy.deepcopy(report)
+            if source != manifest:
+                # Promotion consumes the root manifest and verifies its report binding. Preserve
+                # the qualified inputs before adding only the gates' observed fixture declaration.
+                qualified = staging / 'qualification-inputs'
+                qualified.mkdir()
+                (qualified / manifest.name).write_bytes(manifest.read_bytes())
+                (qualified / 'gate-report.json').write_bytes(canonical_bytes(report))
+                (staging / manifest.name).write_bytes(source.read_bytes())
+                retained_report['candidate']['artifacts'][manifest.name] = {
+                    **pins[manifest.name], 'sha256': _sha256(source), 'size': source.stat().st_size}
+            (staging / 'gate-report.json').write_bytes(canonical_bytes(retained_report))
             for name, receipt in report['evidenceReceipts'].items():
                 path = staging / 'promotion-receipts' / name / 'receipt.json'
                 path.parent.mkdir(parents=True)
                 path.write_bytes(canonical_bytes(receipt))
-            # The gate records behind $.fixtures, and the declared manifest the lock names when the
-            # candidate itself carried no fixture declaration.
+            # Retain the gate records behind $.fixtures alongside the canonical candidate inputs.
             (staging / FIXTURE_RECORD).write_bytes(canonical_bytes(
                 {'fixtures': fixtures, 'records': sorted(fixture_records, key=lambda r: (r['gate'], r['job']))}))
-            if source != manifest:
-                (staging / 'fixture-declaration').mkdir()
-                (staging / 'fixture-declaration' / manifest.name).write_bytes(source.read_bytes())
             signer(staging / 'platform-lock.json', staging / 'platform-lock.sigstore.json', identity, issuer)
             if not (staging / 'platform-lock.sigstore.json').is_file():
                 raise ValueError('no lock minted: signer returned no signature bundle')
