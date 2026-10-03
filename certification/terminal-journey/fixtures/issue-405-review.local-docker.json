@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-02T23:55:13.467936Z",
+  "generatedAt": "2026-10-03T00:00:26.849581Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
@@ -33,7 +33,7 @@
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/tmp/405-coordinator-live/clients",
+    "root": "/tmp/405-coordinator-final/clients",
     "reason": null,
     "resolved": [
       {
@@ -195,7 +195,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -217,7 +217,7 @@
           "kind": "cli",
           "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
           "status": "pass",
-          "detail": "temporary admin:read key 450f633e-4476-4478-9d67-6fa744ec5fe6 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+          "detail": "temporary admin:read key 022d4e82-e4bc-4ab2-8ca4-131c544eb632 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -237,7 +237,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -325,7 +325,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -407,7 +407,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -479,7 +479,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -581,7 +581,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -653,7 +653,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     },
     {
@@ -771,7 +771,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-02T23:55:13.467684Z"
+        "observedAt": "2026-10-03T00:00:26.849462Z"
       }
     }
   ],
@@ -779,7 +779,7 @@
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
     "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed.",
-    "Setup discovery sidecar: /tmp/405-coordinator-live/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
+    "Setup discovery sidecar: /tmp/405-coordinator-final/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",
