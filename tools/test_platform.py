@@ -775,6 +775,18 @@ def test_internal_capability_is_not_counted_in_the_ga_denominator():
     assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
 
 
+def test_internal_capability_rejects_missing_or_empty_keys():
+    for row in ({"capabilityKeys": []},):
+        f = vp.Findings()
+        vp.check_capability_lifecycle(_internal_matrix(**row), f)
+        assert any("at least one capability-matrix key" in e for e in f.errors), f.errors
+    matrix = _internal_matrix()
+    del matrix["capabilities"]["multi-tenancy"]["capabilityKeys"]
+    f = vp.Findings()
+    vp.check_capability_lifecycle(matrix, f)
+    assert any("at least one capability-matrix key" in e for e in f.errors), f.errors
+
+
 def test_capability_lifecycle_rejects_unknown_status_and_vocabulary_drift():
     f = vp.Findings()
     vp.check_capability_lifecycle(_internal_matrix(lifecycle="trial"), f)

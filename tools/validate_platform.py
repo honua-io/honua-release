@@ -597,6 +597,12 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
         if not isinstance(keys, list) or not all(isinstance(k, str) and k.strip() for k in keys):
             f.error(f"matrix: {path}.capabilityKeys must be a list of capability-matrix keys")
             continue
+        if lifecycle == "internal" and not keys:
+            f.error(
+                f"matrix: {path}.capabilityKeys must name at least one capability-matrix key "
+                "when lifecycle is internal (ruling R29)"
+            )
+            continue
         if lifecycle != "internal":
             continue
         claims = sorted(INTERNAL_FORBIDDEN_FIELDS & set(row))
