@@ -59,6 +59,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 MATRIX_PATH = REPO_ROOT / "compatibility-matrix.yaml"
 REQUIREMENTS_PATH = REPO_ROOT / "certification" / "protocol-certification-requirements.v1.json"
+EXPECTED_GA_MANIFEST_PATH = REPO_ROOT / "e2e" / "expected-ga-manifest.json"
 
 # A component pinned by sha (no release/tag yet) carries this sentinel instead of a semver version.
 PRERELEASE_SENTINEL = "pre-release"
@@ -71,6 +72,13 @@ SHA_PREFIX = "sha:"
 PENDING_ECR_MIRROR = "pending-ecr-mirror"
 # 2026.1 ruling A certifies Lambda x86_64 only. arm64 remains outside the GA target.
 LAMBDA_GA_ARCHITECTURE = "x86_64"
+# Capability lifecycle vocabulary (compatibility-matrix.yaml `lifecycle:`); `internal` is ruling R29.
+CAPABILITY_LIFECYCLES = ("ga", "preview", "experimental", "excluded", "internal")
+# An internal capability carries no availability, performance or support claim (ruling R29).
+INTERNAL_FORBIDDEN_FIELDS = frozenset({
+    "availability", "performance", "support", "sla", "slo", "qualification", "qualificationReceipt",
+    "releaseScope", "operatingEnvelope",
+})
 # A run page is not the receipt. The supported reference has to name the lane artifact.
 LAMBDA_RECEIPT_NAME = "lambda-preview-receipt.json"
 LAMBDA_ENVELOPE_PATH = REPO_ROOT / "docs" / "2026.1-operating-envelope.md"
@@ -564,6 +572,47 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                     f.error(f"matrix: {path}.qualificationReceipt.candidateManifestDigest must match the exact candidate manifest; missing or wrong-candidate receipt")
 
 
+def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | None = None) -> None:
+    """Capability rows use the declared lifecycle vocabulary; internal rows make no customer claim."""
+    vocabulary = matrix.get("lifecycle")
+    if not isinstance(vocabulary, dict) or set(vocabulary) != set(CAPABILITY_LIFECYCLES):
+        f.error(f"matrix: lifecycle must define exactly {list(CAPABILITY_LIFECYCLES)}")
+    elif not all(isinstance(text, str) and text.strip() for text in vocabulary.values()):
+        f.error("matrix: every lifecycle value needs a non-empty definition")
+    capabilities = matrix.get("capabilities") or {}
+    if not isinstance(capabilities, dict):
+        f.error("matrix: capabilities must be a mapping")
+        return
+    ga_keys = set((expected_ga or {}).get("expectedGa") or [])
+    for name, row in capabilities.items():
+        path = f"capabilities.{name}"
+        if not isinstance(row, dict):
+            f.error(f"matrix: {path} must be a mapping")
+            continue
+        lifecycle = row.get("lifecycle")
+        if lifecycle not in CAPABILITY_LIFECYCLES:
+            f.error(f"matrix: {path}.lifecycle must be one of {list(CAPABILITY_LIFECYCLES)} (got {lifecycle!r})")
+            continue
+        keys = row.get("capabilityKeys", [])
+        if not isinstance(keys, list) or not all(isinstance(k, str) and k.strip() for k in keys):
+            f.error(f"matrix: {path}.capabilityKeys must be a list of capability-matrix keys")
+            continue
+        if lifecycle == "internal" and not keys:
+            f.error(
+                f"matrix: {path}.capabilityKeys must name at least one capability-matrix key "
+                "when lifecycle is internal (ruling R29)"
+            )
+            continue
+        if lifecycle != "internal":
+            continue
+        claims = sorted(INTERNAL_FORBIDDEN_FIELDS & set(row))
+        if claims:
+            f.error(f"matrix: {path}: internal capability must not carry {claims} (ruling R29)")
+        counted = sorted(ga_keys & set(keys))
+        if counted:
+            f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
+
+
 def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
     components = manifest.get("components") or {}
 
@@ -686,6 +735,8 @@ def validate(
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
+    check_capability_lifecycle(
+        matrix, f, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None)
     if LAMBDA_ENVELOPE_PATH.is_file():
         check_lambda_operating_envelope(LAMBDA_ENVELOPE_PATH.read_text(encoding="utf-8"), f)
     else:

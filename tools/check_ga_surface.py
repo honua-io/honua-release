@@ -17,6 +17,12 @@ Corpus selection — why a key IS "advertised GA" here:
     its experimental label already discloses that, so it is out of this corpus. (This also covers a
     future `deferred`-only maturity state the same way, since `implemented` stays 0.)
 
+A key the compatibility matrix declares `internal` (ruling R29) must never be in the corpus: it is
+not offered to customers and is outside every GA denominator, so its presence fails the gate.
+`candidate_ref` overlays compatibility-matrix.yaml only (.github/actions/candidate-input), so that
+file — not the checkout's docs/capabilities.yaml — is the candidate's lifecycle source. The two
+declarations must name the same keys; a mismatch fails closed.
+
 Every key in that corpus is then run through the identical criteria as `capability-key` evidence
 (tools/check_capabilities.resolve_capability_key): implemented > 0 (true by corpus construction),
 provingTestCount >= floor, and 100% CITE pass rate wherever CITE is joined.
@@ -53,7 +59,8 @@ def advertised_ga_keys(matrix: dict) -> list[dict]:
 
 
 def evaluate_ga_surface(matrix: dict | None,
-                        min_proving_tests: int = cc.DEFAULT_MIN_PROVING_TESTS) -> tuple[list[dict], str]:
+                        min_proving_tests: int = cc.DEFAULT_MIN_PROVING_TESTS,
+                        internal_keys: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict], str]:
     """-> (rows, overall) with overall in {pass, fail, blocked}.
 
     blocked — the matrix itself is unavailable, OR (defensively) a real matrix parsed to zero
@@ -63,6 +70,10 @@ def evaluate_ga_surface(matrix: dict | None,
         return [], "blocked"
     rows = []
     for entry in advertised_ga_keys(matrix):
+        if entry["key"] in internal_keys:
+            rows.append({"key": entry["key"], "status": "fail",
+                         "why": "declared internal (ruling R29) but advertised as GA; internal keys are outside every GA denominator"})
+            continue
         status, why = cc.resolve_capability_key(entry["key"], matrix, min_proving_tests)
         rows.append({"key": entry["key"], "status": status, "why": why})
     if not rows:
@@ -74,6 +85,61 @@ def evaluate_ga_surface(matrix: dict | None,
     else:
         overall = "pass"
     return rows, overall
+
+
+def _load_internal_keys(capabilities_path: Path) -> set[str]:
+    import yaml
+    data = yaml.safe_load(capabilities_path.read_text(encoding="utf-8")) or {}
+    return cc.internal_capability_keys(data.get("capabilities") or [])
+
+
+def load_compatibility_matrix(path: Path) -> tuple[dict | None, str | None]:
+    """Load compatibility-matrix.yaml. (None, why) on a missing or unusable file — never a pass."""
+    import yaml
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return None, f"compatibility matrix unreadable ({path}): {exc}"
+    if not isinstance(data, dict):
+        return None, f"compatibility matrix must be a mapping ({path})"
+    return data, None
+
+
+def internal_keys_from_compatibility_matrix(matrix: dict) -> tuple[set[str] | None, str | None]:
+    """Capability keys on `lifecycle: internal` rows — the candidate's declared source of truth.
+
+    An internal row with no keys is disconnected from the GA corpus and fails closed: an empty list
+    would otherwise let that capability stay advertised.
+    """
+    capabilities = matrix.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return None, "compatibility matrix capabilities must be a mapping"
+    keys: set[str] = set()
+    for name, row in capabilities.items():
+        if not isinstance(row, dict) or row.get("lifecycle") != "internal":
+            continue
+        declared = row.get("capabilityKeys")
+        if (not isinstance(declared, list) or not declared
+                or not all(isinstance(key, str) and key.strip() for key in declared)):
+            return None, (f"capabilities.{name}: internal lifecycle requires at least one "
+                          "non-empty capabilityKeys entry")
+        keys.update(declared)
+    return keys, None
+
+
+def reconcile_internal_keys(doc_keys: set[str], matrix_keys: set[str]) -> str | None:
+    """None when both declarations name the same keys; otherwise a fail-closed reason."""
+    if doc_keys == matrix_keys:
+        return None
+    return ("internal capability keys differ: "
+            f"docs/capabilities.yaml={sorted(doc_keys)} "
+            f"compatibility-matrix.yaml={sorted(matrix_keys)}")
+
+
+def _fail_internal_source(why: str) -> int:
+    print("== advertised-GA ⊆ evidenced-GA — FAIL (internal-key source) ==")
+    print(f"  [FAIL] {why}")
+    return 1
 
 
 def _load_min_proving_tests(capabilities_path: Path) -> int:
@@ -92,17 +158,35 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--matrix", default=None,
                     help="path to a locally-fetched honua-evidence capability-matrix.v1.json "
                          "(env HONUA_CAPABILITY_MATRIX also honored)")
+    ap.add_argument("--compatibility-matrix", default=None,
+                    help="candidate compatibility-matrix.yaml (default: repo file; candidate_ref "
+                         "overlays this path before the gate runs)")
+    ap.add_argument("--capabilities", default=None,
+                    help="docs/capabilities.yaml to reconcile against the compatibility matrix")
     ap.add_argument("--min-proving-tests", type=int, default=None)
     ap.add_argument("--require-real", action="store_true", help="promote BLOCKED to FAIL (real train cuts)")
     args = ap.parse_args(argv)
 
     matrix_path = args.matrix or os.environ.get("HONUA_CAPABILITY_MATRIX")
     matrix = cc.load_capability_matrix(matrix_path)
+    capabilities_path = Path(args.capabilities) if args.capabilities else cc.CAPABILITIES_PATH
+    compatibility_path = (Path(args.compatibility_matrix) if args.compatibility_matrix
+                          else REPO_ROOT / "compatibility-matrix.yaml")
     min_proving = args.min_proving_tests
     if min_proving is None:
-        min_proving = _load_min_proving_tests(cc.CAPABILITIES_PATH)
+        min_proving = _load_min_proving_tests(capabilities_path)
 
-    rows, overall = evaluate_ga_surface(matrix, min_proving)
+    platform, load_error = load_compatibility_matrix(compatibility_path)
+    if load_error or platform is None:
+        return _fail_internal_source(load_error or "compatibility matrix unavailable")
+    matrix_keys, key_error = internal_keys_from_compatibility_matrix(platform)
+    if key_error or matrix_keys is None:
+        return _fail_internal_source(key_error or "internal capability keys unavailable")
+    mismatch = reconcile_internal_keys(_load_internal_keys(capabilities_path), matrix_keys)
+    if mismatch:
+        return _fail_internal_source(mismatch)
+
+    rows, overall = evaluate_ga_surface(matrix, min_proving, matrix_keys)
     print(f"== advertised-GA ⊆ evidenced-GA — {overall.upper()} ({len(rows)} keys checked, "
           f"floor={min_proving}, matrix={'loaded' if matrix else 'unavailable'}) ==")
     for r in rows:

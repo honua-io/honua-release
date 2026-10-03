@@ -67,6 +67,21 @@ def test_experimental_only_key_excluded_from_corpus():
     assert {r["key"] for r in rows} == {"serve.wfs"}
 
 
+def test_internal_key_advertised_as_ga_fails():
+    matrix = {"capabilities": [_entry("serve.wfs"), _entry("admin.multi-tenancy")]}
+    rows, overall = ga.evaluate_ga_surface(matrix, internal_keys={"admin.multi-tenancy"})
+    assert overall == "fail"
+    assert [r["key"] for r in rows if r["status"] == "fail"] == ["admin.multi-tenancy"]
+
+
+def test_preview_internal_key_stays_out_of_the_denominator():
+    preview = {"key": "admin.multi-tenancy", "maturity": {"preview": 7}, "provingTestCount": 12,
+               "noSurface": None, "cite": []}
+    rows, overall = ga.evaluate_ga_surface({"capabilities": [_entry("serve.wfs"), preview]},
+                                           internal_keys={"admin.multi-tenancy"})
+    assert overall == "pass" and [r["key"] for r in rows] == ["serve.wfs"]
+
+
 def test_missing_matrix_is_blocked_never_pass():
     rows, overall = ga.evaluate_ga_surface(None, min_proving_tests=5)
     assert overall == "blocked" and rows == []
@@ -78,6 +93,67 @@ def test_cite_below_100_fails():
     ]}
     rows, overall = ga.evaluate_ga_surface(matrix, min_proving_tests=5)
     assert overall == "fail"
+
+
+def test_committed_declarations_name_the_same_internal_key():
+    platform, err = ga.load_compatibility_matrix(ga.REPO_ROOT / "compatibility-matrix.yaml")
+    assert err is None and platform is not None
+    keys, key_err = ga.internal_keys_from_compatibility_matrix(platform)
+    assert key_err is None and keys == {"admin.multi-tenancy"}
+    assert ga.reconcile_internal_keys(ga._load_internal_keys(ga.cc.CAPABILITIES_PATH), keys) is None
+
+
+def test_internal_keys_come_from_the_compatibility_matrix():
+    keys, err = ga.internal_keys_from_compatibility_matrix({
+        "capabilities": {
+            "multi-tenancy": {"lifecycle": "internal", "capabilityKeys": ["admin.multi-tenancy"]},
+            "wfs": {"lifecycle": "ga", "capabilityKeys": ["serve.wfs"]},
+        }
+    })
+    assert err is None and keys == {"admin.multi-tenancy"}
+
+
+def test_internal_row_without_keys_fails_closed():
+    for declared in ([], None, "admin.multi-tenancy"):
+        keys, err = ga.internal_keys_from_compatibility_matrix({
+            "capabilities": {"multi-tenancy": {"lifecycle": "internal", "capabilityKeys": declared}}
+        })
+        assert keys is None and err and "at least one" in err
+
+
+def test_reconcile_fails_when_docs_and_candidate_matrix_diverge():
+    assert ga.reconcile_internal_keys({"admin.multi-tenancy"}, {"admin.multi-tenancy"}) is None
+    why = ga.reconcile_internal_keys({"admin.multi-tenancy"}, {"admin.other"})
+    assert why and "admin.multi-tenancy" in why and "admin.other" in why
+    why = ga.reconcile_internal_keys(set(), {"admin.multi-tenancy"})
+    assert why and "admin.multi-tenancy" in why
+
+
+def test_main_fails_when_candidate_matrix_disagrees_with_docs():
+    import json
+    import tempfile
+
+    evidence = {"capabilities": [_entry("serve.wfs", proving=109), _entry("admin.multi-tenancy")]}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        matrix_path = root / "capability-matrix.v1.json"
+        matrix_path.write_text(json.dumps(evidence), encoding="utf-8")
+        compat = root / "compatibility-matrix.yaml"
+        compat.write_text("capabilities: {}\n", encoding="utf-8")
+        rc = ga.main(["--matrix", str(matrix_path), "--compatibility-matrix", str(compat)])
+    assert rc == 1
+
+
+def test_main_fails_when_candidate_internal_row_has_no_keys():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        compat = Path(directory) / "compatibility-matrix.yaml"
+        compat.write_text(
+            "capabilities:\n  multi-tenancy:\n    lifecycle: internal\n    capabilityKeys: []\n",
+            encoding="utf-8")
+        rc = ga.main(["--compatibility-matrix", str(compat)])
+    assert rc == 1
 
 
 def test_advertised_ga_keys_selection():

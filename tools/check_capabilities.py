@@ -18,6 +18,9 @@ SDK). This gate makes that structurally impossible: docs/capabilities.yaml lists
                            check_upgrade.py). A missing/unfetchable/malformed matrix resolves every
                            `capability-key` claim to BLOCKED — fail-closed, never a fake pass.
 A `roadmap` claim passes (honestly labelled, no test required); an unknown status fails.
+An `internal` claim (ruling R29) passes only when it cites its `capabilityKey` and `ruling` and carries
+no `evidence`: it is not advertised to customers, so it is never backed as shipped and never counted
+in a GA denominator. check_ga_surface.py fails if an internal key enters the advertised-GA corpus.
 
 tools/check_ga_surface.py is the sibling "advertised-GA ⊆ evidenced-GA" check: it applies the SAME
 `resolve_capability_key` criteria to EVERY advertised-GA key in the matrix, not just the handful of
@@ -43,7 +46,7 @@ except ImportError as exc:  # pragma: no cover
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CAPABILITIES_PATH = REPO_ROOT / "docs" / "capabilities.yaml"
-VALID_STATUS = {"shipped", "roadmap"}
+VALID_STATUS = {"shipped", "roadmap", "internal"}
 
 # Default GA floor for the `capability-key` evidence kind. docs/capabilities.yaml's top-level
 # `defaults.minProvingTests` overrides this for the committed claims (and for check_ga_surface.py,
@@ -63,6 +66,12 @@ def known_gates() -> set[str]:
     text = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(encoding="utf-8")
     # The report job lists each wired gate as a `gate-id|$SIGNAL_VAR` row (the status-signal env var).
     return set(re.findall(r"^\s*([a-z][a-z-]*)\|\$[A-Z]", text, flags=re.MULTILINE))
+
+
+def internal_capability_keys(capabilities: list[dict]) -> set[str]:
+    """capability-matrix keys that docs/capabilities.yaml declares `internal` (ruling R29)."""
+    return {str(c["capabilityKey"]) for c in capabilities
+            if isinstance(c, dict) and c.get("status") == "internal" and c.get("capabilityKey")}
 
 
 def load_capability_matrix(path: str | Path | None) -> dict | None:
@@ -161,6 +170,14 @@ def check(capabilities: list[dict], known_checks: set[str], known_gates_: set[st
             continue
         if status == "roadmap":
             rows.append({"id": cid, "status": "pass", "why": "labelled roadmap (not advertised as shipped)"})
+            continue
+        if status == "internal":
+            if cap.get("evidence") is not None or not cap.get("capabilityKey") or not cap.get("ruling"):
+                rows.append({"id": cid, "status": "fail",
+                             "why": "internal claim needs capabilityKey and ruling and must carry no shipped evidence"})
+            else:
+                rows.append({"id": cid, "status": "pass",
+                             "why": f"internal ({cap['ruling']}): not offered to customers, outside every GA denominator"})
             continue
         # shipped -> must be backed.
         res_status, detail = _resolve(cap.get("evidence") or {}, known_checks, known_gates_,

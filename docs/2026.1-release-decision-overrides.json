@@ -2,6 +2,16 @@
   "schema_version": 1,
   "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
   "rules_date": "2026-09-10",
+  "rulings": {
+    "R29": {
+      "date": "2026-10-03",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Multi-tenancy is internal: used only on Honua's own demo infrastructure, not offered for customer deployment in 2026.1, not GA/Preview/Experimental; no customer-facing multi-tenant claim exists (ELv2 bars third parties from operating Honua as a managed service). Supersedes the 2026-09-04 Preview/trial wording.",
+      "effect": "An issue whose only subject is multi-tenant operation leaves the release buckets. Cross-tenant authorization denial and isolation cells inside single-tenant GA issues are security floors, not multi-tenant claims, and stay in their buckets.",
+      "moved": [],
+      "basis": "2026-10-03 scan of every open release/2026.1 cohort member (titles, labels and bodies mentioning tenant/tenancy): no open issue is multi-tenant-only. The multi-tenant-only work (honua-server#4793, honua-server#346) already carries release/2026.2 and is outside the cohort; closed members keep their recorded buckets."
+    }
+  },
   "exceptions": {
     "honua-console#334": {
       "bucket": "must-fix-before-cut",
