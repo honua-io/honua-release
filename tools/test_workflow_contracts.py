@@ -1116,3 +1116,88 @@ def test_executable_docs_verdict_outputs_fail_on_incomplete_or_broken_harness(tm
     # GitHub parses GITHUB_OUTPUT as UTF-8 key=value lines: no BOM, no NULs, no carriage returns.
     assert output.read_bytes().split(b"\n")[-2:] == [f"overall_status={status if success else 'fail'}".encode(), b""]
     assert b"\r" not in output.read_bytes() and b"\x00" not in output.read_bytes()
+
+def _contract_live_step(name: str) -> dict:
+    steps = _workflow("gate-contract-live.yml")["jobs"]["live"]["steps"]
+    return next(step for step in steps if step.get("name") == name)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+@pytest.mark.parametrize("server, expected", [
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3", "digest": "sha256:" + "a" * 64},
+     "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:" + "a" * 64),
+    ({"image": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64, "digest": "sha256:" + "b" * 64},
+     "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64),
+    ({"image": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64, "digest": "sha256:" + "c" * 64}, ""),
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3"}, ""),
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3", "digest": "sha256:short"}, ""),
+])
+def test_contract_live_boots_only_the_candidate_digest(tmp_path, server, expected):
+    """R27: the gate boots image@digest; a tag alone or a disagreeing digest boots nothing."""
+    (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump({"components": {"honua-server": server}}))
+    output = tmp_path / "github-output"
+    output.touch()
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    (shim / "python").symlink_to(sys.executable)  # the step runs the runner's `python`
+    subprocess.run(["bash", "-c", _contract_live_step("Resolve the candidate image@digest")["run"]],
+                   cwd=tmp_path, check=True, env={**os.environ, "GITHUB_OUTPUT": str(output),
+                                                  "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"})
+    assert output.read_text() == f"ref={expected}\n"
+
+
+def test_contract_live_boots_like_e2e_and_reads_admin_capabilities():
+    boot = _contract_live_step("Boot the exact candidate and read its admin capabilities")
+    assert boot["env"]["HONUA_SERVER_IMAGE"] == "${{ steps.image.outputs.ref }}"
+    # Same harness as e2e-local-docker Slice-1: compose.candidate.yml with Licensing__Mode Disabled,
+    # boot.sh asserting mode: disabled at /api/v1/admin/license, no cloud credentials.
+    assert "bash e2e/harness/boot.sh up" in boot["run"]
+    assert "bash e2e/harness/boot.sh down" in boot["run"]
+    assert "docker compose -f e2e/harness/compose.candidate.yml ps -q server" in boot["run"]
+    assert '.RepoDigests' in boot["run"]
+    assert "http://localhost:8080/api/v1/admin/capabilities" in boot["run"]
+    compose = yaml.safe_load((REPO_ROOT / "e2e/harness/compose.candidate.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["server"]["environment"]["Licensing__Mode"] == "Disabled"
+    check = _contract_live_step("Compare advertised contract versions with the declaration")
+    assert "python tools/check_contract_versions_live.py --manifest platform-manifest.yaml" in check["run"]
+    assert "--declaration" not in check["run"], "the gate reads the declaration at the server sha itself"
+    workflow = _workflow("gate-contract-live.yml")
+    assert workflow["jobs"]["live"]["outputs"]["overall_status"] == "${{ steps.verdict.outputs.status }}"
+    assert "id-token" not in str(workflow.get("permissions")) and "aws" not in str(workflow).lower()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+@pytest.mark.parametrize("status, enforcement, code", [
+    ("pass", "strict", 0), ("pass", "bootstrap", 0),
+    ("fail", "bootstrap", 1), ("fail", "strict", 1),
+    ("blocked", "bootstrap", 0), ("blocked", "strict", 1),
+    ("", "bootstrap", 0), ("", "strict", 1),
+])
+def test_contract_live_refusal_cannot_be_tolerated(tmp_path, status, enforcement, code):
+    enforce = _contract_live_step("Enforce")
+    assert enforce["if"] == "always()"
+    output = tmp_path / "github-output"
+    output.touch()
+    result = subprocess.run(["bash", "-c", enforce["run"]], capture_output=True, text=True,
+                            env={**os.environ, "GITHUB_OUTPUT": str(output), "STATUS": status,
+                                 "ENFORCEMENT": enforcement})
+    assert result.returncode == code
+    assert output.read_text() == f"status={status or 'blocked'}\n"
+
+
+def test_release_train_requires_the_contract_live_gate_under_strict():
+    workflow = _workflow("release-train.yml")
+    job = workflow["jobs"]["gate_contract_live"]
+    assert job["uses"] == "./.github/workflows/gate-contract-live.yml"
+    assert job["needs"] == "freeze"
+    assert job["with"]["enforcement"] == "${{ inputs.dry_run && 'bootstrap' || 'strict' }}"
+    assert job["with"]["candidate_ref"] == "${{ inputs.candidate_ref }}"
+    report = workflow["jobs"]["report"]
+    assert "gate_contract_live" in report["needs"]
+    assemble = next(step for step in report["steps"] if step.get("name") == "Assemble platform gate-report.json")
+    assert assemble["env"]["S_CONTRACT_LIVE"] == (
+        "${{ needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}")
+    assert re.search(r"^\s*contract-live\|\$S_CONTRACT_LIVE$", assemble["run"], re.MULTILINE)
+    assert 'row["gate"] == "contract-live"' in assemble["run"]
+    names = [step.get("name") for step in report["steps"]]
+    assert names.index("Download the contract-live report") < names.index("Assemble platform gate-report.json")
