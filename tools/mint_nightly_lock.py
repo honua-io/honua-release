@@ -25,6 +25,7 @@ import time
 import yaml
 
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
+from fixture_revisions import RECORD as FIXTURE_RECORD, declare as declare_fixtures, load as load_fixtures
 from generate_platform_lock import generate
 from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
@@ -250,6 +251,35 @@ def stamp_release_label(manifest_path: Path, label: str) -> None:
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
+def _fixture_key(fixture) -> tuple:
+    fixture = fixture if isinstance(fixture, dict) else {}
+    return (str(fixture.get('repository')), str(fixture.get('revision')), str(fixture.get('path', '')))
+
+
+def declared_manifest(manifest: Path, fixtures: list[dict], scratch: Path) -> Path:
+    """The manifest whose `platformLockEvidence.fixtures` is the gates' declaration (#231 WI-8).
+
+    A candidate that already declares fixtures keeps its exact bytes, but only when it names exactly
+    the revisions the gates used: a hand-typed or stale declaration never survives into the lock.
+    Otherwise the declaration is written into a copy under `scratch`, which the lock then names.
+    """
+    data = yaml.safe_load(manifest.read_text(encoding='utf-8'))
+    evidence = (data.get('platformLockEvidence') or {}) if isinstance(data, dict) else None
+    if not isinstance(evidence, dict):
+        raise ValueError('no lock minted: platformLockEvidence must be a mapping')
+    data['platformLockEvidence'] = evidence
+    if 'fixtures' in evidence:
+        stated = evidence['fixtures'] if isinstance(evidence['fixtures'], list) else [evidence['fixtures']]
+        if sorted(map(_fixture_key, stated)) != sorted(map(_fixture_key, fixtures)):
+            raise ValueError('no lock minted: candidate fixture declaration differs from the revisions '
+                             f'the gates used: declared {stated}, gates used {fixtures}')
+        return manifest
+    evidence['fixtures'] = fixtures
+    copy_path = scratch / manifest.name
+    copy_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding='utf-8')
+    return copy_path
+
+
 def failures(report: dict, *, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None) -> list[str]:
     errors = []
     ok, why = validate_live_report(report)
@@ -288,11 +318,16 @@ def sign_blob(lock_path: Path, bundle_path: Path, identity: str, issuer: str) ->
 
 def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path,
          identity: str, issuer='https://token.actions.githubusercontent.com', *, signer=sign_blob,
-         rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None) -> str:
+         rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None,
+         fixture_records=()) -> str:
     from platform_lock_bundle import canonical_bytes
 
     errors = failures(report, repository=repository, source_sha=source_sha, run_id=run_id)
     errors.extend(evidence_failures(report))
+    try:
+        fixtures = declare_fixtures(list(fixture_records), run_id=run_id)
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         raise ValueError('no lock minted:\n' + '\n'.join(errors))
     candidate = report.get('candidate') or {}
@@ -309,34 +344,45 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         raise ValueError(f'no lock minted: {LOCK_REFS}{label} is not known to be unpublished')
     if not lock_ref_protected(rulesets, LOCK_REFS + label):
         raise ValueError(f'no lock minted: no active tag ruleset forbids deleting or moving {LOCK_REFS}{label}')
-    draft = generate(manifest, matrix)
-    if draft.unresolved:
-        raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
-    bind(draft.lock, manifest, matrix, label)
-    if output.exists():
-        raise ValueError(f'no lock minted: immutable output already exists: {output}')
-    output.parent.mkdir(parents=True, exist_ok=True)
-    # Failed generation, signing or verification leaves neither a lock nor a partial bundle.
-    with tempfile.TemporaryDirectory(prefix='.nightly-', dir=output.parent) as directory:
-        staging = Path(directory) / label
-        staging.mkdir()
-        for name, data in bundle_files(draft.lock).items():
-            (staging / name).write_bytes(data)
-        if CHANNEL_TAG.search((staging / 'platform-lock.json').read_text()):
-            raise ValueError('no lock minted: lock contains a channel tag')
-        digest = 'sha256:' + hashlib.sha256((staging / 'platform-lock.json').read_bytes()).hexdigest()
-        errors = evidence_failures(report, digest)
-        if errors:
-            raise ValueError('no lock minted:\n' + '\n'.join(errors))
-        (staging / 'gate-report.json').write_bytes(canonical_bytes(report))
-        for name, receipt in report['evidenceReceipts'].items():
-            path = staging / 'promotion-receipts' / name / 'receipt.json'
-            path.parent.mkdir(parents=True)
-            path.write_bytes(canonical_bytes(receipt))
-        signer(staging / 'platform-lock.json', staging / 'platform-lock.sigstore.json', identity, issuer)
-        if not (staging / 'platform-lock.sigstore.json').is_file():
-            raise ValueError('no lock minted: signer returned no signature bundle')
-        staging.rename(output)
+    with tempfile.TemporaryDirectory(prefix='.fixtures-') as scratch:
+        source = declared_manifest(manifest, fixtures, Path(scratch))
+        draft = generate(source, matrix)
+        if draft.unresolved:
+            raise ValueError('no lock minted: unresolved lock facts:\n' + '\n'.join(draft.unresolved))
+        bind(draft.lock, source, matrix, label)
+        if sorted(map(_fixture_key, draft.lock['fixtures'])) != sorted(map(_fixture_key, fixtures)):
+            raise ValueError('no lock minted: lock fixtures differ from the revisions the gates used')
+        if output.exists():
+            raise ValueError(f'no lock minted: immutable output already exists: {output}')
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Failed generation, signing or verification leaves neither a lock nor a partial bundle.
+        with tempfile.TemporaryDirectory(prefix='.nightly-', dir=output.parent) as directory:
+            staging = Path(directory) / label
+            staging.mkdir()
+            for name, data in bundle_files(draft.lock).items():
+                (staging / name).write_bytes(data)
+            if CHANNEL_TAG.search((staging / 'platform-lock.json').read_text()):
+                raise ValueError('no lock minted: lock contains a channel tag')
+            digest = 'sha256:' + hashlib.sha256((staging / 'platform-lock.json').read_bytes()).hexdigest()
+            errors = evidence_failures(report, digest)
+            if errors:
+                raise ValueError('no lock minted:\n' + '\n'.join(errors))
+            (staging / 'gate-report.json').write_bytes(canonical_bytes(report))
+            for name, receipt in report['evidenceReceipts'].items():
+                path = staging / 'promotion-receipts' / name / 'receipt.json'
+                path.parent.mkdir(parents=True)
+                path.write_bytes(canonical_bytes(receipt))
+            # The gate records behind $.fixtures, and the declared manifest the lock names when the
+            # candidate itself carried no fixture declaration.
+            (staging / FIXTURE_RECORD).write_bytes(canonical_bytes(
+                {'fixtures': fixtures, 'records': sorted(fixture_records, key=lambda r: (r['gate'], r['job']))}))
+            if source != manifest:
+                (staging / 'fixture-declaration').mkdir()
+                (staging / 'fixture-declaration' / manifest.name).write_bytes(source.read_bytes())
+            signer(staging / 'platform-lock.json', staging / 'platform-lock.sigstore.json', identity, issuer)
+            if not (staging / 'platform-lock.sigstore.json').is_file():
+                raise ValueError('no lock minted: signer returned no signature bundle')
+            staging.rename(output)
     return label
 
 
@@ -359,6 +405,8 @@ def main(argv=None):
     parser.add_argument('--expected-repository', default=TRUSTED_REPOSITORY)
     parser.add_argument('--expected-source-sha')
     parser.add_argument('--expected-run-id')
+    parser.add_argument('--fixture-revisions', type=Path,
+                        help='directory holding every fixture gate\'s fixture-revisions.json from this run')
     args = parser.parse_args(argv)
     try:
         if args.declare_evidence:
@@ -381,16 +429,17 @@ def main(argv=None):
             print(next_label(args.history))
         else:
             if not all((args.report, args.manifest, args.matrix, args.certificate_identity, args.rulesets,
-                        args.expected_source_sha, args.expected_run_id)):
-                raise ValueError('report, candidate inputs, trusted signing identity, rulesets and '
-                                 'the expected source sha and run id are required')
+                        args.expected_source_sha, args.expected_run_id, args.fixture_revisions)):
+                raise ValueError('report, candidate inputs, trusted signing identity, rulesets, '
+                                 'the expected source sha and run id, and fixture revisions are required')
             if published is None:
                 raise ValueError('minting requires --sync-from so the published lock history is complete')
             label = mint(json.loads(args.report.read_text()), args.manifest, args.matrix,
                          args.history, args.out_dir, args.certificate_identity,
                          rulesets=json.loads(args.rulesets.read_text()), published=published,
                          repository=args.expected_repository, source_sha=args.expected_source_sha,
-                         run_id=args.expected_run_id)
+                         run_id=args.expected_run_id,
+                         fixture_records=load_fixtures(args.fixture_revisions))
             print(f'MINTED: {label} -> {args.out_dir}')
         return 0
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
