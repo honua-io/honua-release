@@ -147,6 +147,9 @@ class MatrixExpectationTests(unittest.TestCase):
                 "pypi-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/255"]),
                 "nuget-sdk-geoservices": ("blocked", ["https://github.com/honua-io/honua-server/issues/5407"]),
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
+                "npm-cli-workflow": ("active", None),
+                "pypi-cli-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/258"]),
+                "npm-mcp-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-js/issues/1875"]),
             },
         )
 
@@ -156,6 +159,15 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
         self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 25})
+
+    def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
+        _, matrix = inputs()
+        cells = {c["id"]: c for c in matrix["cells"]}
+        # The pinned proxy drops the setup selector (sdk-js#1875); every other MCP step must pass.
+        self.assertEqual(set(cells["npm-mcp-workflow"]["blockedSteps"]), {"setup-tools-list"})
+        # The PyPI clients have a command for discovery only (sdk-python#258).
+        self.assertNotIn("discover", cells["pypi-cli-workflow"]["blockedSteps"])
+        self.assertEqual(len(cells["pypi-cli-workflow"]["blockedSteps"]), 13)
 
     def test_mcp_executables_have_explicit_contracts(self):
         _, matrix = inputs()

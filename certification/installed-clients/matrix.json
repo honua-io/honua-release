@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "fixtureRevision": "installed-client-fixture-v1",
-  "configRevision": "installed-client-config-v1",
+  "configRevision": "installed-client-config-v2",
   "authPolicyRevision": "installed-client-auth-v1",
   "cells": [
     {"id": "npm-node-geoservices-error", "artifact": "honua-sdk-js", "driver": "npm", "scenario": "geoservices-error-surfacing", "status": "active"},
@@ -31,6 +31,9 @@
     {"id": "nuget-sdk-ogc-features", "artifact": "honua-sdk-dotnet", "driver": "nuget-sdk", "scenario": "sdk-ogc-features", "status": "active"},
     {"id": "nuget-sdk-ogc-tiles", "artifact": "honua-sdk-dotnet", "driver": "nuget-sdk", "scenario": "sdk-ogc-tiles", "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"], "blockedSteps": {"vector-tile": {"blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/405", "signature": "^unsupported: .*no OGC API Tiles client"}, "raster-tile": {"blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/405", "signature": "^unsupported: .*no OGC API Tiles client"}, "empty-tile": {"blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/405", "signature": "^unsupported: .*no OGC API Tiles client"}}},
     {"id": "nuget-sdk-ogc-processes", "artifact": "honua-sdk-dotnet", "driver": "nuget-sdk", "scenario": "sdk-ogc-processes", "status": "active"},
-    {"id": "nuget-sdk-stac", "artifact": "honua-sdk-dotnet", "driver": "nuget-sdk", "scenario": "sdk-stac", "status": "active"}
+    {"id": "nuget-sdk-stac", "artifact": "honua-sdk-dotnet", "driver": "nuget-sdk", "scenario": "sdk-stac", "status": "active"},
+    {"id": "npm-cli-workflow", "artifact": "honua-sdk-js", "driver": "npm-cli", "scenario": "cli-workflow", "status": "active"},
+    {"id": "pypi-cli-workflow", "artifact": "honua-sdk-python-wheel", "driver": "pypi-cli", "scenario": "cli-workflow", "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-python/issues/258"], "blockedSteps": {"create-datasource": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "test-datasource": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "publish": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "list": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "query": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "served": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "propose-publication": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "self-approval-refused": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "approve": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "proposal-resolved": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "approved-served": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "unpublish": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}, "unpublished-refused": {"blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/258", "signature": "^unsupported: "}}},
+    {"id": "npm-mcp-workflow", "artifact": "honua-mcp-server", "driver": "npm-mcp-workflow", "scenario": "mcp-workflow", "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-js/issues/1875"], "blockedSteps": {"setup-tools-list": {"blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875", "signature": "returned view 'default' \\(default\\.v1\\) with 12 tools"}}}
   ]
 }

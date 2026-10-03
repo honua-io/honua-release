@@ -81,3 +81,8 @@ through the SDK's own client classes against the booted candidate, with oracles 
 `--subset all` (the default) adds the scenarios, which `gate-installed-clients.yml` runs for the
 `installed-clients` nightly evidence class. See
 [docs/INSTALLED-CLIENT-REGRESSION.md](../../docs/INSTALLED-CLIENT-REGRESSION.md).
+
+The same suite runs the command-line clients (`cli-workflow`, through the `honua` CLI of
+`@honua/sdk-js` and the `honua` console script of the PyPI wheels) and the MCP proxy
+(`mcp-workflow`, over `honua-mcp-proxy` stdio only), with the same fixture, oracles and receipt
+allowlist.
