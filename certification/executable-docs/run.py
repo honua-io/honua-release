@@ -358,7 +358,7 @@ class Session:
         ready = False
         deadline = started + window + 60
         while proc.poll() is None and time.monotonic() < deadline:
-            if serve and readiness:
+            if serve and readiness and not ready:   # once observed, stays observed: the server stops at the window's end
                 if readiness.get("url"):
                     probe = docker("exec", name, "curl", "-fsS", "--max-time", "2", readiness["url"], timeout=10)
                     ready = probe.returncode == 0
