@@ -18,6 +18,7 @@ import yaml
 from generate_compatibility_table import render
 from generate_bom import _purl
 from generate_platform_lock import generate
+from image_platforms import registry_image_platform_digests
 from release_inspect import canonical_digest
 from validate_platform_lock import load_lock, validate
 
@@ -43,7 +44,8 @@ def _declared(expected, actual, path: str) -> None:
         raise ValueError(f"{path}: lock differs from frozen input ({actual!r} != {expected!r})")
 
 
-def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
+def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
+         image_inspector=registry_image_platform_digests) -> None:
     errors = validate(lock).errors
     if errors:
         raise ValueError("; ".join(errors))
@@ -51,7 +53,9 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
         raise ValueError("candidate lock must have rc status")
     if lock["platform"]["id"] != f"honua-{label}":
         raise ValueError("platform label differs from atomic candidate identity")
-    draft = generate(manifest, matrix)
+    # Per-architecture image identities are signed with the lock, so they are checked against
+    # the immutable registry index here, independent of any earlier step in the freeze job.
+    draft = generate(manifest, matrix, image_inspector=image_inspector)
     for refusal in draft.unresolved:
         fact = refusal.partition("] ")[2] or refusal
         # SBOM/provenance refusals are fatal here: the freeze job attests the lock straight after
@@ -63,6 +67,7 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str) -> None:
             or fact.startswith(("$.sbom", "$.provenance"))
             or ".contractVersions:" in fact
             or ".schemaVersions" in fact
+            or ".platformDigests:" in fact
         ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
