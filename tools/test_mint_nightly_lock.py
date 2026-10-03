@@ -66,6 +66,7 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None):
     qualification_lock = tmp_path / 'qualification-lock.json'
     qualification_lock.write_bytes(nightly.bundle_files(draft.lock)['platform-lock.json'])
     report = nightly.declare_evidence(report, qualification_lock, journeys)
+    nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
 
 
@@ -91,8 +92,11 @@ def mint(report, paths, history, output, *, signer, **overrides):
     declared = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
     options = {'rulesets': PROTECTED, 'published': {}, 'source_sha': SOURCE, 'run_id': RUN,
                'fixture_records': records(), 'qualification_lock': paths[0].parent / 'qualification-lock.json',
+               'notes_bundle': paths[0].parent / 'notes/release-notes.bundle',
                'post_gate_evidence': {'candidate': copy.deepcopy(report['candidate']),
+                                     'notesRevision': (paths[0].parent / 'notes/release-notes-revision.txt').read_text().strip(),
                                      'references': {field: declared[field] for field in nightly.POST_GATE_FIELDS}}}
+    options['post_gate_evidence']['references']['notes'] = (paths[0].parent / 'notes/release-notes-ref.txt').read_text().strip()
     options.update(overrides)
     return nightly.mint(report, *paths, history, output, 'trusted', signer=signer, **options)
 
@@ -114,6 +118,74 @@ def test_all_green_generates_binds_and_signs_lock(inputs, tmp_path):
     assert (output / 'platform-lock.sigstore.json').exists()
     assert (output / 'bom.cdx.json').exists()
     assert nightly.CHANNEL_TAG.search((output / 'platform-lock.json').read_text()) is None
+
+
+def fresh_references(report, paths):
+    evidence = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
+    references = copy.deepcopy({key: evidence[key] for key in nightly.POST_GATE_FIELDS})
+    for field in ('sbom', 'provenance'):
+        for row in references[field]:
+            row['uri'] = f'oci://ghcr.io/honua-io/{row["component"]}/{field}@sha256:' + '9' * 64
+            row['sha256'] = 'sha256:' + '9' * 64
+    references['notes'] = (paths[0].parent / 'notes/release-notes-ref.txt').read_text().strip()
+    return {'candidate': copy.deepcopy(report['candidate']), 'references': references,
+            'notesRevision': (paths[0].parent / 'notes/release-notes-revision.txt').read_text().strip()}
+
+
+def test_post_gate_lock_differs_from_freeze_only_in_three_fields(inputs, tmp_path):
+    report, paths = inputs
+    original_report = copy.deepcopy(report)
+    refs = fresh_references(report, paths)
+    frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
+    output = tmp_path / 'minted'
+    mint(report, paths, tmp_path / 'history', output, signer=signer, post_gate_evidence=refs)
+    regenerated = json.loads((output / 'platform-lock.json').read_bytes())
+    assert {key for key in frozen if frozen[key] != regenerated[key]} == nightly.POST_GATE_FIELDS
+    assert set(regenerated) == set(frozen)
+    assert {field: regenerated[field] for field in nightly.POST_GATE_FIELDS} == refs['references']
+    assert report == original_report
+    retained = json.loads((output / 'gate-report.json').read_bytes())
+    assert nightly.evidence_failures(retained, 'sha256:' + _sha256(output / 'platform-lock.json')) == []
+    for name, receipt in retained['evidenceReceipts'].items():
+        old = original_report['evidenceReceipts'][name]
+        assert receipt['status'] == old['status'] == 'pass'
+        assert receipt['completedAt'] == old['completedAt']
+    assert (output / 'qualification-lock.json').read_bytes() == (tmp_path / 'qualification-lock.json').read_bytes()
+
+
+@pytest.mark.parametrize('field', ['sbom', 'provenance'])
+def test_missing_post_gate_component_reference_refuses_before_signing(inputs, tmp_path, field):
+    report, paths = inputs
+    refs = fresh_references(report, paths)
+    component = refs['references'][field][0]['component']
+    refs['references'][field] = [row for row in refs['references'][field] if row['component'] != component]
+    refuses_before_signing(report, paths, tmp_path, 'no .* reference covers|references and hashes are not declared',
+                           post_gate_evidence=refs)
+
+
+def test_mint_requires_post_gate_refs_even_when_freeze_declares_them(inputs, tmp_path):
+    report, paths = inputs
+    refuses_before_signing(report, paths, tmp_path, 'post-gate references are required', post_gate_evidence=None)
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda refs: refs['candidate']['train'].update(runId='another-run'),
+    lambda refs: refs['candidate']['source'].update(sha='b' * 40),
+])
+def test_post_gate_refs_cannot_cross_candidates(inputs, tmp_path, mutation):
+    report, paths = inputs
+    refs = fresh_references(report, paths)
+    mutation(refs)
+    refuses_before_signing(report, paths, tmp_path, 'another candidate or run', post_gate_evidence=refs)
+
+
+def test_regeneration_refuses_non_evidence_drift(inputs, tmp_path):
+    _, paths = inputs
+    frozen = json.loads((tmp_path / 'qualification-lock.json').read_bytes())
+    frozen['components']['sdk']['artifacts'][0]['version'] = '9.9.9'
+    evidence = yaml.safe_load(paths[0].read_text())['platformLockEvidence']
+    with pytest.raises(ValueError, match='outside sbom, provenance and notes'):
+        nightly.regenerate_post_gate(*paths, frozen, {field: evidence[field] for field in nightly.POST_GATE_FIELDS})
 
 
 @pytest.mark.parametrize('status', ['fail', 'skipped', 'blocked', 'cancelled', 'unknown', ''])

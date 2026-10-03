@@ -244,6 +244,7 @@ jobs:
             --fixture-revisions fixture-revisions \
             --lock certified/qualification-lock.json \
             --post-gate-references certified/post-gate-references.json \
+            --notes-bundle certified/release-notes.bundle \
             --out-dir nightly-lock \
             --certificate-identity "$CERTIFICATE_IDENTITY" | tee mint.txt
           label="$(awk '/^MINTED: /{print $2}' mint.txt)"

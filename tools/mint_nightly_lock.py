@@ -29,6 +29,7 @@ from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha
 from fixture_revisions import RECORD as FIXTURE_RECORD, declare as declare_fixtures, load as load_fixtures
 from generate_platform_lock import generate
 from release_notes_ref import snapshot
+from release_facts import SOURCE_REFERENCE
 from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
 
@@ -188,10 +189,53 @@ def regenerate_post_gate(source: Path, matrix: Path, frozen: dict, references: d
     after = {key: value for key, value in draft.lock.items() if key not in POST_GATE_FIELDS}
     if before != after:
         raise ValueError('no lock minted: regeneration changed facts outside sbom, provenance and notes')
+    for field in ('sbom', 'provenance'):
+        for row in draft.lock[field]:
+            uri = row['uri']
+            pinned = uri.rsplit('@', 1)[-1] if uri.startswith('oci://') else uri.rsplit('#', 1)[-1]
+            if row['sha256'] != pinned:
+                raise ValueError(f'no lock minted: {field} reference hash differs from its immutable coordinate')
     from validate_platform_lock import validate
     if validate(draft.lock).errors:
         raise ValueError('no lock minted: ' + '; '.join(validate(draft.lock).errors))
     return draft
+
+
+def verify_reference_bundle(evidence: dict, bundle: Path, manifest: Path, matrix: Path, report: dict) -> None:
+    """Every retained repo reference must exist at the parent revision and hash to its claim."""
+    from finalize_release import render_release_notes
+    revision = evidence.get('notesRevision', '')
+    if not SHA.fullmatch(revision):
+        raise ValueError('no lock minted: missing immutable notes revision')
+    repository = 'https://github.com/' + report['candidate']['source']['repository']
+    refs = evidence['references']
+    with tempfile.TemporaryDirectory(prefix='verify-nightly-notes-') as directory:
+        def git(*args):
+            return subprocess.run(['git', *args], cwd=directory, check=True, capture_output=True).stdout
+        git('init', '-q')
+        git('fetch', '--no-tags', str(bundle.resolve()), 'HEAD')
+        if git('rev-parse', 'FETCH_HEAD').decode().strip() != revision:
+            raise ValueError('no lock minted: notes bundle does not contain the declared parent revision')
+        reference_list = [refs['notes']]
+        reference_list.extend(row['uri'] for field in ('sbom', 'provenance') for row in refs[field]
+                              if not row['uri'].startswith('oci://'))
+        for ref in reference_list:
+            if not isinstance(ref, str) or not SOURCE_REFERENCE.fullmatch(ref):
+                raise ValueError('no lock minted: retained documents require repo@rev:path#sha256 references')
+            coordinate, digest = ref.rsplit('#', 1)
+            prefix = repository + '@' + revision + ':'
+            if not coordinate.startswith(prefix):
+                raise ValueError('no lock minted: document is outside the retained notes parent')
+            path = coordinate.removeprefix(prefix)
+            raw = git('show', f'{revision}:{path}')
+            if 'sha256:' + hashlib.sha256(raw).hexdigest() != digest:
+                raise ValueError('no lock minted: retained document hash differs from its reference')
+            if ref == refs['notes']:
+                expected = render_release_notes(yaml.safe_load(manifest.read_text()),
+                    yaml.safe_load(matrix.read_text()), report['platform_label'], report,
+                    report['candidate']['train']['runUrl']).encode('utf-8')
+                if raw != expected:
+                    raise ValueError('no lock minted: notes were not generated from this candidate')
 
 
 # Each receipt derives its verdict from the gate that actually consumes that class.
@@ -471,7 +515,7 @@ def sign_blob(lock_path: Path, bundle_path: Path, identity: str, issuer: str) ->
 def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path,
          identity: str, issuer='https://token.actions.githubusercontent.com', *, signer=sign_blob,
          rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None,
-         fixture_records=(), post_gate_evidence=None, qualification_lock=None) -> str:
+         fixture_records=(), post_gate_evidence=None, qualification_lock=None, notes_bundle=None) -> str:
     from platform_lock_bundle import canonical_bytes
 
     errors = failures(report, repository=repository, source_sha=source_sha, run_id=run_id)
@@ -513,6 +557,9 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         if post_gate_evidence.get('candidate') != report['candidate']:
             raise ValueError('no lock minted: post-gate references belong to another candidate or run')
         draft = regenerate_post_gate(source, matrix, frozen, post_gate_evidence['references'])
+        if notes_bundle is None:
+            raise ValueError('no lock minted: retained notes bundle is required')
+        verify_reference_bundle(post_gate_evidence, notes_bundle, manifest, matrix, report)
         # The green receipts described the freeze lock. Only after checking that binding and the
         # three-field delta can their lock digest be retargeted. No status/time/class is changed.
         report = copy.deepcopy(report)
@@ -572,6 +619,7 @@ def main(argv=None):
     parser.add_argument('--declare-evidence', action='store_true')
     parser.add_argument('--collect-post-gate', action='store_true')
     parser.add_argument('--post-gate-references', type=Path)
+    parser.add_argument('--notes-bundle', type=Path)
     parser.add_argument('--lock', type=Path)
     parser.add_argument('--journey-reports', type=Path)
     parser.add_argument('--history', type=Path, default=Path('nightly-history'))
@@ -618,7 +666,7 @@ def main(argv=None):
         else:
             if not all((args.report, args.manifest, args.matrix, args.certificate_identity, args.rulesets,
                         args.expected_source_sha, args.expected_run_id, args.fixture_revisions,
-                        args.lock, args.post_gate_references)):
+                        args.lock, args.post_gate_references, args.notes_bundle)):
                 raise ValueError('report, candidate inputs, trusted signing identity, rulesets, '
                                  'the expected source sha and run id, and fixture revisions are required; '
                                  'qualification lock and post-gate references are required')
@@ -631,7 +679,7 @@ def main(argv=None):
                          run_id=args.expected_run_id,
                          fixture_records=load_fixtures(args.fixture_revisions),
                          post_gate_evidence=json.loads(args.post_gate_references.read_text()),
-                         qualification_lock=args.lock)
+                         qualification_lock=args.lock, notes_bundle=args.notes_bundle)
             print(f'MINTED: {label} -> {args.out_dir}')
         return 0
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
