@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "authority": "https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823",
-  "rules_date": "2026-09-10",
+  "rules_date": "2026-09-29",
   "exceptions": {
     "honua-console#334": {
       "bucket": "must-fix-before-cut",
@@ -17,8 +17,12 @@
       "remove_first_release_gate": true
     },
     "honua-demo-infra#68": {
-      "bucket": "must-fix-before-cut",
-      "reason": "Required numerically checked GP canary producer must exist before candidate qualification; not optional demo expansion."
+      "bucket": "post-cut-hardening",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-demo-infra/issues/68#issuecomment-5883906566): governing geometry.buffer on the public demo and its scheduled GP canary support the demo/samples showcase, not a 2026.1 GA promise; whole-catalog GP is qualified against the candidate under server#3809. Acceptance needs 7 consecutive green scheduled runs on a deployed candidate, so it cannot finish before the cut by construction. PR #78 stays merged; the demo must not advertise geometry.buffer until those receipts exist. Supersedes the earlier must-fix-before-cut exception."
+    },
+    "honua-devops#150": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-devops/issues/150#issuecomment-5883906979): the DevOps side of federated lineage is merged (#190, #201, #202 at 689be60). The DevOps-side join must still appear in the release#129 candidate receipt. The server-side canonical rootProvisioningOperationId field moves to honua-server#5316 (release/2026.1.1); deploy parameters give a verifiable correlation join for 2026.1. P0 label retained."
     },
     "honua-devops#181": {
       "bucket": "prove-against-candidate",
@@ -52,9 +56,17 @@
       "bucket": "prove-against-candidate",
       "reason": "Live AWS apply/smoke/upgrade/rollback/destroy receipt must bind the candidate; release#65/#129 consume it."
     },
+    "honua-iac#149": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-iac/issues/149#issuecomment-5883907494): the in-repo scope is merged (#158, #161, #170, #174, #193, #202) and nothing pre-cut remains. The live approval-bound apply/smoke/destroy, the IAM allow/deny check and cross-executor lock contention run as one combined live run with iac#118 and devops#147 against the RC, in the disposable AWS account with a short-lived role. P0 label retained."
+    },
     "honua-iac#168": {
       "bucket": "must-fix-before-cut",
       "reason": "2026-09-06 Lambda GA ruling A, release#282 item 1: isolated certification substrate is required before cut; operator applies after reviewing the IaC plan."
+    },
+    "honua-iac#191": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-iac/issues/191#issuecomment-5883907830): #192 is merged and licensing-disabled: PASS is recorded on candidate runs 35081740780 and 35081743407. The remaining evidence is the cloud parity cells run live with no license inputs, reporting disabled at /api/v1/admin/license on the RC, collected under release#129/#282 once OIDC is wired."
     },
     "honua-iac#20": {
       "bucket": "prove-against-candidate",
@@ -102,7 +114,7 @@
     },
     "honua-release#236": {
       "bucket": "must-fix-before-cut",
-      "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
+      "reason": "Required gate/identity machinery before manufacture. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519): for 2026.1 the review model is required status checks verified by automation plus operator approval; rulesets applied with no bypass and read back; CODEOWNERS names the operator. Still in scope: required checks on iac/demo-infra/evidence/esri-compat, read-back rulesets across all 17 repos, one denied and one approved change. The two-person code-review rule moves to 2026.2 as an accepted limitation. Bucket unchanged."
     },
     "honua-release#257": {
       "bucket": "must-fix-before-cut",
@@ -152,6 +164,14 @@
       "bucket": "must-fix-before-cut",
       "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
+    "honua-release#379": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026.1 release plan ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929), plan epic release#376: the GA docs gates (promise quickstart, rollback runbook, release withdrawal, pricing posture, support readiness) are M3 gates whose acceptance runs on the GA candidate; they do not hold the rc.3 cut."
+    },
+    "honua-release#380": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026.1 release plan ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929), plan epic release#376: patch readiness (release branches at the GA commits, backports, declared patch profile, rehearsal patch) is proven before GA; it does not hold the rc.3 cut."
+    },
     "honua-release#57": {
       "bucket": "must-fix-before-cut",
       "reason": "Required gate/identity/compatibility/publication machinery must be ready before manufacture; subsequent candidate qualification is a separate fact."
@@ -168,17 +188,25 @@
       "bucket": "post-cut-hardening",
       "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Commercial discovery is release scope but not a candidate-cut gate."
     },
+    "honua-sdk-dotnet#311": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-dotnet/issues/311#issuecomment-5883908263): the fail-closed installed-package lane landed in #322. With the re-pin to Honua.Sdk 1.10.0 from nuget.org (release#348), what remains is running that lane against the RC and submitting the evidence fragment. P0 and first-release-gate labels retained."
+    },
     "honua-sdk-dotnet#340": {
       "bucket": "must-fix-before-cut",
       "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-sdk-dotnet#341": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; member of the adopted migration program. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-dotnet/issues/341#issuecomment-5883909477) accepts live attachments, subtypes and true curves as documented \"not supported in 2026.1\" limits; the issue closes once those support-matrix rows (including the import-fidelity section release#317 consumes) land. Bucket unchanged."
     },
     "honua-sdk-js#1419": {
       "bucket": "must-fix-before-cut",
       "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+    },
+    "honua-sdk-js#1424": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-sdk-js/issues/1424#issuecomment-5883908623): the shared command layer and correlation are merged (#1461, #1477, #1478, #1582, #1775, #1785) and server#3304 is closed. What remains: refresh releaseManifestServerSha in config/admin-client.v1.json to the new pin, then RC proofs showing the same server-side audit join and identical RBAC/cross-tenant denials across CLI, MCP, Studio and JS. P0 and first-release-gate labels retained."
     },
     "honua-sdk-js#1569": {
       "bucket": "2026.2",
@@ -214,7 +242,7 @@
     },
     "honua-server#3365": {
       "bucket": "must-fix-before-cut",
-      "reason": "Body names the bounded supported journey, governance/security floor, or lifecycle/docs truth broken by the current implementation."
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-server/issues/3365#issuecomment-5883909078): acceptance met on trunk (#3576, #4372, #4736, #4990) with the release#362 live receipt; the issue stays open until the grant vocabulary is confirmed in admin-api.json. The focused Console read/approve receipt is re-minted on the RC. Bucket unchanged."
     },
     "honua-server#3377": {
       "bucket": "prove-against-candidate",
@@ -351,6 +379,18 @@
       "bucket": "must-fix-before-cut",
       "reason": "3D truth-only evidence/claim correction is the Experimental safety obligation, not 3D feature expansion."
     },
+    "honua-studio#2": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The real-model compose/save/reopen/propose/approved-URL smoke must still be proven against the RC before GA; it no longer holds the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained."
+    },
+    "honua-studio#26": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The private/public sharing decision (separate human approval, verified URL returned into the conversation) must still be proven against the RC before GA; it no longer holds the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained."
+    },
+    "honua-studio#41": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The versioned self-hosted Studio tag and its runtime-configuration receipt must still be proven against the RC before GA; they no longer hold the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained."
+    },
     "honua-support#5": {
       "bucket": "prove-against-candidate",
       "reason": "2026-09-04 commercial readiness: STAFFED-MANUAL support, first-incident and first-patch rehearsal against the candidate; policy preparation owned by support#60."
@@ -445,6 +485,11 @@
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise'; quality-contract Sec7.2 explicitly requires the GitOps loop to 'detect drift and prove reconciliation and rollback' with 'no unrecorded manual production mutation' \u2014 preauthorized, bounded recovery that a later reconcile cannot silently undo is exactly that already-recorded requirement."
     },
+    "honua-esri-compat#101": {
+      "body_sha256": "1fcdd94b56290f47674d1bc991e4353a0b677f446c47f234824955f8db4d9e5d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: the declared GeoServices profile conformance gate (release certification / report, conformance-esri-geoservices) is broken: committed Esri operation matrices are stale and no fresh certification bundle is published, so the documented supported workflow cannot be certified."
+    },
     "honua-esri-compat#74": {
       "body_sha256": "28755c8dbbebcda0753c6e0fedbd8c6987d2f65ddacc84996464c0842f3f6476",
       "named_promise": true,
@@ -490,15 +535,40 @@
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly; quality-contract Sec7.2/Sec4.4 already require verified handoff and rollback-actuator availability for every advertised deployment target, and devops#147/#150 (already tracked P0 gaps) cover the same GitOps/AWS actuation lineage this issue completes."
     },
+    "honua-iac#191": {
+      "body_sha256": "880494be41e7aa10b6101335c6e1529c5877f7f1d8b6659ffe1cc1eb9d8e59f4",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names the 2026.1 licensing-disabled deploy contract (release#338) on the GA AWS targets; bucket is set by the 2026-09-29 exception."
+    },
     "honua-iac#20": {
       "body_sha256": "4c24f10b87a748cf71a688a951394b5a1648a4ecf03349bc428b356f9d612700",
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(runbooks): execute AWS apply/smoke/destroy and record evidence"
     },
+    "honua-iac#206": {
+      "body_sha256": "d1e5e42923ac4d05c1d357816a5a0e808b7d4d071665fd440d37289d1840f765",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: optional Console sidecar in the standard deploy is new packaging scope; the body leaves the bucket to the operator and allows 2026.1.1. No named security floor, data-integrity defect or broken supported workflow."
+    },
+    "honua-iac#207": {
+      "body_sha256": "48f265f0e63c675a3106ff76656b765d124b921d4e030f1b8317c7b889d4da94",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: Bedrock grant, N-1 digest inputs and OIDC are required inputs to the promise-journey gate on every GA cell (plan ruling R11, release#376); removes static AWS keys and scopes the model grant (security floor)."
+    },
+    "honua-iac#209": {
+      "body_sha256": "be247aedaf9974ed0c9880ab38e3e3e8db95b72c18cf2b542d8f182056242bdb",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: mixed ECS + Batch topology is Preview and informational in 2026.1 (plan rulings R11/R14); GA in 2026.1.x."
+    },
     "honua-migrate#142": {
       "body_sha256": "e37d63059864c307b59516cb28d41c5fe5943b5e6c98d7b88a774a53c29fb3bd",
       "named_promise": false,
       "reason": "Body is the JS widget-to-component path of the 'Low-switching-cost Esri migration' workstream introduced 2026-09-09 (dependency of release#325); not a promise the quality contract or decision record names yet."
+    },
+    "honua-migrate#152": {
+      "body_sha256": "f348c154b862a78bb3701f317fbf8b7088a7c8f0b850d78174aa977ecbb4891f",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: body targets 2026.1 exploratory learning and states qualification is a later gate; no named release promise."
     },
     "honua-migrate#81": {
       "body_sha256": "157c91cd0e1d1e3fa8dd0672df570b5ff1d418d1e4357a1600763900d1775758",
@@ -611,19 +681,49 @@
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise' directly and is the certification gate for it \u2014 quality-contract Sec7.2/Sec14 (upgrade/rollback pass, signed promotion receipt) and Sec14's release-train/burn-in bullets already require exactly this real-candidate injected-failure recovery proof; this issue supplies the missing evidence for an already-committed GA gate, not a new claim."
     },
     "honua-release#323": {
-      "body_sha256": "840e8daf56cee418a4b783b816c4bbf3a2d526fb0e5dddcb6910afeb1764602a",
+      "body_sha256": "501da2bea97130ff2e3d8d81c5ee5d35c98c73d59024443ca027159c3837382b",
       "named_promise": false,
-      "reason": "Grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica 2026-09-11; verdict unchanged."
+      "reason": "Reviewed 2026-09-29: grouping epic for the 2026-09-09 'trustworthy GP execution' program; the member fixes are reviewed individually. An epic does not itself name a release promise. Body re-projected from Specifica; verdict unchanged."
     },
     "honua-release#325": {
       "body_sha256": "0b022514f5d1f5bf32d2691b8748295e1768ff342ce708d6c2416716576321bd",
       "named_promise": false,
       "reason": "Epic/grouping issue for a newly introduced 'SDK adoption outcomes' program (.NET import, JS app migration, Python GP) dated 2026-09-09; not present in the quality contract's Sec14 gates or the release decision record, and the six canonical-ruling comments on release#268 (through 2026-09-05) do not adopt it. New scope, not a name-checked existing promise. Would flip true if a canonical ruling on release#268 adopts this program as part of the 2026.1 contract."
     },
-    "honua-release#57": {
-      "body_sha256": "44326da89a16d96580c755cc8126f2ad1a8a602313556149d0817ea07ed7731b",
+    "honua-release#376": {
+      "body_sha256": "38712a424303066ba903da3edc269cadd09bb779c97019c497dc111d978eb6fe",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: plan epic (Specifica 2026-1-release-plan-ai-cloud-to-maps); its child issues are reviewed individually. An epic does not itself name a release promise."
+    },
+    "honua-release#377": {
+      "body_sha256": "971aa64db5c9d6e6a69cd7b6a8561491649902072e38fdc45773e9d7f52b928a",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: First-publication wave: finish NuGet, BSR, Helm OCI, QGIS, Mobile, Console, and migrate"
+      "reason": "Reviewed 2026-09-29: the promise journey is a required release gate (plan ruling R11); its stages include no-self-approval, prompt-injection and incompatible-target refusal (security floors) and exactly-once rollback (integrity)."
+    },
+    "honua-release#378": {
+      "body_sha256": "26021cd17f3c441b328460533237b5dd7c8504c2c915834989fd62a47f50a419",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: M1 developer preview announcement and dogfood run; the body states the recorded run is feasibility evidence, not a gate receipt, and M1 is not a release candidate (plan ruling R17)."
+    },
+    "honua-release#379": {
+      "body_sha256": "93457cdf614fe85b4bed0873aca5c29b9299c9f9190a61d92076d36c4ab7d209",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: GA docs gates the release cannot ship without; bucket is set by the 2026-09-29 plan exception (M3)."
+    },
+    "honua-release#380": {
+      "body_sha256": "06aa1f8822d839e4e32445bd91a9059ebd15df72d6504080f6cfd4bab5c7711d",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: patch readiness backs the published Sev1 mitigation promise of support policy 2026.1-r2; bucket is set by the 2026-09-29 plan exception (before GA)."
+    },
+    "honua-release#381": {
+      "body_sha256": "4232874404e05be8e52a69d100ef711c781b6e14a4a6e8ad06379af6be1eb18f",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: makes the promise journey a failable train and promotion gate (plan ruling R11); required gate machinery before the rc.3 cut."
+    },
+    "honua-release#57": {
+      "body_sha256": "07c6f40d88ee8b6745492e22143b73a85f7f85216dc4e3648308b9aa2657b908",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: first-publication wave (NuGet, BSR, Helm OCI, QGIS, Mobile, Console, migrate): installed-client certification requires the same immutable public bytes that promotion publishes. Verdict unchanged."
     },
     "honua-release#7": {
       "body_sha256": "793c3edcb04333c45f97aed56aa0d29396b4f8a0124d10980963a37f9b978619",
@@ -656,9 +756,9 @@
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: fix(certification): exercise FeatureServer edits with governed entitlement"
     },
     "honua-sdk-dotnet#311": {
-      "body_sha256": "99b9ad0c97693415bc688fe064bc6905485757c429487dfc69a6040788a8028d",
+      "body_sha256": "fb361f5c8e1876103d9572ce85d6bb4221b0908ee84b9eaab8fffdcab5e42223",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: test(certification): certify the installed NuGet package against the exact 2026.1 candidate"
+      "reason": "Reviewed 2026-09-29: fail-closed installed-package certification with cross-tenant and insufficient-scope denials; bucket is set by the 2026-09-29 exception."
     },
     "honua-sdk-dotnet#326": {
       "body_sha256": "ac30f8dc81bbe023371d33d86f7d08b2fbcee99ba6906ef96c670b3f4b82075b",
@@ -671,9 +771,9 @@
       "reason": "Same new-scope program (release#316/#317/#325): 'A C# implementation inside honua-server is not sufficient for the required SDK-only customer journey' \u2014 a new typed public-API surface being built for the migration program, not an existing promise being repaired."
     },
     "honua-sdk-dotnet#341": {
-      "body_sha256": "91a399a3035f65a9705cdd7485bee84fe9e7ff37bb172844bd35ed5e9d649e38",
+      "body_sha256": "c605e420a8b0ab2b5e90d7883d90fbe80da9c8c44e6bebd14fe510169a2bd6c9",
       "named_promise": false,
-      "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) \u2014 new typed SDK capability ('add only missing typed coverage for service/layer/table discovery...') built to satisfy the new adoption-outcomes certification bar, not a fix to a behavior the record already promises."
+      "reason": "Reviewed 2026-09-29: body is the low-switching-cost Esri migration workstream (release#316): new typed SDK capability, not a fix to an already promised behavior; release scope comes from the 2026-09-10 exception and the 2026-09-29 accepted limits."
     },
     "honua-sdk-js#1397": {
       "body_sha256": "d58d631ae9dd9405e6e099b79edcf3f437d8e5f0e35de7412076c2a007f5ed1b",
@@ -696,9 +796,9 @@
       "reason": "Body says this work is 'promoted' into 2026.1 specifically because the new migrated-app cohort (#1662, part of release#316) requires it, and explicitly separates it from its home epic (#1294, 2026.2 Application components). New feature completion for the new adoption program, not a fix to an existing promise."
     },
     "honua-sdk-js#1424": {
-      "body_sha256": "faa6dc54b22de9c857b02791e7d39ce299e8028bcd25f78f078c9e3c03d8d9dd",
+      "body_sha256": "e04cd8352bdae8408dff1653a4f84c720ca6fb4fd5195ac730ab9b6b3fd82eed",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: refactor(control-plane): share idempotent application commands across CLI, MCP, Studio, and SDK"
+      "reason": "Reviewed 2026-09-29: one command layer so RBAC and no-self-approval cannot drift between CLI, MCP, Studio and JS; bucket is set by the 2026-09-29 exception."
     },
     "honua-sdk-js#1426": {
       "body_sha256": "18afad32f45757d1309ba73cd5b43ef213f822a7fc572ab4d3a1281c586dc946",
@@ -744,6 +844,26 @@
       "body_sha256": "f08d310350d7ec91082e4d9fe6799b62506dead24b25b48c584271786bceb5b2",
       "named_promise": false,
       "reason": "Body is 'Workstream: Low-switching-cost Esri migration' (release#316) \u2014 a new certification requirement (freeze an app-behavior checklist, run a cohort of migrated 2D apps) for the new adoption-outcomes program, not a fix to an already-promised SDK behavior."
+    },
+    "honua-sdk-js#1704": {
+      "body_sha256": "66f695d1e021cee92322fa3c733d4fad72cb464b939e8e42b34cbf54b7a8fcf5",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+    },
+    "honua-sdk-js#1705": {
+      "body_sha256": "d15e5043a57c0c5a1a0469c4dd9dafd768e68621524ae5afb0346228f648c675",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri dashboard conversion targets 2026.1 exploratory learning; the body states qualification is a later gate, and dashboards are not a 2026.1 claim (plan ruling R14)."
+    },
+    "honua-sdk-js#1706": {
+      "body_sha256": "530c4856aa1f2069a63f7f9def3593e8b06b0f79972927717b179977d003ab92",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri app conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
+    },
+    "honua-sdk-js#1707": {
+      "body_sha256": "e2926732c90e19341830ca26e6c1e5770ed6596f256abcbb33976698350c158e",
+      "named_promise": false,
+      "reason": "Reviewed 2026-09-29: Esri editor conversion targets 2026.1 exploratory learning; the body states qualification is a later gate."
     },
     "honua-sdk-js#39": {
       "body_sha256": "3c06f6eb828f127c5bab802aaa28b4c92cf22aeb382cff9f2e8c166b7d66905a",
@@ -1685,6 +1805,16 @@
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: quality-contract Sec7.1 GP reliability qualification (idempotency, retry, cancellation, duplicate-delivery handling; server#3809) requires cancellation to be reported truthfully rather than a manufactured terminal state; this is a GP-results-are-correct defect on an already-promised bounded GP journey."
     },
+    "honua-server#5312": {
+      "body_sha256": "3a082b967eeda0380e0003e9ab033706c11489505ced6a6ce0ce0d6ef43d36fe",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names data integrity across update and rollback: no duplicate or lost GP execution, and an older server must refuse an incompatible schema rather than serve silently wrong data."
+    },
+    "honua-server#5314": {
+      "body_sha256": "e7dbb90b12a0355ff3aec509c8850eb4408f3e016a4d2e854d9ef2275a1425c9",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: the capacity/SLO gate (release#258) now requires attested honua.capacity-observations/v1 evidence that no producer emits; required gate evidence for the rc.3 freeze train."
+    },
     "honua-site#234": {
       "body_sha256": "72fe8aaa9d986b1e8dc5794f8658805ea168f270a0d79a65093cd6552c977bde",
       "named_promise": true,
@@ -1694,6 +1824,21 @@
       "body_sha256": "9f773131b3cfc1bbe9fd4891d00a919a2db565ebbd749347f73bba65fe6f280b",
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: capability drift: site publishes ai.workflow-generation as Pro after honua-server#3264 removes it"
+    },
+    "honua-studio#2": {
+      "body_sha256": "2b249809d5e5c95b01983273dda6ffa9ff4d4c357ad6619efa445368c79ee813",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names governed publication with a separate human approver and no self-approval, the Studio security floor retained by the #268 experimental-safety ruling; bucket is set by the 2026-09-29 Preview amendment."
+    },
+    "honua-studio#26": {
+      "body_sha256": "5cff36f1dad36d17297e840bc904f600b4397341c8cb83340b7d9058e69e0b81",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names human approval for private and public publication with no agent-executable exception, a retained governance floor; bucket is set by the 2026-09-29 Preview amendment."
+    },
+    "honua-studio#41": {
+      "body_sha256": "b7321fce7a858554e991c759f01d2f8854a38320f4dad3b58a7f3d24d3882dda",
+      "named_promise": true,
+      "reason": "Reviewed 2026-09-29: names no embedded provider/admin credentials in the self-hosted bundle, a retained security floor; bucket is set by the 2026-09-29 Preview amendment."
     },
     "honua-support#5": {
       "body_sha256": "a6b6afe31be0f9bfef8689a172b4c13c1ad463f785e9e4f8a62490a050591d7c",
@@ -1713,7 +1858,7 @@
     "honua-support#60": {
       "body_sha256": "2d92d95a3c2678aae7c86a7ebb49371e879fa773abdec4e830002683d472d843",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: publish severity, coverage, contact, incident, maintenance, and EOL policy"
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 2026.1 gate: publish severity, coverage, contact, incident, maintenance, and EOL policy Operator approval 2026-09-29 (https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928): support policy 2026.1-r2 approved; stays open until the signed 2026.1 lock cites r2 by commit and digest."
     },
     "honua-support#61": {
       "body_sha256": "7f66b610c7b28ad54f7ab6f4b6f2212d0c6c33ab8612b43f3a0cc43000a5df8c",

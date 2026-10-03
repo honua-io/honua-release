@@ -106,11 +106,57 @@ def test_working_candidate_is_rendered_without_cutting_the_candidate():
     record = decision.render(data, rows)
     assert '**Candidate digest: not yet cut ·' in record
     assert f'**Working candidate {wc["label"]} ({wc["status"]})' in record
-    for name, sha, _ in wc['pins']:
-        assert f'| {name} | `{sha}` |' in record
+    for name, pin, _ in wc['pins']:
+        assert f'| {name} | {pin} |' in record
     assert all(not r['qualified_against_candidate'] for r in rows)
     without = {k: v for k, v in data.items() if k != 'working_candidate'}
     assert 'Working candidate' not in decision.render(without, rows)
+
+
+def test_approved_repin_renders_targets_not_shas_and_no_train():
+    data = json.loads(decision.INPUTS.read_text())
+    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    approved = {'label':'2026.1-rc.3', 'status':'re-pin approved, not yet pinned; HOLD; not a cut',
+                'observed_at':'2026-09-29T04:55:09Z', 'approval':'https://example.invalid/approval',
+                'pins':[['honua-server', 'not yet pinned', 'newest green imaged trunk']]}
+    record = decision.render({**data, 'working_candidate':approved}, rows)
+    assert '[re-pin approval](https://example.invalid/approval)' in record
+    assert '| honua-server | not yet pinned | newest green imaged trunk |' in record
+    assert 'dry-run train' not in record and '| Train gate |' not in record
+    assert '**Candidate digest: not yet cut · Decision: HOLD ·' in record
+    trained = {**approved, 'train':'https://example.invalid/runs/42', 'pins':[['honua-server', 'a'*40, 'green']],
+               'gates':[['gate_manifest', 'pass', 'ok']]}
+    record = decision.render({**data, 'working_candidate':trained}, rows)
+    assert 'dry-run train [42](https://example.invalid/runs/42)' in record
+    assert f"| honua-server | `{'a'*40}` | green |" in record and '| gate_manifest | pass | ok |' in record
+
+
+def test_release_plan_names_milestones_but_never_cuts():
+    data = json.loads(decision.INPUTS.read_text())
+    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    plan = data['release_plan']
+    record = decision.render(data, rows)
+    assert f"**Release plan: {decision.link(plan['epic'])}" in record
+    for name, bar in plan['milestones']:
+        assert f'| {name} | {bar} |' in record
+    assert data['candidate_digest'] == 'not yet cut' and 'Decision: HOLD' in record
+    without = {k: v for k, v in data.items() if k != 'release_plan'}
+    assert '**Release plan:' not in decision.render(without, rows)
+
+
+def test_preview_p0_leaves_the_cut_only_through_a_reasoned_exception():
+    # 2026-09-29 Preview amendment (studio#2): encoded as explicit exceptions, never in the classifier.
+    row = issue('priority/P0', 'slice/studio', 'first-release-gate')
+    assert decision.classify(row, rules())[0] == 'must-fix-before-cut'
+    config = rules()
+    config['exceptions']['honua-server#1'] = {'bucket':'prove-against-candidate', 'reason':'Preview P0; no security floor.'}
+    assert decision.classify(row, config) == ('prove-against-candidate', 'Preview P0; no security floor.')
+    # The reviewed gate label survives the move.
+    assert decision.label_plan({**row, 'bucket':'prove-against-candidate'}, config) == (['bucket/prove-against-candidate'], [], False)
+    live = json.loads(decision.OVERRIDES.read_text())['exceptions']
+    for key in ('honua-studio#2', 'honua-studio#26', 'honua-studio#41'):
+        assert live[key]['bucket'] == 'prove-against-candidate'
+        assert 'security, isolation or integrity floor' in live[key]['reason']
 
 
 def test_working_candidate_note_is_rendered_and_optional():
