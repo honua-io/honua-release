@@ -34,11 +34,13 @@ Usage (the workflow calls this):
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
+from platform_version import stamp_platform_version
 
 try:
     import yaml
@@ -98,10 +100,19 @@ def _base_label(label: str) -> str:
 # finalize — the manifest as tagged IS the release
 # --------------------------------------------------------------------------------------------------
 def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
-    m = dict(manifest)
-    m["platformRelease"] = _base_label(label)
+    """Publish the GA label and restamp imaged components to that label's platform version.
+
+    Promotion re-tags the certified bytes without rebuilding them (promote.yml). The RC stamp
+    `2026.1.0-rc.N` belongs to the candidate label; the released manifest's platformRelease is the
+    base label, whose platform version is `2026.1.0` (R22). Leaving the RC stamp in place makes
+    `check_platform_version_stamp` reject the manifest promotion is about to publish.
+    """
+    m = copy.deepcopy(manifest)
+    base = _base_label(label)
+    m["platformRelease"] = base
     m["status"] = "released"
     m["releasedDate"] = released_at
+    stamp_platform_version(m, base)
     return m
 
 
@@ -110,6 +121,11 @@ def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
 # --------------------------------------------------------------------------------------------------
 def _component_artifact(comp: dict) -> str:
     return str(comp.get("image") or comp.get("artifact") or "—")
+
+
+def _component_version(comp: dict) -> str:
+    """The version customers install: the platform stamp when one is bound, else the component's own."""
+    return str(comp.get("artifactVersion") or comp.get("version") or "—")
 
 
 def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: dict,
@@ -133,7 +149,7 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
     for name in sorted(components):
         comp = components[name] or {}
         sha = str(comp.get("sha", ""))[:12] or "—"
-        lines.append(f"| {name} | {comp.get('version', '—')} | `{sha}` | {_component_artifact(comp)} |")
+        lines.append(f"| {name} | {_component_version(comp)} | `{sha}` | {_component_artifact(comp)} |")
     lines.append("")
 
     # Contract versions advertised by the server (the wire surfaces clients negotiate against).
@@ -249,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     Path(args.out_manifest).write_text(yaml.safe_dump(finalized, sort_keys=False), encoding="utf-8")
 
     notes = render_release_notes(
-        manifest, matrix, args.label, report, str(report.get("evidence_url", "")))
+        finalized, matrix, args.label, report, str(report.get("evidence_url", "")))
     Path(args.out_notes).write_text(notes, encoding="utf-8")
 
     print(f"finalized manifest -> {args.out_manifest}")

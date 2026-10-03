@@ -118,6 +118,10 @@ def _bound_sdk_fixture():
         manifest["components"]["honua-" + source]["sha"] = sha
         requirements["source_revisions"][source] = {"commit": sha}
         manifest["clientArtifacts"][SDK_ARTIFACTS[source]]["sourceSha"] = sha
+    # Identity-bound imaged components (console, today) carry the label's platform version.
+    # An exact candidate refuses a bound image that is still unstamped (R22).
+    from platform_version import stamp_platform_version
+    stamp_platform_version(manifest, manifest["platformRelease"])
     return manifest, matrix, requirements
 
 
@@ -564,6 +568,16 @@ def test_exact_candidate_accepts_bound_coherent_pins():
     vp.check_exact_candidate(manifest, f)
     vp.check_bound_catalog_pin_coherence(manifest, requirements, f)
     assert f.ok, f.errors
+
+
+def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
+    manifest, _, _ = _bound_sdk_fixture()
+    del manifest["components"]["honua-console"]["artifactVersion"]
+    f = vp.Findings()
+    vp.check_exact_candidate(manifest, f)
+    assert any(
+        "exact-candidate: honua-console.artifactVersion None must be the platform version '2026.1.0-rc.2'"
+        in error for error in f.errors), f.errors
 
 
 def test_legacy_evidence_pin_cannot_drift_from_manifest():
