@@ -576,3 +576,31 @@ def test_typecheck_audits_package_installs(tmp_path):
     assert result["status"] == "fail"
     assert result["blocks"][0]["status"] == "fail"
     assert "@honua/old 0.0.1 (admitted version: none)" in result["blocks"][0]["detail"]
+
+
+@pytest.mark.parametrize("http_exit,status", [(0, "pass"), (22, "fail"), (7, "fail")])
+def test_readiness_url_requires_successful_http_response(tmp_path, monkeypatch, http_exit, status):
+    import subprocess
+    import run
+    session = run.Session("url", tmp_path, {}, "http://guard", tmp_path, False, "host", "url", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "url-container")
+    probes = []
+    def docker(*args, **kwargs):
+        probes.append(args)
+        return subprocess.CompletedProcess(args, http_exit, "", "")
+    class Process:
+        calls = 0
+        returncode = None
+        def poll(self):
+            self.calls += 1
+            if self.calls > 1:
+                self.returncode = 124
+            return self.returncode
+        def wait(self):
+            return self.returncode
+    monkeypatch.setattr(run, "docker", docker)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(run.time, "sleep", lambda seconds: None)
+    outcome = session.run_shell("npm run dev", "node", 600, True, {"url": "http://localhost:3000/ready"})
+    assert outcome.status == status
+    assert probes == [("exec", "url-container", "curl", "-fsS", "--max-time", "2", "http://localhost:3000/ready")]
