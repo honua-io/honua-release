@@ -1099,9 +1099,10 @@
           "line": 46,
           "language": "csharp",
           "infoString": "csharp",
-          "intent": "run",
+          "intent": "file",
           "intentSource": "heuristic",
-          "sha256": "eefd3520c11ea9f917231f635673274b5a294d814734c506e393920bf37d9b46"
+          "sha256": "eefd3520c11ea9f917231f635673274b5a294d814734c506e393920bf37d9b46",
+          "file": "Program.cs"
         },
         {
           "index": 2,
@@ -2555,10 +2556,10 @@
       "alternative": 1,
       "compile": 7,
       "excluded": 2,
-      "file": 4,
+      "file": 5,
       "illustrative": 14,
       "output": 6,
-      "run": 166,
+      "run": 165,
       "teardown": 1
     }
   }

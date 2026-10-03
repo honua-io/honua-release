@@ -313,3 +313,11 @@ def test_expected_failures_are_declared_or_described():
     blocks = by_index(text)
     assert blocks[0].expect_failure and blocks[1].expect_failure and not blocks[2].expect_failure
     assert blocks[1].intent == "run"
+
+
+def test_file_header_comments_and_replace_cues_name_files():
+    blocks = by_index("```csharp\n// Program.cs\nConsole.WriteLine(1);\n```\n\n"
+                      "Replace `Program.cs` with:\n\n```csharp\nConsole.WriteLine(2);\n```\n")
+    assert (blocks[0].intent, blocks[0].file) == ("file", "Program.cs")
+    assert (blocks[1].intent, blocks[1].file) == ("file", "Program.cs")
+    assert scrub('api_key=os.environ["HONUA_API_KEY"]', []) == 'api_key=os.environ["HONUA_API_KEY"]'

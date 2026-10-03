@@ -49,7 +49,7 @@ DEFAULT_TIMEOUT = 600
 SERVE_WINDOW = 60
 SECRETISH = re.compile(
     r"(([Pp]ass(word|wd)?|PASSWORD|[Ss]ecret|SECRET|[Tt]oken|TOKEN|[Aa]pi[-_]?[Kk]ey|API[-_]?KEY|MASTER_KEY)"
-    r"[\"']?\s*[=:]\s*[\"']?)[^\s\"';,]+")
+    r"[\"']?\s*[=:]\s*[\"']?)(?!os\.environ|os\.getenv|process\.env|Environment\.|\$|\*\*\*)[^\s\"';,]+")
 
 
 class RunError(RuntimeError):
@@ -699,7 +699,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         if block.intent == "file":
             target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
             session.put(doc["runtime"], target, code)
-            runnable = block.language in {"python", "javascript", "typescript", "shell", "csharp"}
+            # A .cs file belongs to the reader's project: a later `dotnet run` builds it, it never runs alone.
+            runnable = block.language in {"python", "javascript", "typescript", "shell"}
             if not runnable or Path(block.file).name in later_text[block.index]:
                 record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
                 continue

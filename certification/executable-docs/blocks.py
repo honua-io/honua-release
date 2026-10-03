@@ -40,7 +40,8 @@ FILE_NAME = re.compile(
     r"`((?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|json|jsonc|ya?ml|toml|env|html|sh|"
     r"txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs))`")
 FILE_CUE = re.compile(
-    r"\b(save|saved|saving|put|create|creating|write|writing|named|called|paste|contents of|file)\b", re.I)
+    r"\b(save|saved|saving|put|create|creating|write|writing|named|called|paste|replace|contents of|file)\b", re.I)
+FIRST_LINE_FILE = re.compile(r"^\s*(?://|#)\s*((?:[\w.-]+/)*[\w.-]+\.(?:cs|py|js|mjs|ts|mts|sh))\s*$")
 COMMAND_START = re.compile(
     r"^(\$ |npm |npx |pnpm |yarn |pip |pip3 |python3? |uv |dotnet |docker |curl |git |cd |export |honua |"
     r"node |mkdir |cat |source |set )")
@@ -257,6 +258,12 @@ def classify(blocks: list[Block]) -> list[Block]:
         if lang in ALTERNATIVE_LANGUAGES:
             block.intent = "alternative"
             block.reason = f"{lang} is a Windows variant; this lane runs the Linux/macOS instructions"
+            continue
+        first_line = block.code.splitlines()[0] if block.code.strip() else ""
+        named = FIRST_LINE_FILE.match(first_line)
+        if named and lang in {"csharp", "python", "javascript", "typescript", "shell"}:
+            block.intent, block.file = "file", named.group(1)   # a `// Program.cs` header names the file
+            previous_run = None
             continue
         file_match = FILE_NAME.findall(paragraph)
         if file_match and FILE_CUE.search(paragraph) and not (lang == "shell" and block.code.lstrip().startswith("$ ")):
