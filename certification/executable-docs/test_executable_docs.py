@@ -141,7 +141,7 @@ def test_output_oracle_preserves_digits_and_only_elides_explicit_ellipses():
                          'PASS: "380 New York St" -> "380 New York St, Redlands" (34.05, -117.19), score 100\n')[0]
     ok, why = assert_output("done\nFound 3 features", "Found 12 features\ndone\n")
     assert ok is False and why == "output differs from documented full output"
-    assert assert_output('{"mode": "disabled"}', '{"mode": "disabled", "x": 1}\n')[0]
+    assert assert_output('{"mode": "disabled"}', '{"mode": "disabled", "x": 1}\n')[0] is False
     assert not assert_output('{"mode": "disabled"}', '{"x": 1}\n')[0]
 
 

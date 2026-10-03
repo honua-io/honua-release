@@ -104,6 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          python certification/executable-docs/docker_regressions.py
           python certification/executable-docs/run.py --boot --network candidate \
             --evidence-uri "$EVIDENCE_URI" \
             --workdir "$RUNNER_TEMP/executable-docs" \

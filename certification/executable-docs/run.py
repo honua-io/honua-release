@@ -337,10 +337,11 @@ class Session:
             f"set -a -e\n. {shlex.quote(str(script))}\n")
         window = SERVE_WINDOW if serve else timeout
         started = time.monotonic()
-        proc = subprocess.Popen(
-            ["docker", "exec", *self.exec_env(runtime), name, "timeout", "-k", "5", str(window), "bash", "-c",
-             f"{wrapper}", "docrun"],
-            stdin=subprocess.DEVNULL, stdout=open(out, "w"), stderr=open(err, "w"))
+        with out.open("w") as stdout_file, err.open("w") as stderr_file:
+            proc = subprocess.Popen(
+                ["docker", "exec", *self.exec_env(runtime), name, "timeout", "-k", "5", str(window), "bash", "-c",
+                 f"{wrapper}", "docrun"],
+                stdin=subprocess.DEVNULL, stdout=stdout_file, stderr=stderr_file)
         ready = False
         deadline = started + window + 60
         while proc.poll() is None and time.monotonic() < deadline:
@@ -667,6 +668,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     packages = [(m.group(1), m.group(2)) for b in blocks if b.language == "shell"
                 for m in DOTNET_ADD.finditer(b.code)]
     rows: list[dict[str, Any]] = []
+    if report_row is not None:
+        report_row["blocks"] = rows
     deferred: list[Block] = []
     pinned_versions = {k.lower() if not k.startswith("@") else k: v for k, v in (context.get("_pins") or {}).items()}
     before = snapshot_containers() if doc.get("docker") else set()
@@ -757,11 +760,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 continue
             code = substitute(block.code, subst)
             if block.marker and "checkout" in block.marker:
-                try:
-                    checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
-                except RunError as exc:
-                    record(block, None, "fail", str(exc))
-                    continue
+                checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
             if block.intent == "file":
                 target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
                 session.put(doc["runtime"], target, code)

@@ -68,13 +68,17 @@ meant to run are reported as `not-run` with their intent.
 - **Oracle.** The exit code. Python blocks pass when they raise no exception. When the document
   shows the output (a following `text`/`output`/`json` block introduced by "prints", "returns",
   "output"…, a `console` transcript, or a `<!-- doc-run: output -->` block), that output is also
-  asserted. Each shown line must appear in order, with digits and whitespace normalized; `...` elides.
-  For JSON output, the shown object's keys must be present.
+  asserted. The full output must match with whitespace normalized; numbers remain exact and
+  only a documented `...` or `…` elides. JSON is compared recursively, including values, types,
+  array lengths and the complete set of keys. Extra output fails.
 - **Continuations.** A C# or JS/TS block that fails only because it uses a name from an earlier
   block (`CS0103`, `ReferenceError`, `TS2304`) is re-run appended to the document's earlier passing
   blocks of that language, and the result is marked `+continues-earlier-blocks`.
-- **Long-running commands.** `npm run dev`, `docker compose up` without `-d` and the like pass if
-  they are still serving after 60 s, at which point the runner stops them.
+- **Long-running commands.** `npm run dev`, `docker compose up` without `-d` and the like need
+  readiness evidence stated in the document. A `doc-run: run ready-url="http://localhost:3000/"`
+  marker requires a successful HTTP response while the command runs; `ready-log="Ready"` requires
+  that exact log text. Missing evidence is `needs-input`; evidence not observed is `fail`.
+  After 60 s the runner stops the command. Elapsed time never proves readiness.
 - **`doc-test=compile`.** Fences that the SDK repos already mark compile-only are typechecked with
   the pinned TypeScript after the document's install steps have run.
 - **needs-input.** The block reads an environment variable that nothing earlier sets, or contains a
@@ -82,10 +86,16 @@ meant to run are reported as `not-run` with their intent.
   document's variables file has no value for it. The document gives the reader no way to run the
   block.
 
-Document status is `fail` when any block or check fails, `needs-input` when a block needs a value,
+Document status is `fail` when any block or check fails, zero blocks execute, or a Docker document's
+candidate-image check is unevaluated; otherwise it is `needs-input` when a block needs a value,
 and `pass` otherwise. The gate (`overall_status`) is `fail` when any document fails, `blocked` when
 any document needs input, and `pass` only when every declared document runs. There is no waiver
 list.
+
+Containers run as the host UID with a writable home. Unexpected exceptions become failures with
+the traceback tail, and later blocks and documents still run. The installed-package audit covers
+every executable language and typecheck, including URL installs, and detects NuGet assets as well
+as Python and npm packages. Inventory drift fails both the inventory check and the live verdict.
 
 ## Variables files
 
@@ -150,6 +160,7 @@ report. The right fix is a document a reader can follow.
 ```sh
 pip install "pyyaml>=6.0" pytest
 python -m pytest certification/executable-docs -q            # offline self-tests
+python certification/executable-docs/docker_regressions.py  # live ownership and readiness regressions
 
 # regenerate / check the committed inventory (reads the docs at their release revisions)
 GH_TOKEN=$(gh auth token) python certification/executable-docs/inventory.py --write
