@@ -154,7 +154,7 @@
         "digest": {"$ref": "#/$defs/digest"},
         "integrity": {"type": "string", "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$"},
         "filename": {"type": "string", "minLength": 1},
-        "registry": {"enum": ["github-packages"]},
+        "registry": {"enum": ["github-packages", "nuget.org"]},
         "repository": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
         "sourceSha": {"$ref": "#/$defs/sha"},
         "source": {"enum": ["registry", "local", "checkout", "build"]},

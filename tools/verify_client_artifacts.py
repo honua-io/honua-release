@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import io
 import json
@@ -49,7 +50,8 @@ def _request(url: str, *, token: str | None = None) -> bytes:
 
 def _request_json(url: str, *, token: str | None = None) -> dict:
     try:
-        value = json.loads(_request(url, token=token))
+        data = _request(url, token=token)
+        value = json.loads(gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data)
     except json.JSONDecodeError as exc:
         raise VerificationError(f"registry returned invalid JSON for {url}") from exc
     if not isinstance(value, dict):
@@ -164,6 +166,44 @@ def _verify_pypi(name: str, artifact: dict) -> str:
 
 
 def _verify_nuget_package(name: str, artifact: dict, github_token: str | None) -> str:
+    if artifact.get("registry") == "nuget.org":
+        package = str(artifact["package"])
+        version = str(artifact["version"])
+        package_part = urllib.parse.quote(package.lower(), safe="")
+        version_part = urllib.parse.quote(version.lower(), safe="")
+        metadata = _request_json(
+            f"https://api.nuget.org/v3/registration5-gz-semver2/{package_part}/{version_part}.json"
+        )
+        catalog_url = str(metadata.get("catalogEntry", ""))
+        if not catalog_url.startswith("https://api.nuget.org/v3/catalog0/"):
+            raise VerificationError(f"{name}: NuGet returned an untrusted catalog URL")
+        catalog = _request_json(catalog_url)
+        if metadata.get("listed") is not True or catalog.get("listed") is not True:
+            raise VerificationError(f"{name}: NuGet package is not listed")
+        if catalog.get("id") != package or catalog.get("version") != version:
+            raise VerificationError(f"{name}: NuGet catalog identity does not match the manifest")
+        filename = f"{package_part}.{version_part}.nupkg"
+        url = f"https://api.nuget.org/v3-flatcontainer/{package_part}/{version_part}/{filename}"
+        if metadata.get("packageContent") != url or artifact.get("filename") != filename:
+            raise VerificationError(f"{name}: NuGet filename does not match the manifest")
+        data = _request(url)
+        if _sha256_pin(data) != artifact.get("digest"):
+            raise VerificationError(f"{name}: downloaded NuGet bytes do not match manifest digest")
+        package_hash = base64.b64encode(hashlib.sha512(data).digest()).decode("ascii")
+        if catalog.get("packageHashAlgorithm") != "SHA512" or catalog.get("packageHash") != package_hash:
+            raise VerificationError(f"{name}: downloaded NuGet bytes do not match registry package hash")
+        expected_repo = f"https://github.com/{artifact['repository']}"
+        repository = catalog.get("repository") or {}
+        if repository.get("commit") != artifact.get("sourceSha") or repository.get("url") != expected_repo:
+            raise VerificationError(f"{name}: NuGet catalog repository commit does not match the manifest")
+        _verify_nuget(data, package, version)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            nuspec = next(path for path in archive.namelist() if path.lower().endswith(".nuspec"))
+            root = ElementTree.fromstring(archive.read(nuspec))
+        repositories = [row for row in root.iter() if row.tag.rsplit("}", 1)[-1] == "repository"]
+        if len(repositories) != 1 or repositories[0].get("commit") != artifact.get("sourceSha") or repositories[0].get("url") != expected_repo:
+            raise VerificationError(f"{name}: NuGet archive repository commit does not match the manifest")
+        return f"nuget:{package}@{version}"
     if artifact.get("registry") != "github-packages":
         raise VerificationError(f"{name}: unsupported NuGet registry {artifact.get('registry')!r}")
     if not github_token:

@@ -158,14 +158,14 @@ def test_ledger_lock_naming_the_server_digest_must_agree_on_the_commit(committed
 
 
 @pytest.mark.parametrize(("section", "key", "field", "value"), [
-    ("clients", "honua-admin", "version", "0.1.9"),
+    ("clients", "honua-admin", "version", "99.0.0"),
     ("clients", "honua-admin", "sourceSha", "0" * 40),
     ("clients", "honua-admin", "repository", "honua-io/honua-admin"),
     ("clients", "honua-sdk", "filename", "honua_sdk-0.1.11-py3-none-any2.whl"),
     ("alternativeClients", "honua-sdk-js", "integrity", "sha512-AAAA"),
     ("alternativeClients", "honua-mcp-server", "sourceSha", "1" * 40),
     ("alternativeClients", "honua-sdk-dotnet", "digest", "sha256:" + "2" * 64),
-    ("alternativeClients", "honua-sdk-dotnet", "registry", "nuget.org"),
+    ("alternativeClients", "honua-sdk-dotnet", "registry", "github-packages"),
     ("alternativeClients", "honua-sdk-js", "targets", ["node"]),
 ])
 def test_every_copied_honua_identity_field_is_compared(committed, section, key, field, value):
@@ -178,9 +178,9 @@ def test_every_copied_honua_identity_field_is_compared(committed, section, key, 
 
 def test_platform_manifest_pin_moving_without_the_customer_copy_fails(committed):
     def bump(p):
-        p["clientArtifacts"]["honua-admin-python-wheel"]["version"] = "0.1.9"
+        p["clientArtifacts"]["honua-admin-python-wheel"]["version"] = "99.0.0"
 
-    assert any(error.startswith("$.clients.honua-admin.version: '0.1.8' drifted") for error in _errors(committed, platform_mutate=bump))
+    assert any(error.startswith("$.clients.honua-admin.version: '0.1.9' drifted") for error in _errors(committed, platform_mutate=bump))
 
 
 def test_honua_client_must_carry_its_source_identity(committed):
@@ -212,7 +212,7 @@ def test_pypi_urls_must_name_the_pinned_file_and_version(committed):
         downloadUrl=d["clients"]["mcp"]["downloadUrl"].replace("mcp-2.1.1", "mcp-2.1.0")))
     assert "$.clients.mcp.downloadUrl: does not download 'mcp-2.1.1-py3-none-any.whl'" in errors
     errors = _errors(committed, lambda d: d["clients"]["honua-sdk"].update(metadataUrl="https://pypi.org/pypi/honua-sdk/0.1.10/json"))
-    assert any(error.startswith("$.clients.honua-sdk.metadataUrl: must be 'https://pypi.org/pypi/honua-sdk/0.1.11/json'") for error in errors)
+    assert any(error.startswith("$.clients.honua-sdk.metadataUrl: must be 'https://pypi.org/pypi/honua-sdk/0.1.12/json'") for error in errors)
 
 
 def test_client_listed_twice_fails(committed):
