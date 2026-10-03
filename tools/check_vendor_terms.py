@@ -646,10 +646,10 @@ class Classifier:
         hits = []
         parts = path.split("/")
         for depth, part in enumerate(parts):
-            for start, end, token, term, secret in _spans(part):
+            for start, end, token, term, detail in _spans(part):
                 prefix = "/".join(parts[:depth + 1])
-                if secret:
-                    hits.append(Hit(prefix, 0, token, term, "confidential", secret))
+                if detail:
+                    hits.append(Hit(prefix, 0, token, term, "confidential", detail))
                 else:
                     hits.append(Hit(prefix, 0, token, term, "avoidable", "path", self._exception(prefix, token)))
         return hits
@@ -685,21 +685,21 @@ class Classifier:
                 continue
             comment_at = _comment_start(line, kind)
             runner = RUNNER_LABEL.search(line) is not None
-            for start, end, token, term, secret in spans:
+            for start, end, token, term, detail in spans:
                 if ENCODED.fullmatch(_word_around(line, start, end)):
                     self.skipped["encoded-token"] += 1
                     continue
                 if runner and token not in self.vocabulary:
-                    secret = "runner-detail"
+                    detail = "runner-detail"
                 heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
-                cls, category = self._classify(context, number, line, start, end, token, secret, in_fence,
+                cls, category = self._classify(context, number, line, start, end, token, detail, in_fence,
                                                block_open, comment_at, heading)
                 exception = self._exception(path, token) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 
     def _classify(self, context: FileContext, number: int, line: str, start: int, end: int, token: str,
-                  secret: str | None, in_fence: bool, block_open: bool, comment_at: int | None,
+                  detail: str | None, in_fence: bool, block_open: bool, comment_at: int | None,
                   heading: bool = False) -> tuple[str, str]:
         if token in self.vocabulary:
             return "spec", "spec-identifier"
@@ -709,8 +709,8 @@ class Classifier:
             return "avoidable", self.interop.refused[token]["category"]
         # R30 detail is confidential wherever it appears; only the desktop client's plain name, in an
         # attributed compatibility statement or a stamped label, is nominative instead
-        if secret and secret != "desktop-client":
-            return "confidential", secret
+        if detail and detail != "desktop-client":
+            return "confidential", detail
         word = _word_around(line, start, end)
         stripped = line.strip()
         in_comment = (block_open or (comment_at is not None and start > comment_at)
@@ -726,9 +726,9 @@ class Classifier:
                 nominative = "compatibility-statement"
             elif self._label(context, line, start, end, token):
                 nominative = "certification-label" if context.certification else "label"
-        if secret:
+        if detail:
             return ("nominative", nominative) if nominative and token == DESKTOP_CLIENT_NAME else (
-                "confidential", secret)
+                "confidential", detail)
         if nominative:
             return "nominative", nominative
         if claim:
