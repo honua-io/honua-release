@@ -275,6 +275,15 @@ class Session:
         base = Path(directory or self.state)
         return base / f"docrun-{self.counter:03d}{suffix}"
 
+    def put(self, runtime: str, path: Path, content: str) -> None:
+        """Write into the reader's directories from inside the container: the reader owns them there
+        (on a Linux host, files a root container created are not writable by the runner's user)."""
+        proc = subprocess.run(["docker", "exec", "-i", self.container(runtime), "sh", "-c",
+                               'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", str(path)],
+                              input=content, text=True, capture_output=True, check=False)
+        if proc.returncode:
+            raise RunError(f"could not write {path}: {proc.stderr.strip()[-300:]}")
+
     # executors
     def run_shell(self, code: str, runtime: str, timeout: int, serve: bool) -> Outcome:
         name = self.container(runtime)
@@ -361,14 +370,14 @@ class Session:
         uses_require = "require(" in code and not re.search(r"^\s*import\s", code, re.M)
         suffix = ".cjs" if uses_require else (".mts" if language == "typescript" else ".mjs")
         path = self.next_path(suffix, self.cwd)
-        path.write_text(code)
+        self.put("node", path, code)
         flags = ["--experimental-transform-types", "--no-warnings"] if suffix == ".mts" else []
         return self._exec(name, ["node", *flags, path.name], timeout)
 
     def run_compile(self, code: str, timeout: int) -> Outcome:
         name = self.container("node")
         path = self.next_path(".mts", self.cwd)
-        path.write_text(code)
+        self.put("node", path, code)
         cmd = ["npx", "--yes", "-p", f"typescript@{self.typescript}", "tsc", "--noEmit", "--strict",
                "--skipLibCheck", "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext",
                "--lib", "esnext,dom,dom.iterable", path.name]
@@ -392,7 +401,7 @@ class Session:
             if prep.status != "pass":
                 prep.detail = "could not create a console project with the doc's packages: " + prep.detail
                 return prep
-        (project_dir / "Program.cs").write_text(code)
+        self.put("dotnet", project_dir / "Program.cs", code)
         outcome = self._exec(name, ["dotnet", "run", "--project", str(project_dir)], timeout)
         outcome.mode = mode
         return outcome
@@ -655,8 +664,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 continue
         if block.intent == "file":
             target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(code)
+            session.put(doc["runtime"], target, code)
             runnable = block.language in {"python", "javascript", "typescript", "shell", "csharp"}
             if not runnable or Path(block.file).name in later_text[block.index]:
                 record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
@@ -930,8 +938,13 @@ def main() -> int:
                             "checks": [{"check": "checkout", "status": "fail", "detail": str(exc)}]})
                 report_docs.append(row)
                 continue
-            result, defined[key] = run_document(document, text, session, context, variables, digest, [api_key],
-                                                defined.get(key, set()), revision, token, row)
+            try:
+                result, defined[key] = run_document(document, text, session, context, variables, digest,
+                                                    [api_key], defined.get(key, set()), revision, token, row)
+            except (RunError, OSError, subprocess.SubprocessError, ValueError) as exc:
+                result = {"status": "fail", "counts": {"fail": 1}, "blocks": [],
+                          "checks": [{"check": "runner", "status": "fail",
+                                      "detail": f"the runner could not execute this document: {exc}"}]}
             row.update(result)
             row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
             report_docs.append(row)
