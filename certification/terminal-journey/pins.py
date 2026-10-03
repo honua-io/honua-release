@@ -228,7 +228,8 @@ def _npm_install(prefix: Path, tarballs: list[str], extra: list[str]) -> subproc
     )
     try:
         return subprocess.run(
-            ["npm", "install", "--no-audit", "--no-fund", "--loglevel", "error", *extra, *tarballs],
+            ["npm", "install", "--no-audit", "--no-fund", "--loglevel", "error",
+             "--cache", str(prefix / ".npm-cache"), *extra, *tarballs],
             cwd=prefix,
             capture_output=True,
             text=True,

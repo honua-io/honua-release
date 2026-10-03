@@ -39,6 +39,7 @@ sys.path.insert(0, str(HERE))
 import pins  # noqa: E402
 import probes  # noqa: E402
 import stages as stagelib  # noqa: E402
+import local_fixture  # noqa: E402
 
 
 class GateError(RuntimeError):
@@ -298,7 +299,7 @@ def build_receipt(
         failure = {
             "number": broken.number,
             "stage": broken.stage,
-            "command": broken.command,
+            "command": check.invocation if check else broken.command,
             "check": check.id if check else broken.stage,
             "detail": (check.detail if check else "stage failed") or "stage failed",
         }
@@ -360,6 +361,7 @@ def run_live(
     keep_stack: bool,
 ) -> tuple[pins.ClientWorkspace, list[stagelib.StageResult], list[str], str | None]:
     notices: list[str] = []
+    workdir = workdir.resolve()
     compose_cfg = target["compose"]
     notices.append(compose_cfg["notes"])
 
@@ -387,6 +389,7 @@ def run_live(
         compose_file=str(ROOT / compose_cfg["file"]),
         project=compose_cfg["project"],
         env={
+            **(local_fixture.compose_env(target, workdir) if base_url_override is None else {}),
             compose_cfg["imageEnv"]: image_ref,
             compose_cfg["portEnv"]: str(port),
             target["adminPassword"]["env"]: probes.resolve_env_default(
@@ -419,9 +422,33 @@ def run_live(
         if observation.proxy_note:
             notices.append(observation.proxy_note)
         results = stagelib.run_stages(journey, observation, workspace_blockers)
+        import executor
+        import sdk
+        from transport import ExecutionError, Transport
+
+        try:
+            credentials = local_fixture.credentials(target, workdir, base_url,
+                mint=base_url_override is None and observation.ready)
+        except (ExecutionError, KeyError, ValueError, TypeError, AttributeError) as exc:
+            credentials = {"proposer": ""}
+            notices.append("Journey principal fixture could not establish verified short-lived grants")
+        credentials.setdefault("proposer", probes.resolve_env_default(
+            target["adminPassword"]["env"], target["adminPassword"]["default"]))
+        state = {"workspaceId": workdir.name, "workdir": str(workdir)}
+        if observation.setup_view_present and workspace.status == "pass":
+            try:
+                state["sdkBinding"] = sdk.prepare(manifest, workdir)
+            except ExecutionError as exc:
+                notices.append(f"Published SDK preparation: {exc.command}: {exc.reason}")
+        transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
+                              bindir / "honua" if bindir else None, workdir, credentials)
+        execution = executor.JourneyExecutor(state, target, observation, transport)
+        results[2:] = [stagelib.merge_execution(original, executed)
+                       for original, executed in zip(results[2:], execution.run_build(), strict=True)]
     finally:
         if base_url_override is None and not keep_stack:
             compose.down()
+            local_fixture.cleanup(workdir)
 
     return workspace, results, notices, running_image
 

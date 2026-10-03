@@ -415,27 +415,23 @@ def test_first_lock_report_and_real_operation(tmp_path, tamper, registry_docker)
     ("invalid\n2026.1-rc.3", False),
 ])
 def test_request_promotion_candidate_label_validation(tmp_path, label, accepted):
-    workflow = yaml.safe_load((Path(__file__).resolve().parents[1]
-                               / ".github/workflows/request-promotion.yml").read_text())
-    step = next(step for step in workflow["jobs"]["dispatch"]["steps"]
-                if step.get("id") == "candidate")
-    (tmp_path / "candidate").mkdir()
-    _write(tmp_path / "candidate/gate-report.json", {
-        "dry_run": False, "overallStatus": "pass", "platform_label": label,
-        "candidate": {"source": {"sha": "a" * 40},
-                      "train": {"runId": "123", "certificationMode": "live"}},
+    import fetch_promotion_evidence as fetcher
+    from datetime import datetime, timezone
+
+    class NoRequests(fetcher.GitHub):
+        def pages(self, path, key):
+            return []
+
+    promotions = tmp_path / "promotions"
+    promotions.mkdir()
+    _write(promotions / f"{label}.json", {
+        "platformLabel": label, "rcTrainRunId": "123",
+        "lock": {"burnStartedAt": "2026-09-28T00:00:00Z"},
     })
-    output = tmp_path / "output"
-    result = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path,
-                            env={**os.environ, "TRAIN_RUN_ID": "123",
-                                 "TRAIN_HEAD_SHA": "a" * 40, "GITHUB_OUTPUT": str(output)},
-                            capture_output=True, text=True)
-    assert result.returncode == (0 if accepted else 1), result.stdout + result.stderr
-    if accepted:
-        assert output.read_text() == f"platform_label={label}\n"
-    else:
-        assert "successful train did not produce a matching live, passing candidate" in result.stdout
-        assert not output.exists()
+    selected = fetcher.candidates(promotions, NoRequests("honua-io/honua-release"),
+                                  now=datetime(2026, 10, 2, tzinfo=timezone.utc), published=lambda _: False)
+    assert selected == ([{"label": label, "record": f"certification/promotions/{label}.json",
+                          "rcTrainRunId": "123"}] if accepted else [])
 
 
 @pytest.mark.parametrize("candidate_tag,expected_tag", [

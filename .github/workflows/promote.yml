@@ -14,9 +14,11 @@
 # identity — the AI never holds keys.
 #
 # What it does on success:
-#   1. validate the committed burn receipt and every immutable run artifact it names
-#   2. prove the lock has not changed since the recorded burn-start commit
-#   3. pull the exact certified-candidate bundle from the recorded freeze RC train
+#   1. fetch every immutable run artifact the committed per-lock record names: the minting train's
+#      certified candidate (the selected lock's exact bytes), each declared class receipt, the seven
+#      recorded canaries and the complete canary ledger since minting (tools/fetch_promotion_evidence.py)
+#   2. check per-lock readiness under R19-R21 against those bytes (tools/check_promotion_readiness.py)
+#   3. pull the exact certified-candidate bundle from the minting train (nightly or dispatched)
 #   4. verify all gates green for that exact RC, finalize metadata, and re-tag without rebuilding
 #   5. OIDC keyless-sign the certified inputs, bound report, finalized manifest, and BOM
 #   6. verify the published signed tag at the RC's certified source SHA, then create its GitHub Release
@@ -32,7 +34,7 @@ on:
         required: true
         type: string
       train_run_id:
-        description: "freeze release-train run id that produced the exact RC bundle"
+        description: "minting train run id that produced the selected lock's exact RC bundle"
         required: true
         type: string
       promotion_record:
@@ -144,57 +146,29 @@ jobs:
           }
           test -f "$PROMOTION_RECORD" || { echo "::error::promotion record does not exist on the default branch"; exit 1; }
           test "$(jq -r .rcTrainRunId "$PROMOTION_RECORD")" = "$REQUESTED_RC_RUN_ID" || {
-            echo "::error::train_run_id is not the record's exact freeze RC run"; exit 1;
+            echo "::error::train_run_id is not the record's minting train run"; exit 1;
           }
           test "$(jq -r .platformLabel "$PROMOTION_RECORD")" = "${{ inputs.platform_label }}" || {
             echo "::error::platform_label does not match the committed promotion record"; exit 1;
           }
-          mkdir -p promotion-evidence/trains promotion-evidence/canaries
-          DEFAULT_BRANCH="$(gh api "repos/$REPOSITORY" --jq .default_branch)"
-          gh api --paginate --slurp \
-            "repos/$REPOSITORY/actions/workflows/release-train.yml/runs?branch=$DEFAULT_BRANCH&event=workflow_dispatch&per_page=100" \
-            > promotion-evidence/train-sequence.json
-          for run_id in $(jq -r '.strictTrains[].runId' "$PROMOTION_RECORD"); do
-            [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::invalid strict train run id"; exit 1; }
-            mkdir -p "promotion-evidence/trains/$run_id"
-            gh api "repos/$REPOSITORY/actions/runs/$run_id" > "promotion-evidence/trains/$run_id/run.json"
-            jq -e --arg repo "$REPOSITORY" '
-              .id > 0 and .status == "completed" and .conclusion == "success" and
-              .event == "workflow_dispatch" and .head_branch == .repository.default_branch and
-              .path == ".github/workflows/release-train.yml"
-            ' "promotion-evidence/trains/$run_id/run.json" >/dev/null
-            gh run download "$run_id" --repo "$REPOSITORY" --name certified-candidate \
-              --dir "promotion-evidence/trains/$run_id"
-          done
-          for run_id in $(jq -r '.demoCanaries[].runId' "$PROMOTION_RECORD"); do
-            [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::invalid demo canary run id"; exit 1; }
-            mkdir -p "promotion-evidence/canaries/$run_id"
-            gh api "repos/$REPOSITORY/actions/runs/$run_id" > "promotion-evidence/canaries/$run_id/run.json"
-            jq -e '
-              .id > 0 and .status == "completed" and .conclusion == "success" and
-              .event == "schedule" and .path == ".github/workflows/demo-canary.yml"
-            ' "promotion-evidence/canaries/$run_id/run.json" >/dev/null
-            gh run download "$run_id" --repo "$REPOSITORY" --name live-canary-evidence \
-              --dir "promotion-evidence/canaries/$run_id"
-          done
+          python tools/fetch_promotion_evidence.py fetch \
+            --record "$PROMOTION_RECORD" --repository "$REPOSITORY" --out-dir promotion-evidence
 
-      - name: Verify burn-in, strict trains, canaries, and reset rule
+      # The burn belongs to the selected lock's digest, so readiness reads that lock's retained
+      # bytes from its minting train, never trunk's current platform-lock.json (R19, R20).
+      - name: Verify the per-lock burn, evidence and canaries
         id: readiness
         env:
           PROMOTION_RECORD: ${{ inputs.promotion_record }}
         run: |
           set -euo pipefail
-          BURN_COMMIT="$(jq -r .lock.burnStartCommit "$PROMOTION_RECORD")"
-          git merge-base --is-ancestor "$BURN_COMMIT" HEAD || {
-            echo "::error::burnStartCommit is not an ancestor of the committed promotion record"; exit 1;
-          }
-          git log --format='%H' "$BURN_COMMIT..HEAD" -- platform-lock.json > lock-history.txt
+          RC_RUN_ID="$(jq -r .rcTrainRunId "$PROMOTION_RECORD")"
+          [[ "$RC_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "::error::invalid minting train run id"; exit 1; }
           set +e
           python tools/check_promotion_readiness.py \
             --record "$PROMOTION_RECORD" \
-            --lock platform-lock.json \
+            --lock "promotion-evidence/trains/$RC_RUN_ID/platform-lock.json" \
             --evidence-dir promotion-evidence \
-            --lock-history lock-history.txt \
             --out promotion-readiness.json \
             --github-output "$GITHUB_OUTPUT" | tee /tmp/readiness.log
           RC=${PIPESTATUS[0]}
@@ -219,7 +193,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           TRAIN_RUN_ID: ${{ steps.readiness.outputs.rc_train_run_id }}
-          EXPECTED_WORKFLOW_PATH: .github/workflows/release-train.yml
         run: |
           set -euo pipefail
           if [[ ! "$TRAIN_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
@@ -236,7 +209,9 @@ jobs:
             --repository-metadata repository.json \
             --branch-metadata branch.json \
             --expected-repository "$REPOSITORY" \
-            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-workflow-path .github/workflows/release-train.yml \
+            --expected-workflow-path .github/workflows/nightly-certification.yml \
+            --allowed-event schedule --allowed-event workflow_dispatch \
             --expected-run-id "$TRAIN_RUN_ID" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -271,20 +246,43 @@ jobs:
           echo "bound gate-report:"
           cat candidate/gate-report.json
 
+      - name: Install cosign (Sigstore)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Verify the frozen lock signature and all derived release records
         env:
           GH_TOKEN: ${{ github.token }}
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           TRAIN_SOURCE_SHA: ${{ steps.train.outputs.source_sha }}
           TRAIN_SOURCE_BRANCH: ${{ steps.train.outputs.source_branch }}
+          TRAIN_WORKFLOW_PATH: ${{ steps.train.outputs.workflow_path }}
         run: |
           set -euo pipefail
-          gh attestation verify candidate/platform-lock.json \
-            --bundle candidate/platform-lock.sigstore.json \
-            --repo honua-io/honua-release \
-            --signer-workflow honua-io/honua-release/.github/workflows/release-train.yml \
-            --source-digest "$TRAIN_SOURCE_SHA" --source-ref "refs/heads/$TRAIN_SOURCE_BRANCH" \
-            --deny-self-hosted-runners
+          # Each minting workflow signs its lock differently: release-train.yml attests it
+          # (attest-build-provenance); nightly-certification.yml's mint job signs the blob keylessly
+          # with cosign. Verify against the signer of the validated minting run only.
+          case "$TRAIN_WORKFLOW_PATH" in
+            .github/workflows/release-train.yml)
+              gh attestation verify candidate/platform-lock.json \
+                --bundle candidate/platform-lock.sigstore.json \
+                --repo honua-io/honua-release \
+                --signer-workflow honua-io/honua-release/.github/workflows/release-train.yml \
+                --source-digest "$TRAIN_SOURCE_SHA" --source-ref "refs/heads/$TRAIN_SOURCE_BRANCH" \
+                --deny-self-hosted-runners
+              ;;
+            .github/workflows/nightly-certification.yml)
+              cosign verify-blob candidate/platform-lock.json \
+                --bundle candidate/platform-lock.sigstore.json \
+                --certificate-identity "https://github.com/honua-io/honua-release/.github/workflows/nightly-certification.yml@refs/heads/$TRAIN_SOURCE_BRANCH" \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                --certificate-github-workflow-repository honua-io/honua-release \
+                --certificate-github-workflow-sha "$TRAIN_SOURCE_SHA" \
+                --certificate-github-workflow-ref "refs/heads/$TRAIN_SOURCE_BRANCH"
+              ;;
+            *)
+              echo "::error::no lock signer is trusted for minting workflow $TRAIN_WORKFLOW_PATH"
+              exit 1
+              ;;
+          esac
           python tools/platform_lock_bundle.py candidate/platform-lock.json \
             --manifest candidate/platform-manifest.yaml --matrix candidate/compatibility-matrix.yaml \
             --label "$PLATFORM_LABEL" --out-dir candidate --check
@@ -343,8 +341,6 @@ jobs:
             --target "$CERTIFIED_SHA" --allowed-signers "$RUNNER_TEMP/publication-allowed-signers" \
             --output signed-tag-receipt.json
 
-      - name: Install cosign (Sigstore)
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign the certified inputs + release outputs (keyless / OIDC)
         run: |
           set -euo pipefail

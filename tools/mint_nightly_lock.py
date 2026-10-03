@@ -11,10 +11,12 @@ moving them, or a deleted lock would let the next night reuse its rc number.
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,8 +26,8 @@ import yaml
 
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
 from generate_platform_lock import generate
-from platform_lock_bundle import bind, bundle_files, canonical_bytes
 from tag_signing import publication_tag
+from check_promotion_readiness import EVIDENCE_CLASSES, MAX_FRESHNESS, JOURNEYS, _journey
 
 REQUIRED_NIGHTLY_GATES = REQUIRED_RELEASE_GATES | {'capacity-soak', 'one-operation-rollback', 'journey'}
 LABEL = re.compile(r'(?:honua-)?2026\.1-rc\.([1-9][0-9]*)\Z')
@@ -37,6 +39,124 @@ SHA = re.compile(r'[0-9a-f]{40}\Z')
 DELAYS = (0, 10, 30, 60, 120, 60)
 TRANSIENT = ('could not resolve host', 'connection reset', 'connection timed out',
              'operation timed out', 'tls', 'early eof', 'unable to access', 'http 5')
+
+
+# Each receipt derives its verdict from the gate that actually consumes that class.
+CLASS_GATES = {
+    'build-test': 'build-test', 'contract': 'contract', 'sbom': 'sbom',
+    'security': 'security', 'upgrade': 'upgrade', 'capacity-soak': 'capacity-soak',
+    'dr': 'dr', 'lambda-certification': 'cloud-parity',
+    'protocol-ledger': 'protocol-certification',
+    'deterministic-journey': 'journey', 'nightly-model-journey': 'journey',
+}
+
+
+def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
+    """Declare the R21 tiers and retain workflow verdicts; missing journeys stay red.
+
+    The qualification lock is generated before gates run. Minting later requires these
+    receipts to match the newly generated lock bytes, so no class can cross candidates.
+    """
+    report = copy.deepcopy(report)
+    completed = datetime.fromisoformat(report['generatedAt'].replace('Z', '+00:00'))
+    if completed.tzinfo != timezone.utc:
+        raise ValueError('evidence timestamp must be UTC')
+    report['generatedAt'] = completed.isoformat().replace('+00:00', 'Z')
+    digest = 'sha256:' + _sha256(lock)
+    train = report['candidate']['train']
+    gates = {row['gate']: row['status'] for row in report['gates']}
+    declarations, receipts = {}, {}
+    for name, kind in EVIDENCE_CLASSES.items():
+        if kind == 'qualifying':
+            declarations[name] = {'kind': kind, 'receipt': None, 'freshUntil': None}
+            continue
+        expiry = (completed + MAX_FRESHNESS[name]).isoformat().replace('+00:00', 'Z')
+        receipt = {'class': name, 'kind': kind, 'runId': str(train['runId']),
+                   'runAttempt': train['runAttempt'], 'completedAt': completed.isoformat().replace('+00:00', 'Z'),
+                   'status': gates.get(CLASS_GATES[name], 'missing'), 'lockDigest': digest,
+                   'freshUntil': expiry, 'gate': CLASS_GATES[name]}
+        if name in JOURNEYS:
+            mode, required = JOURNEYS[name]
+            cells = []
+            for journey in journeys:
+                if (journey.get('status') != 'pass' or str(journey.get('runId')) != str(train['runId'])
+                        or str(journey.get('runAttempt')) != str(train['runAttempt'])
+                        or journey.get('candidateDigest') != report['candidate']['artifacts']['platform-manifest.yaml']['sha256']):
+                    continue
+                for row in journey.get('cells', []):
+                    attempts = row.get('attempts', [])
+                    if (row.get('cell') not in required or row.get('status') != 'pass' or not attempts
+                            or any(attempt.get('driver') != mode for attempt in attempts)):
+                        continue
+                    cells.append({'cell': row['cell'], 'mode': mode, 'attemptCount': len(attempts),
+                                  'attempts': [{'attempt': a['number'], 'status': a['status'],
+                                                'failureAttribution': a.get('failureAttribution'),
+                                                'completedAt': a.get('completedAt'),
+                                                'lockDigest': digest} for a in attempts]})
+            receipt['cells'] = cells
+            if not _journey(receipt, required, mode, digest, completed - timedelta(hours=24), completed):
+                receipt['status'] = 'fail'
+        declarations[name] = {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
+                              'freshUntil': expiry}
+        receipts[name] = receipt
+    report['evidenceClasses'] = list(receipts)
+    report['evidenceDeclarations'] = declarations
+    report['evidenceReceipts'] = receipts
+    return report
+
+
+def evidence_failures(report: dict, digest: str | None = None) -> list[str]:
+    errors = []
+    receipts = report.get('evidenceReceipts') or {}
+    declarations = report.get('evidenceDeclarations') or {}
+    nightly = {name for name, kind in EVIDENCE_CLASSES.items() if kind == 'nightly'}
+    if (set(receipts) != nightly or set(report.get('evidenceClasses') or []) != nightly
+            or len(report.get('evidenceClasses') or []) != len(nightly)
+            or set(declarations) != set(EVIDENCE_CLASSES)):
+        return ['no lock minted: missing R21 evidence declarations or receipts']
+    train = report.get('candidate', {}).get('train', {})
+    for name, kind in EVIDENCE_CLASSES.items():
+        declaration = declarations.get(name) or {}
+        if kind == 'qualifying':
+            if declaration != {'kind': kind, 'receipt': None, 'freshUntil': None}:
+                errors.append(f'{name}: qualifying evidence must be produced during burn')
+            continue
+        receipt = receipts[name]
+        try:
+            completed = datetime.fromisoformat(receipt['completedAt'].replace('Z', '+00:00'))
+            expiry = datetime.fromisoformat(receipt['freshUntil'].replace('Z', '+00:00'))
+            valid = (receipt['class'] == name and receipt['kind'] == kind and receipt['status'] == 'pass'
+                     and receipt['gate'] == CLASS_GATES[name]
+                     and str(receipt['runId']) == str(train['runId'])
+                     and receipt['runAttempt'] == train['runAttempt']
+                     and receipt['completedAt'] == report['generatedAt']
+                     and completed.tzinfo == expiry.tzinfo == timezone.utc
+                     and expiry - completed == MAX_FRESHNESS[name]
+                     and declaration == {'kind': kind, 'receipt': f'promotion-receipts/{name}/receipt.json',
+                                         'freshUntil': receipt['freshUntil']}
+                     and (digest is None or receipt['lockDigest'] == digest))
+            if name in JOURNEYS:
+                mode, required = JOURNEYS[name]
+                valid &= _journey(receipt, required, mode, receipt['lockDigest'],
+                                  completed - timedelta(hours=24), completed)
+            if not valid:
+                errors.append(f'{name}: invalid or missing nightly receipt')
+        except (ValueError, KeyError, TypeError):
+            errors.append(f'{name}: invalid nightly receipt')
+    return errors
+
+
+
+def bind(*args, **kwargs):
+    # Declaration assembly needs only retained workflow data; schema validation belongs
+    # to the real lock-binding/signing path, which has the full minting dependencies.
+    from platform_lock_bundle import bind as bind_bundle
+    return bind_bundle(*args, **kwargs)
+
+
+def bundle_files(*args, **kwargs):
+    from platform_lock_bundle import bundle_files as files
+    return files(*args, **kwargs)
 
 
 def next_label(history: Path) -> str:
@@ -169,7 +289,10 @@ def sign_blob(lock_path: Path, bundle_path: Path, identity: str, issuer: str) ->
 def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path,
          identity: str, issuer='https://token.actions.githubusercontent.com', *, signer=sign_blob,
          rulesets=None, published=None, repository=TRUSTED_REPOSITORY, source_sha=None, run_id=None) -> str:
+    from platform_lock_bundle import canonical_bytes
+
     errors = failures(report, repository=repository, source_sha=source_sha, run_id=run_id)
+    errors.extend(evidence_failures(report))
     if errors:
         raise ValueError('no lock minted:\n' + '\n'.join(errors))
     candidate = report.get('candidate') or {}
@@ -199,9 +322,17 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
         staging.mkdir()
         for name, data in bundle_files(draft.lock).items():
             (staging / name).write_bytes(data)
-        (staging / 'gate-report.json').write_bytes(canonical_bytes(report))
         if CHANNEL_TAG.search((staging / 'platform-lock.json').read_text()):
             raise ValueError('no lock minted: lock contains a channel tag')
+        digest = 'sha256:' + hashlib.sha256((staging / 'platform-lock.json').read_bytes()).hexdigest()
+        errors = evidence_failures(report, digest)
+        if errors:
+            raise ValueError('no lock minted:\n' + '\n'.join(errors))
+        (staging / 'gate-report.json').write_bytes(canonical_bytes(report))
+        for name, receipt in report['evidenceReceipts'].items():
+            path = staging / 'promotion-receipts' / name / 'receipt.json'
+            path.parent.mkdir(parents=True)
+            path.write_bytes(canonical_bytes(receipt))
         signer(staging / 'platform-lock.json', staging / 'platform-lock.sigstore.json', identity, issuer)
         if not (staging / 'platform-lock.sigstore.json').is_file():
             raise ValueError('no lock minted: signer returned no signature bundle')
@@ -211,6 +342,9 @@ def mint(report: dict, manifest: Path, matrix: Path, history: Path, output: Path
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--declare-evidence', action='store_true')
+    parser.add_argument('--lock', type=Path)
+    parser.add_argument('--journey-reports', type=Path)
     parser.add_argument('--history', type=Path, default=Path('nightly-history'))
     parser.add_argument('--next-label', action='store_true')
     parser.add_argument('--stamp', type=Path, help='write the next label onto this candidate manifest')
@@ -227,6 +361,13 @@ def main(argv=None):
     parser.add_argument('--expected-run-id')
     args = parser.parse_args(argv)
     try:
+        if args.declare_evidence:
+            if not args.report or not args.lock or not args.journey_reports:
+                raise ValueError('declaration requires report, lock and journey reports')
+            journeys = [json.loads(path.read_text()) for path in args.journey_reports.rglob('gate-report-journey.json')]
+            report = declare_evidence(json.loads(args.report.read_text()), args.lock, journeys)
+            args.report.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+            return 0
         published = None
         if args.sync_from:
             published = sync_history(args.history, Path.cwd(), args.sync_from)

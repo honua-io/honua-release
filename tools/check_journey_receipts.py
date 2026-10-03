@@ -141,6 +141,7 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 if timestamp(evidence["observedAt"]) > timestamp(receipt["generatedAt"]):
                     raise ValueError("stage observation postdates receipt")
         history.append({"number": record["number"], "status": receipt["status"],
+                        "completedAt": receipt["generatedAt"],
                         "driver": driver, "failureAttribution": attribution,
                         "receipt": record["receipt"]})
     if any(path.resolve() not in recorded_paths for path in directory.rglob("receipt-*.json")):
