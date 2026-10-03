@@ -352,8 +352,8 @@ _GUID = re.compile(
 )
 _SECRET_FIELDS = {"key", "secret", "password", "adminKey", "apiKey", "token", "accessToken"}
 _CREDENTIAL_INVOCATION = (
-    "HONUA_ADMIN_KEY=<env> honua --base-url <loopback> --json admin secure "
-    "createAdminApiKey --yes --body "
+    "HONUA_ADMIN_KEY=<env> honua admin secure "
+    "createAdminApiKey --base-url <loopback> --json --yes --body "
     '{"name":"honua-terminal-journey-preflight","permissions":["admin:read"]} '
     "--secret-output <private-sink>; "
     "getAdminApiKeyEffectivePermissions --path id=<id>; "
@@ -495,12 +495,12 @@ def run_credential_preflight(
             _run_honua(
                 honua,
                 [
-                    "--base-url",
-                    base_url,
-                    "--json",
                     "admin",
                     "secure",
                     "createAdminApiKey",
+                    "--base-url",
+                    base_url,
+                    "--json",
                     "--yes",
                     "--body",
                     body,
@@ -543,12 +543,12 @@ def run_credential_preflight(
                 _run_honua(
                     honua,
                     [
-                        "--base-url",
-                        base_url,
-                        "--json",
                         "admin",
                         "secure",
                         "getAdminApiKeyEffectivePermissions",
+                        "--base-url",
+                        base_url,
+                        "--json",
                         "--path",
                         f"id={key_id}",
                     ],
@@ -570,7 +570,7 @@ def run_credential_preflight(
             listed = capture(
                 _run_honua(
                     honua,
-                    ["--base-url", base_url, "--json", "admin", "secure", "listAdminApiKeys"],
+                    ["admin", "secure", "listAdminApiKeys", "--base-url", base_url, "--json"],
                     env,
                 ),
                 "listAdminApiKeys",
@@ -589,12 +589,12 @@ def run_credential_preflight(
                 _run_honua(
                     honua,
                     [
-                        "--base-url",
-                        base_url,
-                        "--json",
                         "admin",
                         "secure",
                         "revokeAdminApiKey",
+                        "--base-url",
+                        base_url,
+                        "--json",
                         "--yes",
                         "--path",
                         f"id={key_id}",
@@ -610,7 +610,7 @@ def run_credential_preflight(
                 confirmed = capture(
                     _run_honua(
                         honua,
-                        ["--base-url", base_url, "--json", "admin", "secure", "listAdminApiKeys"],
+                        ["admin", "secure", "listAdminApiKeys", "--base-url", base_url, "--json"],
                         env,
                     ),
                     "listAdminApiKeys after revoke",
@@ -634,12 +634,12 @@ def run_credential_preflight(
                 _run_honua(
                     honua,
                     [
-                        "--base-url",
-                        base_url,
-                        "--json",
                         "admin",
                         "secure",
                         "revokeAdminApiKey",
+                        "--base-url",
+                        base_url,
+                        "--json",
                         "--yes",
                         "--path",
                         f"id={key_id}",

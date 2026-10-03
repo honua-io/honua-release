@@ -1,0 +1,72 @@
+services:
+  db:
+    extends:
+      file: ../../../e2e/local-docker/docker-compose.yml
+      service: db
+    healthcheck:
+      # The image's temporary initialization server accepts Unix sockets before
+      # the final TCP listener starts. Candidate migrations need that listener.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7.2-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  source:
+    image: python:3.12-alpine
+    command: ["python", "/fixture/source_fixture.py"]
+    volumes:
+      - ../source_fixture.py:/fixture/source_fixture.py:ro
+      - ../fixtures/build-source.json:/fixture/fixtures/build-source.json:ro
+  server:
+    extends:
+      file: ../../../e2e/local-docker/docker-compose.yml
+      service: server
+    environment:
+      ConnectionStrings__Redis: "redis:6379"
+      Oidc__Enabled: "true"
+      Studio__EndUserAuthorization__Enabled: "true"
+      Oidc__Generic__Enabled: "true"
+      Oidc__Generic__Authority: "https://terminal-journey.invalid"
+      Oidc__Generic__ClientId: "terminal-journey"
+      Oidc__TokenValidation__SymmetricSigningKey: "${HONUA_JOURNEY_SIGNING_KEY:?fixture must mint an ephemeral signing key}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      source:
+        condition: service_started
+  replica:
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    entrypoint: ["/bin/sh", "-c", "sleep 5; exec /app/Honua.Server"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      ConnectionStrings__Redis: "redis:6379"
+      Oidc__Enabled: "true"
+      Studio__EndUserAuthorization__Enabled: "true"
+      Oidc__Generic__Enabled: "true"
+      Oidc__Generic__Authority: "https://terminal-journey.invalid"
+      Oidc__Generic__ClientId: "terminal-journey"
+      Oidc__TokenValidation__SymmetricSigningKey: "${HONUA_JOURNEY_SIGNING_KEY:?fixture must mint an ephemeral signing key}"
+      HONUA_ADMIN_PASSWORD: "${HONUA_ADMIN_PASSWORD:-honua-console-dev-key}"
+      Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      Licensing__Mode: Disabled
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+    ports: ["${HONUA_JOURNEY_REPLICA_PORT:-8138}:8080"]
+    depends_on:
+      server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://localhost:8080/healthz/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
