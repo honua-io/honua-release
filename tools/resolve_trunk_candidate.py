@@ -417,6 +417,38 @@ def migration_journal(github, paths, repository, sha):
     return [name for name in names if name != CONFIGURED_SCHEMA_ADOPTION]
 
 
+# The lock's OKF and catalog content digests (honua-release#231 WI-7) are the byte sha256 of one file
+# at a revision this candidate selected, declared as repository@revision:path#sha256 so
+# verify_content_digests.py re-reads the same bytes. Each source is (owner, path): owner is a
+# candidate component (read at its selected sha) or LEDGER (the bound protocolCertification.ledger
+# repository at its commit).
+LEDGER = 'protocolCertification.ledger'
+OKF_CONTENT_SOURCE = ('honua-server', 'scripts/ci/okf-bundle.v1.json')
+# OPERATOR RULING PENDING (#231 WI-7): which bytes are "the catalog". Bound to the runtime capability
+# catalog as the selected server commits it: capability-keys.v1.json is generated from
+# CapabilityKeyCatalog.cs, the registry the capability matrix, licensing and route mapping join on.
+# The alternative identity, the honua-evidence catalog commit, is (LEDGER, 'data/protocol-certification.v1.json').
+CATALOG_CONTENT_SOURCE = ('honua-server', 'docs/gis/data/capability-keys.v1.json')
+CONTENT_DIGEST_SOURCES = {'okf': OKF_CONTENT_SOURCE, 'catalog': CATALOG_CONTENT_SOURCE}
+
+
+def content_digest_declaration(github, candidate, name):
+    """`{repository, revision, path, sha256}` for one content digest, read at the selected revision."""
+    owner, path = CONTENT_DIGEST_SOURCES[name]
+    if owner == LEDGER:
+        ledger = candidate['protocolCertification']['ledger']
+        repository, revision = str(ledger.get('repository') or ''), str(ledger.get('commit') or '')
+    else:
+        component = candidate['components'][owner]
+        repository, revision = str(component.get('repository') or ''), str(component.get('sha') or '')
+    repository = repository.removeprefix('https://github.com/')
+    if not SHA.fullmatch(revision):
+        raise ResolutionError(f'{owner} has no immutable revision to read {path} at')
+    raw = github.file(repository, revision, path)
+    return {'repository': f'https://github.com/{repository}', 'revision': revision, 'path': path,
+            'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}
+
+
 def resolve(manifest, matrix, github, registry, limit=100):
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
@@ -492,6 +524,15 @@ def resolve(manifest, matrix, github, registry, limit=100):
     declaration = candidate.get('platformLockEvidence', {}).get('contentDigests', {}).get('geospatialMcp')
     if declaration and mcp:
         declaration.update(revision=mcp['sha'], sha256=mcp.get('artifactSha256'))
+    # A hand or carried-forward declaration never survives: the selected bytes replace it, or the
+    # night refuses with the digest undeclared.
+    digests = candidate.setdefault('platformLockEvidence', {}).setdefault('contentDigests', {})
+    for name in CONTENT_DIGEST_SOURCES:
+        digests.pop(name, None)
+        try:
+            digests[name] = content_digest_declaration(github, candidate, name)
+        except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+            failures.append(f'contentDigests.{name}: {exc}')
     if certification['ledger'].get('status') != 'bound':
         failures.append(
             'protocolCertification.ledger: no bound ledger for the selected honua-server '

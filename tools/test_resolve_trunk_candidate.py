@@ -285,6 +285,11 @@ ADOPTION_DECLARATION = b'''internal static class ServerCoreSchemaMigrations
 '''
 
 
+# The bytes the selected server tree carries at the content-digest paths (#231 WI-7).
+CONTENT_FILES = {resolver.OKF_CONTENT_SOURCE[1]: b'{"version": "honua.okf-bundle/v1"}\n',
+                 resolver.CATALOG_CONTENT_SOURCE[1]: b'{"schemaVersion": "1.1.0"}\n'}
+
+
 class MigrationSource:
     """The selected honua-server tree: two numbered roots plus files DbUp never embeds."""
 
@@ -310,6 +315,8 @@ class MigrationSource:
         assert (repository, revision) == ('honua-io/honua-server', NEW)
         if path == resolver.COMPONENT_VERSIONS_PATH:
             return declaration_bytes('honua-server', schemaVersions={})
+        if path in CONTENT_FILES:
+            return CONTENT_FILES[path]
         assert path == 'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs'
         return self.declaration
 
@@ -369,6 +376,88 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
     with pytest.raises(resolver.ResolutionError, match='honua-server migrations: .*truncated'):
         resolve_fixture(monkeypatch, MigrationSource(truncated=True), 'sha256:' + 'f' * 64)
+
+
+
+# --- lock content digests (honua-release#231 WI-7) ---
+
+def test_resolve_declares_okf_and_catalog_at_the_selected_server_sha(monkeypatch):
+    hand = {'repository': 'https://github.com/honua-io/honua-server', 'revision': OLD,
+            'path': 'hand.json', 'sha256': 'sha256:' + 'f' * 64}
+    mcp = {'repository': 'https://github.com/honua-io/geospatial-mcp', 'revision': OLD,
+           'path': 'spec/schemas/index.json', 'sha256': 'sha256:' + 'e' * 64}
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64, extra={
+        'platformLockEvidence': {'contentDigests': {'okf': dict(hand), 'catalog': dict(hand), 'geospatialMcp': mcp}}})
+    digests = candidate['platformLockEvidence']['contentDigests']
+    for name, (_, path) in (('okf', resolver.OKF_CONTENT_SOURCE), ('catalog', resolver.CATALOG_CONTENT_SOURCE)):
+        # The expected digest is computed here from the fixture bytes, never from resolver output.
+        assert digests[name] == {'repository': 'https://github.com/honua-io/honua-server', 'revision': NEW,
+                                 'path': path, 'sha256': 'sha256:' + hashlib.sha256(CONTENT_FILES[path]).hexdigest()}
+    assert resolver.OKF_CONTENT_SOURCE == ('honua-server', 'scripts/ci/okf-bundle.v1.json')
+    # Declarations this packet does not own are untouched.
+    assert digests['geospatialMcp'] == mcp
+
+
+def test_resolve_declares_content_digests_on_a_manifest_that_has_none(monkeypatch):
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64)
+    assert set(candidate['platformLockEvidence']['contentDigests']) == {'okf', 'catalog'}
+
+
+@pytest.mark.parametrize('name', ['okf', 'catalog'])
+def test_a_missing_content_file_refuses_and_keeps_no_hand_declaration(monkeypatch, name):
+    class Missing(MigrationSource):
+        def file(self, repository, revision, path):
+            if path == resolver.CONTENT_DIGEST_SOURCES[name][1]:
+                raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={revision} '
+                                               'failed: gh: Not Found (HTTP 404)')
+            return super().file(repository, revision, path)
+
+    manifest_evidence = {'contentDigests': {name: {'repository': 'https://github.com/honua-io/honua-server',
+                                                   'revision': OLD, 'path': 'x', 'sha256': 'sha256:' + 'f' * 64}}}
+    seen = {}
+
+    def capture(candidate, *a, **k):
+        # The refusal path still qualifies the candidate; record what it would have carried.
+        seen['digests'] = candidate['platformLockEvidence']['contentDigests']
+        return type('Findings', (), {'errors': []})()
+
+    monkeypatch.setattr(resolver, 'select_component', lambda n, c, *a: copy.deepcopy(c))
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver.validate_platform, 'validate', capture)
+    with pytest.raises(resolver.ResolutionError, match=rf'contentDigests\.{name}: .*HTTP 404') as refused:
+        resolver.resolve({'components': {'honua-server': {
+                              'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1'}},
+                          'protocolCertification': {'ledger': {'status': 'bound'}},
+                          'platformLockEvidence': manifest_evidence},
+                         {'data': {'honua-server': {}}}, Missing(), None)
+    assert name not in seen['digests']
+    other = 'catalog' if name == 'okf' else 'okf'
+    assert seen['digests'][other]['revision'] == NEW
+    assert not any(f'contentDigests.{other}' in line for line in str(refused.value).splitlines())
+
+
+def test_the_catalog_ruling_can_bind_the_evidence_ledger_commit_in_one_line(monkeypatch):
+    commit, path = 'c' * 40, 'data/protocol-certification.v1.json'
+    monkeypatch.setitem(resolver.CONTENT_DIGEST_SOURCES, 'catalog', (resolver.LEDGER, path))
+    source = Declarations({('honua-io/honua-evidence', commit, path): b'{"ledger": true}\n'})
+    candidate = {'protocolCertification': {'ledger': {'status': 'bound', 'repository': 'honua-io/honua-evidence',
+                                                      'commit': commit}}}
+    assert resolver.content_digest_declaration(source, candidate, 'catalog') == {
+        'repository': 'https://github.com/honua-io/honua-evidence', 'revision': commit, 'path': path,
+        'sha256': 'sha256:' + hashlib.sha256(b'{"ledger": true}\n').hexdigest()}
+
+
+@pytest.mark.parametrize('revision', ['pending', 'trunk', '', None])
+def test_a_content_digest_is_never_read_at_a_moving_or_pending_revision(revision):
+    class Guard:
+        def file(self, *a):
+            raise AssertionError('content read without an immutable revision')
+
+    candidate = {'components': {'honua-server': {'repository': 'https://github.com/honua-io/honua-server',
+                                                 'sha': revision}},
+                 'protocolCertification': {'ledger': {'repository': 'honua-io/honua-evidence', 'commit': revision}}}
+    with pytest.raises(resolver.ResolutionError, match='no immutable revision'):
+        resolver.content_digest_declaration(Guard(), candidate, 'okf')
 
 
 # --- release/component-versions.json (honua-release#231 WI-3a) ---
