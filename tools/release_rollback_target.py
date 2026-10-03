@@ -9,6 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from check_upgrade import ReleaseLookupError, list_releases, prior_platform_release
 from tag_signing import publication_tag
 
 
@@ -44,36 +45,40 @@ def resolve(candidate: Path, target: Path, repository: str, command=gh) -> dict:
     candidate_digest = digest(candidate)
     candidate_tag = json.loads(candidate.read_text())["platform"]["id"]
     ga_tag = promoted_tag(candidate_tag)
-    # --paginate avoids declaring a first release because the only lock is on page 2.
-    pages = json.loads(command("api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"))
+    try:
+        # --paginate avoids declaring a first release because the only lock is on page 2.
+        all_releases = list_releases(repository, command)
+    except ReleaseLookupError as exc:
+        raise Finding(f"ROLLBACK_RETAINED_LOOKUP_FAILED: {exc}") from exc
     releases = [
-        release for page in pages for release in page
+        release for release in all_releases
         if not release["draft"] and release["tag_name"].startswith("honua-")
     ]
     candidate_release = next((release for release in releases if release["tag_name"] == ga_tag), None)
     candidate_published_at = (candidate_release or {}).get("published_at")
     candidate_version = release_version(ga_tag)
-    releases = sorted(
-        (release for release in releases
-         if release["tag_name"] not in {candidate_tag, ga_tag}
-         and (
-             (candidate_published_at and release.get("published_at", "") < candidate_published_at)
-             or (
-                 not candidate_published_at
-                 and candidate_version is not None
-                 and (version := release_version(release["tag_name"])) is not None
-                 and version < candidate_version
-             )
-         )),
-        key=lambda release: release["published_at"], reverse=True,
-    )
+
+    def earlier(release: dict) -> bool:
+        return release["tag_name"] not in {candidate_tag, ga_tag} and bool(
+            (candidate_published_at and release.get("published_at", "") < candidate_published_at)
+            or (
+                not candidate_published_at
+                and candidate_version is not None
+                and (version := release_version(release["tag_name"])) is not None
+                and version < candidate_version
+            ))
+
+    # The rollback target is the same "prior platform release" the upgrade gate certifies against
+    # (R26): pre-release snapshots and releases without a signed lock are scanned but never retained.
+    retained = prior_platform_release(releases, earlier)
     scanned = []
+    for release in sorted(filter(earlier, releases), key=lambda release: release["published_at"], reverse=True):
+        scanned.append(release["tag_name"])
+        if release is retained:
+            break
     target.parent.mkdir(parents=True, exist_ok=True)
-    for release in releases:
-        tag = release["tag_name"]
-        scanned.append(tag)
-        if not any(asset["name"] == "platform-lock.json" for asset in release["assets"]):
-            continue
+    if retained is not None:
+        tag = retained["tag_name"]
         command("release", "download", tag, "--repo", repository, "--pattern", "platform-lock.json",
                 "--dir", str(target.parent))
         try:

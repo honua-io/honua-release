@@ -13,11 +13,21 @@ decidable part can be checked from the manifests alone and is unit-tested here:
     migrations never go backwards) -> FAIL on a regression.
 
   evaluate_upgrade(prior_manifest, candidate_manifest, candidate_matrix) -> (rows, overall)
+
+The PRIOR release is resolved by prior_platform_release(), the single definition of "the previous
+platform release" shared with tools/release_rollback_target.py (ruling R26, honua-release#376): a
+published, non-draft, non-pre-release `honua-*` GitHub Release carrying the signed platform lock that
+promote.yml publishes. Engineering snapshots published as pre-releases (the 2026-08-20 `honua-2026.1`)
+are never an upgrade or rollback baseline; with no qualifying release the gate takes the self-limiting
+first-release basis.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 import sys
+from typing import Callable, Iterable
 from pathlib import Path
 
 try:
@@ -29,6 +39,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+# What promote.yml publishes for every platform release: the lock bytes plus their Sigstore bundle.
+SIGNED_LOCK_ASSETS = ("platform-lock.json", "platform-lock.sigstore.json")
+
+
+class ReleaseLookupError(RuntimeError):
+    """The release list could not be read; never treated as "no prior release exists"."""
+
+
+def is_platform_release(release: dict) -> bool:
+    """True for a promoted `honua-*` platform release: published, not a pre-release, signed lock attached."""
+    if release.get("draft") or release.get("prerelease"):
+        return False
+    if not str(release.get("tag_name", "")).startswith("honua-"):
+        return False
+    names = {asset.get("name") for asset in release.get("assets") or []}
+    return all(name in names for name in SIGNED_LOCK_ASSETS)
+
+
+def prior_platform_release(releases: Iterable[dict],
+                           eligible: Callable[[dict], bool] = lambda release: True) -> dict | None:
+    """Return the newest (by published_at) eligible platform release, or None for the first release."""
+    ordered = sorted((r for r in releases if eligible(r)), key=lambda r: r.get("published_at") or "", reverse=True)
+    return next((release for release in ordered if is_platform_release(release)), None)
+
+
+def _gh(*args: str) -> str:
+    result = subprocess.run(["gh", *args], text=True, capture_output=True, check=False)
+    if result.returncode:
+        raise ReleaseLookupError(result.stderr or result.stdout)
+    return result.stdout
+
+
+def list_releases(repository: str, command: Callable[..., str] | None = None) -> list[dict]:
+    """Every GitHub Release of `repository` (all pages; a lock on page 2 still counts)."""
+    pages = json.loads((command or _gh)("api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"))
+    return [release for page in pages for release in page]
 
 
 def _schema_floor(schema: str) -> int | None:
@@ -81,11 +129,25 @@ def evaluate_upgrade(prior: dict, candidate: dict, candidate_matrix: dict) -> tu
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--prior-manifest", required=True, help="the previous platform release's manifest")
+    ap.add_argument("--prior-manifest", help="the previous platform release's manifest")
+    ap.add_argument("--resolve-prior-release", metavar="OWNER/REPO",
+                    help="print the prior platform release tag (empty line on the first release) and exit; "
+                         "exit 2 when the release list cannot be read")
     ap.add_argument("--candidate-manifest", default=str(REPO_ROOT / "platform-manifest.yaml"))
     ap.add_argument("--candidate-matrix", default=str(REPO_ROOT / "compatibility-matrix.yaml"))
     ap.add_argument("--require-real", action="store_true")
     args = ap.parse_args(argv)
+
+    if args.resolve_prior_release:
+        try:
+            release = prior_platform_release(list_releases(args.resolve_prior_release))
+        except (ReleaseLookupError, ValueError, KeyError, TypeError) as exc:
+            print(f"PRIOR_RELEASE_LOOKUP_FAILED: {exc}", file=sys.stderr)
+            return 2
+        print(release["tag_name"] if release else "")
+        return 0
+    if not args.prior_manifest:
+        ap.error("--prior-manifest is required unless --resolve-prior-release is given")
 
     prior = yaml.safe_load(Path(args.prior_manifest).read_text(encoding="utf-8")) or {}
     candidate = yaml.safe_load(Path(args.candidate_manifest).read_text(encoding="utf-8")) or {}
