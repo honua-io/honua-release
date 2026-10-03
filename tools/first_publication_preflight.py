@@ -9,6 +9,7 @@ a chart, or a plugin ZIP for it.
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import io
@@ -17,13 +18,15 @@ import tarfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-09-26.json"
+RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-10-02.json"
 SCHEMA = "honua.first-publication-preflight/v1"
 ISSUE = "honua-io/honua-release#57"
 
@@ -179,6 +182,10 @@ def nuget_nupkg_url(package_id: str, version: str) -> str:
     return f"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg"
 
 
+def nuget_registration_url(package_id: str, version: str) -> str:
+    return f"https://api.nuget.org/v3/registration5-gz-semver2/{package_id.lower()}/{version.lower()}.json"
+
+
 def nuget_flat_symbol_url(package_id: str, version: str) -> str:
     package = package_id.lower()
     return f"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.snupkg"
@@ -242,6 +249,7 @@ def _manifest_view(manifest: dict) -> dict:
         "dotnet_package": str(dotnet["package"]),
         "dotnet_version": str(dotnet["version"]),
         "dotnet_registry": str(dotnet["registry"]),
+        "dotnet_sha256": str(dotnet.get("digest", "")).removeprefix("sha256:"),
         "dotnet_component_version": str(dotnet_component["version"]),
         "js_package": str(javascript["package"]),
         "js_version": str(javascript["version"]),
@@ -315,6 +323,51 @@ def _download_matches(transport, url: str, expected_sha256: str | None, filename
         raise PreflightError(
             f"downloaded {filename} sha256 {record['sha256']} does not match retained {expected_sha256}"
         )
+    return record
+
+
+def _nuget_published_file(transport, package_id: str, version: str, expected_sha256: str | None) -> dict:
+    """Download a public nupkg bound to its NuGet catalog SHA-512 and its nuspec identity."""
+    url = nuget_nupkg_url(package_id, version)
+    registration_url = nuget_registration_url(package_id, version)
+    response = transport.get(registration_url)
+    _status_only(response.status, registration_url, allowed={200})
+    metadata = _parse_json(response.body, response.url)
+    catalog_url = str(metadata.get("catalogEntry", ""))
+    if not catalog_url.startswith("https://api.nuget.org/v3/catalog0/"):
+        raise PreflightError(f"{package_id} {version}: NuGet returned an untrusted catalog URL")
+    if metadata.get("packageContent") != url:
+        raise PreflightError(f"{package_id} {version}: NuGet packageContent is not {url}")
+    response = transport.get(catalog_url)
+    _status_only(response.status, catalog_url, allowed={200})
+    catalog = _parse_json(response.body, response.url)
+    if catalog.get("id") != package_id or catalog.get("version") != version:
+        raise PreflightError(f"{package_id} {version}: NuGet catalog identity does not match")
+    if metadata.get("listed") is not True or catalog.get("listed") is not True:
+        raise PreflightError(f"{package_id} {version}: NuGet package is not listed")
+    filename = f"{package_id.lower()}.{version}.nupkg"
+    response = transport.get(url)
+    if response.status != 200:
+        raise PreflightError(f"required public bytes at {url} returned HTTP {response.status}")
+    record = _file_record(filename, response.url, response.body)
+    if expected_sha256 is not None and record["sha256"] != expected_sha256:
+        raise PreflightError(
+            f"downloaded {filename} sha256 {record['sha256']} does not match retained {expected_sha256}"
+        )
+    package_hash = base64.b64encode(hashlib.sha512(response.body).digest()).decode("ascii")
+    if catalog.get("packageHashAlgorithm") != "SHA512" or catalog.get("packageHash") != package_hash:
+        raise PreflightError(f"downloaded {filename} does not match the NuGet catalog SHA-512")
+    try:
+        with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+            nuspecs = [name for name in archive.namelist() if name.lower().endswith(".nuspec")]
+            if len(nuspecs) != 1:
+                raise PreflightError(f"{filename} must contain exactly one .nuspec")
+            root = ElementTree.fromstring(archive.read(nuspecs[0]))
+    except (zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        raise PreflightError(f"{filename} is not a valid .nupkg") from exc
+    fields = {element.tag.rsplit("}", 1)[-1]: (element.text or "") for element in root.iter()}
+    if fields.get("id") != package_id or fields.get("version") != version:
+        raise PreflightError(f"{filename} nuspec does not identify {package_id} {version}")
     return record
 
 
@@ -458,10 +511,40 @@ def build_receipt(
             version_lists_agree=len(version_sets) <= 1,
         ))
     elif pin_listed:
-        raise PreflightError(
-            "nuget.org now serves the manifest Honua.Sdk pin; record downloaded bytes and rebind "
-            "clientArtifacts before calling the train published"
-        )
+        if view["dotnet_registry"] != "nuget.org" or len(view["dotnet_sha256"]) != 64:
+            raise PreflightError(
+                "nuget.org now serves the manifest Honua.Sdk pin; record downloaded bytes and rebind "
+                "clientArtifacts before calling the train published"
+            )
+        if any(status != 200 for status in pin_statuses.values()):
+            raise PreflightError("nuget.org does not serve every required package at the manifest pin")
+        # Honua.Sdk pins exact same-version dependencies on the whole SDK set, so one package
+        # missing the pin makes the train unrestorable even when Honua.Sdk itself is served.
+        missing = [package_id for package_id in SDK_PACKAGE_IDS if pin not in sdk_versions[package_id]]
+        if missing:
+            raise PreflightError(
+                f"nuget.org does not list {pin} for every SDK package: {', '.join(missing)}"
+            )
+        files = [
+            _nuget_published_file(
+                transport, package_id, pin,
+                view["dotnet_sha256"] if package_id == view["dotnet_package"] else None,
+            )
+            for package_id in PINNED_NUPKG_IDS
+        ]
+        channels.append(_channel(
+            "train:honua-sdk-dotnet",
+            f"nuget.org {view['dotnet_package']} {pin}",
+            "published",
+            evidence_class="downloaded-bytes",
+            client_artifact_registry=view["dotnet_registry"],
+            client_artifact_version=pin,
+            component_version=view["dotnet_component_version"],
+            files=files,
+            http_status=200,
+            pin_package_statuses=pin_statuses,
+            urls=[nuget_nupkg_url(package_id, pin) for package_id in PINNED_NUPKG_IDS],
+        ))
 
     if representative:
         newest = _newest(representative)

@@ -58,7 +58,7 @@ def test_http_probe_authenticates_and_records_only_the_asserted_fact():
 
 
 @pytest.mark.parametrize('compose', ['local-docker/docker-compose.yml', 'harness/compose.candidate.yml',
-                                   'dr-drill/compose.full-platform.yml'])
+                                   'harness/compose.console-s4.yml', 'dr-drill/compose.full-platform.yml'])
 def test_every_release_compose_sets_supported_mode_without_a_development_grant(compose):
     env = yaml.safe_load((ROOT / 'e2e' / compose).read_text())['services']['server']['environment']
     assert env['Licensing__Mode'] == 'Disabled'

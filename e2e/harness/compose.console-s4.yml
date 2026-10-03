@@ -1,0 +1,117 @@
+# S4 - the honua-console live suite's own stack: Keycloak + honua-server + PostGIS + Redis.
+#
+# Why a second stack (honua-console#403 / #405): the Console strips X-API-Key and only forwards a
+# server-bound operator bearer, minted by the server after a real OIDC code exchange whose
+# redirect_uri is built from the server's PUBLIC base URL. That base URL therefore has to be the
+# CONSOLE origin (http://127.0.0.1:<live port>). The slice-1 server's Public:BaseUrl also builds
+# every STAC/OGC link the other drivers follow, so it cannot be retargeted; S4 gets this server.
+#
+# Booted and torn down by e2e/drivers/console/run.sh for the S4 stage only. Every secret below is
+# minted by that driver for the run (signing key, master key, admin key) or rendered into a
+# throwaway directory (IdP certificate, realm import: e2e/harness/keycloak/render.sh). The server
+# image is the one the gate pins, the same HONUA_SERVER_IMAGE the slice-1 stack runs.
+name: honua-e2e-console-s4
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: honua
+      POSTGRES_PASSWORD: honua
+      POSTGRES_DB: honua
+    healthcheck:
+      # TCP, not the unix socket: the image's first-run init server listens on the socket only and
+      # is stopped and restarted once after the init scripts. A socket probe reports "ready" against
+      # that init server, which is the restart the server's first migrate used to hit. The driver
+      # additionally gates on the init-complete log marker before it creates the server.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U honua -d honua"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    expose: ["5432"]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    expose: ["6379"]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${S4_IDP_ADMIN_PASSWORD:?minted per run by e2e/drivers/console/run.sh}"
+      # Issuer parity: the server (backchannel, via extra_hosts below), the host browser (Playwright
+      # maps host.docker.internal to 127.0.0.1) and the token issuer all use this one origin.
+      KC_HOSTNAME: "https://${S4_IDP_HOSTNAME:-host.docker.internal}:${S4_IDP_PORT:-8443}"
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/certs/kc.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/certs/kc.key
+    volumes:
+      - "${S4_RUN_DIR:?rendered per run by e2e/harness/keycloak/render.sh}/certs:/opt/keycloak/certs:ro"
+      - "${S4_RUN_DIR:?rendered per run by e2e/harness/keycloak/render.sh}/import:/opt/keycloak/data/import:ro"
+    ports:
+      # All interfaces: the server container reaches it through host-gateway.
+      - "${S4_IDP_PORT:-8443}:8443"
+
+  server:
+    image: ${HONUA_SERVER_IMAGE:?the gate-pinned honua-server image}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      keycloak: { condition: service_started }
+    extra_hosts:
+      - "${S4_IDP_HOSTNAME:-host.docker.internal}:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Shared-origin routing: the OIDC redirect_uri is built from the PUBLIC base URL, so it is the
+      # Console origin, and the IdP's only registered redirect is <origin>/admin/auth/callback.
+      PUBLIC_BASE_URL: "${S4_CONSOLE_ORIGIN:-http://127.0.0.1:5176}"
+      Public__BaseUrl: "${S4_CONSOLE_ORIGIN:-http://127.0.0.1:5176}"
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      ConnectionStrings__Redis: "redis:6379"
+      # Verifier only: the suite's admin-api.ts calls the server directly with it. The Console host
+      # never receives it.
+      HONUA_ADMIN_PASSWORD: "${S4_ADMIN_KEY:?minted per run by e2e/drivers/console/run.sh}"
+      Security__ConnectionEncryption__MasterKey: "${S4_MASTER_KEY:?minted per run by e2e/drivers/console/run.sh}"
+      # Same 2026.1 contract as compose.candidate.yml. Disabled grants the full catalog (edition
+      # Enterprise, no metering). DevGrantEdition is development-only and is refused in Production.
+      Licensing__Mode: "Disabled"
+      Oidc__Enabled: "true"
+      Oidc__Generic__Enabled: "true"
+      Oidc__Generic__DisplayName: "Keycloak (release S4)"
+      Oidc__Generic__Authority: "https://${S4_IDP_HOSTNAME:-host.docker.internal}:${S4_IDP_PORT:-8443}/realms/honua"
+      Oidc__Generic__ClientId: honua-console-bff
+      Oidc__Generic__ClientSecret: "${S4_CLIENT_SECRET:?set by e2e/drivers/console/run.sh}"
+      # The Console-consumable operator bearer (honua-server#2258).
+      Authentication__OperatorBearer__Enabled: "true"
+      Authentication__OperatorBearer__SigningKey: "${S4_OPERATOR_BEARER_KEY:?minted per run by e2e/drivers/console/run.sh}"
+      Authentication__OperatorBearer__MaxLifetimeMinutes: "120"
+      # The fixed-window limiter shares one bucket per client IP and authorize-url allows 5/minute.
+      # The Console host funnels every browser call through one IP, so page traffic alone would 429
+      # the sign-in bootstrap.
+      RateLimiting__Enabled: "false"
+      # Trust the throwaway IdP certificate for discovery, JWKS and token calls.
+      SSL_CERT_FILE: /certs/kc.crt
+      WorkflowGeneration__Enabled: "true"
+      WorkflowGeneration__DefaultProvider: "deterministic"
+      NlQuery__Enabled: "true"
+      NlQuery__Provider: "deterministic"
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+      # connections.live.spec.ts references `env:HONUA_TEST_DB_DSN`; the server resolves it.
+      HONUA_TEST_DB_DSN: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+    volumes:
+      - "${S4_RUN_DIR:?rendered per run by e2e/harness/keycloak/render.sh}/certs:/certs:ro"
+    ports:
+      - "127.0.0.1:${S4_SERVER_PORT:-8088}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://localhost:8080/healthz/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s

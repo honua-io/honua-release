@@ -55,9 +55,9 @@ def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
     assert "protocolCertification.ledger stays pending" in message
     # Committed working pins versus the recorded published package commits.
     for source, component_sha, published_sha in (
-        ("sdk-dotnet", "6ba49ec32ea846c64bc2094807761d4884dbc4bf", "a88a7fbb3643cb046e70d6ef4d38ae70a025a2a4"),
-        ("sdk-python", "40ecf7318573214fb6c702b12ebd56b3ad47ba60", "f7930b6e9c3ce47ade148bba3d4510eeffd2ccc4"),
-        ("sdk-js", "d7cec2d510e053fc86252b125bde21313a7e6e7c", "c99e71197dd940ed952aecb024c6de273456f2ae"),
+        ("sdk-dotnet", "6ba49ec32ea846c64bc2094807761d4884dbc4bf", "8a0a06c815baefd49e7398d38a9f22642a8c80c5"),
+        ("sdk-python", "40ecf7318573214fb6c702b12ebd56b3ad47ba60", "12670676a1e8acb835e911c358adbf46a731120a"),
+        ("sdk-js", "d7cec2d510e053fc86252b125bde21313a7e6e7c", "1102d2d55916340edca13cb28411df8da8206f92"),
     ):
         assert source in message
         assert component_sha in message
