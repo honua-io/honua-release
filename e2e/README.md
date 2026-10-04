@@ -91,7 +91,16 @@ python e2e/run_cloud.py --target aws-ecs --redis on
 CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6 cells, fail-fast off)
 **nightly** + on `workflow_dispatch`, and is `workflow_call`-able by the release train's
 `gate_cloud_parity`. OIDC into AWS (no static creds); every apply is ephemeral + run-scoped and
-`teardown()` + a backstop reaper (sweeping every example root) always run.
+`teardown()` always runs.
+
+Each cell is three jobs (`.github/workflows/e2e-cloud-aws-cell.yml`, honua-release#381):
+`provision` (OIDC + AWS: apply, probes, database seed) → `journey` (`contents: read` only: the
+seam drivers and the manifest-pinned clients via `run_live`) → `teardown` (OIDC + AWS, `if: always()`:
+cost meter, destroy, cell verdict). An `admit` job (OIDC + AWS) opens the ECS ALB / EKS Service to the
+journey runner's own /32. The Terraform working directory reaches teardown as a sealed artifact
+(ciphertext only; the key and digest are in Secrets Manager under `honua-cloud-cell-state/`).
+`python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
+`--phase` all three run in one process.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

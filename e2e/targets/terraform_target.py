@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,6 +78,7 @@ class TerraformTarget(DeployTarget):
     def __init__(self, spec: TfTargetSpec, *, run_id: str = "local", region: str | None = None) -> None:
         self.spec = spec
         self.name = spec.name
+        self.admission = "alb" if spec.needs_runner_alb_access else "none"
         self.run_id = run_id
         self.region = region or os.environ.get("AWS_REGION", "us-east-1")
         self._workdir: Path | None = None
@@ -209,16 +211,19 @@ class TerraformTarget(DeployTarget):
         any business coming through it is the one runner doing the certifying. Anything wider is
         rejected rather than quietly applied.
         """
-        raw_cidr = os.environ.get(env_name, "").strip()
+        return self._host_cidr(os.environ.get(env_name, ""), env_name)
+
+    def _host_cidr(self, raw_cidr: str, label: str) -> str:
+        raw_cidr = raw_cidr.strip()
         try:
             cidr = ipaddress.ip_network(raw_cidr, strict=True)
         except ValueError as exc:
             raise ProvisionError(
-                f"{self.name}: {env_name} must be a valid runner CIDR, got {raw_cidr!r}"
+                f"{self.name}: {label} must be a valid runner CIDR, got {raw_cidr!r}"
             ) from exc
         if cidr.version != 4 or cidr.prefixlen != 32:
             raise ProvisionError(
-                f"{self.name}: {env_name} must be a single IPv4 /32, got {raw_cidr!r}"
+                f"{self.name}: {label} must be a single IPv4 /32, got {raw_cidr!r}"
             )
         return raw_cidr
 
@@ -264,6 +269,39 @@ class TerraformTarget(DeployTarget):
         if destroy.returncode != 0:
             detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
             raise ProvisionError(f"{self.name} teardown failed: {detail}")
+
+    def admit(self, endpoint: str, cidr: str, *, redis_enabled: bool = False, run=subprocess.run) -> None:
+        """Add one runner /32 to the security groups of the load balancer that serves `endpoint`.
+
+        The journey runs on a second, credential-free runner (honua-release#381); the ALB was opened
+        only to the provisioning runner. The rule disappears with the security group at teardown.
+        """
+        if not self.spec.needs_runner_alb_access:
+            return
+        cidr = self._host_cidr(cidr, "journey runner CIDR")
+        url = urllib.parse.urlsplit(endpoint)
+        host = (url.hostname or "").lower()
+        port = url.port or (443 if url.scheme == "https" else 80)
+
+        def aws(*args: str) -> subprocess.CompletedProcess:
+            return run(["aws", *args, "--region", self.region, "--output", "json"],
+                       text=True, capture_output=True, check=False)
+
+        listing = aws("elbv2", "describe-load-balancers")
+        if listing.returncode:
+            raise ProvisionError(f"{self.name}: could not list load balancers to admit the journey runner")
+        groups = [group for balancer in json.loads(listing.stdout).get("LoadBalancers", [])
+                  if str(balancer.get("DNSName", "")).lower() == host
+                  for group in balancer.get("SecurityGroups", [])]
+        if not groups:
+            raise ProvisionError(f"{self.name}: no load balancer serves {host!r}")
+        permission = json.dumps([{"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+                                  "IpRanges": [{"CidrIp": cidr, "Description": "honua-release#381 journey runner"}]}])
+        for group in groups:
+            result = aws("ec2", "authorize-security-group-ingress", "--group-id", group,
+                         "--ip-permissions", permission)
+            if result.returncode and "InvalidPermission.Duplicate" not in (result.stderr or ""):
+                raise ProvisionError(f"{self.name}: could not admit the journey runner to {group}")
 
     def seed_database(self, sql: str) -> dict:
         """Use this cell's existing connection secret in memory; never persist or log it."""

@@ -73,6 +73,7 @@ REDIS_IMAGE_REPOSITORY = "bitnamilegacy/redis"
 class AwsEksTarget(DeployTarget):
     name = "aws-eks"
     supports_redis = True
+    admission = "eks"
 
     def __init__(self, *, run_id: str = "local", region: str | None = None) -> None:
         self.run_id = run_id
@@ -526,6 +527,59 @@ class AwsEksTarget(DeployTarget):
             self._kubectl("patch", "service", RELEASE, "-n", NAMESPACE, "-p", patch)
         except subprocess.CalledProcessError as error:
             raise self._failure("LoadBalancer source-range restriction", error) from error
+
+    def grant_operator(self, *, redis_enabled: bool, timeout_seconds: float = 1500.0) -> None:
+        """Let THIS runner drive kubectl: add its own /32 to the cluster's public API CIDRs.
+
+        The admit and teardown jobs run on fresh runners (honua-release#381), and the API server was
+        published to the provisioning runner alone. Each grant is still a single /32.
+        """
+        runner_cidr = self._runner_cidr()
+        if runner_cidr is None:
+            raise ProvisionError(f"{self.name}: HONUA_AWS_RUNNER_CIDR must be this runner's single IPv4 /32")
+        prefix = self._prefix = self._prefix or self._name_prefix(redis_enabled)
+        self._cluster_name = self._cluster_name or f"{prefix}-it-eks"
+        self._kubeconfig = self._kubeconfig or Path(tempfile.gettempdir()) / f"{prefix}.kubeconfig"
+        region = ["--name", self._cluster_name, "--region", self.region]
+        try:
+            current = json.loads(self._run(["aws", "eks", "describe-cluster", *region, "--query",
+                "cluster.resourcesVpcConfig.publicAccessCidrs", "--output", "json"]).stdout) or []
+            if runner_cidr not in current:
+                config = json.dumps({"endpointPublicAccess": True,
+                                     "publicAccessCidrs": [*current, runner_cidr]})
+                update_id = self._run(["aws", "eks", "update-cluster-config", *region,
+                    "--resources-vpc-config", config, "--query", "update.id",
+                    "--output", "text"]).stdout.strip()
+                deadline = time.monotonic() + timeout_seconds
+                while True:
+                    status = self._run(["aws", "eks", "describe-update", *region, "--update-id",
+                        update_id, "--query", "update.status", "--output", "text"]).stdout.strip()
+                    if status == "Successful":
+                        break
+                    if status in ("Failed", "Cancelled") or time.monotonic() >= deadline:
+                        raise ProvisionError(f"{self.name}: cluster API access update ended {status}")
+                    time.sleep(15)
+            self._run(["aws", "eks", "update-kubeconfig", *region, "--kubeconfig", str(self._kubeconfig)])
+        except subprocess.CalledProcessError as error:
+            raise self._failure("cluster API access grant", error) from error
+
+    def admit(self, endpoint: str, cidr: str, *, redis_enabled: bool = False) -> None:
+        """Add the credential-free journey runner's /32 to the chart Service's source ranges."""
+        try:
+            network = ipaddress.ip_network(cidr.strip(), strict=True)
+        except ValueError as error:
+            raise ProvisionError(f"{self.name}: the journey runner CIDR is not valid") from error
+        if network.version != 4 or network.prefixlen != 32:
+            raise ProvisionError(f"{self.name}: the journey runner CIDR must be a single IPv4 /32")
+        self.grant_operator(redis_enabled=redis_enabled)
+        try:
+            service = json.loads(self._kubectl("get", "service", RELEASE, "-n", NAMESPACE, "-o", "json").stdout)
+            ranges = list((service.get("spec") or {}).get("loadBalancerSourceRanges") or [])
+            if str(network) not in ranges:
+                patch = json.dumps({"spec": {"loadBalancerSourceRanges": [*ranges, str(network)]}})
+                self._kubectl("patch", "service", RELEASE, "-n", NAMESPACE, "-p", patch)
+        except subprocess.CalledProcessError as error:
+            raise self._failure("journey runner admission", error) from error
 
     def _await_endpoint(self, url: str, timeout_seconds: float = 900.0) -> None:
         """An AWS load balancer answers before its DNS/target registration settles; wait for the

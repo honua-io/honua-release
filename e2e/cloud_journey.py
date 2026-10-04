@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -138,6 +139,39 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
     return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
 
 
+UNOBSERVED_SHA = "0" * 40
+
+
+def server_identity(endpoint, *, opener=urllib.request.urlopen):
+    """The revision the live deployment advertises on its anonymous capability manifest, or None."""
+    try:
+        with opener(endpoint.rstrip("/") + "/api/v1/capabilities/manifest", timeout=15) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    server = (document.get("server") or document.get("Server") or {}) if isinstance(document, dict) else {}
+    if not isinstance(server, dict):
+        return None
+    revision = server.get("deploymentRevision") or server.get("DeploymentRevision")
+    source = server.get("deploymentRevisionSource") or server.get("DeploymentRevisionSource")
+    return {"revision": revision, "source": source} if isinstance(revision, str) else None
+
+
+def observed_server(identity, running_image):
+    """Receipt `server` pins from observations only: never copied from the manifest.
+
+    sourceSha is the commit the endpoint advertises; image is what the control plane reports
+    running. Anything unobserved stays visibly unobserved, so validate_attempt cannot match it.
+    """
+    revision = (identity or {}).get("revision") or ""
+    source = (identity or {}).get("source")
+    commit = source in ("commit-sha", "assembly-metadata") and re.fullmatch(r"[0-9a-f]{40}", revision)
+    image = running_image or "unobserved"
+    if source == "image-digest" and running_image and running_image.rsplit("@", 1)[-1] != revision:
+        image = "unobserved"
+    return {"sourceSha": revision if commit else UNOBSERVED_SHA, "image": image}
+
+
 def attempt(cell, number, endpoint, admin_key, running_image=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
@@ -196,13 +230,20 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
         for stage in receipt["stages"]:
             stage["evidence"]["source"] = "live-aws-ecs"
     receipt["target"]["composeProject"] = None
+    identity = None
+    if not build_only:
+        # honua-release#381: a live receipt states what the live cell reported, not what the
+        # manifest says it should be; validate_attempt then compares the two.
+        identity = server_identity(endpoint)
+        receipt["server"] = observed_server(identity, running_image)
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     path = directory / f"receipt-{number}.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n")
     return {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
             "candidateDigest": candidate_digest(), "receipt": str(path.relative_to(ROOT / "e2e")),
             "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "failureAttribution": attribution or ("infrastructure" if receipt["status"] != "pass" else None)}
+            "failureAttribution": attribution or ("infrastructure" if receipt["status"] != "pass" else None),
+            "observedServer": identity}
 
 
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
@@ -221,8 +262,13 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
             or record.get("runId") != run_id or record.get("runAttempt") != run_attempt
             or record.get("candidateDigest") != candidate_digest()
             or receipt["release"] != pinned["platformRelease"]
-            or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)
-            or receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}):
+            or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)):
+        raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
+    # A live receipt's server pins are what the cell advertised and its control plane reported
+    # (honua-release#381). A failed attempt may record a different or unobserved server; only a
+    # passing one must be the exact candidate.
+    if (receipt["status"] == "pass"
+            and receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     suffix = run_binding(run_id, run_attempt)
     uris = [stage["evidence"]["uri"] for stage in receipt["stages"]]

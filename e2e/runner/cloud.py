@@ -21,6 +21,31 @@ DRIVERS = {
 
 
 def run_extended(endpoint, *, target, out, ready, require_real=False, redis_enabled=True):
+    seed_error = seed_cell(endpoint, target=target, out=out)
+    return run_drivers(endpoint, admin_key=target.admin_api_key, out=out, ready=ready,
+                       require_real=require_real, redis_enabled=redis_enabled, seed_error=seed_error)
+
+
+def seed_cell(endpoint, *, target, out):
+    """Publish the fixtures through the cell's database secret. Runs where the cloud credentials are.
+
+    Returns the error type name, or None. The seed manifest it writes holds identifiers only.
+    """
+    out = Path(out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        seed(endpoint, target.admin_api_key, target, out)
+    except Exception as error:
+        # HTTP responses and database errors can contain credentials; preserve only the type.
+        return type(error).__name__
+    return None
+
+
+def run_drivers(endpoint, *, admin_key, out, ready, require_real=False, redis_enabled=True,
+                seed_error=None):
+    """Run the npm/browser seam drivers. The cloud workflow calls this from its credential-free job."""
+    if not admin_key:
+        raise ValueError("seam drivers need the cell's application key")
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     # Drivers carry only the application key. Cloud credentials and dispatch tokens never reach
@@ -28,18 +53,12 @@ def run_extended(endpoint, *, target, out, ready, require_real=False, redis_enab
     env = {k: v for k, v in os.environ.items() if k in (
         "PATH", "HOME", "LANG", "TMPDIR", "PLAYWRIGHT_BROWSERS_PATH",
         "E2E_SITE_DIR", "E2E_SITE_SHA", "E2E_PW_HOME", "E2E_PLAYWRIGHT_VERSION")}
-    env.update(E2E_BASE=endpoint.rstrip("/"), E2E_API_KEY=target.admin_api_key,
+    env.update(E2E_BASE=endpoint.rstrip("/"), E2E_API_KEY=admin_key,
         E2E_OUT=str(out), E2E_REQUIRE_REAL="1" if require_real else "",
         E2E_SERVER_BOOTED="true" if ready else "false", E2E_SITE_PORT="18099",
         # A Redis-off cell is a different topology, not a broken one: the GP driver asserts the
         # typed capability-unavailable refusal there instead of a durable job run.
         E2E_REDIS="on" if redis_enabled else "off")
-    seed_error = None
-    try:
-        seed(endpoint, target.admin_api_key, target, out)
-    except Exception as error:
-        # HTTP responses and database errors can contain credentials; preserve only the type.
-        seed_error = type(error).__name__
     fragments = out / "scenarios.jsonl"
     fragments.write_text("")
     results = []
@@ -73,7 +92,7 @@ def run_extended(endpoint, *, target, out, ready, require_real=False, redis_enab
         # Write the normalized rows back, including missing-verdict failures, for the same assembler
         # used by the local harness. Redact the application key before persisting any driver evidence.
         retained = fragments.read_text().splitlines()[:before]
-        retained += [json.dumps(row).replace(target.admin_api_key, "[redacted]") for row in rows]
+        retained += [json.dumps(row).replace(admin_key, "[redacted]") for row in rows]
         fragments.write_text("\n".join(retained) + "\n")
         rows = [json.loads(line) for line in retained[before:]]
         states = [row.get("status") for row in rows]

@@ -905,39 +905,80 @@ def test_workflows_point_their_checkers_at_the_shipped_register(workflow_name: s
         )
 
 
+def _cloud_cell_jobs() -> dict:
+    return _workflow("e2e-cloud-aws-cell.yml")["jobs"]
+
+
+def _uses_aws_credentials(job: dict) -> bool:
+    return any(str(step.get("uses", "")).startswith("aws-actions/configure-aws-credentials")
+               for step in job.get("steps", []))
+
+
+def test_cloud_journey_job_holds_no_aws_credentials_or_oidc_token():
+    # honua-release#381: scrubbing the environment cannot hide /proc/$PPID/environ, so the job that
+    # installs and runs the manifest-pinned clients must never have had a cloud credential at all.
+    caller = _workflow("e2e-cloud-aws.yml")["jobs"]["parity"]
+    assert caller["uses"] == "./.github/workflows/e2e-cloud-aws-cell.yml"
+    cell = _workflow("e2e-cloud-aws-cell.yml")
+    assert cell["permissions"] == {"contents": "read"}
+    jobs = cell["jobs"]
+    journey = jobs["journey"]
+    assert journey["permissions"] == {"contents": "read"}
+    assert "id-token" not in yaml.safe_dump(journey)
+    assert not _uses_aws_credentials(journey)
+    assert "aws-actions/configure-aws-credentials" not in yaml.safe_dump(journey)
+    commands = "\n".join(_step_text(step) for step in journey["steps"])
+    assert "--phase journey" in commands and "--ignore-scripts" in commands
+    assert "AWS_" not in commands and "HONUA_AWS_ROLE_ARN" not in commands
+    assert all(step.get("with", {}).get("persist-credentials") is False
+               for step in journey["steps"] if str(step.get("uses", "")).startswith("actions/checkout"))
+    # Every pinned client, npm package and browser lives in that job; none in a credentialed one.
+    for name in ("provision", "admit", "teardown"):
+        job = jobs[name]
+        assert job["permissions"].get("id-token") == "write"
+        text = "\n".join(_step_text(step) for step in job["steps"])
+        assert "npm " not in text and "playwright" not in text and "--phase journey" not in text
+    assert "--phase provision" in "\n".join(_step_text(step) for step in jobs["provision"]["steps"])
+
+
 def test_cloud_teardown_reaper_is_fail_closed():
     # honua-iac#142: a cell that provisioned real AWS infrastructure and could not clean it up must
     # redden the run. A swallowed reaper turns a stranded VPC/cluster into a silent monthly bill.
-    workflow = _workflow("e2e-cloud-aws.yml")
-    steps = workflow["jobs"]["parity"]["steps"]
-    parity = next(step for step in steps if str(step.get("name", "")).startswith("Run ${{ matrix.target }}"))
-    reaper = next(step for step in steps if step.get("name") == "Teardown reaper (backstop)")
+    jobs = _cloud_cell_jobs()
+    provision, teardown = jobs["provision"]["steps"], jobs["teardown"]
+    run = next(step for step in provision if step.get("id") == "provision")
+    seal = next(step for step in provision if step.get("name") == "Seal the Terraform state for teardown")
+    restore = next(step for step in teardown["steps"] if step.get("name") == "Restore the Terraform state")
+    destroy = next(step for step in teardown["steps"] if "--phase teardown" in _step_text(step))
 
-    marker = parity["env"]["HONUA_CLOUD_PROVISION_MARKER"]
-    assert marker and reaper["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
-    assert reaper["if"] == "always()"
-    assert '-f "$HONUA_CLOUD_PROVISION_MARKER"' in reaper["run"]
-    assert reaper["run"].index('-f "$HONUA_CLOUD_PROVISION_MARKER"') < reaper["run"].index(
-        "python e2e/reap_cloud.py"
-    )
-    assert "|| true" not in reaper["run"]
+    marker = run["env"]["HONUA_CLOUD_PROVISION_MARKER"]
+    assert marker and seal["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
+    assert restore["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
+    assert destroy["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
+    assert seal["if"] == "always()"
+    assert seal["run"].index('-f "$HONUA_CLOUD_PROVISION_MARKER"') < seal["run"].index("--phase seal-state")
+    # Teardown runs whatever the journey did, after it, and its destroy step runs after any failure.
+    assert teardown["if"] == "always()"
+    assert set(teardown["needs"]) == {"provision", "journey", "admit"}
+    assert destroy["if"] == "always()"
+    assert _uses_aws_credentials(teardown)
+    for step in (seal, restore, destroy):
+        assert "|| true" not in step["run"] and not _neutralised(step)
 
 
 def test_cloud_parity_resolves_the_runner_cidr_for_every_target():
     # The EKS cell publishes its API server and its load balancer to the runner's /32 and nothing
     # else, so the address has to be resolved for every cell, not just the RDS-backed ones.
-    workflow = _workflow("e2e-cloud-aws.yml")
-    steps = workflow["jobs"]["parity"]["steps"]
+    steps = _cloud_cell_jobs()["provision"]["steps"]
     ingress = next(step for step in steps if str(step.get("name", "")).startswith("Resolve the ephemeral runner"))
 
-    assert "matrix.target" not in str(ingress.get("if", ""))
+    assert "inputs.target" not in str(ingress.get("if", ""))
     assert "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" in ingress["run"]
     assert "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" in ingress["run"]
 
 
 def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test():
-    workflow = _workflow("e2e-cloud-aws.yml")
-    steps = workflow["jobs"]["parity"]["steps"]
+    steps = _cloud_cell_jobs()["provision"]["steps"]
     install_index = next(index for index, step in enumerate(steps)
                          if step.get("name") == "Install cloud runner dependencies")
     self_test_index = next(index for index, step in enumerate(steps)
