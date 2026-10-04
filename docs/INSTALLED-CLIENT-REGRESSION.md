@@ -69,7 +69,13 @@ from `PATH`, `HOME`, the temp and locale variables and `PYTHONPATH`, plus its ba
 directory and the one credential its step needs. Each `honua-mcp-proxy` starts from the same startup
 variables and the remote URL (`probes.proxy_environment`). An anonymous
 session carries no `SDKREG_*`, `E2E_*` or `HONUA_*` credential. An authenticated session carries its one
-`HONUA_API_KEY`.
+`HONUA_API_KEY`. Each SDK runner starts from the same startup variables plus `SDKREG_PLAN` and only the
+keys that runner reads: Python and .NET get `SDKREG_API_KEY`; JavaScript gets `SDKREG_API_KEY` and
+`SDKREG_PROPOSER_KEY` (the Studio principal). The .NET runner also receives the installer runtime
+locations (`DOTNET_ROOT`, `DOTNET_CLI_HOME`, `DOTNET_CLI_TELEMETRY_OPTOUT`, `DOTNET_NOLOGO`,
+`DOTNET_MULTILEVEL_LOOKUP`, `DOTNET_ROLL_FORWARD`, `NUGET_PACKAGES`, `NUGET_HTTP_CACHE_PATH`) when they
+are set. No runner receives the operator bearer, the database password, the approver key, or any other
+`SDKREG_*`, `E2E_*` or `HONUA_*` value.
 
 **Receipts.** Each suite cell's receipt row carries only allowlisted fields: client, version,
 integrity, scenario, and per step `step`, `api`, `status`, `oracle` (and `blockedBy`). The oracle
@@ -88,10 +94,12 @@ All steps run against the one booted candidate, in contract order. The scenarios
   (attributes and geometry) through that id. `Honua.Sdk` reads the edited state back.
 - **`interop-import-render-buffer`.** The `honua` CLI imports the fixture's GeoJSON polygon
   (`honua admin import uploadImportFile`), discovers the imported table
-  (`honua admin connect getConnectionTables`) and publishes it. `honua-mcp-proxy` reads the polygon,
+  (`honua admin connect getConnectionTables`) and publishes it. `honua-mcp-proxy` reads the polygon
+  (the fixture ring, in order, with its `gid` and `name`),
   renders it (pixel oracle) and buffers the polygon it read (`honua_execute_plan`, `geometry.buffer`).
   `honua-sdk` reads that job by its id (`HonuaGeoprocessing.job`) and its result
-  (`HonuaGeoprocessing.results`); every ring vertex must lie at the fixture distance from the polygon.
+  (`HonuaGeoprocessing.results`); the ring must be that polygon's buffer at the fixture distance,
+  vertices and edges.
 - **`interop-proposal-approval`.** `@honua/sdk-js` creates a Studio map draft as the proposer, saves a
   version and requests its publication.
   - `honua admin operate approveOperationProposal --profile proposer` must fail with the server's 403.
@@ -108,7 +116,9 @@ All steps run against the one booted candidate, in contract order. The scenarios
   - The documented window is zero: `revokeAdminApiKey` "revokes a server-managed API key so it can no
     longer authenticate", and validation reads the shared registry on every request.
   - So the first call after the revoke command returns must be refused (401, 403 or 499, or an MCP
-    `permission_denied`), and the confirmation calls must stay refused.
+    `permission_denied`) within the 30 s observation bound. A refusal that arrives later is a hang.
+  - Each confirmation call must itself come back as an authentication refusal. A timeout, a connection
+    error or any other status is not evidence that revocation held.
   - A client that keeps succeeding, or that hangs for the 30 s observation bound, fails.
 
 **A failure names the seam.** When a step that consumed another client's state fails, its oracle summary
@@ -145,9 +155,9 @@ environment and reach each runner, `honua` command and proxy session only as the
 | `mcp-workflow` | `initialize` with the `setup` workflow view (protocol and identity); selector-free `tools/list` (complete 25-tool setup view); a new session's `tools/list` (complete 12-tool default view, exactly the pinned `default.v1` roster); the first anonymous `tools/list {view: full}` page (`permission_denied`; any page returned fails); authenticated full view drained page by page (exactly the pinned roster in `e2e/drivers/mcp/expected-tools.json` by name, no duplicates, including the default view; a later selector-free list restores the default view); `honua_query_features` (filtered features, exact ordinates); `honua_render_map` (sample pixels painted inside the fixture polygon, transparent outside); `honua_execute_plan` with a `kind: Geoprocess` `geometry.buffer` step and `outputs: [FeatureLayer]` (job id), `resources/read honua://jobs/{id}` (succeeded) and `.../results` (ring and centroid from the fixture) | An agent configured with the installed proxy discovers, reads, renders and runs a buffer job entirely over the proxy's stdio, and gets the full catalog only when authenticated. |
 
 | `interop-publish-query-edit` | .NET `PublishLayerAsync` (names, enabled, id); Python `query` (fixture rows, exact ordinates, object ids handed on); Python ids (fixture gids); Python count (fixture row count); JS `applyEdits(updates)` through the Python-read id (one successful result); .NET `QueryAsync` (fixture rows with the edit applied) | A layer one SDK publishes is the layer every other SDK reads and edits. |
-| `interop-import-render-buffer` | CLI `uploadImportFile` (the fixture's feature count imported); CLI table discovery and `publishLayer` (names, enabled, polygon); proxy `honua_query_features` (exactly the fixture envelope's ring); proxy `honua_render_map` (sample pixels); proxy `honua_execute_plan` (job accepted); Python `job` (successful); Python `results` (ring at the fixture distance from the polygon, bounds expanded by it) | Terminal, agent and SDK hand the same data and the same job to each other. |
+| `interop-import-render-buffer` | CLI `uploadImportFile` (the fixture's feature count imported); CLI table discovery and `publishLayer` (names, enabled, polygon); proxy `honua_query_features` (fixture envelope ring in order, with gid and name); proxy `honua_render_map` (sample pixels); proxy `honua_execute_plan` (job accepted); Python `job` (successful); Python `results` (buffer boundary at the fixture distance, bounds expanded by it) | Terminal, agent and SDK hand the same data and the same job to each other. |
 | `interop-proposal-approval` | JS draft (valid map draft); JS save version (version id, sha-256 hash, same item); JS publication request (a proposal); CLI self-approval (exit 1 with 403, still awaiting approval); CLI approval (succeeded); CLI proposal read (requested by the proposer, resolved by the approver); JS poll (`Active` at the fixture route); .NET pointer (the saved version is published); .NET version (hash and map body equal the saved version and fixture); .NET final publication | A publication one client proposes is only published after a different principal approves, and another client sees exactly the approved content. |
-| `interop-api-key-revocation` | CLI mint (fixture permissions, secret only in a private file); Python, JS, .NET and proxy reads with that key (fixture row count); CLI revoke (revoked); Python, JS, .NET and proxy on the same instance or session (first call refused, confirmations refused) | One credential works across every client and its revocation reaches every client within the documented window. |
+| `interop-api-key-revocation` | CLI mint (fixture permissions, secret only in a private file); Python, JS, .NET and proxy reads with that key (fixture row count); CLI revoke (revoked); Python, JS, .NET and proxy on the same instance or session (first call refused within 30 s, each confirmation an authentication refusal) | One credential works across every client and its revocation reaches every client within the documented window. |
 
 A failure names the client, the SDK API and the candidate. For example: `@honua/sdk-js 0.1.12
 HonuaFeatureLayer.queryObjectIds ids: raised HonuaHttpError (status 400)`.

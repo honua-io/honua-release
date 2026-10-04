@@ -120,6 +120,112 @@ def distance_to_envelope(x: float, y: float, envelope: list[float]) -> float:
     return math.hypot(dx, dy)
 
 
+def _coordinate(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _closed_ring(ring: Any) -> list[tuple[float, float]] | None:
+    """Exterior vertices of a closed ring, or None when the ring is not a closed coordinate sequence."""
+    if not isinstance(ring, list) or len(ring) < 4 or ring[0] != ring[-1]:
+        return None
+    points: list[tuple[float, float]] = []
+    for vertex in ring[:-1]:
+        if not isinstance(vertex, (list, tuple)) or len(vertex) < 2:
+            return None
+        x, y = _coordinate(vertex[0]), _coordinate(vertex[1])
+        if x is None or y is None:
+            return None
+        points.append((x, y))
+    return points
+
+
+def _same_ring(observed: list[tuple[float, float]], expected: list[tuple[float, float]]) -> bool:
+    """The fixture ring, modulo rotation and reversal. Any other order is a different polygon."""
+    count = len(expected)
+    if len(observed) != count or count == 0:
+        return False
+
+    def matches(seq: list[tuple[float, float]]) -> bool:
+        for shift in range(count):
+            rotated = seq[shift:] + seq[:shift]
+            if all(oracles._close(gx, wx) and oracles._close(gy, wy) for (gx, gy), (wx, wy) in zip(rotated, expected)):
+                return True
+        return False
+
+    return matches(observed) or matches(list(reversed(observed)))
+
+
+def _orient(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+def _segments_cross(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, dx: float, dy: float) -> bool:
+    o1, o2 = _orient(ax, ay, bx, by, cx, cy), _orient(ax, ay, bx, by, dx, dy)
+    o3, o4 = _orient(cx, cy, dx, dy, ax, ay), _orient(cx, cy, dx, dy, bx, by)
+
+    def on_segment(px: float, py: float, qx: float, qy: float, rx: float, ry: float) -> bool:
+        return (min(px, qx) <= rx <= max(px, qx) and min(py, qy) <= ry <= max(py, qy)
+                and abs(_orient(px, py, qx, qy, rx, ry)) <= 1e-9)
+
+    proper = (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0) and 0 not in (o1, o2, o3, o4)
+    return proper or ((o1 == 0 and on_segment(ax, ay, bx, by, cx, cy)) or (o2 == 0 and on_segment(ax, ay, bx, by, dx, dy))
+                      or (o3 == 0 and on_segment(cx, cy, dx, dy, ax, ay)) or (o4 == 0 and on_segment(cx, cy, dx, dy, bx, by)))
+
+
+def _segment_hits_rectangle(x1: float, y1: float, x2: float, y2: float, envelope: list[float]) -> bool:
+    minx, miny, maxx, maxy = envelope
+    if (minx <= x1 <= maxx and miny <= y1 <= maxy) or (minx <= x2 <= maxx and miny <= y2 <= maxy):
+        return True
+    edges = ((minx, miny, maxx, miny), (maxx, miny, maxx, maxy), (maxx, maxy, minx, maxy), (minx, maxy, minx, miny))
+    return any(_segments_cross(x1, y1, x2, y2, *edge) for edge in edges)
+
+
+def _point_to_segment(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    dx, dy = x2 - x1, y2 - y1
+    length_sq = dx * dx + dy * dy
+    if length_sq == 0:
+        return math.hypot(px - x1, py - y1)
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_sq))
+    return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+
+
+def _segment_min_distance(x1: float, y1: float, x2: float, y2: float, envelope: list[float]) -> float:
+    """Minimum distance from a straight edge to an axis-aligned rectangle."""
+    if _segment_hits_rectangle(x1, y1, x2, y2, envelope):
+        return 0.0
+    minx, miny, maxx, maxy = envelope
+    gap = min(distance_to_envelope(x1, y1, envelope), distance_to_envelope(x2, y2, envelope))
+    for cx, cy in ((minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)):
+        gap = min(gap, _point_to_segment(cx, cy, x1, y1, x2, y2))
+    return gap
+
+
+def _edge_follows_buffer(x1: float, y1: float, x2: float, y2: float, envelope: list[float],
+                         distance: float, tolerance: float) -> bool:
+    """A buffer edge stays on the offset, or is a chord of one corner's quarter-circle fillet.
+
+    Straight sides sit at ``distance``. A fillet chord may bow inward by at most the sagitta of a
+    circle of radius ``distance``, and only across a quarter turn (the corner of a rectangle).
+    A longer edge that cuts inside the offset is not a buffer boundary.
+    """
+    gap = _segment_min_distance(x1, y1, x2, y2, envelope)
+    if gap >= distance - tolerance:
+        return True
+    length = math.hypot(x2 - x1, y2 - y1)
+    half = length / 2
+    if half >= distance or length > distance * math.sqrt(2) + tolerance:
+        return False
+    sagitta = distance - math.sqrt(distance * distance - half * half)
+    return gap >= distance - sagitta - tolerance
+
+
+def _auth_refusal(status: Any) -> bool:
+    """401, 403, 499, or an MCP authentication/authorization denial. A bare boolean is not a status."""
+    return status in REFUSED_STATUSES or status in MCP_REFUSALS
+
+
 def polygon_wkb(rings: list[list[list[float]]]) -> str:
     """Little-endian WKB for a polygon, base64-encoded (the geometry.buffer input encoding)."""
     out = struct.pack("<BII", 1, 3, len(rings))
@@ -152,19 +258,33 @@ def oracle_imported(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[
     return ok, f"import reported success={observed.get('success')!r}, {count!r} features into a named table: {bool(table)}; fixture has {want}"
 
 
+def _area_attributes(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
+    got = observed.get("attributes")
+    want = [{"gid": feature["gid"], "name": feature["name"]} for feature in fixture["area"]["features"]]
+    if not isinstance(got, list) or len(got) != len(want):
+        return False, f"{len(got) if isinstance(got, list) else 'no'} attribute rows, fixture expects {len(want)}"
+    for index, (row, expected) in enumerate(zip(got, want)):
+        if not isinstance(row, dict) or any(row.get(field) != expected[field] for field in ("gid", "name")):
+            return False, f"feature {index} attributes {row!r} differ from the fixture {expected}"
+    return True, "gid and name equal the fixture (" + ", ".join(str(row["name"]) for row in want) + ")"
+
+
 def oracle_area_features(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
     rings = observed.get("rings")
     want = [envelope_ring(feature["envelope"]) for feature in fixture["area"]["features"]]
     if not isinstance(rings, list) or len(rings) != len(want):
         return False, f"{len(rings) if isinstance(rings, list) else 'no'} polygons, fixture expects {len(want)}"
     for ring, expected in zip(rings, want):
-        if not isinstance(ring, list) or len(ring) < 4 or ring[0] != ring[-1]:
+        points = _closed_ring(ring)
+        if points is None:
             return False, "a polygon has no closed exterior ring"
-        vertices = sorted((float(x), float(y)) for x, y, *_ in ring[:-1])
-        if len(vertices) != len(expected) or any(
-                not (oracles._close(gx, wx) and oracles._close(gy, wy)) for (gx, gy), (wx, wy) in zip(vertices, sorted(expected))):
-            return False, f"exterior ring {vertices} differs from the fixture envelope {sorted(expected)}"
-    return True, f"{len(want)} polygon(s) equal the fixture envelope with exact ordinates"
+        if not _same_ring(points, expected):
+            return False, (f"exterior ring {points} does not preserve the fixture envelope {expected} "
+                           "(only a rotation or reversal of that ring matches)")
+    attributes_ok, attributes = _area_attributes(observed, fixture)
+    if not attributes_ok:
+        return False, attributes
+    return True, f"{len(want)} polygon(s) preserve the fixture envelope ring; {attributes}"
 
 
 def oracle_area_render(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
@@ -179,15 +299,22 @@ def oracle_area_buffer(observed: dict[str, Any], fixture: dict[str, Any]) -> tup
     ring = oracles._exterior_ring(observed.get("geometry"))
     if ring is None:
         return False, "the job result holds no polygon geometry"
-    vertices = ring[:-1] if ring[0] == ring[-1] else ring
-    worst = max(abs(distance_to_envelope(x, y, envelope) - distance) for x, y in (vertex[:2] for vertex in vertices))
-    xs, ys = [vertex[0] for vertex in vertices], [vertex[1] for vertex in vertices]
+    if ring[0] != ring[-1]:
+        return False, "the job result polygon is not closed"
+    points = _closed_ring(ring)
+    if points is None:
+        return False, "the job result polygon has a vertex that is not a coordinate"
+    worst = max(abs(distance_to_envelope(x, y, envelope) - distance) for x, y in points)
+    xs, ys = [x for x, _ in points], [y for _, y in points]
     bounds = (min(xs), min(ys), max(xs), max(ys))
     want = (envelope[0] - distance, envelope[1] - distance, envelope[2] + distance, envelope[3] + distance)
     bounded = all(oracles._close(got, expected, tolerance) for got, expected in zip(bounds, want))
-    ok = ring[0] == ring[-1] and worst <= tolerance and bounded
-    return ok, (f"{len(vertices)}-vertex closed ring: max offset error {worst:.2e} from the fixture polygon at distance "
-                f"{distance} (tolerance {tolerance:.0e}); bounds {'equal' if bounded else 'differ from'} the polygon expanded by {distance}")
+    edges = all(_edge_follows_buffer(x1, y1, x2, y2, envelope, distance, tolerance)
+                for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1]))
+    ok = worst <= tolerance and bounded and edges
+    return ok, (f"{len(points)}-vertex closed ring: max offset error {worst:.2e} from the fixture polygon at distance "
+                f"{distance} (tolerance {tolerance:.0e}); bounds {'equal' if bounded else 'differ from'} the polygon expanded by {distance}; "
+                f"edges {'follow the offset' if edges else 'leave the offset (a vertex check is not a buffer)'}")
 
 
 def oracle_draft_valid(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
@@ -292,13 +419,18 @@ def oracle_revocation_observed(observed: dict[str, Any], fixture: dict[str, Any]
     if not refused:
         return False, (f"still authenticated {observed.get('observationSeconds')}s after revocation "
                        f"({successes!r} calls succeeded); documented window {window}s")
-    in_window = successes == 0
-    held = len(confirmations) == revocation["confirmations"] and all(item is True for item in confirmations)
-    refusal = status in REFUSED_STATUSES or status in MCP_REFUSALS
+    bound = revocation["observationSeconds"]
+    # The fixture bound, not the value the client reports: a late 401 is a hang, not a refusal in window.
+    on_time = type(after) in (int, float) and 0 <= after <= bound
+    in_window = successes == 0 and on_time
+    held = len(confirmations) == revocation["confirmations"] and all(_auth_refusal(item) for item in confirmations)
+    refusal = _auth_refusal(status)
     ok = in_window and held and refusal
-    return ok, (f"refused ({status!r}) after {successes!r} successful call(s) at {after!r}s (documented window {window}s: "
-                f"the first call must be refused); {sum(1 for item in confirmations if item is True)} of "
-                f"{revocation['confirmations']} confirmation calls refused")
+    refused_n = sum(1 for item in confirmations if _auth_refusal(item))
+    when = f"within the {bound}s observation bound" if on_time else f"outside the {bound}s observation bound"
+    return ok, (f"refused ({status!r}) after {successes!r} successful call(s) at {after!r}s ({when}; documented window "
+                f"{window}s: the first call must be refused before the observation bound); {refused_n} of "
+                f"{revocation['confirmations']} confirmation calls refused with an authentication status")
 
 
 def _saved(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -> dict[str, Any] | None:

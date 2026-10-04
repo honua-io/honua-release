@@ -117,9 +117,9 @@ def identity_revoked(args: dict[str, Any]) -> dict[str, Any]:
             for _ in range(args["confirmations"]):
                 try:
                     identity_query(client, args)
-                    confirmations.append(False)
-                except Exception:  # noqa: BLE001
-                    confirmations.append(True)
+                    confirmations.append(None)
+                except Exception as exc:  # noqa: BLE001 - only an authentication status counts as a refusal
+                    confirmations.append(error_of(exc)["status"])
             return {"refused": True, "status": refused["status"], "succeededAfterRevocation": successes,
                     "refusedAfterSeconds": after, "confirmations": confirmations, "observationSeconds": bound}
         successes += 1

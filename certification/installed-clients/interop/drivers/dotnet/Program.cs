@@ -176,11 +176,12 @@ async Task<JsonObject> IdentityRevoked(JsonObject args)
                 try
                 {
                     await IdentityQuery(args);
-                    confirmations.Add(false);
+                    confirmations.Add(null);
                 }
-                catch (Exception)
+                catch (Exception exception)
                 {
-                    confirmations.Add(true);
+                    // The status only. A timeout or HTTP 500 is not an authentication refusal.
+                    confirmations.Add(ErrorOf(exception)["status"]?.DeepClone());
                 }
             }
             return new JsonObject

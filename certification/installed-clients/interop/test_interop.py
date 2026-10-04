@@ -237,13 +237,25 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(len(rows), len(FIXTURE["handoff"]["features"]))
 
     def test_area_features_need_the_exact_envelope_ring(self):
-        ring = [list(point) for point in judge.envelope_ring(FIXTURE["area"]["features"][0]["envelope"])]
+        feature = FIXTURE["area"]["features"][0]
+        ring = [list(point) for point in judge.envelope_ring(feature["envelope"])]
+        attributes = [{"gid": feature["gid"], "name": feature["name"]}]
+
+        def observed(open_ring, rows=attributes):
+            return {"rings": [open_ring + [open_ring[0]]], "attributes": rows}
+
         rotated = ring[2:] + ring[:2]
-        self.assertTrue(judge.oracle_area_features({"rings": [rotated + [rotated[0]]]}, FIXTURE)[0])
+        self.assertTrue(judge.oracle_area_features(observed(rotated), FIXTURE)[0])
+        self.assertTrue(judge.oracle_area_features(observed(list(reversed(ring))), FIXTURE)[0])
+        # Same four corners, opposite traversal: a bow-tie, not the fixture ring.
+        bowtie = [ring[0], ring[2], ring[1], ring[3]]
+        self.assertFalse(judge.oracle_area_features(observed(bowtie), FIXTURE)[0])
         shifted = [[x + 0.001, y] for x, y in ring]
-        self.assertFalse(judge.oracle_area_features({"rings": [shifted + [shifted[0]]]}, FIXTURE)[0])
-        self.assertFalse(judge.oracle_area_features({"rings": [ring]}, FIXTURE)[0])
-        self.assertFalse(judge.oracle_area_features({"rings": []}, FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features(observed(shifted), FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features({"rings": [ring], "attributes": attributes}, FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features({"rings": [], "attributes": []}, FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features(observed(ring, [{"gid": feature["gid"], "name": "other"}]), FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features({"rings": [ring + [ring[0]]]}, FIXTURE)[0])
 
     def test_render_oracle_reads_pixels_of_the_imported_polygon(self):
         spec_ = FIXTURE["area"]["render"]
@@ -260,6 +272,16 @@ class OracleTests(unittest.TestCase):
         moved = [envelope[0] + 1, envelope[1], envelope[2] + 1, envelope[3]]
         self.assertFalse(judge.oracle_area_buffer({"geometry": rounded_buffer(moved, distance)}, FIXTURE)[0])
         self.assertFalse(judge.oracle_area_buffer({"geometry": None}, FIXTURE)[0])
+        # Vertices sit on the offset and the bounds match, but the diagonals cut through the source polygon.
+        minx, miny, maxx, maxy = envelope
+        cut = [[minx - distance, miny], [maxx, miny - distance], [maxx + distance, maxy], [minx, maxy + distance]]
+        self.assertFalse(judge.oracle_area_buffer(
+            {"geometry": {"type": "Polygon", "coordinates": [cut + [cut[0]]]}}, FIXTURE)[0])
+        # A one-segment fillet is still a buffer: straight sides plus a quarter-circle chord at each corner.
+        chamfer = [[maxx, miny - distance], [maxx + distance, miny], [maxx + distance, maxy], [maxx, maxy + distance],
+                   [minx, maxy + distance], [minx - distance, maxy], [minx - distance, miny], [minx, miny - distance]]
+        self.assertTrue(judge.oracle_area_buffer(
+            {"geometry": {"type": "Polygon", "coordinates": [chamfer + [chamfer[0]]]}}, FIXTURE)[0])
 
     def test_polygon_wkb_round_trips_the_ring(self):
         ring = [[-90.0, 0.0], [-45.0, 0.0], [-45.0, 60.0], [-90.0, 0.0]]
@@ -269,19 +291,30 @@ class OracleTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<dd", data, 13), (-90.0, 0.0))
 
     def test_revocation_window_is_the_first_call(self):
+        bound = FIXTURE["identity"]["revocation"]["observationSeconds"]
         good = {"refused": True, "status": 499, "succeededAfterRevocation": 0, "refusedAfterSeconds": 0.1,
-                "confirmations": [True, True], "observationSeconds": 30}
+                "confirmations": [401, 403], "observationSeconds": bound}
         self.assertTrue(judge.oracle_revocation_observed(good, FIXTURE)[0])
-        self.assertTrue(judge.oracle_revocation_observed(dict(good, status="permission_denied"), FIXTURE)[0])
+        self.assertTrue(judge.oracle_revocation_observed(dict(good, status="permission_denied",
+                                                              confirmations=["permission_denied", 499]), FIXTURE)[0])
+        self.assertTrue(judge.oracle_revocation_observed(dict(good, refusedAfterSeconds=bound), FIXTURE)[0])
         late = dict(good, succeededAfterRevocation=2)
         self.assertFalse(judge.oracle_revocation_observed(late, FIXTURE)[0])
-        self.assertFalse(judge.oracle_revocation_observed(dict(good, confirmations=[True, False]), FIXTURE)[0])
+        self.assertFalse(judge.oracle_revocation_observed(dict(good, confirmations=[401, False]), FIXTURE)[0])
+        self.assertFalse(judge.oracle_revocation_observed(dict(good, confirmations=[True, True]), FIXTURE)[0])
+        self.assertFalse(judge.oracle_revocation_observed(dict(good, confirmations=[401, 500]), FIXTURE)[0])
+        self.assertFalse(judge.oracle_revocation_observed(dict(good, confirmations=[401, None]), FIXTURE)[0])
         self.assertFalse(judge.oracle_revocation_observed(dict(good, status=500), FIXTURE)[0])
-        still = {"refused": False, "succeededAfterRevocation": 120, "observationSeconds": 30}
+        hung = dict(good, refusedAfterSeconds=bound + 30, observationSeconds=999)
+        ok, summary = judge.oracle_revocation_observed(hung, FIXTURE)
+        self.assertFalse(ok)
+        self.assertIn(f"outside the {bound}s observation bound", summary)
+        self.assertFalse(judge.oracle_revocation_observed(dict(good, refusedAfterSeconds=None), FIXTURE)[0])
+        still = {"refused": False, "succeededAfterRevocation": 120, "observationSeconds": bound}
         ok, summary = judge.oracle_revocation_observed(still, FIXTURE)
         self.assertFalse(ok)
         self.assertIn("still authenticated", summary)
-        ok, summary = judge.oracle_revocation_observed({"timedOut": True, "timeoutSeconds": 30, "succeededAfterRevocation": 0}, FIXTURE)
+        ok, summary = judge.oracle_revocation_observed({"timedOut": True, "timeoutSeconds": bound, "succeededAfterRevocation": 0}, FIXTURE)
         self.assertFalse(ok)
         self.assertRegex(summary, CELLS["interop-api-key-revocation"]["blockedSteps"]["mcp-revoked"]["signature"])
 
@@ -444,9 +477,60 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(hung["timedOut"])
         self.assertFalse(judge.oracle_revocation_observed(hung, FIXTURE)[0])
         refused = interop._mcp_revoked(Refusing(), probe)
-        self.assertEqual((refused["status"], refused["confirmations"]), ("permission_denied", [True, True]))
+        self.assertEqual((refused["status"], refused["confirmations"]), ("permission_denied", ["permission_denied", "permission_denied"]))
         self.assertTrue(judge.oracle_revocation_observed(refused, FIXTURE)[0])
+
+        class ThenServerError:
+            def __init__(self):
+                self.calls = 0
+
+            def request(self, method, params=None):
+                self.calls += 1
+                code = "permission_denied" if self.calls == 1 else "internal"
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "data": {"code": code}}}
+
+        unhealthy = interop._mcp_revoked(ThenServerError(), probe)
+        self.assertEqual(unhealthy["confirmations"], ["internal", "internal"])
+        self.assertFalse(judge.oracle_revocation_observed(unhealthy, FIXTURE)[0])
         self.assertEqual(mcp.MCP_TIMEOUT_SECONDS, 120)
+
+    def test_sdk_runners_receive_only_their_own_credentials(self):
+        script = "import json, os\nprint(json.dumps(dict(os.environ)), flush=True)\n"
+        parent = {
+            "PATH": os.environ.get("PATH", "/usr/bin"), "HOME": "/tmp/honua-home",
+            "SDKREG_PLAN": "/tmp/plan.json", "SDKREG_API_KEY": "root-key", "SDKREG_BEARER": "bearer-token",
+            "SDKREG_DB_PASSWORD": "db-secret", "SDKREG_PROPOSER_KEY": "proposer-key", "SDKREG_APPROVER_KEY": "approver-key",
+            "E2E_API_KEY": "e2e", "HONUA_API_KEY": "honua", "GH_TOKEN": "gh",
+            "DOTNET_ROOT": "/usr/share/dotnet", "NUGET_PACKAGES": "/tmp/packages",
+        }
+
+        def captured(name):
+            with mock.patch.dict(os.environ, parent, clear=True):
+                runner = self.orchestrator.Runner(name, [sys.executable, "-c", script])
+            try:
+                return json.loads(runner.process.stdout.readline())
+            finally:
+                runner.close()
+
+        def credentials(env):
+            return {key: value for key, value in env.items() if key.startswith(("SDKREG_", "E2E_", "HONUA_")) or key == "GH_TOKEN"}
+
+        shared = {"SDKREG_PLAN": "/tmp/plan.json", "SDKREG_API_KEY": "root-key"}
+        self.assertEqual(credentials(captured("python-runner")), shared)
+        dotnet = captured("dotnet-runner")
+        self.assertEqual(credentials(dotnet), shared)
+        self.assertEqual(dotnet["DOTNET_ROOT"], "/usr/share/dotnet")
+        self.assertEqual(dotnet["NUGET_PACKAGES"], "/tmp/packages")
+        self.assertEqual(credentials(captured("js-runner")), {**shared, "SDKREG_PROPOSER_KEY": "proposer-key"})
+        self.assertNotIn("DOTNET_ROOT", captured("python-runner"))
+        # An unnamed runner still receives the plan (it holds no credentials) and nothing else.
+        fake = captured("fake")
+        self.assertEqual(credentials(fake), {"SDKREG_PLAN": "/tmp/plan.json"})
+        for env in (dotnet, fake):
+            self.assertNotIn("GH_TOKEN", env)
+            self.assertNotIn("SDKREG_BEARER", env)
+            self.assertNotIn("SDKREG_DB_PASSWORD", env)
+            self.assertNotIn("SDKREG_APPROVER_KEY", env)
 
     def test_cli_children_carry_only_their_own_credential(self):
         cli = self.orchestrator.Cli("honua", Path(self.tmp.name))

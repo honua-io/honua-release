@@ -142,12 +142,36 @@ def step(scenario: str, name: str, action: Callable[[], dict[str, Any]], state: 
 # ── clients ──────────────────────────────────────────────────────────────────────────────────
 
 
+# Runtime locations the .NET installer sets. Not credentials, and not inherited by the other runners.
+_DOTNET_RUNTIME = ("DOTNET_ROOT", "DOTNET_CLI_HOME", "DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_NOLOGO",
+                   "DOTNET_MULTILEVEL_LOOKUP", "DOTNET_ROLL_FORWARD", "NUGET_PACKAGES", "NUGET_HTTP_CACHE_PATH")
+# Each runner reads only these keys. The bearer, database password and approver key stay in the orchestrator.
+_RUNNER_CREDENTIALS = {
+    "python-runner": ("SDKREG_API_KEY",),
+    "js-runner": ("SDKREG_API_KEY", "SDKREG_PROPOSER_KEY"),
+    "dotnet-runner": ("SDKREG_API_KEY",),
+}
+
+
+def runner_env(name: str) -> dict[str, str]:
+    """Child environment for one SDK runner: startup variables, its plan, and only the keys it reads."""
+    env = {key: os.environ[key] for key in probes.PROXY_INHERITED_ENV if key in os.environ}
+    if name == "dotnet-runner":
+        env.update({key: os.environ[key] for key in _DOTNET_RUNTIME if key in os.environ})
+    if "SDKREG_PLAN" in os.environ:
+        env["SDKREG_PLAN"] = os.environ["SDKREG_PLAN"]
+    for key in _RUNNER_CREDENTIALS.get(name, ()):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
 class Runner:
     """A long-lived SDK runner: one JSON request per line on stdin, one JSON reply per line on stdout."""
 
     def __init__(self, name: str, argv: list[str], cwd: str | None = None):
         self.name = name
-        self.process = subprocess.Popen(argv, cwd=cwd, env=dict(os.environ), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.process = subprocess.Popen(argv, cwd=cwd, env=runner_env(name), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, bufsize=0)
         self._next_id = 0
         self._buffer = bytearray()
@@ -384,10 +408,24 @@ class Interop:
                 initialized()
                 content = mcp_tool(session, "honua_query_features", {"serviceId": area["service"], "layerId": state["layer"],
                                                                      "where": "1=1", "limit": 100})
-                rings = [(feature.get("geometry") or {}).get("coordinates", [None])[0] for feature in content.get("features") or []]
-                if len(rings) == 1 and isinstance(rings[0], list):
-                    state["polygon"] = content["features"][0]["geometry"]["coordinates"]
-                return {"rings": rings}
+                features = content.get("features") if isinstance(content.get("features"), list) else []
+                rings: list[Any] = []
+                attributes: list[Any] = []
+                for feature in features:
+                    if not isinstance(feature, dict):
+                        rings.append(None)
+                        attributes.append(None)
+                        continue
+                    geometry = feature.get("geometry") if isinstance(feature.get("geometry"), dict) else {}
+                    coordinates = geometry.get("coordinates") if isinstance(geometry.get("coordinates"), list) else []
+                    rings.append(coordinates[0] if coordinates else None)
+                    raw = feature.get("attributes")
+                    if not isinstance(raw, dict):
+                        raw = feature.get("properties")
+                    attributes.append({key: raw.get(key) for key in ("gid", "name")} if isinstance(raw, dict) else None)
+                if len(rings) == 1 and isinstance(rings[0], list) and isinstance(features[0].get("geometry"), dict):
+                    state["polygon"] = features[0]["geometry"].get("coordinates")
+                return {"rings": rings, "attributes": attributes}
             step(scenario, "read", read, state, ("layer",))
 
             def render() -> dict[str, Any]:
@@ -599,27 +637,29 @@ class Interop:
         arguments = {"serviceId": probe["service"], "layerId": probe["layerId"], "where": "1=1", "limit": 1}
         previous, probes.MCP_TIMEOUT_SECONDS = probes.MCP_TIMEOUT_SECONDS, bound
         try:
-            def attempt() -> tuple[bool, Any]:
+            def attempt() -> Any:
+                """The call's refusal status, or None when the call succeeded. A timeout is not a status."""
                 try:
                     mcp_tool(session, "honua_query_features", arguments)
-                    return False, None
+                    return None
                 except StepError as exc:
                     kind = str(exc.error.get("type") or "")
-                    return True, kind.removeprefix("tool-error:")
+                    # An error with no code is still not a successful read.
+                    return kind.removeprefix("tool-error:") or "error"
             successes, started = 0, time.time()
             while True:
                 try:
-                    refused, status = attempt()
+                    status = attempt()
                 except probes.McpError:
                     return {"timedOut": True, "timeoutSeconds": bound, "succeededAfterRevocation": successes}
-                if refused:
+                if status is not None:
                     after = round(time.time() - (probe["revokedAt"] or started), 3)
                     confirmations = []
                     for _ in range(probe["confirmations"]):
                         try:
-                            confirmations.append(attempt()[0])
+                            confirmations.append(attempt())
                         except probes.McpError:
-                            confirmations.append(False)
+                            confirmations.append(None)
                     return {"refused": True, "status": status, "succeededAfterRevocation": successes,
                             "refusedAfterSeconds": after, "confirmations": confirmations, "observationSeconds": bound}
                 successes += 1

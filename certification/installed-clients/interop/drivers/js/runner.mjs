@@ -87,9 +87,9 @@ async function identityRevoked(args) {
       for (let index = 0; index < args.confirmations; index += 1) {
         try {
           await identityQuery(identity.client, args);
-          confirmations.push(false);
-        } catch {
-          confirmations.push(true);
+          confirmations.push(null);
+        } catch (error) {
+          confirmations.push(errorOf(error).status);
         }
       }
       return { refused: true, status: refused.status, succeededAfterRevocation: successes, refusedAfterSeconds: after, confirmations, observationSeconds: bound };

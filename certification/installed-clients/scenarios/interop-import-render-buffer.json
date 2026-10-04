@@ -36,7 +36,7 @@
           "handoff": "layer"
         }
       ],
-      "description": "Read the CLI-published layer through the proxy; its one polygon has exactly the fixture envelope's ring."
+      "description": "Read the CLI-published layer through the proxy; its polygon preserves the fixture envelope's ring, and its gid and name equal the fixture."
     },
     {
       "id": "render",
@@ -88,7 +88,7 @@
           "handoff": "job id"
         }
       ],
-      "description": "Read the job's result through the Python SDK; every ring vertex lies at the fixture distance from the fixture polygon."
+      "description": "Read the job's result through the Python SDK; the ring is the fixture polygon's buffer at the fixture distance, vertices and edges."
     }
   ],
   "receiptFields": [
