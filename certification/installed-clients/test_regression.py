@@ -10,6 +10,7 @@ import os
 import re
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
 from pathlib import Path
@@ -577,6 +578,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog), FIXTURE, None)[0])
         self.assertFalse(oracles.oracle_mcp_permission_denied({"observed": {"names": catalog}})[0])
         self.assertFalse(oracles.oracle_mcp_permission_denied({"error": {"type": "InvalidRequest"}})[0])
+
+    def test_mcp_driver_anonymous_session_inherits_no_credential(self):
+        # A fake installed proxy that answers tools/list with its own environment.
+        with tempfile.TemporaryDirectory() as tmp:
+            proxy, plan = Path(tmp) / "honua-mcp-proxy", Path(tmp) / "plan.json"
+            proxy.write_text(f"#!{sys.executable}\nimport json, os, sys\nrequest = json.loads(sys.stdin.readline())\n"
+                             "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': {'env': dict(os.environ)}}), flush=True)\n")
+            proxy.chmod(0o700)
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            inherited = regression.driver_env({"PATH": os.environ["PATH"], "E2E_API_KEY": "admin", "HONUA_API_KEY": "operator",
+                                               "HONUA_SERVER_URL": "http://localhost:8080"},
+                                              api_key="root", bearer="bearer", db_password="db", plan_path=plan,
+                                              principals=PRINCIPALS)
+            with mock.patch.dict(os.environ, inherited, clear=True):
+                spec_ = importlib.util.spec_from_file_location("mcp_driver_under_test", HERE / "drivers/mcp/driver.py")
+                driver = importlib.util.module_from_spec(spec_)
+                spec_.loader.exec_module(driver)
+                for key, expected in (("", {}), ("root", {"HONUA_API_KEY": "root"})):
+                    with self.subTest(key=key), driver.session(str(proxy), key) as session:
+                        seen = session.request("tools/list")["result"]["env"]
+                        credentials = {name: value for name, value in seen.items()
+                                       if name.startswith(("SDKREG_", "E2E_", "HONUA_")) and name != "HONUA_MCP_REMOTE_URL"}
+                        self.assertEqual(credentials, expected)
+                        self.assertFalse({"admin", "operator", "bearer", "db", "secret-proposer", "secret-approver"} & set(seen.values()))
 
     def test_render_oracle_checks_painted_and_transparent_pixels(self):
         spec = FIXTURE["mcp"]["render"]

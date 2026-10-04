@@ -76,9 +76,9 @@ def step(name: str, action: Callable[[], dict[str, Any]], state: dict[str, Any],
 
 
 def session(proxy: str, key: str = "") -> probes.McpProxySession:
-    # Only the credential the step needs; an inherited operator variable must not authenticate discovery.
-    return probes.McpProxySession([proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": key, "HONUA_ADMIN_KEY": "",
-                                                               "HONUA_MCP_AUTH_TOKEN": "", "HONUA_BASE_URL": ""})
+    # The proxy starts from a scrubbed environment: with no key the session is anonymous, otherwise
+    # it carries this one credential and nothing else from the suite (SDKREG_*, E2E_*, HONUA_*).
+    return probes.McpProxySession([proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": key})
 
 
 def result_of(response: dict[str, Any]) -> dict[str, Any]:

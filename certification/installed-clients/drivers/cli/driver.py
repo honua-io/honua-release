@@ -223,8 +223,8 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         arguments = {"connectionId": state["connection"], "schema": proposal["schema"], "table": proposal["table"],
                      "layerName": proposal["layerName"], "serviceName": proposal["service"], "geometryColumn": "geom",
                      "geometryType": proposal["geometryType"], "srid": 4326, "primaryKey": "gid"}
-        with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer, "HONUA_ADMIN_KEY": "",
-                                                                     "HONUA_MCP_AUTH_TOKEN": ""}) as session:
+        # Scrubbed proxy environment: the proposer's key is the only credential it can read.
+        with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer}) as session:
             session.initialize()
             response = session.request("tools/call", {"name": "honua_publish_service", "arguments": arguments})
         if "error" in response:

@@ -145,12 +145,25 @@ class McpError(RuntimeError):
     pass
 
 
+# The only parent variables a proxy inherits: what Node needs to start and locate its temp
+# directory. No credential, token or base URL crosses unless the session names it.
+PROXY_INHERITED_ENV = ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "SYSTEMROOT", "PATHEXT")
+
+
+def proxy_environment(env: dict[str, str], remote_url: str) -> dict[str, str]:
+    """A scrubbed proxy environment: the startup variables, the session's own non-empty values, the remote URL."""
+    inherited = {key: os.environ[key] for key in PROXY_INHERITED_ENV if key in os.environ}
+    return {**inherited, **{key: value for key, value in env.items() if value}, "HONUA_MCP_REMOTE_URL": remote_url}
+
+
 class McpProxySession:
     """Speak MCP JSON-RPC through the pinned `honua-mcp-proxy` over stdio.
 
     Using the pinned proxy rather than a direct HTTP call is deliberate: stage 1
     must prove *proxy connectivity* from the exact client artifact, not merely that
-    the server answers.
+    the server answers. The proxy starts from a scrubbed environment (see
+    ``proxy_environment``): a session with no ``env`` is anonymous whatever the
+    caller's environment holds.
     """
 
     def __init__(self, argv: list[str] | str, remote_url: str, env: dict[str, str] | None = None):
@@ -162,14 +175,13 @@ class McpProxySession:
         self._stdout_buffer = bytearray()
 
     def __enter__(self) -> McpProxySession:
-        environment = {**os.environ, **self.env, "HONUA_MCP_REMOTE_URL": self.remote_url}
         self._process = subprocess.Popen(
             self.argv,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
-            env=environment,
+            env=proxy_environment(self.env, self.remote_url),
         )
         return self
 
