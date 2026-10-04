@@ -10,6 +10,7 @@ import os
 import re
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
 from pathlib import Path
@@ -27,11 +28,28 @@ spec.loader.exec_module(run)
 FIXTURE = regression.load_fixture()
 SCENARIOS = regression.load_scenarios()
 MATRIX = json.loads((HERE / "matrix.json").read_text())
+CLI_DRIVER = (HERE / "drivers/cli/driver.py").read_text()
+MCP_DRIVER = (HERE / "drivers/mcp/driver.py").read_text()
+# (scenario family, client artifact) -> the driver program that runs it.
 DRIVER_SOURCES = {
-    "honua-sdk-python-wheel": (HERE / "drivers/python/driver.py").read_text(),
-    "honua-sdk-js": (HERE / "drivers/js/driver.mjs").read_text(),
-    "honua-sdk-dotnet": (HERE / "drivers/dotnet/Program.cs").read_text(),
+    ("sdk", "honua-sdk-python-wheel"): (HERE / "drivers/python/driver.py").read_text(),
+    ("sdk", "honua-sdk-js"): (HERE / "drivers/js/driver.mjs").read_text(),
+    ("sdk", "honua-sdk-dotnet"): (HERE / "drivers/dotnet/Program.cs").read_text(),
+    ("cli", "honua-sdk-js"): CLI_DRIVER,
+    ("cli", "honua-sdk-python-wheel"): CLI_DRIVER,
+    ("mcp", "honua-mcp-server"): MCP_DRIVER,
 }
+SUITE_CELLS = [cell for cell in MATRIX["cells"] if cell["driver"] in run.SUITE_DRIVERS]
+PINNED_DEFAULT_VIEW = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]["tools"]
+
+
+def load_driver(name, plan_path):
+    """Import a driver program as a module; drivers read SDKREG_PLAN at import."""
+    with mock.patch.dict(os.environ, {"SDKREG_PLAN": str(plan_path)}):
+        spec_ = importlib.util.spec_from_file_location(f"{name}_driver_under_test", HERE / "drivers" / name / "driver.py")
+        module = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(module)
+    return module
 
 
 def png(width, height, painted):
@@ -84,11 +102,13 @@ def observation(scenario, step, **payload):
 
 
 class ContractTests(unittest.TestCase):
-    def test_every_scenario_names_one_api_per_step_for_every_sdk(self):
+    def test_every_scenario_names_one_api_per_step_for_every_client_of_its_family(self):
         self.assertEqual(set(SCENARIOS), {"sdk-auth", "sdk-admin-lifecycle", "sdk-geoservices", "sdk-ogc-features",
-                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac"})
+                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac", "cli-workflow", "mcp-workflow"})
         for scenario in SCENARIOS.values():
             steps = [step["id"] for step in scenario["steps"]]
+            family = regression.scenario_family(scenario["id"])
+            self.assertEqual(set(scenario["clients"]), set(regression.FAMILIES[family]), scenario["id"])
             for client, apis in scenario["clients"].items():
                 self.assertEqual(list(apis), steps, (scenario["id"], client))
 
@@ -96,22 +116,28 @@ class ContractTests(unittest.TestCase):
         # A driver that drifts from the contract would make a failure name the wrong SDK API.
         for scenario in SCENARIOS.values():
             for client, apis in scenario["clients"].items():
+                source = DRIVER_SOURCES[(regression.scenario_family(scenario["id"]), client)]
                 for step, api in apis.items():
-                    self.assertIn(json.dumps(api)[1:-1], DRIVER_SOURCES[client], (scenario["id"], client, step))
+                    self.assertIn(json.dumps(api)[1:-1], source, (scenario["id"], client, step))
 
     def test_drivers_never_make_raw_http_calls(self):
-        self.assertNotRegex(DRIVER_SOURCES["honua-sdk-python-wheel"], r"\b(httpx|requests|urllib)\.")
-        self.assertNotRegex(DRIVER_SOURCES["honua-sdk-js"], r"\bfetch\(")
-        self.assertNotRegex(DRIVER_SOURCES["honua-sdk-dotnet"], r"new HttpClient|GetAsync\(\"|PostAsync\(")
+        self.assertNotRegex(DRIVER_SOURCES[("sdk", "honua-sdk-python-wheel")], r"\b(httpx|requests|urllib)\.")
+        self.assertNotRegex(DRIVER_SOURCES[("sdk", "honua-sdk-js")], r"\bfetch\(")
+        self.assertNotRegex(DRIVER_SOURCES[("sdk", "honua-sdk-dotnet")], r"new HttpClient|GetAsync\(\"|PostAsync\(")
+        # The command-line and MCP drivers only launch the installed executables.
+        for source in (CLI_DRIVER, MCP_DRIVER):
+            self.assertNotRegex(source, r"\b(httpx|requests|urllib|http\.client|socket)\b")
 
     def test_scenario_validation_rejects_incomplete_contracts(self):
         base = copy.deepcopy(SCENARIOS["sdk-stac"])
         cases = [
-            (lambda s: s.update(id="stac"), "sdk-\\* id"),
+            (lambda s: s.update(id="stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
+            (lambda s: s.update(id="gui-stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
             (lambda s: s.update(steps=[]), "no steps"),
             (lambda s: s["steps"][0].update(oracle="vibes"), "known oracle"),
             (lambda s: s.update(receiptFields=["client", "body"]), "allowlist"),
-            (lambda s: s["clients"].pop("honua-sdk-dotnet"), "every SDK client"),
+            (lambda s: s["clients"].pop("honua-sdk-dotnet"), "every sdk client"),
+            (lambda s: s["clients"].update({"honua-mcp-server": s["clients"]["honua-sdk-js"]}), "every sdk client"),
             (lambda s: s["clients"]["honua-sdk-js"].update(search=""), "one API per step"),
         ]
         for change, message in cases:
@@ -121,25 +147,33 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(regression.RegressionError, message):
                     regression.validate_scenario(scenario, "case.json")
 
-    def test_matrix_covers_every_scenario_for_every_sdk(self):
-        suite = [cell for cell in MATRIX["cells"] if cell["driver"] in run.SUITE_DRIVERS]
-        self.assertEqual(len(suite), 3 * len(SCENARIOS))
-        for artifact in regression.CLIENT_SLUGS:
-            self.assertEqual({cell["scenario"] for cell in suite if cell["artifact"] == artifact}, set(SCENARIOS))
-        for cell in suite:
+    def test_matrix_covers_every_scenario_of_each_family_for_every_client(self):
+        self.assertEqual(set(run.SUITE_DRIVERS), set(regression.DRIVER_CLIENTS))
+        self.assertEqual(set(regression.SUITE_DRIVERS), set(regression.DRIVER_CLIENTS))
+        for driver, (family, artifact) in regression.DRIVER_CLIENTS.items():
+            family_scenarios = {sid for sid in SCENARIOS if regression.scenario_family(sid) == family}
+            cells = [cell for cell in SUITE_CELLS if cell["driver"] == driver]
+            self.assertEqual(sorted(cell["scenario"] for cell in cells), sorted(family_scenarios), driver)
+            self.assertTrue(all(cell["artifact"] == artifact for cell in cells), driver)
+        for cell in SUITE_CELLS:
             regression.validate_suite_cell(cell, SCENARIOS, run.BLOCKER)
 
     def test_matrix_omitting_a_scenario_is_rejected(self):
-        manifest, matrix = run.load_inputs(run.ROOT / "platform-manifest.yaml", run.DEFAULT_MATRIX)
-        matrix["cells"] = [cell for cell in matrix["cells"] if cell["id"] != "nuget-sdk-stac"]
-        with self.assertRaisesRegex(run.CertificationError, "omits SDK regression scenarios"):
-            run.validate_release_inputs(manifest, matrix)
+        for cell_id, message in (("nuget-sdk-stac", "omits SDK regression scenarios"),
+                                 ("pypi-cli-workflow", r"omits regression drivers: \['pypi-cli'\]"),
+                                 ("npm-mcp-workflow", r"omits regression drivers: \['npm-mcp-workflow'\]")):
+            with self.subTest(cell=cell_id):
+                manifest, matrix = run.load_inputs(run.ROOT / "platform-manifest.yaml", run.DEFAULT_MATRIX)
+                matrix["cells"] = [cell for cell in matrix["cells"] if cell["id"] != cell_id]
+                with self.assertRaisesRegex(run.CertificationError, message):
+                    run.validate_release_inputs(manifest, matrix)
 
     def test_suite_cell_validation(self):
         cell = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
         cases = [
             (lambda c: c.update(scenario="sdk-unknown"), "unknown scenario"),
             (lambda c: c.update(driver="npm-sdk"), "does not drive"),
+            (lambda c: c.update(driver="pypi-cli"), "does not drive"),
             (lambda c: c["blockedSteps"].update(nope={"blockedBy": c["blockedBy"][0], "signature": "x"}), "blocked steps of its scenario"),
             (lambda c: c["blockedSteps"]["count"].update(signature=""), "observed signature"),
             (lambda c: c["blockedSteps"]["count"].update(blockedBy="#236"), "issue URL"),
@@ -360,7 +394,7 @@ class HarnessTests(unittest.TestCase):
             run, "install_suite_client", return_value=(True, "ok", ["true"], {})
         ):
             results = run.run_suite(manifest, matrix, Path("/nonexistent"))
-        self.assertEqual(len(results), 3 * len(SCENARIOS))
+        self.assertEqual(len(results), len(SUITE_CELLS))
         self.assertTrue(all(status == "fail" and "live candidate" in detail for status, detail, _ in results.values()))
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
             run, "install_suite_client", return_value=(False, "wheel digest mismatch", [], {})
@@ -405,6 +439,326 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(any("non-allowlisted" in v for v in run.verify_suite_steps(cells, {"npm-sdk-stac": result})))
         result["steps"] = []
         self.assertTrue(any("do not match" in v for v in run.verify_suite_steps(cells, {"npm-sdk-stac": result})))
+
+
+PRINCIPALS = {"proposer": {"id": "key-proposer", "key": "secret-proposer"}, "approver": {"id": "key-approver", "key": "secret-approver"}}
+WORKFLOW_PUBLISHED = {"sites": {"service": "sdkreg-sites", "layerId": 1}, "area": {"service": "sdkreg-area", "layerId": 2}, "edits": {}}
+
+
+def workflow_cell(cell_id):
+    return copy.deepcopy(next(c for c in MATRIX["cells"] if c["id"] == cell_id))
+
+
+def workflow_observations(scenario, client, observed):
+    apis = SCENARIOS[scenario]["clients"][client]
+    return {(scenario, step): {"scenario": scenario, "step": step, "api": apis[step], **payload} for step, payload in observed.items()}
+
+
+def cli_plan():
+    return regression.build_plan(FIXTURE, WORKFLOW_PUBLISHED, "clijs", ["cli-workflow"], SCENARIOS, "http://localhost:8080",
+                                 principals=PRINCIPALS)
+
+
+def passing_cli_observations():
+    life, proposal = FIXTURE["lifecycle"], FIXTURE["proposal"]
+    plan = cli_plan()
+    rows = lambda items, fields: [{"properties": {k: r[k] for k in fields}, "x": r["x"], "y": r["y"]} for r in items]  # noqa: E731
+    return workflow_observations("cli-workflow", "honua-sdk-js", {
+        "discover": {"observed": {"services": ["sdkreg-area", FIXTURE["sites"]["service"]]}},
+        "create-datasource": {"observed": {"connectionId": "c-1"}},
+        "test-datasource": {"observed": {"success": True}},
+        "publish": {"observed": {"layerId": 12, "layerName": life["layerName"], "serviceName": plan["lifecycle"]["service"], "enabled": True}},
+        "list": {"observed": {"layers": [{"layerId": 12, "enabled": True}]}},
+        "query": {"observed": {"features": rows(oracles.filtered_sites(FIXTURE), ("gid", "name", "rank"))}},
+        "served": {"observed": {"count": len(life["features"])}},
+        "propose-publication": {"observed": {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1",
+                                             "servedBeforeApproval": False}},
+        "self-approval-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 403}, "observed": {"status": "AwaitingApproval"}},
+        "approve": {"observed": {"status": "Succeeded"}},
+        "proposal-resolved": {"observed": {"status": "Succeeded", "kind": "ServicePublish",
+                                           "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": "key-approver"}},
+        "approved-served": {"observed": {"features": rows(proposal["features"], ("gid", "name"))}},
+        "unpublish": {"observed": {"layerId": 12, "enabled": False}},
+        "unpublished-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 404}},
+    })
+
+
+def setup_view(view, names, revision):
+    return {"view": view, "revision": revision, "toolCount": len(names), "names": names, "nextCursor": None}
+
+
+def passing_mcp_observations(setup=None):
+    default_names = PINNED_DEFAULT_VIEW
+    setup_names = [f"setup_{i}" for i in range(FIXTURE["mcp"]["views"]["setup"]["toolCount"])]
+    spec = FIXTURE["mcp"]["render"]
+    painted = {(x, y) for x, y, inside in oracles.render_expectations(FIXTURE) if inside}
+    box = lambda x, y: 40 <= x < 220 and 40 <= y < 280  # noqa: E731 - the fixture block, independently in pixels
+    image = base64.b64encode(png(spec["width"], spec["height"], box)).decode()
+    assert all(box(x, y) for x, y in painted)
+    x, y, d = *FIXTURE["processes"]["point"], FIXTURE["processes"]["distance"]
+    ring = [[x + d * math.cos(2 * math.pi * i / 32), y + d * math.sin(2 * math.pi * i / 32)] for i in range(32)]
+    return workflow_observations("mcp-workflow", "honua-mcp-server", {
+        "initialize-setup": {"observed": {"protocolVersion": "2025-06-18", "serverName": "honua.operator.mcp", "serverVersion": "v1"}},
+        "setup-tools-list": {"observed": setup or setup_view("setup", setup_names, "setup.v2")},
+        "default-tools-list": {"observed": setup_view("default", default_names, "default.v1")},
+        "full-catalog-refused": {"error": {"type": "permission_denied", "status": None}},
+        "full-catalog": {"observed": {"names": regression.load_tool_roster(), "pages": 5, "restoredView": "default"}},
+        "read": {"observed": {"features": [{"attributes": {k: r[k] for k in ("gid", "name", "rank")}, "x": r["x"], "y": r["y"]}
+                                           for r in oracles.filtered_sites(FIXTURE)]}},
+        "render": {"observed": {"png": image, "mimeType": "image/png"}},
+        "buffer-submit": {"observed": {"jobId": "gp-1", "status": "Queued"}},
+        "buffer-poll": {"observed": {"status": "Succeeded"}},
+        "buffer-result": {"observed": {"geometry": {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}}},
+    })
+
+
+def evaluate_workflow(cell_, observations, client, plan):
+    return regression.evaluate_cell(cell_, SCENARIOS[cell_["scenario"]], client, observations, FIXTURE, plan, client)
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_cli_workflow_passes_only_with_a_separately_approved_proposal(self):
+        cell_, plan = workflow_cell("npm-cli-workflow"), cli_plan()
+        status, detail, rows = evaluate_workflow(cell_, passing_cli_observations(), "honua-sdk-js", plan)
+        self.assertEqual((status, len(rows)), ("pass", 14), detail)
+        cases = {
+            "proposal-resolved": ({"observed": {"status": "Succeeded", "kind": "ServicePublish",
+                                                "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": "key-proposer"}},
+                                  "resolved by the approver"),
+            "propose-publication": ({"observed": {"status": "Completed", "requiresApproval": False, "proposalId": None}},
+                                    "requires a proposal"),
+            "self-approval-refused": ({"observed": {"status": "Succeeded"}}, "approved its own proposal"),
+            "approved-served": ({"observed": {"features": []}}, "0 features"),
+        }
+        for step, (payload, message) in cases.items():
+            with self.subTest(step=step):
+                observations = passing_cli_observations()
+                observations[("cli-workflow", step)] = {**observations[("cli-workflow", step)], **payload}
+                observations[("cli-workflow", step)].pop("error", None) if "error" not in payload else None
+                status, detail, _ = evaluate_workflow(cell_, observations, "honua-sdk-js", plan)
+                self.assertEqual(status, "fail")
+                self.assertIn(message, detail)
+
+    def test_self_approval_needs_a_403_and_a_still_pending_proposal(self):
+        ok = lambda observation: oracles.oracle_self_approval_refused(observation)[0]  # noqa: E731
+        self.assertTrue(ok({"error": {"status": 403}, "observed": {"status": "AwaitingApproval"}}))
+        self.assertFalse(ok({"error": {"status": 403}, "observed": {"status": "Succeeded"}}))
+        self.assertFalse(ok({"error": {"status": 401}, "observed": {"status": "AwaitingApproval"}}))
+        self.assertFalse(ok({"observed": {"status": "AwaitingApproval"}}))
+
+    def test_pypi_cli_steps_are_blocked_only_when_unsupported(self):
+        cell_ = workflow_cell("pypi-cli-workflow")
+        observations = workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
+            step: {"unsupported": "no command"} for step in cell_["blockedSteps"]})
+        observations.update(workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
+            "discover": {"observed": {"services": [FIXTURE["sites"]["service"]]}}}))
+        self.assertEqual(evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())[0], "blocked")
+        # A command that starts working must flip the step, and discovery can never be blocked.
+        working = passing_cli_observations()
+        observations[("cli-workflow", "served")] = {**working[("cli-workflow", "served")],
+                                                    "api": SCENARIOS["cli-workflow"]["clients"]["honua-sdk-python-wheel"]["served"]}
+        status, detail, _ = evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())
+        self.assertEqual(status, "fail")
+        self.assertIn("set it active", detail)
+
+    def test_proposal_must_not_be_served_before_approval(self):
+        pending = {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1"}
+        self.assertTrue(oracles.oracle_proposal_pending({**pending, "servedBeforeApproval": False})[0])
+        ok, detail = oracles.oracle_proposal_pending({**pending, "servedBeforeApproval": True})
+        self.assertFalse(ok)
+        self.assertIn("served before approval", detail)
+        # The absence check must have run.
+        self.assertFalse(oracles.oracle_proposal_pending(pending)[0])
+
+    def test_cli_children_inherit_no_suite_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            honua, plan = Path(tmp) / "honua", Path(tmp) / "plan.json"
+            honua.write_text(f"#!{sys.executable}\nimport json, os\nprint(json.dumps(dict(os.environ)))\n")
+            honua.chmod(0o700)
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            inherited = regression.driver_env({"PATH": os.environ["PATH"], "PYTHONPATH": "/wheels", "E2E_API_KEY": "admin",
+                                               "HONUA_API_KEY": "operator", "GH_TOKEN": "gh"},
+                                              api_key="root", bearer="bearer", db_password="db", plan_path=plan,
+                                              principals=PRINCIPALS)
+            with mock.patch.dict(os.environ, inherited, clear=True):
+                driver = load_driver("cli", plan)
+                cli = driver.Cli("npm", str(honua), None, Path(tmp))
+                seen = json.loads(cli.run(["services"], {"HONUA_ADMIN_KEY": "secret-proposer"}))
+        self.assertEqual({key: value for key, value in seen.items() if key.startswith(("SDKREG_", "E2E_", "HONUA_"))},
+                         {"HONUA_BASE_URL": "http://localhost:8080", "HONUA_CONFIG_HOME": str(Path(tmp) / "honua-config"),
+                          "HONUA_ADMIN_KEY": "secret-proposer"})
+        self.assertEqual(seen["PYTHONPATH"], "/wheels")
+        self.assertNotIn("GH_TOKEN", seen)
+
+    def test_anonymous_full_view_is_judged_on_its_first_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("mcp", plan)
+        session = mock.Mock()
+        # A first page is disclosed and only the second is refused: the observation must carry the disclosure.
+        session.request.side_effect = [
+            {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "honua_admin_role_list"}], "nextCursor": "c2"}},
+            {"jsonrpc": "2.0", "id": 2, "error": {"code": -32603, "data": {"code": "permission_denied"}}},
+        ]
+        observation = {"observed": driver.anonymous_full_view(session)}
+        self.assertEqual(observation["observed"]["names"], ["honua_admin_role_list"])
+        self.assertFalse(oracles.oracle_mcp_permission_denied(observation)[0])
+        session.request.side_effect = [{"jsonrpc": "2.0", "id": 1, "error": {"code": -32603, "data": {"code": "permission_denied"}}}]
+        with self.assertRaises(driver.RpcError) as refused:
+            driver.anonymous_full_view(session)
+        self.assertEqual(refused.exception.kind, "permission_denied")
+
+    def test_default_view_must_be_the_pinned_roster_and_revision(self):
+        pinned = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]
+        good = setup_view("default", list(PINNED_DEFAULT_VIEW), pinned["revision"])
+        judge = regression.ORACLES["mcp-default-view"]
+        self.assertTrue(judge(good, FIXTURE, {}, {}, {})[0])
+        swapped = setup_view("default", PINNED_DEFAULT_VIEW[1:] + ["honua_admin_role_list"], pinned["revision"])
+        ok, detail = judge(swapped, FIXTURE, {}, {}, {})
+        self.assertFalse(ok)
+        self.assertIn("honua_admin_role_list", detail)
+        self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
+
+    def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
+        cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        default = passing_mcp_observations()[("mcp-workflow", "default-tools-list")]["observed"]
+        status, detail, rows = evaluate_workflow(cell_, passing_mcp_observations(setup=default), "honua-mcp-server", plan)
+        self.assertEqual(status, "blocked", detail)
+        self.assertEqual([row["step"] for row in rows if row["status"] == "blocked"], ["setup-tools-list"])
+        # The fixed proxy returns the setup view: the matrix must be flipped.
+        status, detail, _ = evaluate_workflow(cell_, passing_mcp_observations(), "honua-mcp-server", plan)
+        self.assertEqual(status, "fail")
+        self.assertIn("set it active", detail)
+        # A truncated setup view is a different failure, not the declared blocker.
+        truncated = setup_view("setup", [f"setup_{i}" for i in range(24)], "setup.v2")
+        status, detail, _ = evaluate_workflow(cell_, passing_mcp_observations(setup=truncated), "honua-mcp-server", plan)
+        self.assertEqual(status, "fail")
+        self.assertIn("was not observed", detail)
+
+    def test_mcp_full_catalog_must_equal_the_pinned_roster_and_restore_the_view(self):
+        roster, default = regression.load_tool_roster(), PINNED_DEFAULT_VIEW
+        self.assertEqual(len(roster), len(set(roster)))
+        self.assertGreater(len(roster), FIXTURE["mcp"]["views"]["setup"]["toolCount"])
+        full = lambda names, restored="default": {"names": names, "pages": 5, "restoredView": restored}  # noqa: E731
+        self.assertTrue(oracles.oracle_mcp_full_catalog(full(roster), roster, default)[0])
+        self.assertTrue(oracles.oracle_mcp_full_catalog(full(list(reversed(roster))), roster, default)[0])
+        cases = {
+            "duplicate": (full(roster + roster[:1]), "unique"),
+            "one tool missing": (full(roster[1:]), f"missing ['{sorted(roster)[0]}']"),
+            "one tool renamed": (full(roster[:-1] + ["honua_unpinned"]), "not pinned ['honua_unpinned']"),
+            # The former >setup-count check passed this truncated export.
+            "truncated": (full(default + [name for name in roster if name not in default][:14]), "pinned roster"),
+            "view not restored": (full(roster, "full"), "restores the default view"),
+        }
+        for case, (observed, message) in cases.items():
+            with self.subTest(case=case):
+                ok, detail = oracles.oracle_mcp_full_catalog(observed, roster, default)
+                self.assertFalse(ok, detail)
+                self.assertIn(message, detail)
+        self.assertFalse(oracles.oracle_mcp_full_catalog(full(roster), roster, None)[0])
+        self.assertFalse(oracles.oracle_mcp_full_catalog(full([]), [], default)[0])
+        self.assertFalse(oracles.oracle_mcp_permission_denied({"observed": {"names": roster}})[0])
+        self.assertFalse(oracles.oracle_mcp_permission_denied({"error": {"type": "InvalidRequest"}})[0])
+
+    def test_mcp_driver_anonymous_session_inherits_no_credential(self):
+        # A fake installed proxy that answers tools/list with its own environment.
+        with tempfile.TemporaryDirectory() as tmp:
+            proxy, plan = Path(tmp) / "honua-mcp-proxy", Path(tmp) / "plan.json"
+            proxy.write_text(f"#!{sys.executable}\nimport json, os, sys\nrequest = json.loads(sys.stdin.readline())\n"
+                             "print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': {'env': dict(os.environ)}}), flush=True)\n")
+            proxy.chmod(0o700)
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            inherited = regression.driver_env({"PATH": os.environ["PATH"], "E2E_API_KEY": "admin", "HONUA_API_KEY": "operator",
+                                               "HONUA_SERVER_URL": "http://localhost:8080"},
+                                              api_key="root", bearer="bearer", db_password="db", plan_path=plan,
+                                              principals=PRINCIPALS)
+            with mock.patch.dict(os.environ, inherited, clear=True):
+                driver = load_driver("mcp", plan)
+                for key, expected in (("", {}), ("root", {"HONUA_API_KEY": "root"})):
+                    with self.subTest(key=key), driver.session(str(proxy), key) as session:
+                        seen = session.request("tools/list")["result"]["env"]
+                        credentials = {name: value for name, value in seen.items()
+                                       if name.startswith(("SDKREG_", "E2E_", "HONUA_")) and name != "HONUA_MCP_REMOTE_URL"}
+                        self.assertEqual(credentials, expected)
+                        self.assertFalse({"admin", "operator", "bearer", "db", "secret-proposer", "secret-approver"} & set(seen.values()))
+
+    def test_mcp_buffer_plan_uses_the_candidates_step_and_artifact_kinds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path = Path(tmp) / "plan.json"
+            plan_path.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            plan = load_driver("mcp", plan_path).buffer_plan(FIXTURE["processes"])
+        self.assertEqual([(step["stepId"], step["kind"], step["processId"]) for step in plan["steps"]],
+                         [("buffer", "Geoprocess", "geometry.buffer")])
+        # AnalysisPlan.Outputs are artifact kinds; the buffer-result step reads the FeatureLayer artifact.
+        self.assertEqual(plan["outputs"], ["FeatureLayer"])
+        self.assertEqual(set(plan["steps"][0]["inputs"]), {"wkb", "srid", "distance", "geodesic"})
+
+    def test_cli_proposal_is_read_until_terminal_within_a_deadline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path = Path(tmp) / "plan.json"
+            plan_path.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("cli", plan_path)
+        with mock.patch.object(driver.time, "sleep"):
+            reads = iter([{"status": "Executing"}, {"status": "Submitted"}, {"status": "Reconciling"}, {"status": "Succeeded"}])
+            self.assertEqual(driver.until_terminal(lambda: next(reads)), {"status": "Succeeded"})
+            for terminal in ("Failed", "Rejected", "RolledBack", "Cancelled"):
+                self.assertEqual(driver.until_terminal(lambda: {"status": terminal})["status"], terminal)
+            # Past the deadline the last, non-terminal record is returned and the oracle fails it.
+            clock = iter([0.0, 0.5, 1.0, 2.0])
+            with mock.patch.object(driver.time, "monotonic", lambda: next(clock)):
+                last = driver.until_terminal(lambda: {"status": "Submitted"}, timeout=1.0)
+        self.assertEqual(last, {"status": "Submitted"})
+        self.assertFalse(oracles.oracle_proposal_resolved({**last, "kind": "ServicePublish", "requestedBy": "key-proposer",
+                                                           "resolvedBy": "key-approver"}, cli_plan()["principals"])[0])
+
+    def test_render_oracle_checks_painted_and_transparent_pixels(self):
+        spec = FIXTURE["mcp"]["render"]
+        samples = oracles.render_expectations(FIXTURE)
+        self.assertEqual(sum(1 for *_, inside in samples if inside), 3)
+        self.assertEqual(len(samples), 8)
+        encode = lambda data: {"png": base64.b64encode(data).decode()}  # noqa: E731
+        self.assertTrue(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: 40 <= x < 220 and 40 <= y < 280)), FIXTURE)[0])
+        self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: False)), FIXTURE)[0])
+        self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: True)), FIXTURE)[0])
+        self.assertFalse(oracles.oracle_map_render(encode(png(64, 64, lambda x, y: True)), FIXTURE)[0])
+        self.assertFalse(oracles.oracle_map_render({"png": "not-base64!"}, FIXTURE)[0])
+
+    def test_mcp_job_oracles(self):
+        self.assertTrue(oracles.oracle_mcp_job_accepted({"jobId": "gp-1", "status": "Queued"})[0])
+        self.assertFalse(oracles.oracle_mcp_job_accepted({"jobId": "", "status": "Queued"})[0])
+        self.assertFalse(oracles.oracle_mcp_job_accepted({"jobId": "gp-1", "status": "Failed"})[0])
+        self.assertTrue(oracles.oracle_mcp_job_succeeded({"status": "Succeeded"})[0])
+        self.assertFalse(oracles.oracle_mcp_job_succeeded({"status": "successful"})[0])
+
+    def test_workflow_seed_principals_and_plan_keep_credentials_out_of_the_plan(self):
+        sql = regression.seed_sql(FIXTURE, ["js"], ["clijs"])
+        for table in ("sdkreg_lifecycle_clijs", "sdkreg_proposal_clijs", "sdkreg_edits_js"):
+            self.assertIn(f"CREATE TABLE honua_data.{table}", sql)
+        self.assertNotIn("sdkreg_edits_clijs", sql)
+        self.assertIn("(1, 'proposed-east', ST_SetSRID(ST_MakePoint(-104.0, 39.5), 4326))", sql)
+        api = mock.Mock()
+        api.request.side_effect = lambda method, path, body: {"apiKey": {"id": f"id-{body['permissions'][0]}"}, "key": f"key-{body['name']}"}
+        principals = regression.mint_principals(api, "t1")
+        self.assertEqual({name: value["id"] for name, value in principals.items()},
+                         {"proposer": "id-admin:write", "approver": "id-admin:approve"})
+        api.request.side_effect = lambda method, path, body: {"apiKey": {"id": "x"}}
+        with self.assertRaisesRegex(regression.RegressionError, "could not mint the proposer"):
+            regression.mint_principals(api, "t2")
+        plan = cli_plan()
+        self.assertEqual(plan["principals"], {"proposerId": "key-proposer", "approverId": "key-approver"})
+        self.assertNotIn("secret-", json.dumps(plan))
+        self.assertEqual(plan["proposal"]["service"], "sdkreg-proposal-clijs")
+        env = regression.driver_env({}, api_key="k", bearer="b", db_password="p", plan_path=Path("/tmp/plan.json"),
+                                    principals=PRINCIPALS)
+        self.assertEqual((env["SDKREG_PROPOSER_KEY"], env["SDKREG_APPROVER_KEY"]), ("secret-proposer", "secret-approver"))
+
+    def test_workflow_policy_overlay_gates_only_service_publish(self):
+        overlay = (HERE / "compose.sdk-regression.yml").read_text()
+        self.assertIn('Operations__Policy__Rules__0__OperationId: "service.publish"', overlay)
+        self.assertIn('Operations__Policy__Rules__0__Decision: "RequireApproval"', overlay)
+        self.assertNotIn("Rules__1__", overlay)
+        self.assertNotIn("DefaultDecision", overlay)
 
 
 if __name__ == "__main__":

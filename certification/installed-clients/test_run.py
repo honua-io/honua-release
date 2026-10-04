@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import contextlib
 import hashlib
 import io
 import json
@@ -147,6 +148,9 @@ class MatrixExpectationTests(unittest.TestCase):
                 "pypi-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/255"]),
                 "nuget-sdk-geoservices": ("blocked", ["https://github.com/honua-io/honua-server/issues/5407"]),
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
+                "npm-cli-workflow": ("active", None),
+                "pypi-cli-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/258"]),
+                "npm-mcp-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-js/issues/1875"]),
             },
         )
 
@@ -156,6 +160,15 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
         self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 25})
+
+    def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
+        _, matrix = inputs()
+        cells = {c["id"]: c for c in matrix["cells"]}
+        # The pinned proxy drops the setup selector (sdk-js#1875); every other MCP step must pass.
+        self.assertEqual(set(cells["npm-mcp-workflow"]["blockedSteps"]), {"setup-tools-list"})
+        # The PyPI clients have a command for discovery only (sdk-python#258).
+        self.assertNotIn("discover", cells["pypi-cli-workflow"]["blockedSteps"])
+        self.assertEqual(len(cells["pypi-cli-workflow"]["blockedSteps"]), 13)
 
     def test_mcp_executables_have_explicit_contracts(self):
         _, matrix = inputs()
@@ -300,7 +313,10 @@ class MatrixExpectationTests(unittest.TestCase):
 
 FAKE_MCP = r"""#!{python}
 import json, os, sys
-contract = os.environ.get("FAKE_CONTRACT", "proxy")
+# The proxy environment is scrubbed, so the test configures this fake through a file beside it.
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake.json")
+config = json.load(open(config_path)) if os.path.exists(config_path) else {{}}
+contract = config.get("FAKE_CONTRACT", "proxy")
 if contract == "proxy" and not os.environ.get("HONUA_MCP_REMOTE_URL", "").endswith("/mcp"):
     sys.exit("Fatal: HONUA_MCP_REMOTE_URL environment variable is required")
 if contract == "stdio" and not os.environ.get("HONUA_BASE_URL"):
@@ -310,7 +326,7 @@ for line in sys.stdin:
     message = json.loads(line)
     method = message.get("method")
     if method == "initialize":
-        if os.environ.get("FAKE_PRESERVE") == "1":
+        if config.get("FAKE_PRESERVE") == "1":
             view = message["params"].get("_meta", {{}}).get("honua.io/workflow-view", "default")
         result = {{"protocolVersion": "2025-06-18", "capabilities": {{}}, "serverInfo": {{"name": "fake", "version": "1"}}}}
     elif method == "tools/list":
@@ -319,10 +335,10 @@ for line in sys.stdin:
         result = {{"tools": tools, "_meta": {{"view": view, "revision": {{"default": "default.v1", "setup": "setup.v2"}}.get(view, view + ".v1"), "toolCount": count}}}}
     else:
         continue
-    if method == "initialize" and "FAKE_INITIALIZE" in os.environ:
-        result = json.loads(os.environ["FAKE_INITIALIZE"])
-    if method == "tools/list" and "FAKE_CATALOG" in os.environ:
-        result = json.loads(os.environ["FAKE_CATALOG"])
+    if method == "initialize" and "FAKE_INITIALIZE" in config:
+        result = json.loads(config["FAKE_INITIALIZE"])
+    if method == "tools/list" and "FAKE_CATALOG" in config:
+        result = json.loads(config["FAKE_CATALOG"])
     sys.stdout.write(json.dumps({{"jsonrpc": "2.0", "id": message["id"], "result": result}}) + "\n")
     sys.stdout.flush()
 """
@@ -337,28 +353,38 @@ class McpExchangeTests(unittest.TestCase):
         self.proxy.chmod(0o755)
         self.expect = {"workflowView": "setup", "toolCount": 25}
 
+    @contextlib.contextmanager
+    def fake(self, config):
+        path = self.proxy.parent / "fake.json"
+        path.write_text(json.dumps(config))
+        try:
+            yield
+        finally:
+            path.unlink()
+
     def test_published_proxy_that_drops_the_setup_view_fails(self):
-        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "0"}):
+        with self.fake({"FAKE_PRESERVE": "0"}):
             with self.assertRaisesRegex(mod.ExpectedBlocker, "view='default' revision='default.v1' tools=12"):
                 mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
 
     def test_proxy_that_preserves_the_setup_view_passes(self):
-        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "1"}):
+        with self.fake({"FAKE_PRESERVE": "1"}):
             ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
         self.assertTrue(ok, detail)
         self.assertIn("with 25 tools", detail)
 
     def test_setup_view_tool_count_is_exact(self):
-        with mock.patch.dict(os.environ, {"FAKE_PRESERVE": "1"}):
+        with self.fake({"FAKE_PRESERVE": "1"}):
             ok, _ = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", {"workflowView": "setup", "toolCount": 24})
         self.assertFalse(ok)
 
     def test_mcp_executable_contracts_launch_the_installed_shim_configured(self):
-        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "proxy"}):
+        with self.fake({"FAKE_CONTRACT": "proxy"}):
             self.assertEqual(mod.mcp_tools_list(self.proxy, "mcp-proxy", "http://127.0.0.1:9"), (True, "12 tools"))
-        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "stdio"}):
+        with self.fake({"FAKE_CONTRACT": "stdio"}):
             self.assertEqual(mod.mcp_tools_list(self.proxy, "mcp-stdio", "http://127.0.0.1:9"), (True, "12 tools"))
-        with mock.patch.dict(os.environ, {"FAKE_CONTRACT": "stdio", "HONUA_BASE_URL": ""}):
+        # An inherited HONUA_BASE_URL never reaches the proxy, so it cannot satisfy the stdio contract.
+        with self.fake({"FAKE_CONTRACT": "stdio"}), mock.patch.dict(os.environ, {"HONUA_BASE_URL": "http://127.0.0.1:9"}):
             ok, detail = mod.mcp_tools_list(self.proxy, "mcp-proxy", "http://127.0.0.1:9")
         self.assertFalse(ok)
         self.assertIn("live tools/list failed", detail)
@@ -372,8 +398,7 @@ class McpExchangeTests(unittest.TestCase):
                 invalid.append({**valid, "serverInfo": {**valid["serverInfo"], field: value}})
         for result in invalid:
             for contract in ("mcp-proxy", "mcp-stdio", "setup"):
-                with self.subTest(result=result, contract=contract), mock.patch.dict(
-                    os.environ, {"FAKE_INITIALIZE": json.dumps(result),
+                with self.subTest(result=result, contract=contract), self.fake({"FAKE_INITIALIZE": json.dumps(result),
                                  "FAKE_CONTRACT": "stdio" if contract == "mcp-stdio" else "proxy"}
                 ):
                     if contract == "setup":
@@ -387,7 +412,7 @@ class McpExchangeTests(unittest.TestCase):
         for tool in ({}, {"name": None}, {"name": ""}, {"name": 7}, {"name": []},
                      {"name": "valid"}, "not an object"):
             for contract in ("mcp-proxy", "mcp-stdio"):
-                with self.subTest(tool=tool, contract=contract), mock.patch.dict(os.environ, {
+                with self.subTest(tool=tool, contract=contract), self.fake({
                     "FAKE_CATALOG": json.dumps({"tools": [{"name": "valid"}, tool]}),
                     "FAKE_CONTRACT": "stdio" if contract == "mcp-stdio" else "proxy",
                 }):
@@ -402,7 +427,7 @@ class McpExchangeTests(unittest.TestCase):
                      {**default, "tools": default["tools"][:-1] + [{}]},
                      {**default, "_meta": {**default["_meta"], "revision": "unknown"}}]
         for result in malformed:
-            with self.subTest(result=result), mock.patch.dict(os.environ, {"FAKE_CATALOG": json.dumps(result)}):
+            with self.subTest(result=result), self.fake({"FAKE_CATALOG": json.dumps(result)}):
                 ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
             self.assertFalse(ok, detail)
 
