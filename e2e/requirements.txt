@@ -1,2 +1,3 @@
 # Runner deps. Probes pull SDKs from staging separately (npm/pip/nuget) — see local-docker/.env.example.
 PyYAML>=6.0
+jsonschema>=4.23
