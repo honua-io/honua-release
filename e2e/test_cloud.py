@@ -1755,27 +1755,42 @@ if __name__ == "__main__":
     import traceback
 
     class _MP:
+        def __init__(self):
+            self.restores = []
+
         def delenv(self, k, raising=True):
-            import os
+            previous = os.environ.get(k)
+            self.restores.append(lambda: os.environ.pop(k, None) if previous is None
+                                 else os.environ.__setitem__(k, previous))
             os.environ.pop(k, None)
 
         def setenv(self, k, v):
-            import os
+            previous = os.environ.get(k)
+            self.restores.append(lambda: os.environ.pop(k, None) if previous is None
+                                 else os.environ.__setitem__(k, previous))
             os.environ[k] = v
 
         def setattr(self, obj, name, value):
+            previous = getattr(obj, name)
+            self.restores.append(lambda: setattr(obj, name, previous))
             setattr(obj, name, value)
+
+        def undo(self):
+            for restore in reversed(self.restores):
+                restore()
 
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
+            patches = _MP()
             try:
-                fn(_MP()) if "monkeypatch" in fn.__code__.co_varnames else fn()
+                fn(patches) if "monkeypatch" in fn.__code__.co_varnames else fn()
                 print(f"PASS {name}")
             except Exception:  # noqa: BLE001
                 failures += 1
                 print(f"FAIL {name}")
                 traceback.print_exc()
+            finally:
+                patches.undo()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
-
