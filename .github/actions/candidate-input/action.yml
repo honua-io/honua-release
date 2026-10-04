@@ -36,9 +36,21 @@ runs:
             echo "snapshot parent $parent is not reviewed trunk history of $RUN_SHA"; exit 1;
           }
         fi
+        # Data only: the manifest, the matrix, and the protocol-certification catalog the nightly
+        # staged at the candidate's pins with the vendored sources it read (honua-release#386).
         git -C nightly-input diff --name-only HEAD^ HEAD > "$RUNNER_TEMP/candidate-changes.txt"
         while IFS= read -r path; do
-          case "$path" in platform-manifest.yaml|compatibility-matrix.yaml) ;; *) echo "unexpected candidate change: $path"; exit 1;; esac
+          case "$path" in
+            platform-manifest.yaml|compatibility-matrix.yaml) ;;
+            certification/protocol-certification-requirements.v1.json|certification/sources/*) ;;
+            *) echo "unexpected candidate change: $path"; exit 1;;
+          esac
         done < "$RUNNER_TEMP/candidate-changes.txt"
         cp nightly-input/platform-manifest.yaml platform-manifest.yaml
         cp nightly-input/compatibility-matrix.yaml compatibility-matrix.yaml
+        if [ -f nightly-input/certification/protocol-certification-requirements.v1.json ]; then
+          cp nightly-input/certification/protocol-certification-requirements.v1.json \
+            certification/protocol-certification-requirements.v1.json
+          rm -rf certification/sources
+          cp -a nightly-input/certification/sources certification/sources
+        fi

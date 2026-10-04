@@ -603,7 +603,10 @@ def content_digest_declaration(github, candidate, name):
             'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}
 
 
-def resolve(manifest, matrix, github, registry, limit=100):
+def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require'):
+    """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
+    ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
+    exact-candidate check still refuses, and the bound candidate is re-checked in full."""
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
     # Verify once, before selecting SDK checkouts or reading declarations. A component
@@ -653,6 +656,10 @@ def resolve(manifest, matrix, github, registry, limit=100):
     if server != original:
         # A bound ledger for yesterday's image cannot certify tonight's image.
         certification['ledger']['status'] = 'pending'
+    if protocol_ledger == 'produce':
+        # The nightly binds only the ledger it produces tonight; no earlier binding survives.
+        certification['ledger'].update(status='pending', commit='pending', requirementsSourceRevision='pending',
+                                       sha256='pending')
     # Schema floor and migration journal are read from the selected tree on every night; a hand
     # value (or a value left over from another sha) never survives into the candidate.
     server_component.pop('migrationJournalSha256', None)
@@ -707,18 +714,19 @@ def resolve(manifest, matrix, github, registry, limit=100):
             digests[name] = content_digest_declaration(github, candidate, name)
         except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
             failures.append(f'contentDigests.{name}: {exc}')
-    if certification['ledger'].get('status') != 'bound':
+    if certification['ledger'].get('status') != 'bound' and protocol_ledger != 'produce':
         failures.append(
             'protocolCertification.ledger: no bound ledger for the selected honua-server '
             f'{server}; exact-candidate refuses an unbound ledger')
     if failures:
         # Local qualification still runs so the refusal names every exact-candidate error.
         # Reachability and registry client probes are not a passing claim on this path.
-        findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True)
+        findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True,
+            ledger_produced_later=protocol_ledger == 'produce')
         failures.extend(findings.errors)
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
     findings = validate_platform.validate(candidate, candidate_matrix, None,
-        exact_candidate=True, reachability_client=github)
+        exact_candidate=True, reachability_client=github, ledger_produced_later=protocol_ledger == 'produce')
     evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
     if evidence_path.exists():
         validate_platform.check_legacy_evidence_pin_coherence(
@@ -735,13 +743,16 @@ def main(argv=None):
     parser.add_argument('--out-dir', type=Path, default=Path('resolved-candidate'))
     parser.add_argument('--max-commits', type=int, default=100)
     parser.add_argument('--dry-run', action='store_true', help='read live trunk/registries; publish nothing')
+    parser.add_argument('--protocol-ledger', choices=('require', 'produce'), default='require',
+                        help='produce: the nightly binds a ledger it produces for the selected server')
     args = parser.parse_args(argv)
     try:
         if args.max_commits < 1:
             raise ResolutionError('--max-commits must be positive')
         github = GitHub()
         manifest, matrix = resolve(yaml.safe_load(args.manifest.read_text()),
-            yaml.safe_load(args.matrix.read_text()), github, Registry(github), args.max_commits)
+            yaml.safe_load(args.matrix.read_text()), github, Registry(github), args.max_commits,
+            args.protocol_ledger)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for filename, value in [('platform-manifest.yaml', manifest), ('compatibility-matrix.yaml', matrix)]:
             (args.out_dir / filename).write_text(yaml.safe_dump(value, sort_keys=False))
