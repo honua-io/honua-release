@@ -14,8 +14,9 @@ DRIVERS = {
     "mcp-handshake": ("mcp", ["S1-mcp-handshake", "S2-mcp-tool-catalog"]),
     "studio-authoring": ("studio", ["S3-studio-authoring"]),
     "gp-execute": ("gp", ["S5-geoprocessing"]),
-    "top-demo": ("demos", [f"S9-demos-{name}" for name in (
-        "shim-security", "two-protocols", "esri-leaflet", "geoprocessing", "editing", "analyst-workbench")]),
+    # The demo driver declares its inventory. Read that contract rather than duplicating names.
+    "top-demo": ("demos", [f"S9-demos-{name}" for name in
+        (E2E / "drivers/demos/run.sh").read_text().split("DEMOS=(", 1)[1].split(")", 1)[0].split()]),
 }
 
 
