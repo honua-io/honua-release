@@ -33,7 +33,8 @@ CANDIDATE_ARTIFACT = "certified-candidate"
 # Each producer uploads its class receipt as `promotion-receipt-<class>` containing receipt.json.
 RECEIPT_ARTIFACT = "promotion-receipt-{}"
 NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",
-                   "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey")
+                   "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey",
+                   "executable-docs", "installed-clients")
 # The workflows (and triggering events) allowed to produce each class receipt. The checker trusts
 # the class and lock a receipt names, so only an allowlisted producer's run may supply it. Nightly
 # receipts come from the minting run itself. Qualifying producers (genuine-model-journey,

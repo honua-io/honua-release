@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-geocode-single-line-readme",
+  "env": {
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "samples/geocode-single-line/README.md:18 — \"Set ... `HONUA_BASE_URL` to use\" another server"
+    }
+  },
+  "substitute": {}
+}

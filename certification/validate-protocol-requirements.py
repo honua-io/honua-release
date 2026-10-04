@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 from pathlib import Path
@@ -172,6 +173,7 @@ def main() -> None:
     licensed_policies = {
         "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
         "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
+        "licensed-desktop-client-v1": ("windows-licensed", "anonymous-and-protected-v1"),
     }
     for row in catalog["requirements"]:
         policy = row.get("entitlement_policy_revision")
@@ -282,8 +284,10 @@ def main() -> None:
     if set(protocol_harness) != expected_harness_fields:
         raise ValueError("Server protocol harness source has unknown or missing top-level fields.")
     harness_assignments = protocol_harness["assignments"]
-    if len(harness_assignments) != 32:
-        raise ValueError("Server protocol harness must govern exactly 32 public operations.")
+    # The nightly vendors the harness at each candidate server (honua-release#386), and the server
+    # grows it (42 operations at 87966c3), so 32, the count at revision 2026-08-21.1, is a floor.
+    if len(harness_assignments) < 32:
+        raise ValueError("Server protocol harness must govern at least the 32 public operations of revision 2026-08-21.1.")
     allowed_assignment_fields = {
         "capability_key", "catalog_capability_key", "surface", "operation", "test_ids",
         "scenario_facets",
@@ -636,8 +640,139 @@ def main() -> None:
             f"unexpected={sorted(present_decision_cells - expected_decision_cells)})"
         )
     validate_bounded_roster(catalog, bounded_roster)
+    validate_desktop_clients(catalog, bounded_roster)
     validate_grpc_scope(catalog)
+    validate_production(catalog)
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
+
+
+VERSION_LINE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
+RELEASE_BUCKETS = {"must-fix", "prove-against-candidate"}
+
+
+def validate_desktop_clients(catalog: dict, roster: dict) -> None:
+    """R38 (honua-release#376): desktop clients are certified against a release line, and the
+    licensed desktop client's OGC surfaces are prove-against-candidate rows beside its must-fix
+    GeoServices rows. Only that client's rows carry a release_bucket."""
+    source = json.loads((ROOT / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
+    qgis, pro = source["clients"]["qgis"], source["clients"]["pro"]
+    for client in (qgis, pro):
+        if not VERSION_LINE.fullmatch(client["version"]):
+            raise ValueError(f"Desktop client {client['name']} must name a release line <major>.<minor>.x, "
+                             f"not {client['version']!r}.")
+    if catalog.get("trademarkNotice") != source["trademarkNotice"]:
+        raise ValueError("Catalog trademarkNotice differs from sources/desktop-client-certification.v1.json.")
+    if roster["clients"]["QGIS"]["client_version"] != qgis["version"]:
+        raise ValueError(f"Bounded roster QGIS version differs from the desktop release line {qgis['version']!r}.")
+    if {pro["geoservices_release_bucket"], pro["ogc_release_bucket"]} - RELEASE_BUCKETS \
+            or pro["ogc_release_bucket"] == pro["geoservices_release_bucket"]:
+        raise ValueError("Desktop client release buckets must be two distinct governed buckets.")
+    contract = f"desktop-client-certification@{source['revision']}"
+    matrix = json.loads((ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8"))
+    implemented = {
+        capability["key"] for capability in matrix["capabilities"]
+        if capability.get("maturity", {}).get("implemented")
+    }
+    expected_ogc = {
+        (assignment["capability_key"], assignment["surface"], tuple(assignment["scenario_facets"]))
+        for assignment in source["ogc_assignments"]
+        if assignment["capability_key"] in implemented
+    }
+    present_ogc = set()
+    for row in catalog["requirements"]:
+        client = row["canonical_client"]
+        if client == qgis["name"] and row["client_version"] != qgis["version"]:
+            raise ValueError(f"QGIS requirement {row['surface']}/{row['operation']} must certify {qgis['version']!r}.")
+        if client != pro["name"] and not client.startswith(f"{pro['name']}/"):
+            if "release_bucket" in row:
+                raise ValueError(f"Only the licensed desktop client's rows carry a release_bucket: {client!r}.")
+            continue
+        if row["client_version"] != pro["version"]:
+            raise ValueError(f"Desktop requirement {row['surface']}/{row['operation']} must certify {pro['version']!r}.")
+        if not row["licensed"] or row["deployment_target"] != pro["deployment_target"] \
+                or (client == pro["name"] and row["entitlement_policy_revision"] != pro["entitlement_policy_revision"]) \
+                or row["auth_policy_revision"] != pro["auth_policy_revision"]:
+            raise ValueError(
+                f"Desktop requirement {row['surface']}/{row['operation']} must be licensed on "
+                f"{pro['deployment_target']!r} with {pro['auth_policy_revision']!r}; the desktop client's "
+                f"own rows bind {pro['entitlement_policy_revision']!r}."
+            )
+        if row["contract_revision"] == contract:
+            if row.get("release_bucket") != pro["ogc_release_bucket"] or client != pro["name"] \
+                    or row["client_lane"] != pro["lane"] or row["deployment_target"] != pro["deployment_target"] \
+                    or row["operation"] != row["capability_key"] or row.get("test_ids"):
+                raise ValueError(f"Desktop OGC requirement {row['surface']} differs from its source assignment.")
+            present_ogc.add((row["capability_key"], row["surface"], tuple(row["scenario_facets"])))
+        elif row.get("release_bucket") != pro["geoservices_release_bucket"]:
+            raise ValueError(
+                f"Desktop GeoServices requirement {row['surface']}/{row['operation']} must be "
+                f"{pro['geoservices_release_bucket']!r}."
+            )
+    if present_ogc != expected_ogc:
+        raise ValueError(
+            "Desktop OGC requirements differ from sources/desktop-client-certification.v1.json "
+            f"(missing={sorted(expected_ogc - present_ogc)}, unexpected={sorted(present_ogc - expected_ogc)})"
+        )
+
+
+CANDIDATE_INPUTS = ("{server_image}", "{server_sha}", "{cut_at}")
+
+
+def validate_production(catalog: dict) -> None:
+    """Every client-addressable cell is produced by a named workflow the nightly dispatches at the
+    resolved candidate, or recorded as unproduced with an owner (honua-release#386, #360).
+
+    The ledger's denominator stays honest: a skip is either a producer's own result or a declared
+    gap with the producer its owner must cut, never an unexplained absence.
+    """
+    source = json.loads(
+        (ROOT / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
+    )
+    production = catalog["production"]
+    strip = lambda entry: {key: value for key, value in entry.items() if key != "cells"}  # noqa: E731
+    if production["revision"] != source["revision"] \
+            or [strip(entry) for entry in production["producers"]] != source["producers"] \
+            or [strip(entry) for entry in production["unproduced"]] != source["unproduced"]:
+        raise ValueError("Catalog production dispositions differ from sources/protocol-certification-production.v1.json.")
+    dispositions = [*production["producers"], *production["unproduced"]]
+    producers = [entry["producer"] for entry in production["producers"]]
+    if len(producers) != len(set(producers)):
+        raise ValueError("Catalog production names a producer more than once.")
+    for entry in production["producers"]:
+        if entry["source_revision_key"] not in catalog["source_revisions"]:
+            raise ValueError(f"Producer {entry['producer']} pins an unknown source_revision_key.")
+        values = set(entry["inputs"].values())
+        ungoverned = sorted(value for value in values if "{" in value and value not in CANDIDATE_INPUTS)
+        if ungoverned:
+            raise ValueError(f"Producer {entry['producer']} uses ungoverned input placeholders {ungoverned}.")
+        if not set(CANDIDATE_INPUTS) <= values:
+            raise ValueError(
+                f"Producer {entry['producer']} is not bound to the candidate: its inputs must carry "
+                f"{', '.join(CANDIDATE_INPUTS)}."
+            )
+    counts = [0] * len(dispositions)
+    for row in catalog["requirements"]:
+        if not row["addressable_by_client"]:
+            continue
+        owners = {
+            index for index, entry in enumerate(dispositions)
+            if any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", []))
+            or row["deployment_target"] in entry.get("deployment_targets", [])
+        }
+        if len(owners) != 1:
+            raise ValueError(
+                f"Client lane {row['client_lane']!r} has {len(owners)} production dispositions; exactly one is required."
+            )
+        counts[owners.pop()] += 1
+    if [entry["cells"] for entry in dispositions] != counts:
+        raise ValueError("Catalog production cell counts differ from the requirements they classify.")
+    expected = {
+        "produced": sum(entry["cells"] for entry in production["producers"]),
+        "unproduced": sum(entry["cells"] for entry in production["unproduced"]),
+        "not_addressable": sum(not row["addressable_by_client"] for row in catalog["requirements"]),
+    }
+    if production["cells"] != expected:
+        raise ValueError(f"Catalog production totals {production['cells']} differ from {expected}.")
 
 
 def validate_grpc_scope(catalog: dict) -> None:

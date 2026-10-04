@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "gate": "executable-docs",
+  "generatedAt": "2026-10-03T20:03:24.183026Z",
+  "release": "2026.1-rc.2",
+  "candidate": {
+    "image": "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+    "licensing": "disabled (e2e/harness/compose.candidate.yml)"
+  },
+  "clientPins": {
+    "honua-admin-python-wheel": "honua-admin@0.1.9",
+    "honua-sdk-js": "@honua/sdk-js@0.1.12",
+    "honua-mcp-server": "@honua/mcp-server@0.1.12",
+    "honua-sdk-python-wheel": "honua-sdk@0.1.12",
+    "honua-sdk-dotnet": "Honua.Sdk@1.10.1"
+  },
+  "runtimes": {
+    "node": "node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7",
+    "python": "python:3.12-bookworm@sha256:e91fec3d1ac69f04e4eddcd29c327e630ce34658cf31075bfa7e8b0e052bafea",
+    "dotnet": "mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317",
+    "dockerCli": "docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d"
+  },
+  "evidenceUri": "https://github.com/honua-io/honua-release/pull/421",
+  "status": "fail",
+  "summary": {
+    "fail": 1
+  },
+  "documents": [
+    {
+      "id": "honua-release-docs-install-2026-1",
+      "repo": "honua-io/honua-release",
+      "path": "docs/INSTALL-2026.1.md",
+      "revision": "6c6dcf6ed4a96c944a6d326803bee0a325313330",
+      "url": "https://github.com/honua-io/honua-release/blob/6c6dcf6ed4a96c944a6d326803bee0a325313330/docs/INSTALL-2026.1.md",
+      "blocks": [
+        {
+          "index": 0,
+          "line": 14,
+          "language": "shell",
+          "intent": "run",
+          "status": "fail",
+          "detail": "exit code 1",
+          "sha256": "b3183d8d8634e65bd43ca8d100d21c0a2a56e2b55ca11adf2b390489a76cc74d",
+          "command": "docker compose -f docker-compose.yml -f compose.licensing-disabled.yml up -d\n",
+          "durationSec": 0.6,
+          "exitCode": 1,
+          "stdoutTail": "",
+          "stderrTail": "open /home/mike/honua-io/execdocs421-r29-install-rerun/honua-release-docs-install-2026-1/app/docker-compose.yml: no such file or directory\n"
+        },
+        {
+          "index": 1,
+          "line": 21,
+          "language": "yaml",
+          "intent": "illustrative",
+          "status": "not-run",
+          "detail": "yaml block is not executable by this gate",
+          "sha256": "8fed15158d9db015731b66e8dc394ce1de73354787a9f09cf569de884f641efb",
+          "command": "Licensing__Mode: Disabled\n",
+          "reason": "yaml block is not executable by this gate"
+        },
+        {
+          "index": 2,
+          "line": 33,
+          "language": "shell",
+          "intent": "run",
+          "status": "fail",
+          "detail": "exit code 127",
+          "sha256": "440a18048f373b65326e0e4e952555c158f63f2cee53be03a85e775f08183685",
+          "command": "curl --fail --silent --show-error -H \"X-API-Key: $HONUA_ADMIN_PASSWORD\" \\\n  \"$HONUA_BASE_URL/api/v1/admin/license\" | jq -e '.data.mode == \"disabled\"'\n",
+          "durationSec": 0.4,
+          "exitCode": 127,
+          "stdoutTail": "",
+          "stderrTail": "/home/mike/honua-io/execdocs421-r29-install-rerun/honua-release-docs-install-2026-1/.docrun/docrun-002.sh: line 2: jq: command not found\ncurl: (7) Failed to connect to localhost port 8080 after 0 ms: Couldn't connect to server\n"
+        }
+      ],
+      "checks": [
+        {
+          "check": "boots-candidate-image",
+          "status": "not-evaluated",
+          "detail": "no honua-server container was started from this document's directory (0 container(s) started there)"
+        }
+      ],
+      "status": "fail",
+      "counts": {
+        "fail": 2,
+        "not-evaluated": 1,
+        "not-run": 1
+      },
+      "variablesFile": "vars/honua-release-docs-install-2026-1.json"
+    }
+  ],
+  "outOfScope": [
+    {
+      "repo": "honua-io/honua-server",
+      "path": "docs/get-started/linux-packages.md",
+      "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."
+    },
+    {
+      "repo": "honua-io/honua-server",
+      "path": "docs/get-started/windows-packages.md",
+      "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."
+    }
+  ],
+  "guardRefusals": [],
+  "guardAdmittedClosure": {},
+  "inventoryDrift": []
+}

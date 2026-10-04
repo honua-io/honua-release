@@ -1,6 +1,7 @@
 """Trust-boundary contracts for release workflow triggers and gates."""
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -176,6 +177,7 @@ def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks(
     resolve = "\n".join(_step_text(step) for step in jobs["resolve_pins"]["steps"])
     assert 'manifest.get("clientArtifacts")' in resolve
     assert "honua-mcp-server" in resolve
+    assert 'prefix == "helm"' in resolve and 'component.get("artifactVersion")' in resolve
     assert "consume-mcp-npm" in jobs
     report = "\n".join(_step_text(step) for step in jobs["report"]["steps"])
     assert '.source=="local"' in report and 'enf=="strict"' in report
@@ -246,14 +248,12 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     assert "out/requirements-owner/certification/protocol-certification-requirements.v1.json" in gate
     assert "--requirements out/protocol-certification-requirements.v1.json" in gate
 
+    # honua-release#386: the ledger bound into the nightly candidate manifest is the only source of
+    # truth. The callers that read the frozen PROTOCOL_CERTIFICATION_* variables are retired.
     for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
-        text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
-        assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
-        assert (
-            "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
-            in text
-        )
-        assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in text
+        assert not (REPO_ROOT / ".github" / "workflows" / caller).exists()
+    for workflow in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml"):
+        assert "vars.PROTOCOL_CERTIFICATION_" not in workflow.read_text(encoding="utf-8"), workflow.name
 
     release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
         encoding="utf-8"
@@ -312,41 +312,25 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
 
 
-def test_convergence_rebind_is_plan_only_by_default_and_creates_one_review_pr():
+def test_convergence_rebind_is_a_read_only_plan():
+    """Ruling R18: the nightly binds the ledger it produces; no workflow rebinds it by hand."""
+    document = yaml.safe_load((REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8"))
     text = (REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8")
-    assert "default: false" in text
-    assert "python tools/convergence_rebind.py --apply" in text
-    assert text.count("gh workflow run aggregate.yml") == 1
-    assert text.count("gh pr create") == 1
-    assert "--body-file rebind-receipt.md" in text
-    assert "gh variable set" not in text
-    assert "git commit --allow-empty" in text
-    assert '--ref "$correlation_ref"' in text
-    assert '--branch "$correlation_ref"' in text
-    assert "git/refs/heads/$correlation_ref" in text
+    assert document["permissions"] == {"contents": "read"}
+    assert all("permissions" not in job for job in document["jobs"].values())
+    assert "apply" not in (document.get("on") or document.get(True))["workflow_dispatch"]["inputs"]
+    for forbidden in ("--apply", "--finalize", "gh workflow run", "gh pr create", "gh variable", "git push",
+                      "HONUA_RELEASE_AUTOMATION_TOKEN"):
+        assert forbidden not in text, forbidden
+    assert "python tools/convergence_rebind.py --receipt-min" in text
 
 
-def test_convergence_activation_is_merge_bound_and_sets_all_three_variables():
-    text = (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").read_text(encoding="utf-8")
-    assert "github.event.pull_request.merged == true" in text
-    assert "github.event.pull_request.base.ref == github.event.repository.default_branch" in text
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in text
-    assert "startsWith(github.event.pull_request.head.ref, 'convergence-rebind/')" in text
-    assert "compare/${{ steps.binding.outputs.requirements_revision }}...${{ github.event.pull_request.merge_commit_sha }}" in text
-    assert "use a merge commit and refuse activation" in text
-    assert 'yaml.safe_load(open(path))["jobs"]' in text
-    assert 'ledger["candidate"] == expected_candidate' in text
-    assert 'ledger["requirements_source_revision"] == os.environ["REQUIREMENTS_REVISION"]' in text
-    assert "Merged ledger digest mismatch" in text
-    assert "trap rollback ERR" in text
-    assert 'gh variable get "$name"' in text
-    assert text.count('gh variable set "${names[$i]}"') == 2
-    for name in (
-        "PROTOCOL_CERTIFICATION_MATRIX_COMMIT",
-        "PROTOCOL_CERTIFICATION_MATRIX_SHA256",
-        "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION",
-    ):
-        assert text.count(name) == 1
+def test_no_workflow_writes_protocol_certification_variables():
+    assert not (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").exists()
+    for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        assert "gh variable set" not in text, path.name
+        assert "variables/PROTOCOL_CERTIFICATION" not in text, path.name
 
 
 def _step_text(step: dict) -> str:
@@ -1000,7 +984,8 @@ def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
 def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt():
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                        'executable-docs', 'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     train = _workflow('release-train.yml')['jobs']['report']['steps']
     binding = next(step for step in train if step.get('name') == 'Bind the report to the exact candidate and train identity')
@@ -1019,12 +1004,13 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
 
 
 
-def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
+def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
     import json
     import subprocess
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey')
+                        'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                        'executable-docs', 'installed-clients')
     QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
     report = {'generatedAt': '2026-09-30T06:04:00Z', 'gates': [],
               'candidate': {'train': {'runId': '4242', 'runAttempt': 1},
@@ -1055,3 +1041,181 @@ def test_report_declaration_command_emits_all_fifteen_classes(tmp_path):
     for name in QUALIFYING_EXPECTED:
         assert emitted['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert name not in emitted['evidenceReceipts']
+
+
+def _posix_bash():
+    """The bash GitHub's `shell: bash` uses. On Windows PATH's `bash` is the WSL launcher, which runs
+    nothing and prints UTF-16; the runner's bash is Git for Windows'."""
+    if os.name != "nt":
+        return "bash"
+    git = shutil.which("git")
+    candidates = [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git/bin/bash.exe"]
+    if git:
+        candidates.insert(0, Path(git).resolve().parents[1] / "bin/bash.exe")
+    found = next((str(path) for path in candidates if path.is_file()), None)
+    assert found, f"Git for Windows bash not found in {candidates}"
+    return found
+
+
+@pytest.mark.parametrize("scenario,event,success", [
+    ("subset", "workflow_call", False), ("candidate", "workflow_call", False),
+    ("read-document", "pull_request", False), ("checkout", "pull_request", False),
+    ("runner", "pull_request", False), ("document-failure", "pull_request", True),
+    ("nothing-executed", "pull_request", True), ("nothing-executed", "workflow_call", False),
+    ("pass", "workflow_call", True),
+])
+def test_executable_docs_verdict_outputs_fail_on_incomplete_or_broken_harness(tmp_path, scenario, event, success):
+    import json
+    steps = _workflow("gate-executable-docs.yml")["jobs"]["run"]["steps"]
+    command = next(step["run"] for step in steps if step.get("id") == "verdict")
+    sources = {"documents": [{"id": "a"}, {"id": "b"}]}
+    rows = [{"id": "a", "checks": []}, {"id": "b", "checks": []}]
+    status = "pass"
+    if scenario == "subset":
+        rows.pop()
+    elif scenario == "candidate":
+        rows.append({"id": "candidate", "checks": []})
+    elif scenario in {"read-document", "checkout", "runner"}:
+        rows[0]["checks"] = [{"check": scenario, "status": "fail"}]
+        status = "fail"
+    elif scenario == "document-failure":
+        rows[0]["checks"] = [{"check": "boots-candidate-image", "status": "fail"}]
+        status = "fail"
+    elif scenario == "nothing-executed":
+        # A document whose blocks all need input or were not run is a docs finding, not a harness failure.
+        rows[0]["checks"] = [{"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"}]
+        status = "fail"
+    for name, body in [("certification/executable-docs/sources.json", sources),
+                       ("artifacts/executable-docs/report.json", {"status": status, "documents": rows})]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body))
+    (tmp_path / "artifacts/executable-docs/summary.md").write_text("summary")
+    output = tmp_path / "output"
+    proc = subprocess.run([_posix_bash(), "-c", command], cwd=tmp_path, capture_output=True,
+                          env={**os.environ, "EVENT": event, "GITHUB_OUTPUT": output.as_posix(),
+                               "GITHUB_STEP_SUMMARY": (tmp_path / "summary").as_posix()})
+    assert (proc.returncode == 0) is success, (proc.stdout, proc.stderr)
+    # GitHub parses GITHUB_OUTPUT as UTF-8 key=value lines: no BOM, no NULs, no carriage returns.
+    assert output.read_bytes().split(b"\n")[-2:] == [f"overall_status={status if success else 'fail'}".encode(), b""]
+    assert b"\r" not in output.read_bytes() and b"\x00" not in output.read_bytes()
+
+def _contract_live_step(name: str) -> dict:
+    steps = _workflow("gate-contract-live.yml")["jobs"]["live"]["steps"]
+    return next(step for step in steps if step.get("name") == name)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+@pytest.mark.parametrize("server, expected", [
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3", "digest": "sha256:" + "a" * 64},
+     "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:" + "a" * 64),
+    ({"image": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64, "digest": "sha256:" + "b" * 64},
+     "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64),
+    ({"image": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64, "digest": "sha256:" + "c" * 64}, ""),
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3"}, ""),
+    ({"image": "ghcr.io/honua-io/honua-server:nightly-87966c3", "digest": "sha256:short"}, ""),
+])
+def test_contract_live_boots_only_the_candidate_digest(tmp_path, server, expected):
+    """R27: the gate boots image@digest; a tag alone or a disagreeing digest boots nothing."""
+    (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump({"components": {"honua-server": server}}))
+    output = tmp_path / "github-output"
+    output.touch()
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    (shim / "python").symlink_to(sys.executable)  # the step runs the runner's `python`
+    subprocess.run(["bash", "-c", _contract_live_step("Resolve the candidate image@digest")["run"]],
+                   cwd=tmp_path, check=True, env={**os.environ, "GITHUB_OUTPUT": str(output),
+                                                  "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"})
+    assert output.read_text() == f"ref={expected}\n"
+
+
+def test_contract_live_boots_like_e2e_and_reads_admin_capabilities():
+    boot = _contract_live_step("Boot the exact candidate and read its admin capabilities")
+    assert boot["env"]["HONUA_SERVER_IMAGE"] == "${{ steps.image.outputs.ref }}"
+    # Same harness as e2e-local-docker Slice-1: compose.candidate.yml with Licensing__Mode Disabled,
+    # boot.sh asserting mode: disabled at /api/v1/admin/license, no cloud credentials.
+    assert "bash e2e/harness/boot.sh up" in boot["run"]
+    assert "bash e2e/harness/boot.sh down" in boot["run"]
+    assert "docker compose -f e2e/harness/compose.candidate.yml ps -q server" in boot["run"]
+    assert '.RepoDigests' in boot["run"]
+    assert "http://localhost:8080/api/v1/admin/capabilities" in boot["run"]
+    assert "--connect-timeout 5 --max-time 30" in boot["run"]
+    login = _contract_live_step("Log in to ghcr")
+    assert "continue-on-error" not in login, "a ghcr login failure must fail the run"
+    compose = yaml.safe_load((REPO_ROOT / "e2e/harness/compose.candidate.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["server"]["environment"]["Licensing__Mode"] == "Disabled"
+    check = _contract_live_step("Compare advertised contract versions with the declaration")
+    assert "python tools/check_contract_versions_live.py --manifest platform-manifest.yaml" in check["run"]
+    assert "--declaration" not in check["run"], "the gate reads the declaration at the server sha itself"
+    workflow = _workflow("gate-contract-live.yml")
+    assert workflow["jobs"]["live"]["outputs"]["overall_status"] == "${{ steps.verdict.outputs.status }}"
+    assert "id-token" not in str(workflow.get("permissions")) and "aws" not in str(workflow).lower()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+@pytest.mark.parametrize("status, enforcement, code", [
+    ("pass", "strict", 0), ("pass", "bootstrap", 0),
+    ("fail", "bootstrap", 1), ("fail", "strict", 1),
+    ("blocked", "bootstrap", 0), ("blocked", "strict", 1),
+    ("", "bootstrap", 0), ("", "strict", 1),
+])
+def test_contract_live_refusal_cannot_be_tolerated(tmp_path, status, enforcement, code):
+    enforce = _contract_live_step("Enforce")
+    assert enforce["if"] == "always()"
+    output = tmp_path / "github-output"
+    output.touch()
+    result = subprocess.run(["bash", "-c", enforce["run"]], capture_output=True, text=True,
+                            env={**os.environ, "GITHUB_OUTPUT": str(output), "STATUS": status,
+                                 "ENFORCEMENT": enforcement})
+    assert result.returncode == code
+    assert output.read_text() == f"status={status or 'blocked'}\n"
+
+
+def test_release_train_requires_the_contract_live_gate_under_strict():
+    workflow = _workflow("release-train.yml")
+    job = workflow["jobs"]["gate_contract_live"]
+    assert job["uses"] == "./.github/workflows/gate-contract-live.yml"
+    assert job["needs"] == "freeze"
+    assert job["with"]["enforcement"] == "${{ inputs.dry_run && 'bootstrap' || 'strict' }}"
+    assert job["with"]["candidate_ref"] == "${{ inputs.candidate_ref }}"
+    report = workflow["jobs"]["report"]
+    assert "gate_contract_live" in report["needs"]
+    assemble = next(step for step in report["steps"] if step.get("name") == "Assemble platform gate-report.json")
+    assert assemble["env"]["S_CONTRACT_LIVE"] == (
+        "${{ needs.gate_contract_live.result == 'success' && "
+        "needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}")
+    assert re.search(r"^\s*contract-live\|\$S_CONTRACT_LIVE$", assemble["run"], re.MULTILINE)
+    assert 'row["gate"] == "contract-live"' in assemble["run"]
+    names = [step.get("name") for step in report["steps"]]
+    assert names.index("Download the contract-live report") < names.index("Assemble platform gate-report.json")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_path):
+    image = "ghcr.io/honua-io/honua-server:nightly@sha256:" + "a" * 64
+    harness = tmp_path / "e2e/harness"
+    harness.mkdir(parents=True)
+    calls = tmp_path / "calls"
+    (harness / "boot.sh").write_text('echo "$1" >> "$CALLS"\n')
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    docker = shim / "docker"
+    docker.write_text('#!/bin/bash\nif [ "$1" = compose ]; then echo cid; '
+                      'elif [ "$1" = inspect ]; then echo imageid; '
+                      'else echo "ghcr.io/honua-io/honua-server@sha256:' + "a" * 64 + '"; fi\n')
+    docker.chmod(0o755)
+    curl = shim / "curl"
+    curl.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\necho 200\nexit 28\n')
+    curl.chmod(0o755)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-c", _contract_live_step("Boot the exact candidate and read its admin capabilities")["run"]],
+        cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ, "HONUA_SERVER_IMAGE": image, "E2E_OUT": str(tmp_path / "out"),
+             "GITHUB_OUTPUT": str(output), "CALLS": str(calls),
+             "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"})
+    assert result.returncode == 0
+    assert calls.read_text().splitlines()[0] == "up"
+    assert calls.read_text().splitlines()[-1] == "down"
+    assert "--connect-timeout 5 --max-time 30" in calls.read_text()
+    assert output.read_text() == "why=GET /api/v1/admin/capabilities returned HTTP 000\n"

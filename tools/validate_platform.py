@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
+import platform_version  # noqa: E402
 from image_platforms import image_platform_digests, verify_image_platform_digests  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +153,18 @@ def _component_version_kind(comp: dict) -> str:
     if version == PRERELEASE_SENTINEL:
         return "sha" if str(comp.get("sha", "")).strip() else "invalid"
     return "semver" if semver.is_semver(version) else "invalid"
+
+
+def check_platform_version_stamp(manifest: dict, f: Findings) -> None:
+    """R22: a stamped imaged-component version is the label's platform version, beside bound bytes.
+
+    The stamp is optional for an ordinary validate (the resolver runs before mint names the label).
+    An exact candidate whose imaged identity is already bound must carry it (check_exact_candidate).
+    The lock generator refuses an imaged component that carries none. What is stamped must agree,
+    on artifactVersion and on a plain version alike (platform_version.stamp_errors).
+    """
+    for error in platform_version.stamp_errors(manifest):
+        f.error(f"manifest: {error}")
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
@@ -254,6 +267,8 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
                     raise ValueError("2026.1 image requires both amd64 and arm64 platform digests")
             except (TypeError, ValueError) as exc:
                 f.error(f"manifest: {name}.platformDigests: {exc}")
+
+    check_platform_version_stamp(manifest, f)
 
     server = components.get("honua-server") or {}
     ecs_architecture = str(server.get("awsEcsArchitecture", "")).strip()
@@ -434,11 +449,16 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
 
 
 def check_exact_candidate(
-    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
+    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None,
+    ledger_produced_later: bool = False,
 ) -> None:
-    """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    """Reject placeholders/fallbacks that cannot certify exact published release bytes.
+
+    `ledger_produced_later` is only for the nightly resolver: its protocol-ledger job produces and
+    binds the ledger for this candidate and re-runs the full check before the candidate exists.
+    """
     ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
-    if ledger.get("status") != "bound":
+    if ledger.get("status") != "bound" and not ledger_produced_later:
         f.error("exact-candidate: protocol certification ledger must be bound before certification")
     candidate = manifest.get("candidate") or {}
     ref_source = candidate.get("refSource")
@@ -484,6 +504,26 @@ def check_exact_candidate(
             tr.verify_manifest_pins(manifest, reachability_client)
         except tr.ReachabilityError as exc:
             f.error(f"exact-candidate: {exc}")
+    # R22: once an imaged component's bytes are bound, an exact candidate must name them with the
+    # label's platform version. An absent stamp is not a license to attest some other version.
+    # A component whose identity is not bound stays optional here; the generator still refuses it,
+    # and manual freeze now fails closed on that refusal.
+    release = str(manifest.get("platformRelease", ""))
+    try:
+        expected_version = platform_version.artifact_version(release)
+    except ValueError as exc:
+        f.error(f"exact-candidate: platformRelease {exc}")
+        expected_version = None
+    components = manifest.get("components") or {}
+    for name in platform_version.IMAGED_COMPONENTS:
+        comp = components.get(name)
+        if not isinstance(comp, dict) or platform_version.unbound_identity(comp):
+            continue
+        if expected_version is not None and comp.get("artifactVersion") != expected_version:
+            f.error(
+                f"exact-candidate: {name}.artifactVersion {comp.get('artifactVersion')!r} must be the "
+                f"platform version {expected_version!r} of platformRelease {release!r} (R22)"
+            )
 
 
 # --------------------------------------------------------------------------------------------------
@@ -729,6 +769,7 @@ def validate(
     exact_candidate: bool = False,
     reachability_client: tr.APIClient | None = None,
     requirements: dict | None = None,
+    ledger_produced_later: bool = False,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
@@ -747,7 +788,7 @@ def validate(
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
-        check_exact_candidate(manifest, f, reachability_client)
+        check_exact_candidate(manifest, f, reachability_client, ledger_produced_later)
     return f
 
 

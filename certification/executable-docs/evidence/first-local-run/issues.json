@@ -1,0 +1,72 @@
+{
+  "honua-io/honua-sdk-js": {
+    "url": "https://github.com/honua-io/honua-sdk-js/issues/1897",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 4,
+    "blockFindings": 15
+  },
+  "honua-io/honua-sdk-python": {
+    "url": "https://github.com/honua-io/honua-sdk-python/issues/257",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 4,
+    "blockFindings": 27
+  },
+  "honua-io/honua-sdk-dotnet": {
+    "url": "https://github.com/honua-io/honua-sdk-dotnet/issues/407",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 3,
+    "blockFindings": 26
+  },
+  "honua-io/honua-release": {
+    "url": "https://github.com/honua-io/honua-release/issues/431",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 2,
+    "blockFindings": 2
+  },
+  "honua-io/honua-server": {
+    "url": "https://github.com/honua-io/honua-server/issues/5411",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 4,
+    "blockFindings": 12
+  },
+  "honua-io/honua-samples": {
+    "url": "https://github.com/honua-io/honua-samples/issues/62",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 4,
+    "blockFindings": 7
+  },
+  "honua-io/honua-site": {
+    "url": "https://github.com/honua-io/honua-site/issues/292",
+    "labels": [
+      "release/2026.1",
+      "priority/P1",
+      "bucket/must-fix-before-cut"
+    ],
+    "documents": 4,
+    "blockFindings": 10
+  }
+}

@@ -1,0 +1,154 @@
+# Release gate: installed-client SDK regression (honua-release#381, #386). Nightly evidence class
+# `installed-clients` (R21).
+#
+# The published Python (honua-sdk + honua-admin), JS (@honua/sdk-js) and .NET (Honua.Sdk) SDKs are
+# installed from their registries at exactly the manifest-pinned, integrity-verified bytes. Never a
+# checkout build. They then drive the exact candidate image@digest, booted on local Docker with
+# licensing disabled and no AWS, through every scenario in certification/installed-clients/
+# scenarios/*.json: auth, admin lifecycle, GeoServices, OGC Features/Tiles/Processes and STAC.
+# Each scenario goes through the SDK's own client classes. Every oracle is computed from
+# fixture.v1.json. The same run also executes the install/probe cells of the matrix.
+#
+# Fail closed. An install failure, a missing scenario or step, or any oracle mismatch is a red.
+# Nothing is retried to green. matrix.json is the only source of expected outcomes. A blocked step
+# must show its declared blocker signature. A blocked step that starts passing is a red until it
+# is flipped active. overall_status is `pass` only when every cell passes. Matrix-declared
+# blockers report `blocked`, which is not a pass and does not mint a nightly lock.
+name: gate-installed-clients
+run-name: "gate-installed-clients ${{ inputs.platform_label || github.ref_name }}"
+
+on:
+  pull_request:
+    paths:
+      - certification/installed-clients/**
+      - e2e/harness/compose.candidate.yml
+      - e2e/harness/seed/**
+      - e2e/licensing.py
+      - platform-manifest.yaml
+      - .github/workflows/gate-installed-clients.yml
+  workflow_dispatch:
+    inputs:
+      platform_label: { required: false, type: string, default: "dev-local" }
+  workflow_call:
+    inputs:
+      candidate_ref: { required: false, type: string, default: "" }
+      platform_label: { required: false, type: string, default: "dev-local" }
+    outputs:
+      overall_status:
+        description: "pass | fail | blocked"
+        value: ${{ jobs.report.outputs.overall_status }}
+
+permissions:
+  contents: read
+  packages: read          # pull the pinned honua-server image from ghcr
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      status: ${{ steps.run.outputs.status || 'fail' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - run: python -m pip install -r e2e/requirements.txt pytest
+      # Prove the gate can fail (missing steps, wrong blockers, drifted APIs) before trusting it.
+      - name: Self-test the installed-client gate
+        run: |
+          python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py \
+            certification/installed-clients/test_regression.py -q
+      - name: Run the SDK regression suite against the candidate
+        id: run
+        env:
+          EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          python certification/installed-clients/run.py \
+            --live --subset all \
+            --evidence-uri "$EVIDENCE_URI" \
+            --output artifacts/installed-client-certification.json > /dev/null || code=$?
+          if [ ! -s artifacts/installed-client-certification.json ]; then
+            echo "::error::the suite produced no receipt (exit ${code:-0})"
+            echo "status=fail" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          if ! python certification/installed-clients/run.py --subset all \
+              --verify-receipt artifacts/installed-client-certification.json; then
+            echo "status=fail" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          status=$(jq -r .status artifacts/installed-client-certification.json)
+          case "$status" in pass|blocked) : ;; *) status=fail ;; esac
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          test "${code:-0}" = 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: installed-clients-receipt
+          path: artifacts/installed-client-certification.json
+          if-no-files-found: ignore
+
+  report:
+    needs: suite
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.assemble.outputs.overall_status }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: installed-clients-receipt
+          path: receipt
+      - name: Assemble gate-report.json
+        id: assemble
+        env:
+          SUITE_STATUS: ${{ needs.suite.outputs.status || 'fail' }}
+          PLATFORM_LABEL: ${{ inputs.platform_label || 'dev-local' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          receipt=receipt/installed-client-certification.json
+          [ -s "$receipt" ] || echo '{"results": []}' > "$receipt"
+          # One row per matrix cell; the receipt already carries only allowlisted fields.
+          jq --arg label "$PLATFORM_LABEL" --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" \
+             --arg status "$SUITE_STATUS" '
+            ( [ .results[] | {gate: .cell, status: .status, client: (.package + " " + .version),
+                              scenario: .operationId, why: .detail, blockedBy: .blockedBy, evidence_url: $run} ] ) as $g
+            | { gate: "installed-clients", platform_label: $label, generatedAt: $ts, evidence_url: $run,
+                server: .server, gates: $g,
+                summary: { pass: ([$g[] | select(.status == "pass")] | length),
+                           blocked: ([$g[] | select(.status == "blocked")] | length),
+                           fail: ([$g[] | select(.status != "pass" and .status != "blocked")] | length) },
+                overallStatus: (if $status == "pass" and ($g | length) > 0 then "pass"
+                                elif $status == "blocked" then "blocked" else "fail" end) }' \
+            "$receipt" > out/gate-report.json
+          OVERALL=$(jq -r .overallStatus out/gate-report.json)
+          echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Installed-client SDK regression: $OVERALL"
+            echo "| cell | client | status | why |"; echo "|---|---|---|---|"
+            jq -r '.gates[] | "| \(.gate) | \(.client) | \(.status) | \(.why | gsub("\\|"; "/") | .[0:300]) |"' out/gate-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-clients-gate-report
+          path: out/gate-report.json
+      - name: Enforce
+        env:
+          OVERALL: ${{ steps.assemble.outputs.overall_status }}
+        run: |
+          echo "installed-clients gate: $OVERALL"
+          [ "$OVERALL" = "fail" ] && { echo "::error::installed-clients gate FAILED"; exit 1; } || echo "not red (blocked is not a pass)"

@@ -1,0 +1,10 @@
+{
+  "document": "honua-sdk-js-readme",
+  "env": {},
+  "substitute": {
+    "https://demo.honua.io": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "README.md:445 — `export HONUA_BASE_URL=https://demo.honua.io` sets the server the `honua` CLI reads; README.md:412 — \"Point the same code at a local server\""
+    }
+  }
+}

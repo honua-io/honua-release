@@ -1,0 +1,10 @@
+{
+  "document": "honua-server-docs-get-started-first-dataset",
+  "env": {},
+  "substitute": {
+    "<your quickstart install directory>": {
+      "value": "{session.appDir}",
+      "documentedAt": "docs/get-started/first-dataset.md:16-19 — \"Steps 1–4 of the quickstart write a generated password into `.env` ... Take both from there\" (`cd <your quickstart install directory>`)"
+    }
+  }
+}

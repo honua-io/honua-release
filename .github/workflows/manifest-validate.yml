@@ -63,7 +63,16 @@ jobs:
         run: python3 tools/release_decision_record.py --check
 
       - name: Self-test the tools gates
-        run: python -m pytest tools/ e2e/test_licensing.py -q
+        run: python -m pytest tools/ e2e/test_licensing.py e2e/test_upgrade_chaos.py e2e/test_cloud.py -q
+
+      # honua-release#425 (docs/THIRD-PARTY-TRADEMARKS.md): no new avoidable vendor-term use in this
+      # repository's own files, and no committed per-repo baseline may grow.
+      - name: Lint third-party trademark terms against the committed baseline
+        run: python3 tools/check_vendor_terms.py lint --root . --repo honua-release
+
+      - name: Vendor-term baselines only shrink
+        if: github.event_name == 'pull_request'
+        run: python3 tools/check_vendor_terms.py check-baselines --base-ref "origin/${{ github.base_ref }}"
 
       - name: Check compatibility documentation against its committed lock draft
         run: python tools/generate_compatibility_table.py docs/platform-lock.v1.draft.yaml --check-output

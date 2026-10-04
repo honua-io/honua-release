@@ -24,13 +24,10 @@ jobs:
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    permissions:
-      contents: write          # pushes refs/nightly-candidates/<sha>
     outputs:
-      candidate_ref: ${{ steps.snapshot.outputs.candidate_ref }}
-      server_sha: ${{ steps.snapshot.outputs.server_sha }}
-      server_image: ${{ steps.snapshot.outputs.server_image }}
-      platform_label: ${{ steps.snapshot.outputs.platform_label }}
+      platform_label: ${{ steps.stamp.outputs.platform_label }}
+      server_sha: ${{ steps.server.outputs.server_sha }}
+      server_image: ${{ steps.server.outputs.server_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,11 +35,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      # Every job that runs a tool installs this one pinned file; test_nightly_workflow_contract.py
+      # imports everything those tools reach with only it installed.
+      - run: python -m pip install -r tools/requirements-nightly.txt
       # The resolver reads other repositories' commits, check-runs, workflow runs and GHCR
       # packages. GITHUB_TOKEN cannot read another private repository or its packages, and its
       # 1,000 requests an hour does not cover 500 commits of check-runs, so this uses the release
       # token. An unset token stops the night here.
+      # Every exact-candidate check refuses here except the protocol ledger, which protocol_ledger
+      # produces for the server selected here; it re-runs the full check on the bound candidate.
       - name: Resolve the newest qualifying trunk candidate
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -51,9 +52,10 @@ jobs:
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::RELEASE_GH_TOKEN is required to read component repositories"; exit 1
           fi
-          python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --out-dir resolved-candidate
-      - name: Stamp the next 2026.1-rc label and re-check the exact candidate
-        id: snapshot
+          python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --protocol-ledger produce \
+            --out-dir resolved-candidate
+      - name: Stamp the next 2026.1-rc label
+        id: stamp
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
@@ -62,30 +64,166 @@ jobs:
           label="$(python tools/mint_nightly_lock.py --sync-from origin --history nightly-history \
             --stamp resolved-candidate/platform-manifest.yaml)"
           [ -n "$label" ]
-          export LABEL="$label"
-          python tools/validate_platform.py --exact-candidate \
-            --manifest resolved-candidate/platform-manifest.yaml \
-            --matrix resolved-candidate/compatibility-matrix.yaml
-          cp resolved-candidate/platform-manifest.yaml platform-manifest.yaml
-          cp resolved-candidate/compatibility-matrix.yaml compatibility-matrix.yaml
-          git add platform-manifest.yaml compatibility-matrix.yaml
-          git -c user.name='Mike McDougall' -c user.email='mike@honua.io' \
-            commit --allow-empty -m "chore: nightly candidate snapshot ${label}"
-          sha="$(git rev-parse HEAD)"
-          git push origin "HEAD:refs/nightly-candidates/${sha}"
+          echo "platform_label=${label}" >> "$GITHUB_OUTPUT"
+      # The server the night certifies is fixed here; protocol_ledger binds the ledger for exactly
+      # this server and capacity soaks it in parallel.
+      - name: Read the resolved server
+        id: server
+        run: |
+          set -euo pipefail
           python - <<'PY' >> "$GITHUB_OUTPUT"
-          import os, yaml
-          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
+          import yaml
+          manifest = yaml.safe_load(open("resolved-candidate/platform-manifest.yaml", encoding="utf-8"))
           server = manifest["components"]["honua-server"]
           image = str(server["image"])
           if "@sha256:" not in image or ":" in image.split("@", 1)[0].split("/", 1)[-1]:
               raise SystemExit(f"server image is not an immutable digest reference: {image}")
           print(f"server_sha={server['sha']}")
           print(f"server_image={image}")
-          print("platform_label=" + os.environ["LABEL"])
           PY
-          echo "candidate_ref=${sha}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: resolved-candidate
+          path: |
+            resolved-candidate/platform-manifest.yaml
+            resolved-candidate/compatibility-matrix.yaml
+          if-no-files-found: error
+      # The resolver writes skips.json and its job-summary table on refusal too: which newer trunk
+      # commits it passed over and why, and STALE-CANDIDATE when the selected sha lags trunk head.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: resolved-candidate-skips
+          path: resolved-candidate/skips.json
+          if-no-files-found: warn
 
+  # honua-release#386: the night produces the protocol-certification ledger for the candidate it
+  # resolved. Catalog staging, every producer run, the honua-evidence aggregation and the binding
+  # are this job's own outputs; nothing is hand-dispatched and no repository variable is read or
+  # written. A producer that fails, is skipped, or reports another source sha leaves the ledger
+  # unbound, and an unbound ledger never becomes a candidate ref, so neither DR nor the train runs.
+  # Every producer receives NIGHTLY_DISPATCH_ID and echoes it with its own run identity in each
+  # receipt; the bind refuses any cell whose run this job did not dispatch (R20/R21).
+  protocol_ledger:
+    needs: resolve
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: write          # pushes refs/nightly-requirements/<sha> and refs/nightly-candidates/<sha>
+    env:
+      NIGHTLY_DISPATCH_ID: nightly-certification-${{ github.run_id }}-${{ github.run_attempt }}
+    outputs:
+      candidate_ref: ${{ steps.bind.outputs.candidate_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resolved-candidate
+          path: ${{ runner.temp }}/resolved-candidate
+      # The catalog's source_revisions become the candidate's own pins (server, SDKs at their
+      # published sources, gRPC, MCP), its vendored contracts are read at those pins, and the
+      # result is committed over this run's trunk commit: that commit is the ledger's
+      # requirementsSourceRevision, and the trusted gate reads the denominator from it.
+      - name: Stage the requirements catalog at the resolved candidate's pins
+        id: stage
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          LABEL: ${{ needs.resolve.outputs.platform_label }}
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/resolved-candidate/platform-manifest.yaml" platform-manifest.yaml
+          cp "${RUNNER_TEMP}/resolved-candidate/compatibility-matrix.yaml" compatibility-matrix.yaml
+          python tools/convergence_rebind.py --nightly-stage --plan-output "${RUNNER_TEMP}/nightly-stage-plan.json"
+          git add platform-manifest.yaml compatibility-matrix.yaml certification/sources \
+            certification/protocol-certification-requirements.v1.json
+          git -c user.name='Mike McDougall' -c user.email='mike@honua.io' \
+            commit --allow-empty -m "chore: nightly certification requirements ${LABEL}"
+          sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:refs/nightly-requirements/${sha}"
+          echo "requirements_revision=${sha}" >> "$GITHUB_OUTPUT"
+      - name: Dispatch the protocol certification producers at the candidate
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python tools/nightly_receipts.py dispatch-protocol \
+            --catalog certification/protocol-certification-requirements.v1.json \
+            --manifest platform-manifest.yaml --dispatch-id "$NIGHTLY_DISPATCH_ID" \
+            --out "${RUNNER_TEMP}/protocol-runs.json"
+      - name: Wait for every producer; one that did not succeed refuses the night
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: python tools/nightly_receipts.py wait-protocol --runs "${RUNNER_TEMP}/protocol-runs.json" --timeout 14400
+      # aggregate.yml harvests producer runs at the staged catalog's pins for exactly this
+      # candidate and commits the ledger to honua-evidence trunk. Its Pages deploy job can park on
+      # an environment, so the night waits for the aggregate job alone.
+      - name: Aggregate tonight's producer runs into honua-evidence
+        id: aggregate
+        env:
+          GH_TOKEN: ${{ secrets.HONUA_RELEASE_AUTOMATION_TOKEN }}
+          REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
+        run: |
+          set -euo pipefail
+          since="$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+          run_id="$(python tools/nightly_receipts.py dispatch-aggregate --repository honua-io/honua-evidence \
+            --requirements-revision "$REQUIREMENTS_REVISION" --manifest platform-manifest.yaml)"
+          echo "aggregation: https://github.com/honua-io/honua-evidence/actions/runs/${run_id}"
+          python tools/nightly_receipts.py wait-job --repository honua-io/honua-evidence --run-id "$run_id" \
+            --job aggregate --timeout 3600
+          echo "since=${since}" >> "$GITHUB_OUTPUT"
+      - name: Bind the verified ledger and re-check the exact candidate
+        id: bind
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
+          SINCE: ${{ steps.aggregate.outputs.since }}
+          LABEL: ${{ needs.resolve.outputs.platform_label }}
+          RESOLVED_SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
+          RESOLVED_SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
+        run: |
+          set -euo pipefail
+          python tools/convergence_rebind.py --nightly-bind --requirements-revision "$REQUIREMENTS_REVISION" \
+            --runs "${RUNNER_TEMP}/protocol-runs.json" --since "$SINCE" --dispatch-id "$NIGHTLY_DISPATCH_ID" \
+            | tee "${RUNNER_TEMP}/protocol-ledger-binding.json"
+          python tools/validate_platform.py --exact-candidate
+          # The candidate is one data commit over this run's commit (candidate-input requires that
+          # parent): the staged catalog and sources of the requirements commit plus the bound manifest.
+          git add platform-manifest.yaml
+          tree="$(git write-tree)"
+          sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
+            GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
+            git commit-tree "$tree" -p "$GITHUB_SHA" -m "chore: nightly candidate snapshot ${LABEL}")"
+          # capacity soaked the resolved server in parallel: the bound candidate must be that server.
+          python - <<'PY'
+          import os, yaml
+          server = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))["components"]["honua-server"]
+          resolved = (os.environ["RESOLVED_SERVER_SHA"], os.environ["RESOLVED_SERVER_IMAGE"])
+          if (server["sha"], str(server["image"])) != resolved:
+              raise SystemExit(f"bound server {server['sha']} {server['image']} is not the resolved {resolved}")
+          PY
+          git push origin "${sha}:refs/nightly-candidates/${sha}"
+          echo "candidate_ref=${sha}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: protocol-ledger
+          path: |
+            ${{ runner.temp }}/nightly-stage-plan.json
+            ${{ runner.temp }}/protocol-runs.json
+            ${{ runner.temp }}/protocol-ledger-binding.json
+          if-no-files-found: warn
+
+  # capacity soaks the resolved server image in parallel with protocol_ledger: it reads only the
+  # server sha and image (fixed by resolve) and certification/capacity-envelope.v1.json at
+  # lock_ref, which a candidate snapshot never changes (candidate-input admits manifest, matrix and
+  # catalog data only), so this run's commit is the same envelope bytes.
   capacity:
     needs: resolve
     runs-on: ubuntu-latest
@@ -97,6 +235,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
       # honua-server's producer requires its workflow source, its checkout and candidate_sha to be
       # one commit, so it runs on refs/tags/nightly-candidate/<sha>. RELEASE_GH_TOKEN creates that
       # tag, dispatches the producer and reads its run and receipt in honua-server.
@@ -106,12 +245,12 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
           SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
-          CANDIDATE_REF: ${{ needs.resolve.outputs.candidate_ref }}
+          LOCK_REF: ${{ github.sha }}
         run: |
           set -euo pipefail
           repo=honua-io/honua-server
           run_id="$(python tools/nightly_receipts.py dispatch-capacity --repository "$repo" \
-            --candidate-sha "$SERVER_SHA" --candidate-image "$SERVER_IMAGE" --lock-ref "$CANDIDATE_REF")"
+            --candidate-sha "$SERVER_SHA" --candidate-image "$SERVER_IMAGE" --lock-ref "$LOCK_REF")"
           echo "capacity producer: https://github.com/${repo}/actions/runs/${run_id}"
           set +e
           python tools/nightly_receipts.py wait --repository "$repo" --run-id "$run_id" --timeout 20400
@@ -126,8 +265,12 @@ jobs:
             exit 1
           fi
 
+  # DR has a real data dependency on the bound ledger: the drill's receipt binds candidateLockDigest
+  # to the candidate snapshot's platform-manifest.yaml bytes, which gate-dr re-hashes from the
+  # train's frozen manifest, and those bytes include protocolCertification.ledger as bound. A drill
+  # over the pre-bind manifest would carry a digest the train refuses.
   dr:
-    needs: resolve
+    needs: protocol_ledger
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -140,13 +283,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
       # gate-dr accepts only receipts attested from refs/heads/trunk, so the drill runs on trunk.
       # candidate-input requires the snapshot to descend from reviewed trunk if trunk has moved.
       - name: Dispatch the candidate DR drill and keep its immutable receipt
         id: receipt
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_REF: ${{ needs.resolve.outputs.candidate_ref }}
+          CANDIDATE_REF: ${{ needs.protocol_ledger.outputs.candidate_ref }}
           REVIEWED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -170,9 +314,10 @@ jobs:
           fi
 
   train:
-    needs: [resolve, capacity, dr]
-    # A failed producer that still published a receipt is judged by the train. Cancelled nights stop.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != '' }}
+    needs: [resolve, protocol_ledger, capacity, dr]
+    # The train alone joins the ledger, capacity and DR; a failed producer that still published a
+    # receipt is judged by the train. Cancelled nights stop.
+    if: ${{ !cancelled() && needs.protocol_ledger.result == 'success' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != '' }}
     # release-train's own top-level scopes; a called workflow cannot exceed its caller job.
     permissions:
       contents: read
@@ -186,7 +331,7 @@ jobs:
       platform_label: ${{ needs.resolve.outputs.platform_label }}
       dry_run: false
       nightly: true
-      candidate_ref: ${{ needs.resolve.outputs.candidate_ref }}
+      candidate_ref: ${{ needs.protocol_ledger.outputs.candidate_ref }}
       capacity_receipt_url: ${{ needs.capacity.outputs.receipt_url }}
       dr_receipt_url: ${{ needs.dr.outputs.receipt_url }}
     secrets: inherit
@@ -203,7 +348,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23"
+      - run: python -m pip install -r tools/requirements-nightly.txt
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: qualified-candidate
@@ -344,4 +489,16 @@ jobs:
         with:
           name: promotion-receipt-nightly-model-journey
           path: nightly-lock/promotion-receipts/nightly-model-journey/receipt.json
+          if-no-files-found: error
+      - name: Retain the executable-docs promotion receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: promotion-receipt-executable-docs
+          path: nightly-lock/promotion-receipts/executable-docs/receipt.json
+          if-no-files-found: error
+      - name: Retain the installed-clients promotion receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: promotion-receipt-installed-clients
+          path: nightly-lock/promotion-receipts/installed-clients/receipt.json
           if-no-files-found: error

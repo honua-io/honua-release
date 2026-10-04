@@ -38,7 +38,13 @@ CELL_FIELDS = {
     "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
-OPTIONAL_CELL_FIELDS = {"test_ids"}
+OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket"}
+# R38 (honua-release#376): a client_version of the form <major>.<minor>.x names a release line. Any
+# patch release of the line satisfies it; the receipt records the exact version it observed.
+VERSION_LINE_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
+EXACT_VERSION_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+)
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PRODUCER_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -87,7 +93,9 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-grpc"
     if lane.startswith("mcp-"):
         return "geospatial-mcp"
-    if lane.startswith((
+    # The production map assigns the governed licensed desktop target to one producer by deployment
+    # target, keeping desktop-client lanes unnamed (R30).
+    if cell.get("deployment_target") == "windows-licensed" or lane.startswith((
         "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
         "desktop-arcgis", "arcgis-stub", "ci-desktop",
     )):
@@ -97,6 +105,22 @@ REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 UNASSIGNED_CANONICAL_CLIENT = "UNASSIGNED CANONICAL CLIENT"
 UNASSIGNED_SDK_OPERATION_PREFIX = "UNASSIGNED SDK OPERATION CONTRACT:"
 UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
+
+
+def is_version_line(version: object) -> bool:
+    return isinstance(version, str) and VERSION_LINE_RE.fullmatch(version) is not None
+
+
+def client_version_satisfies(required: object, observed: object) -> bool:
+    """Whether an observed client version satisfies a required one: exactly, or, for a release
+    line <major>.<minor>.x, any exact patch release of that line."""
+    if not isinstance(required, str) or not isinstance(observed, str):
+        return False
+    line = VERSION_LINE_RE.fullmatch(required)
+    if line is None:
+        return observed == required
+    exact = EXACT_VERSION_RE.fullmatch(observed)
+    return exact is not None and exact.group(1, 2) == line.group(1, 2)
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -242,6 +266,31 @@ def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
     )
 
 
+PRODUCER_RUN_FIELDS = {"repository", "workflow", "run_id", "run_attempt", "dispatch_id"}
+PRODUCER_RUN_PATTERNS = {
+    "repository": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.][A-Za-z0-9_.-]*"),
+    "workflow": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml"),
+    "dispatch_id": re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"),
+}
+
+
+def _valid_producer_run(value: object) -> bool:
+    """The run that observed a cell, as the nightly binds it (honua-release#386). The gate checks
+    its shape; the nightly checks it is a run that night dispatched."""
+    return (
+        isinstance(value, dict)
+        and set(value) == PRODUCER_RUN_FIELDS
+        and all(
+            isinstance(value[field], str) and pattern.fullmatch(value[field]) is not None
+            for field, pattern in PRODUCER_RUN_PATTERNS.items()
+        )
+        and all(
+            type(value[field]) is int and value[field] >= 1
+            for field in ("run_id", "run_attempt")
+        )
+    )
+
+
 def _valid_receipt(
     cell: dict,
     candidate_cut_at: str | None = None,
@@ -276,6 +325,12 @@ def _valid_receipt(
         if _timestamp(candidate_cut_at) is None:
             return False
         identity_fields.add("candidate_cut_at")
+    if "client_version_observed" in cell:
+        identity_fields.add("client_version_observed")
+    if isinstance(identity, dict) and "producer_run" in identity:
+        if not _valid_producer_run(identity["producer_run"]):
+            return False
+        identity_fields.add("producer_run")
     # Receipt v2 is producer-strict: the producer owns and emits the governed
     # requirement context. There is no v1/context-less compatibility path at the
     # consumer boundary because such a receipt can be replayed after a maturity,
@@ -295,6 +350,10 @@ def _valid_receipt(
         or (
             isinstance(cell.get("test_ids"), list)
             and identity.get("test_ids") != cell["test_ids"]
+        )
+        or (
+            "client_version_observed" in cell
+            and identity.get("client_version_observed") != cell["client_version_observed"]
         )
         or (
             cell.get("licensed")
@@ -584,6 +643,28 @@ def evaluate(
             or any(not isinstance(test_id, str) or not test_id for test_id in test_ids)
         ):
             fail(prefix, "test_ids must be a non-empty unique string array when governed")
+        if "client_version_observed" in raw and (
+            not is_version_line(raw["client_version"])
+            or not client_version_satisfies(raw["client_version"], raw["client_version_observed"])
+        ):
+            fail(
+                prefix,
+                f"observed client version {raw['client_version_observed']!r} does not satisfy "
+                f"required release line {raw['client_version']!r}",
+            )
+        elif raw["result"] == "pass" and is_version_line(raw["client_version"]) \
+                and "client_version_observed" not in raw:
+            fail(
+                prefix,
+                f"passing cell on release line {raw['client_version']!r} must record the exact "
+                "client_version_observed from its receipt",
+            )
+        owned_requirement = owned_by_signature.get(_requirement_signature(raw))
+        required_bucket = owned_requirement.get("release_bucket") if isinstance(owned_requirement, dict) else None
+        if required_bucket is not None and "release_bucket" not in raw:
+            fail(prefix, f"release_bucket is required: the owned requirement is {required_bucket!r}")
+        elif "release_bucket" in raw and (required_bucket is None or raw["release_bucket"] != required_bucket):
+            fail(prefix, "release_bucket does not match the owned requirement")
 
         evidence_digest = raw["evidence_digest"]
         evidence_receipt = raw["evidence_receipt"]
@@ -827,6 +908,11 @@ def evaluate(
                     fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
                 if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
                     fail(prefix, "ArcPy evidence must execute the governed anonymous-and-protected auth policy")
+            elif entitlement_policy == "licensed-desktop-client-v1":
+                if raw.get("deployment_target") != "windows-licensed":
+                    fail(prefix, "Licensed desktop evidence must execute on the governed windows-licensed target")
+                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
+                    fail(prefix, "Licensed desktop evidence must execute the governed anonymous-and-protected auth policy")
             else:
                 fail(prefix, "licensed evidence must bind a governed entitlement policy")
         elif raw.get("entitlement_policy_revision") is not None:

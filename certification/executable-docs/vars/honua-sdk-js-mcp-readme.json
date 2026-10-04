@@ -1,0 +1,15 @@
+{
+  "document": "honua-sdk-js-mcp-readme",
+  "env": {
+    "HONUA_BASE_URL": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "mcp/README.md:118 — \"`HONUA_BASE_URL` (required in normal mode): absolute base URL\"; :44 \"reads HONUA_BASE_URL from the environment\""
+    }
+  },
+  "substitute": {
+    "https://demo.honua.io/mcp": {
+      "value": "{candidate.mcpUrl}",
+      "documentedAt": "mcp/README.md:407 — \"`HONUA_MCP_REMOTE_URL` (required; alias `HONUA_MCP_URL`): the remote honua /mcp endpoint\""
+    }
+  }
+}

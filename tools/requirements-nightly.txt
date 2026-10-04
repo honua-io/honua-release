@@ -1,0 +1,16 @@
+# Every Python dependency of the tools nightly-certification.yml runs (honua-release#376, R18).
+# Each job that runs a tool installs exactly this file; tools/test_nightly_workflow_contract.py
+# installs it alone into an isolated target and imports every module those tools reach, so a new
+# import (even one inside a function) reddens validate instead of the night.
+# Direct imports.
+pyyaml==6.0.3
+jsonschema==4.26.0
+referencing==0.37.0
+cryptography==50.0.2
+# Their dependencies, pinned so the night installs what validate proved.
+attrs==26.1.0
+cffi==2.1.1
+jsonschema-specifications==2025.9.1
+pycparser==3.0
+rpds-py==2026.6.3
+typing-extensions==4.16.0

@@ -17,12 +17,14 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import tarfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -221,20 +223,98 @@ def _fetch_npm(verifier, name: str, pin: dict[str, Any], dest: Path) -> Resolved
     )
 
 
+# What a candidate client may inherit. The cloud parity job holds an AWS role and
+# an Actions OIDC token request; neither the pinned install nor the journey CLIs
+# need them. Documented allowlist:
+#   PATH, HOME, USER, LOGNAME          locate node, npm and a writable home
+#   LANG, LC_ALL, LC_CTYPE             stable CLI text
+#   TMPDIR, TMP, TEMP                  npm and node temporary files
+#   SYSTEMROOT, PATHEXT                Windows node startup; absent on Linux
+#   SSL_CERT_FILE, SSL_CERT_DIR,
+#   NODE_EXTRA_CA_CERTS,
+#   REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE registry TLS trust
+#   http(s)_proxy, HTTP(S)_PROXY,
+#   no_proxy, NO_PROXY                 runner egress, not a cloud credential
+#   CI                                 npm's non-interactive install behavior
+#   DOTNET_ROOT, DOTNET_CLI_HOME,
+#   DOTNET_NOLOGO                      published SDK bridge startup, no feed token
+#   HONUA_CLOUD_JOURNEY_ADMIN          endpoint-scoped admin capability for this cell
+#   HONUA_JOURNEY_DATASOURCE_PASSWORD  local-docker fixture password, not an AWS secret
+# AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN and GH_TOKEN are
+# removed again below even if a later edit names them in the tuple.
+CANDIDATE_ENV_ALLOWLIST = (
+    "PATH", "HOME", "USER", "LOGNAME",
+    "LANG", "LC_ALL", "LC_CTYPE",
+    "TMPDIR", "TMP", "TEMP",
+    "SYSTEMROOT", "PATHEXT",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+    "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY",
+    "CI",
+    "DOTNET_ROOT", "DOTNET_CLI_HOME", "DOTNET_NOLOGO",
+    "HONUA_CLOUD_JOURNEY_ADMIN",
+    "HONUA_JOURNEY_DATASOURCE_PASSWORD",
+)
+_CREDENTIAL_ENV_PREFIXES = ("AWS_", "ACTIONS_ID_TOKEN_REQUEST_", "HONUA_AWS_")
+_CREDENTIAL_ENV_NAMES = frozenset({"GITHUB_TOKEN", "GH_TOKEN"})
+
+# Neither pinned published package needs an install lifecycle script.
+# @honua/sdk-js@0.1.9-beta.0 and @honua/mcp-server@0.1.4-beta.0 define no
+# preinstall, install or postinstall script. Their bins are plain JavaScript
+# already present in the integrity-checked tarball (prepack ran before publish).
+# A package that genuinely needs a script is named here as (package, script)
+# and run explicitly with candidate_env(); nothing in this tuple runs implicitly.
+EXPLICIT_LIFECYCLE_SCRIPTS: tuple[tuple[str, str], ...] = ()
+
+
+def credential_env_name(name: str) -> bool:
+    return name in _CREDENTIAL_ENV_NAMES or name.startswith(_CREDENTIAL_ENV_PREFIXES)
+
+
+def candidate_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Copy the allowlist. Cloud, OIDC and GitHub token variables never survive."""
+    source = os.environ if source is None else source
+    return {
+        key: source[key]
+        for key in CANDIDATE_ENV_ALLOWLIST
+        if key in source and not credential_env_name(key)
+    }
+
+
+@contextmanager
+def candidate_sandbox():
+    """Replace the process environment with candidate_env for one candidate run."""
+    saved = dict(os.environ)
+    os.environ.clear()
+    os.environ.update(candidate_env(saved))
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
 def _npm_install(prefix: Path, tarballs: list[str], extra: list[str]) -> subprocess.CompletedProcess[str] | str:
     prefix.mkdir(parents=True, exist_ok=True)
     (prefix / "package.json").write_text(
         json.dumps({"name": "honua-terminal-journey-workspace", "private": True}) + "\n"
     )
+    # --ignore-scripts is last so an extra flag cannot re-enable lifecycle scripts.
+    # The cache stays in the install prefix. No named package needs an explicit
+    # lifecycle script (EXPLICIT_LIFECYCLE_SCRIPTS); do not run one implicitly.
+    # EXPLICIT_LIFECYCLE_SCRIPTS is empty, so there is no script to run after
+    # this install. Naming a package there without an explicit candidate_env()
+    # invocation must not be treated as permission to drop --ignore-scripts.
     try:
         return subprocess.run(
             ["npm", "install", "--no-audit", "--no-fund", "--loglevel", "error",
-             "--cache", str(prefix / ".npm-cache"), *extra, *tarballs],
+             "--cache", str(prefix / ".npm-cache"), *extra, "--ignore-scripts", *tarballs],
             cwd=prefix,
             capture_output=True,
             text=True,
             timeout=900,
             check=False,
+            env=candidate_env(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return f"npm install could not be executed: {exc}"

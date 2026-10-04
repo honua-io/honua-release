@@ -309,6 +309,15 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_contract_live:          # R27: boot the exact candidate image@digest and refuse when its advertised
+    needs: freeze              #   /api/v1/admin/capabilities contract versions differ from the declaration
+    uses: ./.github/workflows/gate-contract-live.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
+      platform_label: ${{ inputs.platform_label }}
+      enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
+    secrets: inherit            # RELEASE_GH_TOKEN reads release/component-versions.json at the server sha
+
   gate_sbom:                   # f) SBOM per candidate artifact + aggregated platform BOM (CycloneDX/SPDX). PLAN §6.
     needs: freeze
     uses: ./.github/workflows/gate-sbom.yml
@@ -407,6 +416,12 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}
 
+  gate_executable_docs:        # every getting-started block of the public docs runs against the candidate (#379)
+    needs: freeze
+    uses: ./.github/workflows/gate-executable-docs.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
+
   gate_terminal_journey_contract:  # the terminal journey contract lane, unchanged; its fixture revision
     needs: freeze                  # record is one of the inputs to the nightly lock's $.fixtures (#231 WI-8)
     uses: ./.github/workflows/terminal-journey-contract.yml
@@ -424,6 +439,13 @@ jobs:
       candidate_digest: ${{ needs.freeze.outputs.manifest_sha256 }}
       candidate_bundle: true
 
+  gate_installed_clients:       # installed-client SDK regression (#381, #386): the published Python, JS and
+    needs: freeze                # .NET SDKs drive the exact candidate through every scenario contract
+    uses: ./.github/workflows/gate-installed-clients.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref }}
+      platform_label: ${{ inputs.platform_label }}
+
   # ── report: assemble the machine-readable gate-report.json the AI/MCP layer parses ───────────
 
   report:                      # never scrape logs — parse this (plan §15)
@@ -434,6 +456,7 @@ jobs:
       - gate_cloud_parity
       - gate_build_test
       - gate_contract
+      - gate_contract_live
       - gate_conformance
       - gate_security
       - gate_sbom
@@ -446,6 +469,8 @@ jobs:
       - gate_capacity_soak
       - gate_dr
       - gate_journey
+      - gate_executable_docs
+      - gate_installed_clients
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -467,6 +492,15 @@ jobs:
           name: candidate-manifest
           path: candidate-input
 
+      # The contract-live row carries the declared and advertised maps the gate compared. A
+      # pattern matches nothing when the gate never uploaded; the row then carries nulls.
+      - name: Download the contract-live report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: contract-live-report
+          path: contract-live
+          merge-multiple: true
+
       - name: Assemble platform gate-report.json
         id: assemble
         env:
@@ -483,6 +517,7 @@ jobs:
           S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
           S_BUILD: ${{ needs.gate_build_test.result }}
           S_CONTRACT: ${{ needs.gate_contract.result }}
+          S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
           S_CONFORMANCE: ${{ needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
@@ -495,6 +530,8 @@ jobs:
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
           S_DR: ${{ needs.gate_dr.result }}
           S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
+          S_EXEC_DOCS: ${{ needs.gate_executable_docs.outputs.overall_status || needs.gate_executable_docs.result }}
+          S_INSTALLED: ${{ needs.gate_installed_clients.outputs.overall_status || needs.gate_installed_clients.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -508,6 +545,7 @@ jobs:
           cloud-parity|$S_CLOUD
           build-test|$S_BUILD
           contract|$S_CONTRACT
+          contract-live|$S_CONTRACT_LIVE
           conformance|$S_CONFORMANCE
           security|$S_SECURITY
           sbom|$S_SBOM
@@ -520,6 +558,8 @@ jobs:
           capacity-soak|$S_CAPACITY
           dr|$S_DR
           journey|$S_JOURNEY
+          executable-docs|$S_EXEC_DOCS
+          installed-clients|$S_INSTALLED
           EOF
           )
           echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
@@ -572,11 +612,15 @@ jobs:
           before = json.dumps(
               [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
           )
+          live_path = pathlib.Path("contract-live/contract-live-report.json")
+          live = json.loads(live_path.read_text(encoding="utf-8")) if live_path.is_file() else {}
           for row in report["gates"]:
               entry = exceptions.get(row["gate"])
               if entry:
                   row["exception"] = {"issue": entry.get("issue", ""),
                                       "why": " ".join(str(entry.get("why", "")).split())}
+              if row["gate"] == "contract-live":
+                  row.update({key: live.get(key) for key in ("declared", "advertised", "findings", "manifest", "manifestFindings", "image")})
           after = json.dumps(
               [{"gate": g["gate"], "status": g["status"]} for g in report["gates"]], sort_keys=True
           )

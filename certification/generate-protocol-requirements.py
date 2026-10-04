@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 from pathlib import Path
@@ -14,8 +15,20 @@ SOURCES = ROOT / "sources"
 SUPPORTED = {"implemented", "partial", "covered"}
 FIXTURE = "docker/cng/seed.sql@{source_sha}"
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
-# release#346 ruling: the exact version string the digest-pinned honua-server desktop-qgis lane records.
-QGIS_VERSION = "3.44.13-Solothurn"
+# R38 (honua-release#376): desktop clients are certified against a release line, <major>.<minor>.x;
+# a receipt from any patch of the line satisfies it and records the exact version it observed.
+DESKTOP = json.loads((SOURCES / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
+QGIS_VERSION = DESKTOP["clients"]["qgis"]["version"]
+PRO = DESKTOP["clients"]["pro"]
+
+
+def licensed_desktop(release_bucket: str) -> dict[str, Any]:
+    """Every row of the licensed desktop client runs on its governed licensed target under its
+    entitlement policy, so the gate applies licensed-evidence entitlement and freshness rules."""
+    return {
+        "target": PRO["deployment_target"], "auth_policy": PRO["auth_policy_revision"], "licensed": True,
+        "entitlement_policy": PRO["entitlement_policy_revision"], "release_bucket": release_bucket,
+    }
 PR_SDK_SMOKE_OPERATIONS = {
     "sdk-js": {
         ("featureserver", "metadata"),
@@ -107,6 +120,61 @@ def grpc_client_version(published: dict[str, Any], lane: str) -> str:
                for field in ("digest", "integrity")):
         raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the published artifact digest")
     return version
+
+
+PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
+
+
+def selects(entry: dict[str, Any], row: dict[str, Any]) -> bool:
+    """A disposition owns a requirement by its client lane (glob) or its deployment target."""
+    return any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", [])) \
+        or row["deployment_target"] in entry.get("deployment_targets", [])
+
+
+def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) -> dict[str, Any]:
+    """Give every client-addressable lane exactly one disposition: a producer the nightly
+    dispatches at the resolved candidate, or `unproduced` with an owner (honua-release#386, #360)."""
+    source = load(SOURCES / "protocol-certification-production.v1.json")
+    dispositions = [
+        ("producer", entry["producer"], entry) for entry in source["producers"]
+    ] + [("unproduced", entry["owner"], entry) for entry in source["unproduced"]]
+    for kind, name, entry in dispositions:
+        if kind == "producer":
+            if entry["source_revision_key"] not in revisions:
+                raise ValueError(f"producer {name} pins unknown source_revision_key {entry['source_revision_key']!r}")
+            for key, value in entry["inputs"].items():
+                if "{" in value and value not in PRODUCTION_PLACEHOLDERS:
+                    raise ValueError(f"producer {name} input {key} uses an ungoverned placeholder {value!r}")
+        elif not (entry.get("issue", "").startswith("https://github.com/honua-io/") and entry.get("missing_producer")):
+            raise ValueError(f"unproduced disposition owned by {name} needs an owner issue and missing_producer")
+        if not entry.get("client_lanes") and not entry.get("deployment_targets"):
+            raise ValueError(f"production disposition {name} selects no requirement")
+    # A lane the denominator gains needs a disposition before the catalog regenerates; a lane it
+    # loses (a demoted capability) only leaves its disposition with fewer cells.
+    cells: dict[int, int] = {}
+    for row in requirements:
+        if not row["addressable_by_client"]:
+            continue
+        owners = {index for index, (_kind, _name, entry) in enumerate(dispositions) if selects(entry, row)}
+        if len(owners) != 1:
+            raise ValueError(
+                f"client lane {row['client_lane']!r} ({row['deployment_target']}) has {len(owners)} production "
+                "dispositions; exactly one is required"
+            )
+        owner = owners.pop()
+        cells[owner] = cells.get(owner, 0) + 1
+    producers = [{**entry, "cells": cells.get(index, 0)} for index, (kind, _name, entry) in enumerate(dispositions) if kind == "producer"]
+    unproduced = [{**entry, "cells": cells.get(index, 0)} for index, (kind, _name, entry) in enumerate(dispositions) if kind == "unproduced"]
+    return {
+        "revision": source["revision"],
+        "cells": {
+            "produced": sum(entry["cells"] for entry in producers),
+            "unproduced": sum(entry["cells"] for entry in unproduced),
+            "not_addressable": sum(1 for row in requirements if not row["addressable_by_client"]),
+        },
+        "producers": producers,
+        "unproduced": unproduced,
+    }
 
 
 def main() -> None:
@@ -212,7 +280,8 @@ def main() -> None:
             facets: list[str] | None = None, fixture: str = FIXTURE,
             required_tier: str = "nightly", addressable: bool = True,
             addressability_reason: str | None = None,
-            test_ids: list[str] | None = None) -> None:
+            test_ids: list[str] | None = None,
+            release_bucket: str | None = None) -> None:
         key = (surface, operation, client, version, target)
         if key in seen:
             return
@@ -239,6 +308,8 @@ def main() -> None:
         }
         if test_ids is not None:
             row["test_ids"] = test_ids
+        if release_bucket is not None:
+            row["release_bucket"] = release_bucket
         bound = bind_bounded_cell(row)
         if bound is not None:
             requirements.append(bound)
@@ -399,7 +470,7 @@ def main() -> None:
     server = load(SOURCES / "server" / "capability-matrix.v1.json")
     lane_clients = {
         "desktop-qgis": ("QGIS", QGIS_VERSION),
-        "desktop-arcgis": ("ArcGIS Pro", "3.5"),
+        "desktop-arcgis": (PRO["name"], PRO["version"]),
         "ci-desktop": ("QGIS", QGIS_VERSION),
         "js": ("Honua SDK JavaScript", "0.1.9-beta.0"),
         "js-cesium": ("CesiumJS", "1.132.0"),
@@ -426,7 +497,8 @@ def main() -> None:
                 capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
                 client=client, lane=lane, version=version,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
-                auth_policy="anonymous-public-v1",
+                **(licensed_desktop(PRO["geoservices_release_bucket"]) if client == PRO["name"]
+                   else {"auth_policy": "anonymous-public-v1"}),
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
@@ -561,10 +633,10 @@ def main() -> None:
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     esri_clients = [
-        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None),
-        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None),
-        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None),
-        ("ArcGIS Pro/arcpy", "3.5", "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1"),
+        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
+        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
+        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
+        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", PRO["geoservices_release_bucket"]),
     ]
     for service in esri_index["services"]:
         matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
@@ -576,13 +648,14 @@ def main() -> None:
             facets = ["positive", "auth", "media-schema"]
             if "query" in case["name"].lower():
                 facets += ["pagination", "limit", "crs-axis"]
-            for client, version, lane, target, licensed, entitlement_policy in esri_clients:
+            for client, version, lane, target, licensed, entitlement_policy, bucket in esri_clients:
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
                     client=client, lane=f"{lane}-{service['service']}", version=version,
                     contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, entitlement_policy=entitlement_policy, facets=facets,
+                    release_bucket=bucket,
                 )
 
     ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")
@@ -607,6 +680,20 @@ def main() -> None:
                 facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
             )
 
+    # R38: the licensed desktop client's OGC surfaces are proved against the candidate; its
+    # GeoServices rows above stay must-fix.
+    for assignment in DESKTOP["ogc_assignments"]:
+        capability = server_by_key.get(assignment["capability_key"])
+        if not capability or not capability.get("maturity", {}).get("implemented"):
+            continue
+        add(
+            capability=assignment["capability_key"], surface=assignment["surface"],
+            operation=assignment["capability_key"], client=PRO["name"], lane=PRO["lane"],
+            version=PRO["version"],
+            contract=f"desktop-client-certification@{DESKTOP['revision']}",
+            facets=assignment["scenario_facets"], **licensed_desktop(PRO["ogc_release_bucket"]),
+        )
+
     unbound_cells = sorted((set(bounded_cells) | set(not_addressable_cells)) - bound_cells)
     if unbound_cells:
         raise ValueError(f"bounded-roster cells match no generated requirement: {unbound_cells}")
@@ -616,7 +703,8 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-09-29-complete.15",
+        "revision": "2026-10-04-complete.18",
+        "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (
@@ -641,9 +729,14 @@ def main() -> None:
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
+            f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and the "
+            f"licensed desktop client {PRO['version']}; a receipt records the exact patch it observed. "
+            f"That client's {len(DESKTOP['ogc_assignments'])} OGC surfaces are {PRO['ogc_release_bucket']} "
+            f"rows and its GeoServices rows stay {PRO['geoservices_release_bucket']}. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
         "source_revisions": revisions,
+        "production": production(requirements, revisions),
         "requirements": requirements,
     }
     OUTPUT.write_text(json.dumps(output, indent=2, sort_keys=False) + "\n", encoding="utf-8")

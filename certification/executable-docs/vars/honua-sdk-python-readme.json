@@ -1,0 +1,19 @@
+{
+  "document": "honua-sdk-python-readme",
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "README.md:179-180 — \"Admin needs a server of your own ... Mint a key with HONUA_ADMIN_PASSWORD on your server\""
+    }
+  },
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "README.md:179 — \"Admin needs a server of your own\" (the `your-honua-server.com` placeholder)"
+    },
+    "https://demo.honua.io": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "docs/quickstart.md:30-42 (linked from README.md:84 \"Query features in 5 minutes\") — the public demo is the stand-in for \"a server of your own\""
+    }
+  }
+}

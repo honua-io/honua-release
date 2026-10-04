@@ -301,6 +301,8 @@ class ImportFidelityGateTests(unittest.TestCase):
     @staticmethod
     def _matrices():
         committed = json.loads((HERE / "matrix.json").read_text())
+        # The SDK regression cells need a live fixture; test_regression.py covers them.
+        committed["cells"] = [cell for cell in committed["cells"] if cell["driver"] not in installed.SUITE_DRIVERS]
         active = copy.deepcopy(committed)
         cell = next(item for item in active["cells"] if item["id"] == "nuget-service-layer-import-fidelity")
         cell["status"] = "active"

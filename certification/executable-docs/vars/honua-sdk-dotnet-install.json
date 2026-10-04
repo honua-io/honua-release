@@ -1,0 +1,26 @@
+{
+  "document": "honua-sdk-dotnet-install",
+  "env": {},
+  "substitute": {
+    "https://your-honua-server.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:109 — `options.BaseAddress = new Uri(\"https://your-honua-server.com\")` placeholder"
+    },
+    "https://honua.example.com": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:184-193 — loopback/localhost is the documented local-development exception to the HTTPS rule"
+    },
+    "<your-api-key>": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "INSTALL.md:124 — `export HONUA_API_KEY=\"<your-api-key>\"  # an admin API key`; docs/quickstart.md:34-36 names the admin password the server quickstart generated"
+    },
+    "<your-service-id>": {
+      "value": "{fixture.featureService}",
+      "documentedAt": "INSTALL.md:125 — `export HONUA_SERVICE_ID=\"<your-service-id>\"  # the serviceName of a published layer`; docs/quickstart.md:31-33 points to the layer Publish your first dataset prints"
+    },
+    "<your-layer-id>": {
+      "value": "{fixture.featureLayerId}",
+      "documentedAt": "INSTALL.md:126 — `export HONUA_LAYER_ID=\"<your-layer-id>\"  # that layer's layerId (a number)`"
+    }
+  }
+}
