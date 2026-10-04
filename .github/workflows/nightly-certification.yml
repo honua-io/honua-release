@@ -88,6 +88,14 @@ jobs:
             resolved-candidate/platform-manifest.yaml
             resolved-candidate/compatibility-matrix.yaml
           if-no-files-found: error
+      # The resolver writes skips.json and its job-summary table on refusal too: which newer trunk
+      # commits it passed over and why, and STALE-CANDIDATE when the selected sha lags trunk head.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: resolved-candidate-skips
+          path: resolved-candidate/skips.json
+          if-no-files-found: warn
 
   # honua-release#386: the night produces the protocol-certification ledger for the candidate it
   # resolved. Catalog staging, every producer run, the honua-evidence aggregation and the binding

@@ -8,13 +8,13 @@
     "honua-io/honua-server#5408"
   ],
   "note": "Confidential (R30) uses present when the class landed. Listed so the gate is red with a reason, never green: the reusable gate fails on every entry. May only shrink.",
-  "total": 1422,
+  "total": 1419,
   "files": {
     ".github/workflows/certification.yml": 2,
     "certification/README.md": 1,
     "certification/conformance-evidence.yaml": 2,
-    "certification/generate-protocol-requirements.py": 6,
-    "certification/protocol-certification-requirements.v1.json": 1277,
+    "certification/generate-protocol-requirements.py": 5,
+    "certification/protocol-certification-requirements.v1.json": 1275,
     "certification/protocol-certification-requirements.v1.schema.json": 4,
     "certification/protocol-certification.v1.schema.json": 4,
     "certification/validate-protocol-requirements.py": 2,

@@ -1,0 +1,53 @@
+# Release gate — GA-blocking security findings. The server security review's findings live on a
+# private tracker; the release decision carries only their public `SEC-N` ids and status
+# (docs/2026.1-release-decision-overrides.json `security_findings`). This gate makes that public
+# disposition machine-checked instead of a count in prose:
+#
+#   - every `fixed` row names a PR that is merged to its repository's default branch and cites
+#     its `SEC-N` id in the title or body
+#   - the rows match the ruling's GA-blocker count, and the committed record carries the computed
+#     Decision, which stays HOLD while any row is `open`
+#
+# Fail-closed: an unreadable PR, a malformed row or a record that disagrees with the computed
+# Decision fails the job. It reads public PR metadata only; no private finding detail is fetched.
+#
+# Trigger scope: every PR touching the decision inputs or generator, nightly (a fixed row's PR can
+# be reverted or edited after the PR that recorded it), on demand and from the release train.
+
+name: gate-security-findings
+
+on:
+  pull_request:
+    paths:
+      - "docs/2026.1-release-decision-*"
+      - "tools/release_decision_record.py"
+      - "tools/test_release_decision_record.py"
+      - ".github/workflows/gate-security-findings.yml"
+  schedule:
+    - cron: "53 5 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gate-security-findings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-findings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - name: Self-test the security findings rules
+        run: python -m pytest tools/test_release_decision_record.py -q
+      - name: Verify fixed rows against their merged PRs and the computed Decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/release_decision_record.py --verify-security

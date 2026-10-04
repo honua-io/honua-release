@@ -265,6 +265,39 @@ class TerraformTarget(DeployTarget):
             detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
             raise ProvisionError(f"{self.name} teardown failed: {detail}")
 
+    def seed_database(self, sql: str) -> dict:
+        """Use this cell's existing connection secret in memory; never persist or log it."""
+        if self._workdir is None:
+            raise ProvisionError("cloud database is not provisioned")
+        state = json.loads(self._tf(self._workdir, "show", "-json").stdout)
+
+        def connections(module):
+            for resource in module.get("resources", []):
+                if resource.get("type") == "aws_secretsmanager_secret_version" and resource.get(
+                        "name") in ("db_connection", "connection_string"):
+                    yield resource["values"]["secret_string"]
+            for child in module.get("child_modules", []):
+                yield from connections(child)
+
+        values = list(connections(state["values"]["root_module"]))
+        if len(values) != 1:
+            raise ProvisionError("cell must have exactly one database connection secret")
+        parts = dict(part.split("=", 1) for part in values[0].split(";") if "=" in part)
+        parts = {k.strip().lower(): v for k, v in parts.items()}
+        connection = {"host": parts["host"], "port": int(parts.get("port", "5432")),
+            "databaseName": parts["database"], "username": parts["username"],
+            "password": parts["password"], "provider": "PostGIS", "sslRequired": True,
+            "sslMode": "Require"}
+        env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
+        env.update(PGHOST=connection["host"], PGPORT=str(connection["port"]),
+            PGDATABASE=connection["databaseName"], PGUSER=connection["username"],
+            PGPASSWORD=connection["password"], PGSSLMODE="require", PGCONNECT_TIMEOUT="30")
+        result = subprocess.run(["psql", "-v", "ON_ERROR_STOP=1"], input=sql, text=True,
+                                env=env, capture_output=True, timeout=120)
+        if result.returncode:
+            raise ProvisionError("cloud fixture SQL failed")
+        return connection
+
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
