@@ -4,8 +4,17 @@
   "title": "Honua protocol certification requirements",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "revision", "receipt_schema_min", "complete", "scope_notes", "source_revisions", "production", "requirements"],
+  "required": ["schema", "revision", "receipt_schema_min", "complete", "scope_notes", "source_revisions", "desktop_driver_summary", "production", "requirements"],
   "$defs": {
+    "driverCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["must-fix-before-cut", "prove-against-candidate"],
+      "properties": {
+        "must-fix-before-cut": { "type": "integer", "minimum": 0 },
+        "prove-against-candidate": { "type": "integer", "minimum": 0 }
+      }
+    },
     "clientLanes": {
       "type": "array",
       "minItems": 1,
@@ -26,6 +35,20 @@
     "receipt_schema_min": { "enum": ["v1", "v2"] },
     "complete": { "type": "boolean" },
     "scope_notes": { "type": "string", "minLength": 1 },
+    "desktop_driver_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ruling", "drivers"],
+      "properties": {
+        "ruling": { "const": "R40" },
+        "drivers": {
+          "type": "object",
+          "minProperties": 4,
+          "maxProperties": 4,
+          "additionalProperties": { "$ref": "#/$defs/driverCounts" }
+        }
+      }
+    },
     "source_revisions": {
       "type": "object",
       "minProperties": 1,
@@ -122,7 +145,8 @@
           "addressability_reason": { "type": ["string", "null"] },
           "scenario_facets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
           "test_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-          "release_bucket": { "enum": ["must-fix", "prove-against-candidate"] },
+          "release_bucket": { "enum": ["must-fix-before-cut", "prove-against-candidate"] },
+          "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
           "contract_revision": { "type": "string", "minLength": 1 },
           "auth_policy_revision": { "type": "string", "minLength": 1 },
           "fixture_revision": { "type": "string", "minLength": 1 },
@@ -184,6 +208,11 @@
                 "auth_policy_revision": { "const": "anonymous-and-protected-v1" }
               }
             }
+          },
+          {
+            "if": { "required": ["client_driver"] },
+            "then": { "required": ["release_bucket"] },
+            "else": { "not": { "required": ["release_bucket"] } }
           }
         ]
       }

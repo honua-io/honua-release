@@ -17,18 +17,53 @@ FIXTURE = "docker/cng/seed.sql@{source_sha}"
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
 # R38 (honua-release#376): desktop clients are certified against a release line, <major>.<minor>.x;
 # a receipt from any patch of the line satisfies it and records the exact version it observed.
+# R40 splits each client by driver. Scripting rows are must-fix-before-cut on every applicable
+# GeoServices and OGC cell. UI rows (pro-ui, qgis-ui) are must-fix-before-cut only on the core
+# set named in the source; every other UI cell is prove-against-candidate.
 DESKTOP = json.loads((SOURCES / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
-QGIS_VERSION = DESKTOP["clients"]["qgis"]["version"]
+QGIS = DESKTOP["clients"]["qgis"]
+QGIS_VERSION = QGIS["version"]
 PRO = DESKTOP["clients"]["pro"]
+DESKTOP_DRIVERS = DESKTOP["drivers"]
+MUST_FIX = DESKTOP["buckets"]["must_fix"]
+PROVE = DESKTOP["buckets"]["prove"]
 
 
-def licensed_desktop(release_bucket: str) -> dict[str, Any]:
+def licensed_desktop(release_bucket: str, client_driver: str, *, entitlement: str | None = None) -> dict[str, Any]:
     """Every row of the licensed desktop client runs on its governed licensed target under its
     entitlement policy, so the gate applies licensed-evidence entitlement and freshness rules."""
     return {
         "target": PRO["deployment_target"], "auth_policy": PRO["auth_policy_revision"], "licensed": True,
-        "entitlement_policy": PRO["entitlement_policy_revision"], "release_bucket": release_bucket,
+        "entitlement_policy": entitlement or PRO["entitlement_policy_revision"],
+        "release_bucket": release_bucket, "client_driver": client_driver,
     }
+
+
+def ui_functions(surface: dict[str, Any]) -> list[str]:
+    """The UI operations a surface contributes: the shared set, FeatureServer edit, and WFS-T edit."""
+    ui = DESKTOP["ui"]
+    functions = list(ui["functions"])
+    if surface.get("edit"):
+        functions.append(ui["feature_edit"])
+    if surface.get("wfs_edit"):
+        functions.append(ui["wfs_edit"])
+    return functions
+
+
+def desktop_driver_summary(requirements: list[dict[str, Any]], drivers: tuple[str, ...]) -> dict[str, Any]:
+    """Counts of desktop rows per driver per release bucket (R40)."""
+    counts = {driver: {MUST_FIX: 0, PROVE: 0} for driver in drivers}
+    for row in requirements:
+        driver = row.get("client_driver")
+        if driver is None:
+            continue
+        if driver not in counts:
+            raise ValueError(f"desktop row names an unknown client_driver {driver!r}")
+        bucket = row.get("release_bucket")
+        if bucket not in counts[driver]:
+            raise ValueError(f"desktop row {row['surface']}/{row['operation']} has no governed release_bucket")
+        counts[driver][bucket] += 1
+    return {"ruling": "R40", "drivers": counts}
 PR_SDK_SMOKE_OPERATIONS = {
     "sdk-js": {
         ("featureserver", "metadata"),
@@ -281,7 +316,8 @@ def main() -> None:
             required_tier: str = "nightly", addressable: bool = True,
             addressability_reason: str | None = None,
             test_ids: list[str] | None = None,
-            release_bucket: str | None = None) -> None:
+            release_bucket: str | None = None,
+            client_driver: str | None = None) -> None:
         key = (surface, operation, client, version, target)
         if key in seen:
             return
@@ -310,6 +346,8 @@ def main() -> None:
             row["test_ids"] = test_ids
         if release_bucket is not None:
             row["release_bucket"] = release_bucket
+        if client_driver is not None:
+            row["client_driver"] = client_driver
         bound = bind_bounded_cell(row)
         if bound is not None:
             requirements.append(bound)
@@ -492,13 +530,16 @@ def main() -> None:
             )
         for interop in capability.get("interop", []):
             lane = interop["clientLane"]
+            # R40: the coarse interop lane for the licensed desktop client is the scripting
+            # matrix plus the UI grid, so it is not emitted again here.
+            if lane.startswith("desktop-") and lane.endswith("gis") and "qgis" not in lane:
+                continue
             client, version = lane_clients.get(lane, (lane, f"pin@{revisions['server']['commit'][:12]}"))
             add(
                 capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
                 client=client, lane=lane, version=version,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
-                **(licensed_desktop(PRO["geoservices_release_bucket"]) if client == PRO["name"]
-                   else {"auth_policy": "anonymous-public-v1"}),
+                auth_policy="anonymous-public-v1",
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
@@ -636,8 +677,12 @@ def main() -> None:
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
         ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", PRO["geoservices_release_bucket"]),
+        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", MUST_FIX),
     ]
+    # The licensed scripting client is the tuple whose label carries a slash. Its public canonical
+    # name is the product label; the driver id is that label's suffix.
+    scripting_canonical = PRO["name"]
+    scripting_driver = scripting_lane = scripting_entitlement = None
     for service in esri_index["services"]:
         matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
         for case in matrix["cases"]:
@@ -649,16 +694,27 @@ def main() -> None:
             if "query" in case["name"].lower():
                 facets += ["pagination", "limit", "crs-axis"]
             for client, version, lane, target, licensed, entitlement_policy, bucket in esri_clients:
+                scripting = "/" in client
+                if scripting and scripting_driver is None:
+                    scripting_lane = lane
+                    scripting_entitlement = entitlement_policy
+                    scripting_driver = client.rsplit("/", 1)[-1]
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
-                    client=client, lane=f"{lane}-{service['service']}", version=version,
+                    client=scripting_canonical if scripting else client,
+                    lane=f"{lane}-{service['service']}", version=version,
                     contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, entitlement_policy=entitlement_policy, facets=facets,
                     release_bucket=bucket,
+                    client_driver=scripting_driver if scripting else None,
                 )
+    if scripting_driver is None or scripting_lane is None or scripting_entitlement is None:
+        raise ValueError("Licensed scripting client tuple was not generated.")
+    driver_order = (scripting_driver, "pyqgis", "pro-ui", "qgis-ui")
 
     ogc = load(SOURCES / "esri-compat" / "matrix" / "ogc.matrix.json")
+    ogc_contract = f"esri-ogc-matrix@{revisions['esri-compat']['commit']}"
     for case in ogc["cases"]:
         if case.get("status") not in SUPPORTED:
             continue
@@ -675,35 +731,133 @@ def main() -> None:
             add(
                 capability="serve.ogc", surface="ogc", operation=case["id"], client=client,
                 lane=f"{lane}-ogc", version=version,
-                contract=f"esri-ogc-matrix@{revisions['esri-compat']['commit']}",
+                contract=ogc_contract,
                 auth_policy="anonymous-and-protected-v1",
                 facets=["positive", "negative", "auth", "crs-axis", "media-schema"],
             )
 
-    # R38: the licensed desktop client's OGC surfaces are proved against the candidate; its
-    # GeoServices rows above stay must-fix.
+    # R40: scripting drivers take every applicable OGC function, GeoServices and OGC alike.
+    # The licensed scripting driver gets each supported OGC matrix case plus each implemented
+    # OGC surface. pyqgis keeps the roster-bound QGIS rows (stamped below) and gains only the
+    # cases and surfaces that row set does not already cover. Preview capabilities stay off
+    # the QGIS canonical client.
+    desktop_contract = f"desktop-client-certification@{DESKTOP['revision']}"
+    ogc_facets = ["positive", "negative", "auth", "crs-axis", "media-schema"]
+    qgis_operations = {
+        row["operation"] for row in requirements if row["canonical_client"] == QGIS["name"]
+    }
+    qgis_capabilities = {
+        row["capability_key"] for row in requirements if row["canonical_client"] == QGIS["name"]
+    }
+    for case in ogc["cases"]:
+        if case.get("status") not in SUPPORTED:
+            continue
+        add(
+            capability="serve.ogc", surface="ogc", operation=case["id"],
+            client=scripting_canonical, lane=f"{scripting_lane}-ogc",
+            version=PRO["version"], contract=ogc_contract,
+            auth_policy=PRO["auth_policy_revision"], facets=ogc_facets,
+            **{key: value for key, value in licensed_desktop(
+                MUST_FIX, scripting_driver, entitlement=scripting_entitlement,
+            ).items() if key != "auth_policy"},
+        )
+        if case["id"] in qgis_operations:
+            continue
+        add(
+            capability="serve.ogc", surface="ogc", operation=case["id"],
+            client=DESKTOP_DRIVERS["pyqgis"]["canonical_client"],
+            lane=DESKTOP_DRIVERS["pyqgis"]["lane"], version=QGIS_VERSION,
+            contract=ogc_contract,
+            auth_policy=QGIS["auth_policy_revision"], target=QGIS["deployment_target"],
+            facets=ogc_facets, release_bucket=MUST_FIX, client_driver="pyqgis",
+        )
     for assignment in DESKTOP["ogc_assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
         if not capability or not capability.get("maturity", {}).get("implemented"):
             continue
         add(
             capability=assignment["capability_key"], surface=assignment["surface"],
-            operation=assignment["capability_key"], client=PRO["name"], lane=PRO["lane"],
-            version=PRO["version"],
-            contract=f"desktop-client-certification@{DESKTOP['revision']}",
-            facets=assignment["scenario_facets"], **licensed_desktop(PRO["ogc_release_bucket"]),
+            operation=assignment["capability_key"],
+            client=scripting_canonical, lane=f"{scripting_lane}-ogc",
+            version=PRO["version"], contract=desktop_contract, facets=assignment["scenario_facets"],
+            **licensed_desktop(MUST_FIX, scripting_driver, entitlement=scripting_entitlement),
+        )
+        if assignment["capability_key"] in qgis_capabilities or assignment["capability_key"] in preview_capabilities:
+            continue
+        add(
+            capability=assignment["capability_key"], surface=assignment["surface"],
+            operation=assignment["capability_key"],
+            client=DESKTOP_DRIVERS["pyqgis"]["canonical_client"],
+            lane=DESKTOP_DRIVERS["pyqgis"]["lane"], version=QGIS_VERSION,
+            contract=desktop_contract, auth_policy=QGIS["auth_policy_revision"],
+            target=QGIS["deployment_target"], facets=assignment["scenario_facets"],
+            release_bucket=MUST_FIX, client_driver="pyqgis",
+        )
+
+    ui = DESKTOP["ui"]
+    for surface in ui["surfaces"]:
+        functions = ui_functions(surface)
+        unknown = (set(surface["pro_core"]) | set(surface["qgis_core"])) - set(functions)
+        if unknown:
+            raise ValueError(f"UI surface {surface['surface']} cores name functions it does not generate: {sorted(unknown)}")
+        facets = ui["facets"][surface["family"]]
+        for function in functions:
+            add(
+                capability=surface["capability_key"], surface=surface["surface"], operation=function,
+                client=DESKTOP_DRIVERS["pro-ui"]["canonical_client"],
+                lane=DESKTOP_DRIVERS["pro-ui"]["lane"], version=PRO["version"],
+                contract=desktop_contract, facets=facets,
+                **licensed_desktop(
+                    MUST_FIX if function in surface["pro_core"] else PROVE, "pro-ui",
+                ),
+            )
+            add(
+                capability=surface["capability_key"], surface=surface["surface"], operation=function,
+                client=DESKTOP_DRIVERS["qgis-ui"]["canonical_client"],
+                lane=DESKTOP_DRIVERS["qgis-ui"]["lane"], version=QGIS_VERSION,
+                contract=desktop_contract, auth_policy=QGIS["auth_policy_revision"],
+                target=QGIS["deployment_target"], facets=facets,
+                release_bucket=MUST_FIX if function in surface["qgis_core"] else PROVE,
+                client_driver="qgis-ui",
+            )
+    for mode in ui["auth_modes"]:
+        add(
+            capability=ui["auth_capability"], surface=ui["auth_surface"], operation=mode,
+            client=DESKTOP_DRIVERS["pro-ui"]["canonical_client"],
+            lane=DESKTOP_DRIVERS["pro-ui"]["lane"], version=PRO["version"],
+            contract=desktop_contract, facets=ui["facets"]["auth"],
+            **licensed_desktop(MUST_FIX, "pro-ui"),
+        )
+        add(
+            capability=ui["auth_capability"], surface=ui["auth_surface"], operation=mode,
+            client=DESKTOP_DRIVERS["qgis-ui"]["canonical_client"],
+            lane=DESKTOP_DRIVERS["qgis-ui"]["lane"], version=QGIS_VERSION,
+            contract=desktop_contract, auth_policy=QGIS["auth_policy_revision"],
+            target=QGIS["deployment_target"], facets=ui["facets"]["auth"],
+            release_bucket=MUST_FIX, client_driver="qgis-ui",
         )
 
     unbound_cells = sorted((set(bounded_cells) | set(not_addressable_cells)) - bound_cells)
     if unbound_cells:
         raise ValueError(f"bounded-roster cells match no generated requirement: {unbound_cells}")
 
+    # Roster binding rewrites QGIS lanes after add(), so the pyqgis stamp runs once the rows exist.
+    # The licensed scripting rows already carry their driver; stamping the shared product label
+    # here would overwrite the UI rows that use the same canonical client.
+    pyqgis_clients = {QGIS["name"], DESKTOP_DRIVERS["pyqgis"]["canonical_client"]}
+    for row in requirements:
+        if row["canonical_client"] not in pyqgis_clients:
+            continue
+        row["client_driver"] = "pyqgis"
+        row["release_bucket"] = MUST_FIX
+    summary = desktop_driver_summary(requirements, driver_order)
+
     requirements.sort(key=lambda row: (
         row["capability_key"], row["surface"], row["operation"], row["canonical_client"], row["client_lane"]
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-04-complete.18",
+        "revision": "2026-10-04-complete.19",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
@@ -729,13 +883,18 @@ def main() -> None:
             f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
             "18 explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
-            f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and the "
-            f"licensed desktop client {PRO['version']}; a receipt records the exact patch it observed. "
-            f"That client's {len(DESKTOP['ogc_assignments'])} OGC surfaces are {PRO['ogc_release_bucket']} "
-            f"rows and its GeoServices rows stay {PRO['geoservices_release_bucket']}. "
+            f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and "
+            f"{PRO['name']} {PRO['version']}; a receipt records the exact patch it observed. "
+            "R40 splits those clients by driver. Scripting rows are must-fix-before-cut on every "
+            "applicable GeoServices and OGC cell. pro-ui and qgis-ui are must-fix-before-cut only on "
+            "the core set recorded in the desktop source (FeatureServer, MapServer, ImageServer render, "
+            "connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
+            "QGIS UI also WMS, WFS, WCS and WFS-T edit). Every other UI cell is "
+            "prove-against-candidate. Counts per bucket per driver are in desktop_driver_summary. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
         "source_revisions": revisions,
+        "desktop_driver_summary": summary,
         "production": production(requirements, revisions),
         "requirements": requirements,
     }

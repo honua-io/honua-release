@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-production/v1",
-  "revision": "2026-10-03.1",
+  "revision": "2026-10-04.2",
   "tracking_issues": [
     "https://github.com/honua-io/honua-release/issues/386",
     "https://github.com/honua-io/honua-release/issues/360"
@@ -108,7 +108,7 @@
       "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-dotnet:<capability>); sdk-certification.yml emits only sdk-dotnet-certification observations."
     },
     {
-      "client_lanes": ["desktop-qgis", "gdal", "js-maplibre", "js-cesium", "py-owslib", "py-pystac", "js", "cli", "arcgis-stub", "bi-excel", "bi-powerbi", "ci-bi"],
+      "client_lanes": ["desktop-qgis", "desktop-pyqgis", "desktop-qgis-ui", "gdal", "js-maplibre", "js-cesium", "py-owslib", "py-pystac", "js", "cli", "arcgis-stub", "bi-excel", "bi-powerbi", "ci-bi"],
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/3481",
       "missing_producer": "client-interop-nightly.yml builds its own server image and accepts only a lanes input; it needs candidate_image, candidate_source_sha and candidate_cut_at inputs so its .cert.json receipts name the resolved candidate image digest."
