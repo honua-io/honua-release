@@ -1667,35 +1667,6 @@ def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch)
     assert "receipt evidence unavailable" in report["why"]
 
 
-if __name__ == "__main__":
-    import traceback
-
-    class _MP:
-        def delenv(self, k, raising=True):
-            import os
-            os.environ.pop(k, None)
-
-        def setenv(self, k, v):
-            import os
-            os.environ[k] = v
-
-        def setattr(self, obj, name, value):
-            setattr(obj, name, value)
-
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn(_MP()) if "monkeypatch" in fn.__code__.co_varnames else fn()
-                print(f"PASS {name}")
-            except Exception:  # noqa: BLE001
-                failures += 1
-                print(f"FAIL {name}")
-                traceback.print_exc()
-    print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
-    sys.exit(1 if failures else 0)
-
-
 
 def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False):
     """Exercise the real shell report assembler with controlled subprocess verdicts."""
@@ -1779,3 +1750,32 @@ def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypa
     monkeypatch.setattr(subprocess, 'run', psql)
     result = target.seed_database('SELECT 1')
     assert result['host'] == 'cell-db' and result['password'] == 'private-password'
+
+if __name__ == "__main__":
+    import traceback
+
+    class _MP:
+        def delenv(self, k, raising=True):
+            import os
+            os.environ.pop(k, None)
+
+        def setenv(self, k, v):
+            import os
+            os.environ[k] = v
+
+        def setattr(self, obj, name, value):
+            setattr(obj, name, value)
+
+    failures = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                fn(_MP()) if "monkeypatch" in fn.__code__.co_varnames else fn()
+                print(f"PASS {name}")
+            except Exception:  # noqa: BLE001
+                failures += 1
+                print(f"FAIL {name}")
+                traceback.print_exc()
+    print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
+    sys.exit(1 if failures else 0)
+
