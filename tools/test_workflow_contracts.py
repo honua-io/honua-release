@@ -247,14 +247,12 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     assert "out/requirements-owner/certification/protocol-certification-requirements.v1.json" in gate
     assert "--requirements out/protocol-certification-requirements.v1.json" in gate
 
+    # honua-release#386: the ledger bound into the nightly candidate manifest is the only source of
+    # truth. The callers that read the frozen PROTOCOL_CERTIFICATION_* variables are retired.
     for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
-        text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
-        assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
-        assert (
-            "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
-            in text
-        )
-        assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in text
+        assert not (REPO_ROOT / ".github" / "workflows" / caller).exists()
+    for workflow in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml"):
+        assert "vars.PROTOCOL_CERTIFICATION_" not in workflow.read_text(encoding="utf-8"), workflow.name
 
     release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
         encoding="utf-8"
@@ -313,41 +311,25 @@ def test_protocol_certification_uses_a_pinned_evaluator_and_honors_bootstrap_una
     assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in release_train
 
 
-def test_convergence_rebind_is_plan_only_by_default_and_creates_one_review_pr():
+def test_convergence_rebind_is_a_read_only_plan():
+    """Ruling R18: the nightly binds the ledger it produces; no workflow rebinds it by hand."""
+    document = yaml.safe_load((REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8"))
     text = (REPO_ROOT / ".github/workflows/convergence-rebind.yml").read_text(encoding="utf-8")
-    assert "default: false" in text
-    assert "python tools/convergence_rebind.py --apply" in text
-    assert text.count("gh workflow run aggregate.yml") == 1
-    assert text.count("gh pr create") == 1
-    assert "--body-file rebind-receipt.md" in text
-    assert "gh variable set" not in text
-    assert "git commit --allow-empty" in text
-    assert '--ref "$correlation_ref"' in text
-    assert '--branch "$correlation_ref"' in text
-    assert "git/refs/heads/$correlation_ref" in text
+    assert document["permissions"] == {"contents": "read"}
+    assert all("permissions" not in job for job in document["jobs"].values())
+    assert "apply" not in (document.get("on") or document.get(True))["workflow_dispatch"]["inputs"]
+    for forbidden in ("--apply", "--finalize", "gh workflow run", "gh pr create", "gh variable", "git push",
+                      "HONUA_RELEASE_AUTOMATION_TOKEN"):
+        assert forbidden not in text, forbidden
+    assert "python tools/convergence_rebind.py --receipt-min" in text
 
 
-def test_convergence_activation_is_merge_bound_and_sets_all_three_variables():
-    text = (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").read_text(encoding="utf-8")
-    assert "github.event.pull_request.merged == true" in text
-    assert "github.event.pull_request.base.ref == github.event.repository.default_branch" in text
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in text
-    assert "startsWith(github.event.pull_request.head.ref, 'convergence-rebind/')" in text
-    assert "compare/${{ steps.binding.outputs.requirements_revision }}...${{ github.event.pull_request.merge_commit_sha }}" in text
-    assert "use a merge commit and refuse activation" in text
-    assert 'yaml.safe_load(open(path))["jobs"]' in text
-    assert 'ledger["candidate"] == expected_candidate' in text
-    assert 'ledger["requirements_source_revision"] == os.environ["REQUIREMENTS_REVISION"]' in text
-    assert "Merged ledger digest mismatch" in text
-    assert "trap rollback ERR" in text
-    assert 'gh variable get "$name"' in text
-    assert text.count('gh variable set "${names[$i]}"') == 2
-    for name in (
-        "PROTOCOL_CERTIFICATION_MATRIX_COMMIT",
-        "PROTOCOL_CERTIFICATION_MATRIX_SHA256",
-        "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION",
-    ):
-        assert text.count(name) == 1
+def test_no_workflow_writes_protocol_certification_variables():
+    assert not (REPO_ROOT / ".github/workflows/convergence-rebind-activate.yml").exists()
+    for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        assert "gh variable set" not in text, path.name
+        assert "variables/PROTOCOL_CERTIFICATION" not in text, path.name
 
 
 def _step_text(step: dict) -> str:

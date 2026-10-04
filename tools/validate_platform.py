@@ -434,11 +434,16 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
 
 
 def check_exact_candidate(
-    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None
+    manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None,
+    ledger_produced_later: bool = False,
 ) -> None:
-    """Reject placeholders/fallbacks that cannot certify exact published release bytes."""
+    """Reject placeholders/fallbacks that cannot certify exact published release bytes.
+
+    `ledger_produced_later` is only for the nightly resolver: its protocol-ledger job produces and
+    binds the ledger for this candidate and re-runs the full check before the candidate exists.
+    """
     ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
-    if ledger.get("status") != "bound":
+    if ledger.get("status") != "bound" and not ledger_produced_later:
         f.error("exact-candidate: protocol certification ledger must be bound before certification")
     candidate = manifest.get("candidate") or {}
     ref_source = candidate.get("refSource")
@@ -729,6 +734,7 @@ def validate(
     exact_candidate: bool = False,
     reachability_client: tr.APIClient | None = None,
     requirements: dict | None = None,
+    ledger_produced_later: bool = False,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
@@ -747,7 +753,7 @@ def validate(
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
-        check_exact_candidate(manifest, f, reachability_client)
+        check_exact_candidate(manifest, f, reachability_client, ledger_produced_later)
     return f
 
 

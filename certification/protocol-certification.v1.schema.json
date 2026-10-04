@@ -110,6 +110,19 @@
                     "contract_revision": { "type": "string" },
                     "auth_policy_revision": { "type": "string" },
                     "candidate_cut_at": { "type": "string", "format": "date-time" },
+                    "producer_run": {
+                      "description": "The GitHub Actions run that observed this cell and the correlation id of the nightly that dispatched it (honua-release#386).",
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["repository", "workflow", "run_id", "run_attempt", "dispatch_id"],
+                      "properties": {
+                        "repository": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.][A-Za-z0-9_.-]*$" },
+                        "workflow": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.ya?ml$" },
+                        "run_id": { "type": "integer", "minimum": 1 },
+                        "run_attempt": { "type": "integer", "minimum": 1 },
+                        "dispatch_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+                      }
+                    },
                     "test_ids": {
                       "type": "array",
                       "minItems": 1,

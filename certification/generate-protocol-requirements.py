@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 from pathlib import Path
@@ -107,6 +108,61 @@ def grpc_client_version(published: dict[str, Any], lane: str) -> str:
                for field in ("digest", "integrity")):
         raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the published artifact digest")
     return version
+
+
+PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
+
+
+def selects(entry: dict[str, Any], row: dict[str, Any]) -> bool:
+    """A disposition owns a requirement by its client lane (glob) or its deployment target."""
+    return any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", [])) \
+        or row["deployment_target"] in entry.get("deployment_targets", [])
+
+
+def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) -> dict[str, Any]:
+    """Give every client-addressable lane exactly one disposition: a producer the nightly
+    dispatches at the resolved candidate, or `unproduced` with an owner (honua-release#386, #360)."""
+    source = load(SOURCES / "protocol-certification-production.v1.json")
+    dispositions = [
+        ("producer", entry["producer"], entry) for entry in source["producers"]
+    ] + [("unproduced", entry["owner"], entry) for entry in source["unproduced"]]
+    for kind, name, entry in dispositions:
+        if kind == "producer":
+            if entry["source_revision_key"] not in revisions:
+                raise ValueError(f"producer {name} pins unknown source_revision_key {entry['source_revision_key']!r}")
+            for key, value in entry["inputs"].items():
+                if "{" in value and value not in PRODUCTION_PLACEHOLDERS:
+                    raise ValueError(f"producer {name} input {key} uses an ungoverned placeholder {value!r}")
+        elif not (entry.get("issue", "").startswith("https://github.com/honua-io/") and entry.get("missing_producer")):
+            raise ValueError(f"unproduced disposition owned by {name} needs an owner issue and missing_producer")
+        if not entry.get("client_lanes") and not entry.get("deployment_targets"):
+            raise ValueError(f"production disposition {name} selects no requirement")
+    # A lane the denominator gains needs a disposition before the catalog regenerates; a lane it
+    # loses (a demoted capability) only leaves its disposition with fewer cells.
+    cells: dict[int, int] = {}
+    for row in requirements:
+        if not row["addressable_by_client"]:
+            continue
+        owners = {index for index, (_kind, _name, entry) in enumerate(dispositions) if selects(entry, row)}
+        if len(owners) != 1:
+            raise ValueError(
+                f"client lane {row['client_lane']!r} ({row['deployment_target']}) has {len(owners)} production "
+                "dispositions; exactly one is required"
+            )
+        owner = owners.pop()
+        cells[owner] = cells.get(owner, 0) + 1
+    producers = [{**entry, "cells": cells.get(index, 0)} for index, (kind, _name, entry) in enumerate(dispositions) if kind == "producer"]
+    unproduced = [{**entry, "cells": cells.get(index, 0)} for index, (kind, _name, entry) in enumerate(dispositions) if kind == "unproduced"]
+    return {
+        "revision": source["revision"],
+        "cells": {
+            "produced": sum(entry["cells"] for entry in producers),
+            "unproduced": sum(entry["cells"] for entry in unproduced),
+            "not_addressable": sum(1 for row in requirements if not row["addressable_by_client"]),
+        },
+        "producers": producers,
+        "unproduced": unproduced,
+    }
 
 
 def main() -> None:
@@ -616,7 +672,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-09-29-complete.15",
+        "revision": "2026-10-03-complete.16",
         "receipt_schema_min": "v2",
         "complete": True,
         "scope_notes": (
@@ -644,6 +700,7 @@ def main() -> None:
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
         ),
         "source_revisions": revisions,
+        "production": production(requirements, revisions),
         "requirements": requirements,
     }
     OUTPUT.write_text(json.dumps(output, indent=2, sort_keys=False) + "\n", encoding="utf-8")

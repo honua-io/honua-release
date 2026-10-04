@@ -1,0 +1,566 @@
+{
+  "description": "Recorded responses for one nightly protocol-ledger production (honua-release#386): the nightly dispatch id, the staged catalog, the producer runs wait-protocol wrote, the honua-evidence aggregate job listing, and the schema-valid ledger aggregate.yml committed, whose receipts name the producer run that observed each cell.",
+  "candidate": {
+    "server_sha": "5555555555555555555555555555555555555555",
+    "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "server_image": "ghcr.io/honua-io/honua-server@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "cut_at": "2026-10-03T11:21:07Z"
+  },
+  "requirements_revision": "9999999999999999999999999999999999999999",
+  "evidence_commit": "4444444444444444444444444444444444444444",
+  "catalog": {
+    "schema": "honua.protocol-certification-requirements/v1",
+    "revision": "2026-10-03-complete.16",
+    "receipt_schema_min": "v2",
+    "complete": true,
+    "scope_notes": "recorded nightly fixture",
+    "source_revisions": {
+      "server-certification": {
+        "repository": "honua-io/honua-server",
+        "commit": "5555555555555555555555555555555555555555"
+      },
+      "sdk-python": {
+        "repository": "honua-io/honua-sdk-python",
+        "commit": "6666666666666666666666666666666666666666"
+      }
+    },
+    "production": {
+      "revision": "2026-10-03.1",
+      "cells": {
+        "produced": 3,
+        "unproduced": 1,
+        "not_addressable": 1
+      },
+      "producers": [
+        {
+          "producer": "server-protocol-harness",
+          "repository": "honua-io/honua-server",
+          "workflow": "protocol-harness-certification.yml",
+          "source_revision_key": "server-certification",
+          "inputs": {
+            "candidate_source_sha": "{server_sha}",
+            "candidate_image": "{server_image}",
+            "candidate_cut_at": "{cut_at}"
+          },
+          "client_lanes": [
+            "harness"
+          ],
+          "cells": 2
+        },
+        {
+          "producer": "honua-sdk-python",
+          "repository": "honua-io/honua-sdk-python",
+          "workflow": "conformance.yml",
+          "source_revision_key": "sdk-python",
+          "inputs": {
+            "server_image": "{server_image}",
+            "server_seed_ref": "{server_sha}",
+            "candidate_cut_at": "{cut_at}",
+            "certification_tier": "release"
+          },
+          "client_lanes": [
+            "sdk-python-*"
+          ],
+          "cells": 1
+        }
+      ],
+      "unproduced": [
+        {
+          "client_lanes": [
+            "sdk-js"
+          ],
+          "owner": "honua-io/honua-sdk-js",
+          "issue": "https://github.com/honua-io/honua-release/issues/360",
+          "missing_producer": "no producer emits sdk-coverage entrypoint cells",
+          "cells": 1
+        }
+      ]
+    },
+    "requirements": [
+      {
+        "capability_key": "cap.harness",
+        "surface": "harness",
+        "operation": "features.items",
+        "maturity": "supported",
+        "canonical_client": "Honua server public protocol integration harness",
+        "client_lane": "harness",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null
+      },
+      {
+        "capability_key": "cap.harness",
+        "surface": "harness",
+        "operation": "tiles.tile",
+        "maturity": "supported",
+        "canonical_client": "Honua server public protocol integration harness",
+        "client_lane": "harness",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null
+      },
+      {
+        "capability_key": "cap.sdk-python-certification",
+        "surface": "sdk",
+        "operation": "collections.list",
+        "maturity": "supported",
+        "canonical_client": "Honua SDK Python",
+        "client_lane": "sdk-python-certification",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null
+      },
+      {
+        "capability_key": "cap.sdk-js",
+        "surface": "sdk",
+        "operation": "sdk.query",
+        "maturity": "supported",
+        "canonical_client": "@honua/sdk-js",
+        "client_lane": "sdk-js",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null
+      },
+      {
+        "capability_key": "cap.pdal-copc",
+        "surface": "pdal",
+        "operation": "copc.read",
+        "maturity": "supported",
+        "canonical_client": "PDAL",
+        "client_lane": "pdal-copc",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": false,
+        "addressability_reason": "no released client",
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null
+      }
+    ]
+  },
+  "runs": [
+    {
+      "producer": "server-protocol-harness",
+      "repository": "honua-io/honua-server",
+      "workflow": "protocol-harness-certification.yml",
+      "ref": "refs/tags/nightly-candidate/5555555555555555555555555555555555555555",
+      "head_sha": "5555555555555555555555555555555555555555",
+      "run_id": 37200001,
+      "client_lanes": [
+        "harness"
+      ],
+      "conclusion": "success",
+      "run_attempt": 1,
+      "dispatch_id": "nightly-certification-37199990-1"
+    },
+    {
+      "producer": "honua-sdk-python",
+      "repository": "honua-io/honua-sdk-python",
+      "workflow": "conformance.yml",
+      "ref": "refs/heads/trunk",
+      "head_sha": "6666666666666666666666666666666666666666",
+      "run_id": 37200002,
+      "client_lanes": [
+        "sdk-python-*"
+      ],
+      "conclusion": "success",
+      "run_attempt": 1,
+      "dispatch_id": "nightly-certification-37199990-1"
+    }
+  ],
+  "aggregate_jobs": {
+    "total_count": 2,
+    "jobs": [
+      {
+        "id": 91000001,
+        "run_id": 37200050,
+        "name": "aggregate",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 91000002,
+        "run_id": 37200050,
+        "name": "deploy",
+        "status": "waiting",
+        "conclusion": null
+      }
+    ]
+  },
+  "ledger": {
+    "schema": "honua.protocol-certification/v1",
+    "generated_at": "2026-10-03T13:02:44Z",
+    "requirements_complete": true,
+    "requirements_revision": "2026-10-03-complete.16",
+    "requirements_source_revision": "9999999999999999999999999999999999999999",
+    "candidate": {
+      "source_sha": "5555555555555555555555555555555555555555",
+      "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "cut_at": "2026-10-03T11:21:07Z"
+    },
+    "cells": [
+      {
+        "capability_key": "cap.harness",
+        "surface": "harness",
+        "operation": "features.items",
+        "maturity": "supported",
+        "canonical_client": "Honua server public protocol integration harness",
+        "client_lane": "harness",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null,
+        "result": "pass",
+        "skip_reason": null,
+        "source_sha": "5555555555555555555555555555555555555555",
+        "producer_source_sha": "5555555555555555555555555555555555555555",
+        "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "evidence_uri": "https://evidence.honua.io/data/sha256/ac9d613179cf61195294b865bc8fde9e449d2accc5bb3f6d6050dedbf403f4e0",
+        "evidence_digest": "sha256:ac9d613179cf61195294b865bc8fde9e449d2accc5bb3f6d6050dedbf403f4e0",
+        "evidence_receipt": {
+          "schema": "honua.certification-evidence-receipt/v2",
+          "identity": {
+            "capability_key": "cap.harness",
+            "surface": "harness",
+            "operation": "features.items",
+            "canonical_client": "Honua server public protocol integration harness",
+            "client_version": "1.0.0",
+            "deployment_target": "local-docker",
+            "source_sha": "5555555555555555555555555555555555555555",
+            "producer_source_sha": "5555555555555555555555555555555555555555",
+            "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+            "contract_revision": "contract@x",
+            "auth_policy_revision": "anonymous-public-v1",
+            "started_at": "2026-10-03T11:48:12Z",
+            "completed_at": "2026-10-03T11:51:12Z",
+            "maturity": "supported",
+            "required_tier": "nightly",
+            "requirements_revision": "2026-10-03-complete.16",
+            "producer_run": {
+              "repository": "honua-io/honua-server",
+              "workflow": "protocol-harness-certification.yml",
+              "run_id": 37200001,
+              "run_attempt": 1,
+              "dispatch_id": "nightly-certification-37199990-1"
+            }
+          },
+          "result": "pass",
+          "facets": {
+            "positive": "pass",
+            "media-schema": "pass"
+          },
+          "payload_base64": "e30="
+        },
+        "facet_results": {
+          "positive": {
+            "result": "pass",
+            "evidence_digest": "sha256:ac9d613179cf61195294b865bc8fde9e449d2accc5bb3f6d6050dedbf403f4e0"
+          },
+          "media-schema": {
+            "result": "pass",
+            "evidence_digest": "sha256:ac9d613179cf61195294b865bc8fde9e449d2accc5bb3f6d6050dedbf403f4e0"
+          }
+        },
+        "started_at": "2026-10-03T11:48:12Z",
+        "completed_at": "2026-10-03T11:51:12Z",
+        "budget_observations": null
+      },
+      {
+        "capability_key": "cap.harness",
+        "surface": "harness",
+        "operation": "tiles.tile",
+        "maturity": "supported",
+        "canonical_client": "Honua server public protocol integration harness",
+        "client_lane": "harness",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null,
+        "result": "fail",
+        "skip_reason": null,
+        "source_sha": "5555555555555555555555555555555555555555",
+        "producer_source_sha": "5555555555555555555555555555555555555555",
+        "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "evidence_uri": "https://evidence.honua.io/data/sha256/e9de3ecb08c79415fdf7ba4de818a3231d61e44033cd779cc05f341a1955e3f4",
+        "evidence_digest": "sha256:e9de3ecb08c79415fdf7ba4de818a3231d61e44033cd779cc05f341a1955e3f4",
+        "evidence_receipt": {
+          "schema": "honua.certification-evidence-receipt/v2",
+          "identity": {
+            "capability_key": "cap.harness",
+            "surface": "harness",
+            "operation": "tiles.tile",
+            "canonical_client": "Honua server public protocol integration harness",
+            "client_version": "1.0.0",
+            "deployment_target": "local-docker",
+            "source_sha": "5555555555555555555555555555555555555555",
+            "producer_source_sha": "5555555555555555555555555555555555555555",
+            "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+            "contract_revision": "contract@x",
+            "auth_policy_revision": "anonymous-public-v1",
+            "started_at": "2026-10-03T11:48:12Z",
+            "completed_at": "2026-10-03T11:51:12Z",
+            "maturity": "supported",
+            "required_tier": "nightly",
+            "requirements_revision": "2026-10-03-complete.16",
+            "producer_run": {
+              "repository": "honua-io/honua-server",
+              "workflow": "protocol-harness-certification.yml",
+              "run_id": 37200001,
+              "run_attempt": 1,
+              "dispatch_id": "nightly-certification-37199990-1"
+            }
+          },
+          "result": "fail",
+          "facets": {
+            "positive": "fail",
+            "media-schema": "fail"
+          },
+          "payload_base64": "e30="
+        },
+        "facet_results": {
+          "positive": {
+            "result": "fail",
+            "evidence_digest": "sha256:e9de3ecb08c79415fdf7ba4de818a3231d61e44033cd779cc05f341a1955e3f4"
+          },
+          "media-schema": {
+            "result": "fail",
+            "evidence_digest": "sha256:e9de3ecb08c79415fdf7ba4de818a3231d61e44033cd779cc05f341a1955e3f4"
+          }
+        },
+        "started_at": "2026-10-03T11:48:12Z",
+        "completed_at": "2026-10-03T11:51:12Z",
+        "budget_observations": null
+      },
+      {
+        "capability_key": "cap.sdk-python-certification",
+        "surface": "sdk",
+        "operation": "collections.list",
+        "maturity": "supported",
+        "canonical_client": "Honua SDK Python",
+        "client_lane": "sdk-python-certification",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null,
+        "result": "pass",
+        "skip_reason": null,
+        "source_sha": "5555555555555555555555555555555555555555",
+        "producer_source_sha": "6666666666666666666666666666666666666666",
+        "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "evidence_uri": "https://evidence.honua.io/data/sha256/d998d908d8361f0ed1a13e2446053adfee3f82b2a61c1ac3726f98b7c259362e",
+        "evidence_digest": "sha256:d998d908d8361f0ed1a13e2446053adfee3f82b2a61c1ac3726f98b7c259362e",
+        "evidence_receipt": {
+          "schema": "honua.certification-evidence-receipt/v2",
+          "identity": {
+            "capability_key": "cap.sdk-python-certification",
+            "surface": "sdk",
+            "operation": "collections.list",
+            "canonical_client": "Honua SDK Python",
+            "client_version": "1.0.0",
+            "deployment_target": "local-docker",
+            "source_sha": "5555555555555555555555555555555555555555",
+            "producer_source_sha": "6666666666666666666666666666666666666666",
+            "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+            "contract_revision": "contract@x",
+            "auth_policy_revision": "anonymous-public-v1",
+            "started_at": "2026-10-03T12:05:40Z",
+            "completed_at": "2026-10-03T12:05:40Z",
+            "maturity": "supported",
+            "required_tier": "nightly",
+            "requirements_revision": "2026-10-03-complete.16",
+            "candidate_cut_at": "2026-10-03T11:21:07Z",
+            "producer_run": {
+              "repository": "honua-io/honua-sdk-python",
+              "workflow": "conformance.yml",
+              "run_id": 37200002,
+              "run_attempt": 1,
+              "dispatch_id": "nightly-certification-37199990-1"
+            }
+          },
+          "result": "pass",
+          "facets": {
+            "positive": "pass",
+            "media-schema": "pass"
+          },
+          "payload_base64": "e30="
+        },
+        "facet_results": {
+          "positive": {
+            "result": "pass",
+            "evidence_digest": "sha256:d998d908d8361f0ed1a13e2446053adfee3f82b2a61c1ac3726f98b7c259362e"
+          },
+          "media-schema": {
+            "result": "pass",
+            "evidence_digest": "sha256:d998d908d8361f0ed1a13e2446053adfee3f82b2a61c1ac3726f98b7c259362e"
+          }
+        },
+        "started_at": "2026-10-03T12:05:40Z",
+        "completed_at": "2026-10-03T12:05:40Z",
+        "budget_observations": null
+      },
+      {
+        "capability_key": "cap.sdk-js",
+        "surface": "sdk",
+        "operation": "sdk.query",
+        "maturity": "supported",
+        "canonical_client": "@honua/sdk-js",
+        "client_lane": "sdk-js",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": true,
+        "addressability_reason": null,
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null,
+        "result": "skip",
+        "skip_reason": "no producer evidence for required certification cell",
+        "source_sha": null,
+        "producer_source_sha": null,
+        "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "evidence_uri": null,
+        "evidence_digest": null,
+        "evidence_receipt": null,
+        "facet_results": null,
+        "started_at": null,
+        "completed_at": null,
+        "budget_observations": null
+      },
+      {
+        "capability_key": "cap.pdal-copc",
+        "surface": "pdal",
+        "operation": "copc.read",
+        "maturity": "supported",
+        "canonical_client": "PDAL",
+        "client_lane": "pdal-copc",
+        "client_version": "1.0.0",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": false,
+        "entitlement_policy_revision": null,
+        "addressable_by_client": false,
+        "addressability_reason": "no released client",
+        "scenario_facets": [
+          "positive",
+          "media-schema"
+        ],
+        "contract_revision": "contract@x",
+        "auth_policy_revision": "anonymous-public-v1",
+        "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+        "budget_expectations": null,
+        "result": "not-addressable",
+        "skip_reason": null,
+        "source_sha": null,
+        "producer_source_sha": null,
+        "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "evidence_uri": null,
+        "evidence_digest": null,
+        "evidence_receipt": null,
+        "facet_results": null,
+        "started_at": null,
+        "completed_at": null,
+        "budget_observations": null
+      }
+    ]
+  },
+  "dispatch_id": "nightly-certification-37199990-1"
+}

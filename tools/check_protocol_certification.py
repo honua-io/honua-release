@@ -242,6 +242,31 @@ def _valid_entitlement_assertion(cell: dict, entitlement: object) -> bool:
     )
 
 
+PRODUCER_RUN_FIELDS = {"repository", "workflow", "run_id", "run_attempt", "dispatch_id"}
+PRODUCER_RUN_PATTERNS = {
+    "repository": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.][A-Za-z0-9_.-]*"),
+    "workflow": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml"),
+    "dispatch_id": re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"),
+}
+
+
+def _valid_producer_run(value: object) -> bool:
+    """The run that observed a cell, as the nightly binds it (honua-release#386). The gate checks
+    its shape; the nightly checks it is a run that night dispatched."""
+    return (
+        isinstance(value, dict)
+        and set(value) == PRODUCER_RUN_FIELDS
+        and all(
+            isinstance(value[field], str) and pattern.fullmatch(value[field]) is not None
+            for field, pattern in PRODUCER_RUN_PATTERNS.items()
+        )
+        and all(
+            type(value[field]) is int and value[field] >= 1
+            for field in ("run_id", "run_attempt")
+        )
+    )
+
+
 def _valid_receipt(
     cell: dict,
     candidate_cut_at: str | None = None,
@@ -276,6 +301,10 @@ def _valid_receipt(
         if _timestamp(candidate_cut_at) is None:
             return False
         identity_fields.add("candidate_cut_at")
+    if isinstance(identity, dict) and "producer_run" in identity:
+        if not _valid_producer_run(identity["producer_run"]):
+            return False
+        identity_fields.add("producer_run")
     # Receipt v2 is producer-strict: the producer owns and emits the governed
     # requirement context. There is no v1/context-less compatibility path at the
     # consumer boundary because such a receipt can be replayed after a maturity,
