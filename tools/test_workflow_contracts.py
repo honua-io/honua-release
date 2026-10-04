@@ -939,6 +939,11 @@ def test_cloud_journey_job_holds_no_aws_credentials_or_oidc_token():
         text = "\n".join(_step_text(step) for step in job["steps"])
         assert "npm " not in text and "playwright" not in text and "--phase journey" not in text
     assert "--phase provision" in "\n".join(_step_text(step) for step in jobs["provision"]["steps"])
+    # Job outputs and step env are printed in the public job log: no credential may travel that way.
+    assert set(jobs["provision"]["outputs"]) == {"endpoint", "admission"}
+    for job in jobs.values():
+        for step in job["steps"]:
+            assert "needs.provision.outputs" not in str(step.get("env", {}))
 
 
 def test_cloud_teardown_reaper_is_fail_closed():

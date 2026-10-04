@@ -13,7 +13,6 @@ import os
 import secrets
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,7 +117,7 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     """Credentialed half: provision, probe and seed the cell. Nothing third-party runs here.
 
     Returns the handoff the credential-free journey job and the teardown job consume. The handoff
-    carries identifiers and verdicts only; the cell's application key leaves through a job output.
+    carries identifiers and verdicts only; the cell's application key goes to Secrets Manager.
     """
     run_id, run_attempt = _run_identity()
     redis_mode = "redis-on" if redis_enabled else "redis-off"
@@ -447,11 +446,40 @@ def state_secret_name(cell: str) -> str:
     return f"{STATE_SECRET_PREFIX}{run_id}-{run_attempt}-{cell.replace('/', '-')}"
 
 
-def _private_file(directory: Path, name: str, content: str) -> Path:
-    path = directory / name
-    path.touch(mode=0o600)
-    path.write_text(content, encoding="utf-8")
-    return path
+def app_key_secret_name(cell: str) -> str:
+    return state_secret_name(cell) + "-app-key"
+
+
+def _with_secret_fd(run, argv, secret: str, **kwargs):
+    """Hand `secret` to a child on an inherited pipe: never argv (/proc/*/cmdline) or a file."""
+    read_end, write_end = os.pipe()
+    try:
+        os.write(write_end, secret.encode("utf-8"))
+        os.close(write_end)
+        write_end = None
+        return run([part.replace("{fd}", str(read_end)) for part in argv], pass_fds=(read_end,), **kwargs)
+    finally:
+        os.close(read_end)
+        if write_end is not None:
+            os.close(write_end)
+
+
+def store_secret(name: str, value: str, description: str, *, run=subprocess.run) -> None:
+    run(["aws", "secretsmanager", "create-secret", "--name", name, "--description", description,
+         "--secret-string", "file:///dev/stdin"], input=value, text=True, capture_output=True, check=True)
+
+
+def read_secret(name: str, *, run=subprocess.run) -> str:
+    return run(["aws", "secretsmanager", "get-secret-value", "--secret-id", name, "--query",
+                "SecretString", "--output", "text"], capture_output=True, text=True, check=True).stdout.rstrip("\n")
+
+
+def forget_secret(name: str, *, run=subprocess.run) -> None:
+    """Delete without a recovery window. A secret that was never created is already forgotten."""
+    result = run(["aws", "secretsmanager", "delete-secret", "--secret-id", name,
+                  "--force-delete-without-recovery"], capture_output=True, text=True, check=False)
+    if result.returncode and "ResourceNotFoundException" not in (result.stderr or ""):
+        raise subprocess.CalledProcessError(result.returncode, result.args)
 
 
 def seal_state(root: Path, bundle: Path, secret_name: str, *, run=subprocess.run) -> str:
@@ -465,39 +493,46 @@ def seal_state(root: Path, bundle: Path, secret_name: str, *, run=subprocess.run
     archive = run(["tar", "-czf", "-", "--exclude=./.terraform", "--exclude=./.terraform.tfstate.lock.info",
                    "-C", str(root), "."],
                   capture_output=True, check=True).stdout
-    with tempfile.TemporaryDirectory() as scratch:
-        passphrase = _private_file(Path(scratch), "passphrase", secrets.token_urlsafe(48))
-        bundle.parent.mkdir(parents=True, exist_ok=True)
-        run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-salt",
-             "-pass", f"file:{passphrase}", "-out", str(bundle)], input=archive, check=True)
-        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
-        payload = _private_file(Path(scratch), "payload.json", json.dumps(
-            {"passphrase": passphrase.read_text(encoding="utf-8"), "sha256": digest}))
-        run(["aws", "secretsmanager", "create-secret", "--name", secret_name,
-             "--description", "Ephemeral cloud-cell Terraform state key; deleted by teardown",
-             "--secret-string", f"file://{payload}"], capture_output=True, check=True)
+    passphrase = secrets.token_urlsafe(48)
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    _with_secret_fd(run, ["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-salt",
+                          "-pass", "fd:{fd}", "-out", str(bundle)], passphrase, input=archive, check=True)
+    digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    store_secret(secret_name, json.dumps({"passphrase": passphrase, "sha256": digest}),
+                 "Ephemeral cloud-cell Terraform state key; deleted by teardown", run=run)
     return digest
 
 
 def open_state(root: Path, bundle: Path, secret_name: str, *, run=subprocess.run) -> None:
     """Restore the sealed Terraform working directory. Fails closed on any digest mismatch."""
-    secret = json.loads(run(["aws", "secretsmanager", "get-secret-value", "--secret-id", secret_name,
-                             "--query", "SecretString", "--output", "text"],
-                            capture_output=True, text=True, check=True).stdout)
+    secret = json.loads(read_secret(secret_name, run=run))
     if hashlib.sha256(bundle.read_bytes()).hexdigest() != secret["sha256"]:
         raise ValueError("sealed Terraform state does not match the digest recorded at provision")
-    with tempfile.TemporaryDirectory() as scratch:
-        passphrase = _private_file(Path(scratch), "passphrase", secret["passphrase"])
-        archive = run(["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000",
-                       "-pass", f"file:{passphrase}", "-in", str(bundle)],
-                      capture_output=True, check=True).stdout
+    archive = _with_secret_fd(run, ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000",
+                                    "-pass", "fd:{fd}", "-in", str(bundle)], secret["passphrase"],
+                              capture_output=True, check=True).stdout
     root.mkdir(parents=True, exist_ok=True)
     run(["tar", "-xzf", "-", "-C", str(root)], input=archive, check=True)
 
 
-def forget_state(secret_name: str, *, run=subprocess.run) -> None:
-    run(["aws", "secretsmanager", "delete-secret", "--secret-id", secret_name,
-         "--force-delete-without-recovery"], capture_output=True, check=True)
+def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run) -> None:
+    """Encrypt the cell's application key to the journey runner's own public key.
+
+    Job outputs and step env are printed in the public job log, so the key reaches the
+    credential-free journey job only as RSA-OAEP ciphertext in an artifact.
+    """
+    ciphertext = run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public_key),
+                      "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
+                     input=read_secret(secret_name, run=run).encode("utf-8"),
+                     capture_output=True, check=True).stdout
+    sealed.parent.mkdir(parents=True, exist_ok=True)
+    sealed.write_bytes(ciphertext)
+
+
+def open_key(sealed: Path, private_key: Path, *, run=subprocess.run) -> str:
+    return run(["openssl", "pkeyutl", "-decrypt", "-inkey", str(private_key),
+                "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256", "-in", str(sealed)],
+               capture_output=True, check=True).stdout.decode("utf-8")
 
 
 def _target(target_name: str):
@@ -526,15 +561,22 @@ def _phase_provision(args) -> int:
     target = _target(args.target)
     cell = _cell(args.target, args.redis)
     # The Actions run id is public, so the cell's application key must not be derived from it.
-    # The journey job receives this value through a job output; it never enters an artifact.
+    # It reaches the journey job only sealed to that runner's own public key.
     os.environ.setdefault("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!{secrets.token_urlsafe(32)}")
     state = provision_phase(target, args.target, require_real=args.require_real,
                             redis_enabled=args.redis == "on")
+    if state["endpoint"]:
+        # The admit job seals this to the journey runner's public key (seal_key).
+        try:
+            store_secret(app_key_secret_name(cell), target.admin_api_key,
+                         "Ephemeral cloud-cell application key; deleted by teardown")
+        except Exception as error:
+            state["report"].update(status="fail", why="could not hand the cell's application key to "
+                                   f"the journey job: {type(error).__name__}")
+            state["endpoint"] = None
     _write_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME, state)
     _set_output("endpoint", state["endpoint"] or "")
     _set_output("admission", state["admission"] if state["endpoint"] else "none")
-    if state["endpoint"]:
-        _set_output("admin_key", target.admin_api_key)
     report = state["report"]
     print(f"== cloud-provision :: {cell} -> {report.get('status', 'provisioned').upper()} ==")
     print(f"   {report.get('why', state['endpoint'] or '')}")
@@ -548,8 +590,12 @@ def _phase_journey(args) -> int:
     if state is None or state.get("cell") != cell:
         journey = {"cell": cell, "status": "fail", "why": "provision handoff missing or for another cell"}
     else:
-        journey = journey_phase(state, admin_key=os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""),
-                                max_attempts=args.max_attempts)
+        try:
+            admin_key = (open_key(args.sealed_key, args.private_key) if args.sealed_key
+                         else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+        except Exception:
+            admin_key = ""
+        journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
@@ -566,6 +612,13 @@ def _phase_admit(args) -> int:
         raise SystemExit(f"{cell}: no provisioned endpoint to admit the journey runner to")
     _target(args.target).admit(state["endpoint"], args.cidr, redis_enabled=args.redis == "on")
     print(f"admitted the journey runner to {cell}")
+    return 0
+
+
+def _phase_deliver_key(args) -> int:
+    cell = _cell(args.target, args.redis)
+    seal_key(app_key_secret_name(cell), args.public_key, args.sealed_key)
+    print(f"sealed the {cell} application key to the journey runner's public key")
     return 0
 
 
@@ -635,11 +688,12 @@ def _phase_teardown(args) -> int:
     if stranded:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")
-    if state.get("destroyed"):
+    secret_names = [app_key_secret_name(cell)] + ([state_secret_name(cell)] if state.get("destroyed") else [])
+    for name in secret_names:
         try:
-            forget_state(state_secret_name(cell))
+            forget_secret(name)
         except Exception as error:
-            problems.append(f"state key could not be deleted: {type(error).__name__}")
+            problems.append(f"{name} could not be deleted: {type(error).__name__}")
     if problems:
         report["status"] = "fail"
         report["why"] = "; ".join(filter(None, [report.get("why"), *problems]))
@@ -651,11 +705,15 @@ def _phase_teardown(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "admit",
-                                        "open-state", "teardown"), default="all",
+    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "deliver-key",
+                                        "admit", "open-state", "teardown"), default="all",
                     help="CI runs provision, journey and teardown as separate jobs (honua-release#381)")
     ap.add_argument("--bundle", type=Path, help="sealed Terraform state (seal-state / open-state)")
     ap.add_argument("--cidr", help="the journey runner's IPv4 /32 (admit)")
+    ap.add_argument("--public-key", type=Path, help="the journey runner's RSA public key (deliver-key)")
+    ap.add_argument("--private-key", type=Path, help="this journey runner's RSA private key (journey)")
+    ap.add_argument("--sealed-key", type=Path,
+                    help="the application key sealed to the journey runner (deliver-key writes, journey reads)")
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
@@ -668,12 +726,17 @@ def main(argv: list[str] | None = None) -> int:
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
-              "admit": _phase_admit, "open-state": _phase_open, "teardown": _phase_teardown}
+              "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,
+              "teardown": _phase_teardown}
     if args.phase in phases:
         if args.phase in ("seal-state", "open-state") and args.bundle is None:
             ap.error(f"--phase {args.phase} requires --bundle")
         if args.phase == "admit" and not args.cidr:
             ap.error("--phase admit requires --cidr")
+        if args.phase == "deliver-key" and not (args.public_key and args.sealed_key):
+            ap.error("--phase deliver-key requires --public-key and --sealed-key")
+        if args.phase == "journey" and bool(args.sealed_key) != bool(args.private_key):
+            ap.error("--sealed-key and --private-key go together")
         return phases[args.phase](args)
 
     report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"),

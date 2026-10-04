@@ -4,8 +4,9 @@
 # credential and no OIDC token. Scrubbing the environment cannot hide a parent process's startup
 # environment (/proc/$PPID/environ), so the credentials are kept off that runner entirely:
 #   provision (OIDC + AWS) -> journey (contents: read only) -> teardown (OIDC + AWS, always)
-# admit (OIDC + AWS) runs beside the journey: it opens the cell's ingress to the journey runner's
-# own /32, which is a different address from the provisioning runner's.
+# admit (OIDC + AWS) runs beside the journey: it seals the cell's application key to a key the journey
+# runner generated, and opens the cell's ingress to the journey runner's own /32, which is a different
+# address from the provisioning runner's.
 # The Terraform working directory reaches teardown sealed: the artifact holds ciphertext only (this
 # repository and its artifacts are public); the key and digest live in Secrets Manager.
 name: e2e-cloud-aws-cell
@@ -50,12 +51,11 @@ jobs:
     permissions:
       contents: read
       id-token: write                 # OIDC -> AWS (no static creds)
+    # Identifiers only. Job outputs and step env are printed in the public job log, so the cell's
+    # application key goes to Secrets Manager and reaches the journey sealed to its own key.
     outputs:
       endpoint: ${{ steps.provision.outputs.endpoint }}
       admission: ${{ steps.provision.outputs.admission }}
-      # Not an artifact: artifacts of this public repository are public. Only the jobs that need
-      # this cell's application key reference it.
-      admin_key: ${{ steps.provision.outputs.admin_key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -198,21 +198,23 @@ jobs:
         with:
           persist-credentials: false
 
-      # First, before any third-party code: the admit job opens the cell to exactly this address.
-      - name: Publish this runner's address for admission
-        if: ${{ needs.provision.outputs.admission != 'none' }}
+      # First, before any third-party code: this runner's address (the admit job opens the cell's
+      # ingress to exactly it) and a fresh RSA key the cell's application key is sealed to.
+      - name: Introduce this runner to the admit job
         run: |
           set -euo pipefail
           RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
           python3 -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
-          mkdir -p "$RUNNER_TEMP/journey-ip"
-          echo "${RUNNER_IP}/32" > "$RUNNER_TEMP/journey-ip/cidr"
-      - name: Upload this runner's address
-        if: ${{ needs.provision.outputs.admission != 'none' }}
+          mkdir -p "$RUNNER_TEMP/journey-hello" "$RUNNER_TEMP/journey-key"
+          echo "${RUNNER_IP}/32" > "$RUNNER_TEMP/journey-hello/cidr"
+          ( umask 077; openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+              -out "$RUNNER_TEMP/journey-key/private.pem" )
+          openssl pkey -in "$RUNNER_TEMP/journey-key/private.pem" -pubout -out "$RUNNER_TEMP/journey-hello/public.pem"
+      - name: Upload this runner's address and public key
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cloud-cell-journey-ip-${{ env.CELL_ARTIFACT }}
-          path: ${{ runner.temp }}/journey-ip/cidr
+          name: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-hello/
           if-no-files-found: error
           retention-days: 1
 
@@ -287,13 +289,34 @@ jobs:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
 
+      # The admit job uploads the sealed key while this job installs its clients. This job holds no
+      # token for the Actions API, so it watches the public run's artifact list anonymously.
+      - name: Wait for the sealed application key
+        env:
+          NAME: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+        run: |
+          set -uo pipefail
+          for _ in $(seq 1 45); do
+            count="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
+              | jq -r '.total_count' 2>/dev/null || echo 0)"
+            [ "$count" = 1 ] && exit 0
+            sleep 20
+          done
+          echo "::error::the admit job never delivered the cell's sealed application key"
+          exit 1
+      - name: Download the sealed application key
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-key/sealed
+
       # The seam drivers, then the imported journey (run_live installs the pinned clients with
       # --ignore-scripts), against the endpoint the handoff names. The handoff's run, attempt and
       # candidate digest must be this run's.
       - name: "Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey"
-        env:
-          HONUA_CLOUD_ADMIN_KEY: ${{ needs.provision.outputs.admin_key }}
-        run: python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
+        run: |
+          python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
 
       - name: Upload the journey receipts
         if: always()
@@ -309,15 +332,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-  # ── admit: open the cell's ingress to the journey runner's /32 (ECS ALB, EKS Service) ─────────────
+  # ── admit: seal the application key to the journey runner, open the cell's ingress to its /32 ──────
   admit:
     needs: provision
-    if: ${{ needs.provision.outputs.endpoint != '' && needs.provision.outputs.admission != 'none' }}
+    if: ${{ needs.provision.outputs.endpoint != '' }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ inputs.preview }}
     permissions:
       contents: read
-      actions: read                   # read the journey runner's address artifact while it runs
+      actions: read                   # read the journey runner's introduction artifact while it runs
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -341,28 +364,41 @@ jobs:
         with:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
-      - name: Wait for the journey runner's address
+      - name: Wait for the journey runner's introduction
         env:
           GH_TOKEN: ${{ github.token }}
-          NAME: cloud-cell-journey-ip-${{ env.CELL_ARTIFACT }}
+          NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
         run: |
           set -euo pipefail
           for _ in $(seq 1 120); do
             found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
               --jq '.total_count' 2>/dev/null || echo 0)"
             if [ "$found" = 1 ]; then
-              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-ip"
+              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
               exit 0
             fi
             sleep 10
           done
-          echo "::error::the journey runner never published its address"
+          echo "::error::the journey runner never introduced itself"
           exit 1
+      - name: Seal the application key to the journey runner
+        run: |
+          set -euo pipefail
+          python e2e/run_cloud.py --phase deliver-key --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --public-key "$RUNNER_TEMP/journey-hello/public.pem" --sealed-key "$RUNNER_TEMP/journey-key/app-key.sealed"
+      - name: Upload the sealed application key
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-key/app-key.sealed
+          if-no-files-found: error
+          retention-days: 1
       - name: "Admit the journey runner to ${{ inputs.target }} / redis-${{ inputs.redis }}"
+        if: ${{ needs.provision.outputs.admission != 'none' }}
         run: |
           set -euo pipefail
           python e2e/run_cloud.py --phase admit --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
-            --cidr "$(head -c 64 "$RUNNER_TEMP/journey-ip/cidr")"
+            --cidr "$(head -c 64 "$RUNNER_TEMP/journey-hello/cidr")"
 
   # ── teardown: always; destroys whatever provision created, then decides the cell's verdict ─────────
   teardown:

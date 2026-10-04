@@ -96,9 +96,11 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 Each cell is three jobs (`.github/workflows/e2e-cloud-aws-cell.yml`, honua-release#381):
 `provision` (OIDC + AWS: apply, probes, database seed) → `journey` (`contents: read` only: the
 seam drivers and the manifest-pinned clients via `run_live`) → `teardown` (OIDC + AWS, `if: always()`:
-cost meter, destroy, cell verdict). An `admit` job (OIDC + AWS) opens the ECS ALB / EKS Service to the
-journey runner's own /32. The Terraform working directory reaches teardown as a sealed artifact
-(ciphertext only; the key and digest are in Secrets Manager under `honua-cloud-cell-state/`).
+cost meter, destroy, cell verdict). An `admit` job (OIDC + AWS) seals the cell's random application key
+to an RSA key the journey runner generated, and opens the ECS ALB / EKS Service to the journey runner's
+own /32. Job outputs and step env are printed in the public log, so no credential travels that way. The
+Terraform working directory reaches teardown as a sealed artifact (ciphertext only; the passphrase,
+digest and application key are in Secrets Manager under `honua-cloud-cell-state/`, deleted by teardown).
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 

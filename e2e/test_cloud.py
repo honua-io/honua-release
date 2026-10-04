@@ -1490,8 +1490,10 @@ def test_cloud_driver_clients_install_without_scripts_root_or_cloud_credentials(
     assert "--with-deps" not in script and "install-deps" not in script
     assert all("sudo" not in line for line in script.splitlines() if "npm" in line or "node" in line)
     assert "npm install" in script and "--ignore-scripts" in script
-    # The admit job opens the cell to this runner's address, published before any npm code runs.
-    publish = names.index("Upload this runner's address")
+    # The admit job opens the cell to this runner's address and seals the application key to this
+    # runner's own public key; both are published before any pip/npm code runs.
+    publish = names.index("Upload this runner's address and public key")
+    assert publish < names.index("Install journey runner dependencies")
     assert publish < names.index("Install pinned extended driver clients")
     assert publish < names.index("Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey")
 
@@ -1798,13 +1800,17 @@ def _fake_secrets_manager(store):
         if argv[:2] != ["aws", "secretsmanager"]:
             return real(argv, **kwargs)
         name = argv[argv.index("--name" if "--name" in argv else "--secret-id") + 1]
+        # Secret material arrives on stdin, never in argv.
+        assert not any(value in " ".join(argv) for value in store.values())
         if argv[2] == "create-secret":
-            assert name not in store
-            store[name] = Path(argv[argv.index("--secret-string") + 1].removeprefix("file://")).read_text()
+            assert name not in store and argv[argv.index("--secret-string") + 1] == "file:///dev/stdin"
+            store[name] = kwargs["input"]
             return subprocess.CompletedProcess(argv, 0, "{}", "")
         if argv[2] == "get-secret-value":
-            return subprocess.CompletedProcess(argv, 0, store[name], "")
+            return subprocess.CompletedProcess(argv, 0, store[name] + "\n", "")
         if argv[2] == "delete-secret":
+            if name not in store:
+                return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException")
             del store[name]
             return subprocess.CompletedProcess(argv, 0, "{}", "")
         raise AssertionError(argv)
@@ -1831,8 +1837,29 @@ def test_sealed_state_round_trips_and_ships_only_ciphertext():
         bundle.write_bytes(bundle.read_bytes() + b"tampered")
         with pytest.raises(ValueError, match="digest"):
             run_cloud.open_state(restored, bundle, "honua-cloud-cell-state/x", run=run)
-        run_cloud.forget_state("honua-cloud-cell-state/x", run=run)
+        run_cloud.forget_secret("honua-cloud-cell-state/x", run=run)
+        run_cloud.forget_secret("honua-cloud-cell-state/x", run=run)  # already gone: fine
         assert store == {}
+
+
+def test_application_key_reaches_the_journey_only_sealed_to_its_own_key():
+    store = {}
+    run = _fake_secrets_manager(store)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
+                        "-out", str(root / "private.pem")], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(root / "private.pem"), "-pubout",
+                        "-out", str(root / "public.pem")], check=True, capture_output=True)
+        run_cloud.store_secret("cell-app-key", "Honua-Gate-Aa1!application-key", "fixture", run=run)
+        run_cloud.seal_key("cell-app-key", root / "public.pem", root / "key.sealed", run=run)
+        assert b"application-key" not in (root / "key.sealed").read_bytes()
+        assert run_cloud.open_key(root / "key.sealed", root / "private.pem") == "Honua-Gate-Aa1!application-key"
+    # No job output carries it: outputs and step env are printed in the public job log.
+    import yaml
+    provision = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())[
+        "jobs"]["provision"]
+    assert set(provision["outputs"]) == {"endpoint", "admission"}
 
 
 class _PhaseStub(_ServingStub):
@@ -1863,7 +1890,7 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
         monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
         monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(Path(scratch) / "marker"))
         forgotten = []
-        monkeypatch.setattr(run_cloud, "forget_state", lambda name: forgotten.append(name))
+        monkeypatch.setattr(run_cloud, "forget_secret", lambda name: forgotten.append(name))
         monkeypatch.setattr(run_cloud.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
         try:
             state = {"cell": "aws-ecs/redis-off", "redis": "redis-off", "runId": "phase381",
@@ -1878,11 +1905,14 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             assert run_cloud.main(argv) == 1
             report = json.loads(run_cloud.REPORT_PATH.read_text())
             assert stub.torn_down == 0 and "never reached teardown" in report["why"]
-            assert forgotten == []
+            # The application key goes regardless; the state key stays while the cell may still exist.
+            assert forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off")]
+            forgotten.clear()
             # Restored state: destroy, then delete the state key.
             Path(scratch, "marker").write_text("")
             assert run_cloud.main(argv) == 1  # the provision failure still fails the cell
-            assert stub.torn_down == 1 and forgotten == [run_cloud.state_secret_name("aws-ecs/redis-off")]
+            assert stub.torn_down == 1 and forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off"),
+                                                         run_cloud.state_secret_name("aws-ecs/redis-off")]
             # A handoff from another run attempt cannot be adopted.
             run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {**state, "runAttempt": "2"})
             run_cloud.main(argv)
