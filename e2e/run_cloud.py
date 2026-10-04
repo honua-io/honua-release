@@ -18,8 +18,8 @@ E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
-from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical,  # noqa: E402
-                              run_extended)
+from canonical_checks import is_endpoint_unreachable, make_fetch, run_canonical  # noqa: E402
+from runner.cloud import run_extended  # noqa: E402
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -141,6 +141,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     endpoint = None
     checks = []
     canary_results = []
+    extended = []
     try:
         _mark_provision_attempt()
         endpoint = target.provision(redis_enabled=redis_enabled)
@@ -160,6 +161,11 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
+        # The seed and every seam driver run BEFORE any journey mutation or teardown. Preserve the
+        # same detailed gate-report rows as the local harness, alongside the four cloud summaries.
+        extended = run_extended(endpoint, target=target,
+            out=cloud_journey.cell_dir(cell) / "extended", require_real=require_real)
+        report["scenarioCoverage"] = _check_dicts(extended)
         for number in range(1, max_attempts + 1):
             # The owned 1.1-candidate-image check needs the image ECS reports running now.
             running_image = None
@@ -220,13 +226,6 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     report["status"] = "fail"
                     report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
 
-    # MCP / Studio / GP-execute / top-demo stay visible as BLOCKED rows until the
-    # cloud harness image (honua-release#35) drives them. The imported journey does
-    # not stand in for those scenarios. require_real still promotes the gap to FAIL.
-    extended = run_extended(endpoint) if endpoint is not None else []
-    if endpoint is not None:
-        report["scenarioCoverage"] = _check_dicts(extended)
-
     if report.get("status") == "fail":
         return report
 
@@ -259,14 +258,16 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         )
         return report
 
-    if failed or canary_failed:
+    ext_failed = [c.name for c in extended if c.status == "fail"]
+    if failed or canary_failed or ext_failed:
         report["status"] = "fail"
-        report["why"] = f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}"
+        report["why"] = (f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}; "
+                         f"extended scenarios failed: {ext_failed}")
         return report
     if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
         report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
-                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
+                         f"scenarios not-certified={ext_blocked}")
         return report
 
     # Parity vs the reference target, when one was provided.

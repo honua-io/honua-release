@@ -1,5 +1,9 @@
 # AWS promise journeys: four required GA cells; EKS and mixed ECS + Batch are Preview evidence.
 # Every cell retains attempts, reads the run cost meter before teardown, and runs a reaper.
+# Extended MCP / Studio / GP / demo seams use the local drivers on the live endpoint before teardown.
+# Install the pinned browser client here: shell/HTTP drivers need no separate harness image. The
+# reviewed site's CSP may genuinely BLOCK top-demo on an AWS hostname (honua-release#35); strict
+# require_real still fails that cell. A driver FAIL always fails, including bootstrap dispatches.
 name: e2e-cloud-aws
 
 on:
@@ -363,6 +367,35 @@ jobs:
         # dependency, so install the declared set rather than assuming the runner image carries it.
         run: python -m pip install -r e2e/requirements.txt pytest
 
+      - name: Resolve the reviewed demo source
+        run: |
+          python - <<'PY'
+          import yaml
+          pin = yaml.safe_load(open("certification/conformance-evidence.yaml"))["demos"]["sourceRef"]
+          if pin != "0db19d7e6e5826fd885fb8f9c21c1798077c9b71":
+              raise SystemExit("demo sourceRef differs from the reviewed workflow pin")
+          PY
+      - name: Checkout the pinned demo pages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-site
+          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          path: _site
+      - name: Install pinned extended driver clients
+        env:
+          E2E_PW_HOME: ${{ runner.temp }}/cloud-playwright
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl jq postgresql-client
+          mkdir -p "$E2E_PW_HOME"
+          npm install --prefix "$E2E_PW_HOME" --no-audit --no-fund --save-exact playwright@1.61.1
+          node "$E2E_PW_HOME/node_modules/playwright/cli.js" install --with-deps chromium
+          echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
+          echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
+          echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"
+          echo "E2E_SITE_SHA=0db19d7e6e5826fd885fb8f9c21c1798077c9b71" >> "$GITHUB_ENV"
+
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic
         run: python -m pytest e2e/test_cloud.py -q
@@ -434,6 +467,7 @@ jobs:
           name: e2e-cloud-aws-gate-report-${{ matrix.target }}-redis-${{ matrix.redis }}
           path: |
             e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json
           if-no-files-found: warn
@@ -598,6 +632,9 @@ jobs:
             echo "";
             echo "| cell | evidence tier | status | why |"; echo "|---|---|---|---|";
             jq -r '.cells[] | "| \(.cell) | \(.evidenceTier) | \(.status) | \(.why) |"' out/gate-report-cloud.json;
+            echo "";
+            echo "### Extended scenarios (live MCP/Studio/GP/demo drivers)";
+            jq -r '.cells[] | .cell as $cell | .scenarioCoverage[]? | "- **\($cell) / \(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
             echo "";
             echo "### Promise journey attempts (manifest-pinned imported driver)";
             jq -r '.cells[] | .cell as $cell | .journeyAttempts[]? | "- **\($cell)** attempt \(.number): \(.receipt)"' out/gate-report-cloud.json;

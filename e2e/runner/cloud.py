@@ -1,17 +1,17 @@
 """Run the existing seam drivers while a cloud cell is alive; retain local report rows."""
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
 from pathlib import Path
 
 from canonical_checks import CheckResult
+from harness.cloud.seed import seed
 
 E2E = Path(__file__).resolve().parents[1]
 DRIVERS = {
-    "mcp-handshake": ("mcp", ["S1-mcp-handshake", "S2-mcp-tools"]),
+    "mcp-handshake": ("mcp", ["S1-mcp-handshake", "S2-mcp-tool-catalog"]),
     "studio-authoring": ("studio", ["S3-studio-authoring"]),
     "gp-execute": ("gp", ["S5-geoprocessing"]),
     "top-demo": ("demos", [f"S9-demos-{name}" for name in (
@@ -32,10 +32,7 @@ def run_extended(endpoint, *, target, out, require_real=False):
         E2E_SERVER_BOOTED="true", E2E_SITE_PORT="18099")
     seed_error = None
     try:
-        spec = importlib.util.spec_from_file_location("cloud_seed", E2E / "harness/cloud/seed.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        module.seed(endpoint, target.admin_api_key, target, out)
+        seed(endpoint, target.admin_api_key, target, out)
     except Exception as error:
         # HTTP responses and database errors can contain credentials; preserve only the type.
         seed_error = type(error).__name__
@@ -50,7 +47,13 @@ def run_extended(endpoint, *, target, out, require_real=False):
             code = completed.returncode
         except (OSError, subprocess.TimeoutExpired):
             code = -1
-        rows = [json.loads(line) for line in fragments.read_text().splitlines()[before:]]
+        try:
+            rows = [json.loads(line) for line in fragments.read_text().splitlines()[before:]]
+            if not all(isinstance(row, dict) and "why" in row and "status" in row for row in rows):
+                raise ValueError("invalid scenario row")
+        except (ValueError, TypeError):
+            rows = []
+            code = -1
         for scenario in expected:
             matches = [row for row in rows if row.get("scenario") == scenario]
             if len(matches) != 1:
@@ -77,6 +80,6 @@ def run_extended(endpoint, *, target, out, require_real=False):
     assembler = f'source "{E2E}/harness/lib/report.sh"; assemble_report "$E2E_OUT"'
     subprocess.run(["bash", "-c", assembler], env=env, capture_output=True, text=True, check=False)
     # Detailed browser output is diagnostic input, not a publishable credential-safe artifact.
-    for filename in ("demos-results.json", "demos-drive.log", "demos-site.log", "studio-gate-state.json"):
+    for filename in ("demos-results.json", "demos-drive.log", "demos-site.log", "s3-gate-state.json"):
         (out / filename).unlink(missing_ok=True)
     return results

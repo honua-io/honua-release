@@ -208,6 +208,14 @@ class AwsEksTarget(DeployTarget):
                  check: bool = True) -> subprocess.CompletedProcess:
         return self._run(["kubectl", *args], input_text=input_text, env=self._kube_env(), check=check)
 
+    def seed_database(self, sql: str) -> dict:
+        self._kubectl("exec", "-i", "deployment/postgis", "-n", NAMESPACE, "--",
+                      "psql", "-U", "honua", "-d", "honua", "-v", "ON_ERROR_STOP=1",
+                      input_text=sql)
+        return {"host": "postgis", "port": 5432, "databaseName": "honua",
+                "username": "honua", "password": self._db_password,
+                "provider": "PostGIS", "sslRequired": False, "sslMode": "Disable"}
+
     def _redact(self, text: str) -> str:
         """Never let a generated credential reach the public Actions log through an error/diagnostic."""
         for secret_value in (self._db_password, self._admin_password,

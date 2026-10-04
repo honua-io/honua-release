@@ -68,6 +68,12 @@ for shim in assets/demos/csp-bootstrap.js assets/demos/backend-override.js; do
 done
 
 # ── Playwright (cached outside the repo; CI warms the same cache) ──────────────────────────────
+# Execute the pinned site's own allow-list; never copy or widen its security policy here.
+if ! node "$HERE/check-backend.mjs" "$SITE_DIR/assets/demos/csp-bootstrap.js"; then
+  block_all "honua-release#35 top-demo: pinned honua-site${E2E_SITE_SHA:+@$E2E_SITE_SHA} CSP does not allow this cell's backend origin; an HTTPS honua.io cell endpoint is required"
+  exit 0
+fi
+
 PW_HOME="${E2E_PW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/honua-e2e-playwright}"
 PW_VERSION="${E2E_PLAYWRIGHT_VERSION:-1.61.1}"
 mkdir -p "$PW_HOME"
