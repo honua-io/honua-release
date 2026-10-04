@@ -1,18 +1,20 @@
-"""SDK regression suite: published SDKs drive the candidate through real workflows.
+"""Published-client regression suite: published SDKs, CLIs and the MCP proxy drive the candidate.
 
 The suite has three parts.
 
 * ``scenarios/*.json`` is the scenario contract. It lists each scenario's steps and oracle kinds,
-  and names, per client, the SDK API each step must go through.
-* ``drivers/<client>/`` holds one program per SDK. A driver runs only against the installed
-  published package. It calls the SDK's own client classes, never raw HTTP, and prints one JSON
-  observation per step.
+  and names, per client, the SDK API, command or MCP request each step must go through. The id's
+  prefix is the scenario family (``sdk-``, ``cli-``, ``mcp-``), which fixes the clients it names.
+* ``drivers/<client>/`` holds one program per client. A driver runs only against the installed
+  published package. It calls the SDK's own client classes, the installed command or the
+  installed MCP proxy, never raw HTTP, and prints one JSON observation per step.
 * This module seeds ``fixture.v1.json`` into the candidate's database and publishes the harness
   layers. It writes each driver's plan, runs the driver, and judges every observation with
   ``oracles.py``.
 
-Harness setup (seeding tables, publishing the shared read-only layers and the managed edit layer)
-uses the admin REST API directly. It is fixture preparation, not the client under test.
+Harness setup (seeding tables, publishing the shared read-only layers and the managed edit layer,
+minting the proposer and approver principals) uses the admin REST API directly. It is fixture
+preparation, not the client under test.
 """
 from __future__ import annotations
 
@@ -35,14 +37,34 @@ import oracles
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixture.v1.json"
+# The pinned MCP discovery surface of the candidate image (regenerated on every server re-pin).
+TOOL_ROSTER = HERE.parents[1] / "e2e" / "drivers" / "mcp" / "expected-tools.json"
 SCENARIOS = HERE / "scenarios"
-SUITE_DRIVERS = {"pypi-sdk": "python", "npm-sdk": "js", "nuget-sdk": "dotnet"}
-CLIENT_SLUGS = {"honua-sdk-python-wheel": "python", "honua-sdk-js": "js", "honua-sdk-dotnet": "dotnet"}
+# Driver -> the slug that names its per-client fixture tables and services.
+SUITE_DRIVERS = {"pypi-sdk": "python", "npm-sdk": "js", "nuget-sdk": "dotnet",
+                 "npm-cli": "clijs", "pypi-cli": "clipy", "npm-mcp-workflow": "mcp"}
+# Scenario family (the scenario id's prefix) -> the client artifacts that each name one API per step.
+FAMILIES = {
+    "sdk": ("honua-sdk-python-wheel", "honua-sdk-js", "honua-sdk-dotnet"),
+    "cli": ("honua-sdk-js", "honua-sdk-python-wheel"),
+    "mcp": ("honua-mcp-server",),
+}
+# Driver -> (family, artifact): which scenarios a driver runs and for which published client.
+DRIVER_CLIENTS = {
+    "pypi-sdk": ("sdk", "honua-sdk-python-wheel"), "npm-sdk": ("sdk", "honua-sdk-js"), "nuget-sdk": ("sdk", "honua-sdk-dotnet"),
+    "npm-cli": ("cli", "honua-sdk-js"), "pypi-cli": ("cli", "honua-sdk-python-wheel"),
+    "npm-mcp-workflow": ("mcp", "honua-mcp-server"),
+}
+# The workflow principals the harness mints for the proposal steps: the proposer may publish, the
+# approver may only approve. Their keys travel in the driver's environment, never in the plan.
+PRINCIPAL_GRANTS = {"proposer": ["admin:write"], "approver": ["admin:approve"]}
 BEARER_ISSUER = "https://sdk-regression.invalid"
 BEARER_AUDIENCE = "sdk-regression"
 BEARER_TENANT = "default"
 # The only fields a driver observation may carry into evaluation. Anything else is dropped.
 OBSERVATION_KEYS = {"scenario", "step", "api", "observed", "error", "unsupported", "skipped"}
+# Oracles that judge the whole observation, because the expected outcome is an error.
+ERROR_ORACLES = {"refused", "not-found", "self-approval-refused", "mcp-permission-denied"}
 SECRET_SHAPES = re.compile(
     r"(?i)(authorization|x-api-key|password|secret|token|apikey|api_key)(\s*[=:]\s*)\S+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+"
 )
@@ -59,6 +81,16 @@ def load_fixture(path: Path = FIXTURE) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def load_tool_roster(path: Path = TOOL_ROSTER) -> list[str]:
+    """The tool names of the pinned full catalog."""
+    return list(json.loads(path.read_text())["fullCatalog"]["tools"])
+
+
+def load_default_view(path: Path = TOOL_ROSTER) -> dict[str, Any]:
+    """The pinned default view: its revision and tool names."""
+    return json.loads(path.read_text())["defaultView"]
+
+
 def load_scenarios(directory: Path = SCENARIOS) -> dict[str, dict[str, Any]]:
     scenarios: dict[str, dict[str, Any]] = {}
     for path in sorted(directory.glob("*.json")):
@@ -72,9 +104,15 @@ def load_scenarios(directory: Path = SCENARIOS) -> dict[str, dict[str, Any]]:
     return scenarios
 
 
+def scenario_family(scenario_id: str) -> str | None:
+    family = str(scenario_id).split("-", 1)[0]
+    return family if family in FAMILIES and re.fullmatch(r"[a-z]+-[a-z0-9-]+", str(scenario_id)) else None
+
+
 def validate_scenario(scenario: dict[str, Any], name: str) -> None:
-    if scenario.get("schemaVersion") != 1 or not re.fullmatch(r"sdk-[a-z0-9-]+", str(scenario.get("id", ""))):
-        raise RegressionError(f"{name}: scenario needs schemaVersion 1 and an sdk-* id")
+    family = scenario_family(scenario.get("id", ""))
+    if scenario.get("schemaVersion") != 1 or family is None:
+        raise RegressionError(f"{name}: scenario needs schemaVersion 1 and an sdk-*, cli-* or mcp-* id")
     steps = scenario.get("steps")
     if not isinstance(steps, list) or not steps:
         raise RegressionError(f"{name}: scenario has no steps")
@@ -84,8 +122,8 @@ def validate_scenario(scenario: dict[str, Any], name: str) -> None:
     if scenario.get("receiptFields") != ["client", "version", "integrity", "scenario", "step", "api", "status", "oracle"]:
         raise RegressionError(f"{name}: receiptFields must be the allowlist")
     clients = scenario.get("clients")
-    if not isinstance(clients, dict) or set(clients) != set(CLIENT_SLUGS):
-        raise RegressionError(f"{name}: every SDK client must name its API for each step")
+    if not isinstance(clients, dict) or set(clients) != set(FAMILIES[family]):
+        raise RegressionError(f"{name}: every {family} client must name its API for each step")
     for client, apis in clients.items():
         if not isinstance(apis, dict) or set(apis) != set(ids) or not all(isinstance(v, str) and v for v in apis.values()):
             raise RegressionError(f"{name}: client {client} must name one API per step")
@@ -97,8 +135,9 @@ def validate_suite_cell(cell: dict[str, Any], scenarios: dict[str, dict[str, Any
     scenario = scenarios.get(cell.get("scenario"))
     if scenario is None:
         raise RegressionError(f"{cell_id}: unknown scenario {cell.get('scenario')!r}")
-    if CLIENT_SLUGS.get(cell.get("artifact")) != SUITE_DRIVERS.get(cell.get("driver")):
-        raise RegressionError(f"{cell_id}: driver {cell.get('driver')!r} does not drive artifact {cell.get('artifact')!r}")
+    if DRIVER_CLIENTS.get(cell.get("driver")) != (scenario_family(scenario["id"]), cell.get("artifact")):
+        raise RegressionError(f"{cell_id}: driver {cell.get('driver')!r} does not drive artifact {cell.get('artifact')!r} "
+                              f"through {scenario['id']}")
     blocked = cell.get("blockedSteps")
     if cell["status"] != "blocked":
         if blocked is not None:
@@ -136,8 +175,9 @@ def _point_table(table: str, fields: dict[str, str], rows: list[dict[str, Any]])
             f"INSERT INTO honua_data.{table} ({', '.join(fields)}, geom) VALUES\n {values};\n")
 
 
-def seed_sql(fixture: dict[str, Any], slugs: list[str]) -> str:
-    """Deterministic SQL for the shared tables and one edits + lifecycle table per client."""
+def seed_sql(fixture: dict[str, Any], slugs: list[str], workflow_slugs: list[str] = ()) -> str:
+    """Deterministic SQL for the shared tables, one edits + lifecycle table per SDK client and one
+    lifecycle + proposal table per command-line client."""
     area = fixture["area"]
     polygons = ",\n ".join(
         f"({row['gid']}, {_sql_literal(row['name'])}, ST_SetSRID(ST_MakeEnvelope({', '.join(map(repr, row['envelope']))}), 4326))"
@@ -153,6 +193,9 @@ def seed_sql(fixture: dict[str, Any], slugs: list[str]) -> str:
     for slug in slugs:
         parts.append(_point_table(fixture["edits"]["tablePrefix"] + slug, fixture["edits"]["fields"], fixture["edits"]["features"]))
         parts.append(_point_table(fixture["lifecycle"]["tablePrefix"] + slug, fixture["lifecycle"]["fields"], fixture["lifecycle"]["features"]))
+    for slug in workflow_slugs:
+        for key in ("lifecycle", "proposal"):
+            parts.append(_point_table(fixture[key]["tablePrefix"] + slug, fixture[key]["fields"], fixture[key]["features"]))
     return "".join(parts)
 
 
@@ -213,6 +256,21 @@ def publish_harness(api: AdminApi, fixture: dict[str, Any], slugs: list[str], db
     return published
 
 
+def mint_principals(api: AdminApi, tag: str) -> dict[str, dict[str, str]]:
+    """Short-lived proposer and approver API keys. Returns {name: {"id", "key"}}; only ids enter the plan."""
+    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 3600))
+    principals = {}
+    for name, grants in PRINCIPAL_GRANTS.items():
+        created = api.request("POST", "/api/v1/admin/api-keys/", {"name": f"sdkreg-{tag}-{name}", "permissions": grants,
+                                                                 "expiresAt": expires})
+        key_id = (created.get("apiKey") or {}).get("id") if isinstance(created, dict) else None
+        key = created.get("key") if isinstance(created, dict) else None
+        if not isinstance(key_id, str) or not key_id or not isinstance(key, str) or not key:
+            raise RegressionError(f"harness could not mint the {name} principal")
+        principals[name] = {"id": key_id, "key": key}
+    return principals
+
+
 def mint_bearer(signing_key: str, *, lifetime: int = 3600) -> str:
     """An HS256 operator token for the candidate's generic OIDC issuer (per-run key)."""
     def encode(value: dict[str, Any]) -> bytes:
@@ -229,9 +287,12 @@ def mint_bearer(signing_key: str, *, lifetime: int = 3600) -> str:
 
 
 def build_plan(fixture: dict[str, Any], published: dict[str, Any], slug: str, scenario_ids: list[str],
-               scenarios: dict[str, dict[str, Any]], base_url: str) -> dict[str, Any]:
+               scenarios: dict[str, dict[str, Any]], base_url: str,
+               principals: dict[str, dict[str, str]] | None = None) -> dict[str, Any]:
     """Everything a driver needs except credentials, which travel in the environment."""
-    sites, area, edits, lifecycle, processes = (fixture[key] for key in ("sites", "area", "edits", "lifecycle", "processes"))
+    sites, area, lifecycle, processes, proposal = (fixture[key] for key in ("sites", "area", "lifecycle", "processes", "proposal"))
+    edits = fixture["edits"]
+    edit_layer = published["edits"].get(slug) or {}
     in_bbox = oracles.sites_in_bbox(fixture)
     return {
         "schemaVersion": 1,
@@ -242,14 +303,19 @@ def build_plan(fixture: dict[str, Any], published: dict[str, Any], slug: str, sc
                   "collectionId": str(published["sites"]["layerId"]), "where": oracles.where_clause(sites["filter"]),
                   "bbox": sites["bbox"], "itemId": str(in_bbox[0]["gid"]) if in_bbox else "1",
                   "fields": list(sites["fields"])},
-        "area": {"collectionId": str(published["area"]["layerId"]), **area["tiles"]},
-        "edits": {"service": published["edits"][slug]["service"], "layerId": published["edits"][slug]["layerId"],
+        "area": {"collectionId": str(published["area"]["layerId"]), "service": published["area"]["service"],
+                 "layerId": published["area"]["layerId"], **area["tiles"]},
+        "edits": {"service": edit_layer.get("service"), "layerId": edit_layer.get("layerId"),
                   "fields": list(edits["fields"]), "add": edits["add"], "update": edits["update"],
                   "delete": edits["delete"], "attachment": edits["attachment"]},
         "lifecycle": {"connectionName": lifecycle["connectionPrefix"] + slug, "database": lifecycle["database"],
                       "table": lifecycle["tablePrefix"] + slug, "service": lifecycle["servicePrefix"] + slug,
                       "layerName": lifecycle["layerName"], "geometryType": lifecycle["geometryType"]},
         "processes": {key: processes[key] for key in ("processId", "point", "srid", "distance", "pollTimeoutSeconds")},
+        "proposal": {"schema": "honua_data", "table": proposal["tablePrefix"] + slug, "service": proposal["servicePrefix"] + slug,
+                     "layerName": proposal["layerName"], "geometryType": proposal["geometryType"]},
+        "principals": {f"{name}Id": value["id"] for name, value in (principals or {}).items()},
+        "mcp": {"render": fixture["mcp"]["render"]},
     }
 
 
@@ -295,7 +361,7 @@ def judge_step(scenario_id: str, step: dict[str, Any], observation: dict[str, An
     if "skipped" in observation:
         return False, f"not run: {observation['skipped']}"
     kind = step["oracle"]
-    if kind in {"refused", "not-found"}:
+    if kind in ERROR_ORACLES:
         return ORACLES[kind](observation, fixture, plan, observations, scenario_id)
     if "error" in observation:
         return False, oracles._error_summary(observation)
@@ -326,12 +392,18 @@ def _layer_disabled(observed, fixture, plan, observations, scenario):
     return ok, f"layer {observed.get('layerId')} enabled={observed.get('enabled')!r} after unpublish"
 
 
+def _observed_names(observations, scenario, step):
+    names = (observations.get((scenario, step), {}).get("observed") or {}).get("names")
+    return names if isinstance(names, list) else None
+
+
 def _count(observed, fixture, plan, observations, scenario):
     step_expect = {
         ("sdk-auth", "api-key-query"): len(fixture["sites"]["features"]),
         ("sdk-auth", "bearer-query"): len(fixture["sites"]["features"]),
         ("sdk-geoservices", "count"): len(oracles.filtered_sites(fixture)),
         ("sdk-admin-lifecycle", "served"): len(fixture["lifecycle"]["features"]),
+        ("cli-workflow", "served"): len(fixture["lifecycle"]["features"]),
     }
     return oracles.oracle_count(observed, step_expect[(scenario, observed.get("_step"))])
 
@@ -362,6 +434,19 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "job-accepted": lambda o, f, p, obs, s: oracles.oracle_job_accepted(o),
     "job-succeeded": lambda o, f, p, obs, s: oracles.oracle_job_succeeded(o),
     "buffer-result": lambda o, f, p, obs, s: oracles.oracle_buffer(o, f),
+    "proposal-pending": lambda o, f, p, obs, s: oracles.oracle_proposal_pending(o),
+    "self-approval-refused": lambda o, f, p, obs, s: oracles.oracle_self_approval_refused(o),
+    "proposal-approved": lambda o, f, p, obs, s: oracles.oracle_proposal_approved(o),
+    "proposal-resolved": lambda o, f, p, obs, s: oracles.oracle_proposal_resolved(o, p.get("principals") or {}),
+    "approved-features": lambda o, f, p, obs, s: oracles._compare_features(o, f["proposal"]["features"], ["gid", "name"], "approved publication"),
+    "mcp-initialized": lambda o, f, p, obs, s: oracles.oracle_mcp_initialized(o, f),
+    "mcp-setup-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "setup"),
+    "mcp-default-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "default", load_default_view()),
+    "mcp-permission-denied": lambda o, f, p, obs, s: oracles.oracle_mcp_permission_denied(o),
+    "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, load_tool_roster(), _observed_names(obs, s, "default-tools-list")),
+    "map-render": lambda o, f, p, obs, s: oracles.oracle_map_render(o, f),
+    "mcp-job-accepted": lambda o, f, p, obs, s: oracles.oracle_mcp_job_accepted(o),
+    "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_job_succeeded(o),
 }
 
 
@@ -423,10 +508,13 @@ def log(message: str) -> None:
     print(scrub(message), file=sys.stderr)
 
 
-def driver_env(base: dict[str, str], *, api_key: str, bearer: str, db_password: str, plan_path: Path) -> dict[str, str]:
+def driver_env(base: dict[str, str], *, api_key: str, bearer: str, db_password: str, plan_path: Path,
+               principals: dict[str, dict[str, str]] | None = None) -> dict[str, str]:
     env = {key: value for key, value in base.items() if not key.startswith("SDKREG_")}
     env.update({"SDKREG_PLAN": str(plan_path), "SDKREG_API_KEY": api_key, "SDKREG_BEARER": bearer,
                 "SDKREG_DB_PASSWORD": db_password})
+    for name, value in (principals or {}).items():
+        env[f"SDKREG_{name.upper()}_KEY"] = value["key"]
     return env
 
 
@@ -438,8 +526,8 @@ def default_psql() -> list[str]:
             "-f", str(HERE / "compose.sdk-regression.yml"), "exec", "-T", "db", "psql", "-U", "honua", "-d", "honua"]
 
 
-def seed(fixture: dict[str, Any], slugs: list[str], psql: list[str] | None = None) -> None:
-    proc = subprocess.run([*(psql or default_psql()), "-v", "ON_ERROR_STOP=1", "-q"], input=seed_sql(fixture, slugs),
+def seed(fixture: dict[str, Any], slugs: list[str], psql: list[str] | None = None, workflow_slugs: list[str] = ()) -> None:
+    proc = subprocess.run([*(psql or default_psql()), "-v", "ON_ERROR_STOP=1", "-q"], input=seed_sql(fixture, slugs, workflow_slugs),
                           text=True, capture_output=True, check=False)
     if proc.returncode:
         raise RegressionError(f"fixture SQL failed: {scrub(proc.stderr[-1000:])}")

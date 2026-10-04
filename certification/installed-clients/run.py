@@ -27,9 +27,10 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
 DRIVERS = {"npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
-# SDK regression drivers: the published SDK drives the candidate through a scenario contract
-# (scenarios/*.json) with fixture-computed oracles (regression.py, oracles.py).
-SUITE_DRIVERS = {"pypi-sdk", "npm-sdk", "nuget-sdk"}
+# Regression drivers: a published SDK, command-line client or the MCP proxy drives the candidate
+# through a scenario contract (scenarios/*.json) with fixture-computed oracles (regression.py,
+# oracles.py).
+SUITE_DRIVERS = {"pypi-sdk", "npm-sdk", "nuget-sdk", "npm-cli", "pypi-cli", "npm-mcp-workflow"}
 # Receipt step rows carry these fields only: never a response body, credential or server message.
 SUITE_STEP_FIELDS = {"step", "api", "status", "oracle", "blockedBy"}
 DRIVERS |= SUITE_DRIVERS
@@ -89,6 +90,9 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
             raise CertificationError(f"{cell_id}: artifact lacks immutable byte integrity")
     if not seen:
         raise CertificationError("matrix has no cells")
+    missing = set(artifacts) - {cell["artifact"] for cell in matrix["cells"]}
+    if missing:
+        raise CertificationError(f"matrix omits required client artifacts: {sorted(missing)}")
     suite = [cell for cell in matrix["cells"] if cell["driver"] in SUITE_DRIVERS]
     if suite:
         regression = _regression()
@@ -98,14 +102,18 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
                 regression.validate_suite_cell(cell, scenarios, BLOCKER)
         except (regression.RegressionError, OSError, json.JSONDecodeError, re.error) as exc:
             raise CertificationError(f"SDK regression contract is invalid: {exc}") from exc
-        covered = {(cell["artifact"], cell["scenario"]) for cell in suite}
-        for artifact in sorted({cell["artifact"] for cell in suite}):
-            missing_scenarios = sorted(set(scenarios) - {sid for art, sid in covered if art == artifact})
+        # A regression run covers every client: dropping a driver's cells is a red, not a smaller gate.
+        absent = sorted(set(regression.DRIVER_CLIENTS) - {cell["driver"] for cell in suite})
+        if absent:
+            raise CertificationError(f"matrix omits regression drivers: {absent}")
+        covered = {(cell["driver"], cell["scenario"]) for cell in suite}
+        for driver in sorted({cell["driver"] for cell in suite}):
+            family, artifact = regression.DRIVER_CLIENTS[driver]
+            expected = {sid for sid in scenarios if regression.scenario_family(sid) == family}
+            missing_scenarios = sorted(expected - {sid for drv, sid in covered if drv == driver})
             if missing_scenarios:
-                raise CertificationError(f"matrix omits SDK regression scenarios for {artifact}: {missing_scenarios}")
-    missing = set(artifacts) - {cell["artifact"] for cell in matrix["cells"]}
-    if missing:
-        raise CertificationError(f"matrix omits required client artifacts: {sorted(missing)}")
+                raise CertificationError(
+                    f"matrix omits {family.upper()} regression scenarios for {artifact} ({driver}): {missing_scenarios}")
 
 
 def validate_cell(cell: dict[str, Any]) -> None:
@@ -536,8 +544,28 @@ def _regression():
     return _REGRESSION
 
 
+def _install_python_wheels(pins: dict[str, Any], work: Path) -> tuple[Path | None, str]:
+    """Install the pinned honua-sdk and honua-admin wheels (sha256-checked) into an isolated target."""
+    work.mkdir()
+    wheels = []
+    for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
+        wheel, failure = _download_wheel(pins[key], work)
+        if wheel is None:
+            return None, f"{pins[key]['package']}: {failure}"
+        wheels.append(wheel)
+    target = work / "site-packages"
+    installed = _run([sys.executable, "-m", "pip", "install", "--quiet", "--target", str(target), *map(str, wheels)], cwd=work)
+    if installed.returncode:
+        return None, f"pip install of the pinned wheels failed: {installed.stderr[-2000:]}"
+    for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
+        pin = pins[key]
+        if not (target / f"{pin['package'].replace('-', '_')}-{pin['version']}.dist-info").is_dir():
+            return None, f"installed {pin['package']} is not the pinned {pin['version']}"
+    return target, "exact PyPI wheels (honua-sdk + honua-admin) sha256 matched and installed in isolation"
+
+
 def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple[bool, str, list[str], dict[str, str]]:
-    """Install only the manifest-pinned published SDK bytes and return the driver command."""
+    """Install only the manifest-pinned published client bytes and return the driver command."""
     drivers = HERE / "drivers"
     if driver == "npm-sdk":
         ok, detail = install_npm(pins["honua-sdk-js"], work, sdk_probe=False)
@@ -547,25 +575,38 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
         shutil.copy2(drivers / "js" / "driver.mjs", work / "driver.mjs")
         return True, detail, ["node", str(work / "driver.mjs")], dict(os.environ)
     if driver == "pypi-sdk":
-        work.mkdir()
-        wheels = []
-        for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
-            wheel, failure = _download_wheel(pins[key], work)
-            if wheel is None:
-                return False, f"{pins[key]['package']}: {failure}", [], {}
-            wheels.append(wheel)
-        target = work / "site-packages"
-        installed = _run([sys.executable, "-m", "pip", "install", "--quiet", "--target", str(target), *map(str, wheels)], cwd=work)
-        if installed.returncode:
-            return False, f"pip install of the pinned wheels failed: {installed.stderr[-2000:]}", [], {}
-        for key in ("honua-sdk-python-wheel", "honua-admin-python-wheel"):
-            pin = pins[key]
-            if not (target / f"{pin['package'].replace('-', '_')}-{pin['version']}.dist-info").is_dir():
-                return False, f"installed {pin['package']} is not the pinned {pin['version']}", [], {}
+        target, detail = _install_python_wheels(pins, work)
+        if target is None:
+            return False, detail, [], {}
         launcher = ("import runpy, sys; sys.path.insert(0, sys.argv[1]); "
                     "runpy.run_path(sys.argv[2], run_name='__main__')")
         command = [sys.executable, "-I", "-c", launcher, str(target), str(drivers / "python" / "driver.py")]
-        return True, "exact PyPI wheels (honua-sdk + honua-admin) sha256 matched and installed in isolation", command, dict(os.environ)
+        return True, detail, command, dict(os.environ)
+    if driver == "pypi-cli":
+        target, detail = _install_python_wheels(pins, work)
+        if target is None:
+            return False, detail, [], {}
+        honua = target / "bin" / "honua"
+        if not honua.is_file():
+            return False, "the pinned wheels installed no honua console script", [], {}
+        # The console script runs on this interpreter with the isolated target on its path.
+        env = {**os.environ, "PYTHONPATH": str(target)}
+        return True, f"{detail}; honua console script installed", [
+            sys.executable, str(drivers / "cli" / "driver.py"), "--client", "pypi", "--honua", str(honua)], env
+    if driver == "npm-cli":
+        # The proposal step goes through the co-installed, byte-verified MCP proxy (journey stage 7).
+        ok, detail = install_npm(pins["honua-sdk-js"], work, companion_pin=pins["honua-mcp-server"], sdk_probe=False)
+        if not ok:
+            return False, detail, [], {}
+        shims = work / "node_modules" / ".bin"
+        return True, detail, [sys.executable, str(drivers / "cli" / "driver.py"), "--client", "npm",
+                              "--honua", str(shims / "honua"), "--proxy", str(shims / "honua-mcp-proxy")], dict(os.environ)
+    if driver == "npm-mcp-workflow":
+        ok, detail = install_npm(pins["honua-mcp-server"], work, companion_pin=pins["honua-sdk-js"], sdk_probe=False)
+        if not ok:
+            return False, detail, [], {}
+        return True, detail, [sys.executable, str(drivers / "mcp" / "driver.py"),
+                              "--proxy", str(work / "node_modules" / ".bin" / "honua-mcp-proxy")], dict(os.environ)
     if driver == "nuget-sdk":
         pin = pins["honua-sdk-dotnet"]
         if pin.get("registry") != "nuget.org":
@@ -588,7 +629,7 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
 
 
 def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
-    """Run every SDK regression cell: one install and one driver run per client."""
+    """Run every regression cell (SDK, command-line and MCP): one install and one driver run per client."""
     regression = _regression()
     pins = manifest["clientArtifacts"]
     cells = [cell for cell in matrix["cells"] if cell["driver"] in SUITE_DRIVERS]
@@ -598,13 +639,18 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
     results: dict[str, tuple[str, str, list[dict[str, Any]]]] = {}
     server = os.environ.get("HONUA_SERVER_URL")
     drivers = sorted({cell["driver"] for cell in cells})
-    published, bearer, harness_failure = None, "", ""
+    published, bearer, harness_failure, principals = None, "", "", None
     if server:
         try:
-            slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers]
-            regression.seed(fixture, slugs)
+            family = lambda driver: regression.DRIVER_CLIENTS[driver][0]  # noqa: E731
+            slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers if family(driver) == "sdk"]
+            workflow_slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers if family(driver) == "cli"]
+            regression.seed(fixture, slugs, workflow_slugs=workflow_slugs)
             admin_key = os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY)
-            published = regression.publish_harness(regression.AdminApi(server, admin_key), fixture, slugs, FIXTURE_DB_PASSWORD)
+            api = regression.AdminApi(server, admin_key)
+            published = regression.publish_harness(api, fixture, slugs, FIXTURE_DB_PASSWORD)
+            if workflow_slugs:
+                principals = regression.mint_principals(api, secrets.token_hex(4))
             signing_key = os.environ.get("SDKREG_SIGNING_KEY")
             if not signing_key:
                 raise regression.RegressionError("SDKREG_SIGNING_KEY is not set; the candidate cannot validate an operator bearer")
@@ -628,12 +674,14 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
                 results[cell["id"]] = ("fail", f"{client}: {reason}", [])
             continue
         slug = regression.SUITE_DRIVERS[driver]
-        plan = regression.build_plan(fixture, published, slug, [cell["scenario"] for cell in group], scenarios, server)
+        workflow = principals if regression.DRIVER_CLIENTS[driver][0] == "cli" else None
+        plan = regression.build_plan(fixture, published, slug, [cell["scenario"] for cell in group], scenarios, server,
+                                     principals=workflow)
         plan_path = work / "plan.json"
         plan_path.write_text(json.dumps(plan, indent=2))
         code, stdout, stderr = regression.run_driver(command, work, regression.driver_env(
             env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
-            db_password=FIXTURE_DB_PASSWORD, plan_path=plan_path))
+            db_password=FIXTURE_DB_PASSWORD, plan_path=plan_path, principals=workflow))
         regression.log(f"== {client} driver exited {code} ==\n{stderr[-6000:]}")
         observations = regression.parse_observations(stdout)
         for cell in group:

@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "id": "mcp-workflow",
+  "title": "MCP through the installed proxy: setup view, default view, full-catalog override, read, render and a geometry.buffer job",
+  "promise": "An agent configured with the installed honua-mcp-proxy discovers the bounded setup view, sees the default view without a selector, gets the full catalog only when authenticated, and reads, renders and runs a buffer job, all through the proxy's stdio.",
+  "steps": [
+    {
+      "id": "initialize-setup",
+      "oracle": "mcp-initialized",
+      "description": "initialize with _meta[\"honua.io/workflow-view\"] = \"setup\"; the server answers the supported protocol and its identity."
+    },
+    {
+      "id": "setup-tools-list",
+      "oracle": "mcp-setup-view",
+      "description": "A selector-free tools/list in that session returns the complete setup view with the fixture's tool count."
+    },
+    {
+      "id": "default-tools-list",
+      "oracle": "mcp-default-view",
+      "description": "A new session initialized without a selector lists the complete default view: the fixture's tool count and exactly the pinned default roster and revision (e2e/drivers/mcp/expected-tools.json)."
+    },
+    {
+      "id": "full-catalog-refused",
+      "oracle": "mcp-permission-denied",
+      "description": "The first anonymous tools/list page for the full view is refused with permission_denied; any page returned is a disclosure."
+    },
+    {
+      "id": "full-catalog",
+      "oracle": "mcp-full-catalog",
+      "description": "An authenticated tools/list for the full view, drained page by page, returns exactly the pinned tool roster (e2e/drivers/mcp/expected-tools.json, names, no duplicates) including the default view; a later selector-free tools/list returns the initialized view again."
+    },
+    {
+      "id": "read",
+      "oracle": "features",
+      "description": "tools/call honua_query_features with the fixture filter; the features equal the filtered fixture rows with exact ordinates."
+    },
+    {
+      "id": "render",
+      "oracle": "map-render",
+      "description": "tools/call honua_render_map over the area layer; every sampled pixel inside the fixture polygon is painted and every sampled pixel outside it is transparent."
+    },
+    {
+      "id": "buffer-submit",
+      "oracle": "mcp-job-accepted",
+      "description": "tools/call honua_execute_plan with a geometry.buffer step for the fixture point; a job id is returned."
+    },
+    {
+      "id": "buffer-poll",
+      "oracle": "mcp-job-succeeded",
+      "description": "resources/read the job until it is terminal; it succeeded."
+    },
+    {
+      "id": "buffer-result",
+      "oracle": "buffer-result",
+      "description": "resources/read the job results; every ring vertex lies at the fixture distance from the fixture point and the centroid is the point."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ],
+  "clients": {
+    "honua-mcp-server": {
+      "initialize-setup": "honua-mcp-proxy initialize (workflow-view setup)",
+      "setup-tools-list": "honua-mcp-proxy tools/list (selector-free, setup session)",
+      "default-tools-list": "honua-mcp-proxy initialize + tools/list (no selector)",
+      "full-catalog-refused": "honua-mcp-proxy tools/list {view: full} (anonymous)",
+      "full-catalog": "honua-mcp-proxy tools/list {view: full} (HONUA_API_KEY)",
+      "read": "honua-mcp-proxy tools/call honua_query_features",
+      "render": "honua-mcp-proxy tools/call honua_render_map",
+      "buffer-submit": "honua-mcp-proxy tools/call honua_execute_plan (geometry.buffer)",
+      "buffer-poll": "honua-mcp-proxy resources/read honua://jobs/{jobId}",
+      "buffer-result": "honua-mcp-proxy resources/read honua://jobs/{jobId}/results"
+    }
+  }
+}
