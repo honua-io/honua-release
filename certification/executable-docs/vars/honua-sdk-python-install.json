@@ -1,10 +1,15 @@
 {
   "document": "honua-sdk-python-install",
-  "env": {},
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "INSTALL.md:144-147 — \"Admin needs a server of your own ... Set `HONUA_API_KEY` to an admin API key for your server\""
+    }
+  },
   "substitute": {
     "https://your-honua-server.com": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "INSTALL.md:142 — the `your-honua-server.com` placeholder for the reader's server in the admin snippet"
+      "documentedAt": "INSTALL.md:144 — \"Admin needs a server of your own\" (the `your-honua-server.com` placeholder in the admin snippet at INSTALL.md:154)"
     },
     "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",
