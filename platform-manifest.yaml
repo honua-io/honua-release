@@ -597,14 +597,14 @@ components:
 # manifest being honest. The file already models the split — components.honua-sdk-js.sha moves with
 # trunk, while this block's sourceSha moves only when the published bytes themselves are re-pinned.
 #
-# Each pin was re-verified against the actual publish provenance on 2026-10-02, when every pin
-# advanced to its newest published registry identity (honua-release#408):
+# Each pin was re-verified against actual publish provenance on 2026-10-02 (honua-release#408);
+# Python SDK/admin advanced again on 2026-10-04 after declaration-bearing publications (R25):
 #   honua-sdk-js         1102d2d5 = npm registry gitHead for @honua/sdk-js 0.1.12           MATCHES
 #   honua-mcp-server     44289c02 = npm registry gitHead for @honua/mcp-server 0.1.12       MATCHES
-#   honua-sdk-python-wheel 12670676 = PyPI publication certificate GitHub SHA (OID
-#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.12-py3-none-any.whl       MATCHES
-#   honua-admin-python-wheel 12670676 = same certificate extension for
-#                        honua_admin-0.1.9-py3-none-any.whl                                 MATCHES
+#   honua-sdk-python-wheel a9cd320a = PyPI publication certificate GitHub SHA (OID
+#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.13-py3-none-any.whl       MATCHES
+#   honua-admin-python-wheel a9cd320a = same certificate extension for
+#                        honua_admin-0.1.10-py3-none-any.whl                                 MATCHES
 #   honua-sdk-dotnet     8a0a06c8 = nuget.org catalog repository.commit and nuspec
 #                        <repository commit> for Honua.Sdk 1.10.1 (anonymous nuget.org)    MATCHES
 # tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog

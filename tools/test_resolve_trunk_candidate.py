@@ -1067,7 +1067,8 @@ class TreeAndDeclarations(MigrationSource):
         return self.declarations.file(repository, revision, path)
 
 
-def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
+@pytest.mark.parametrize("missing_preview", [False, True])
+def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch, missing_preview):
     path = resolver.COMPONENT_VERSIONS_PATH
     source = TreeAndDeclarations({
         ('honua-io/honua-console', NEW, path): declaration_bytes(
@@ -1075,6 +1076,8 @@ def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
         ('honua-io/honua-mobile', OLD, path): declaration_bytes(
             'honua-mobile', contractVersions={}, schemaVersions={}),
     })
+    if missing_preview:
+        source.declarations.files.pop(('honua-io/honua-mobile', OLD, path))
     experimental = {'honua-mobile': {'repository': 'https://github.com/honua-io/honua-mobile', 'sha': OLD,
                                      'sourcePinnedOnly': True, 'contractVersions': {'hand': '1'}}}
     candidate, _ = resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64, extra={
