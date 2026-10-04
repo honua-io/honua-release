@@ -19,6 +19,7 @@ from generate_compatibility_table import render
 from generate_bom import _purl
 from generate_platform_lock import generate
 from image_platforms import registry_image_platform_digests
+from platform_version import stamp_errors
 from release_inspect import canonical_digest
 from validate_platform_lock import load_lock, validate
 
@@ -114,6 +115,11 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
         raise ValueError("candidate lock must have rc status")
     if lock["platform"]["id"] != f"honua-{label}":
         raise ValueError("platform label differs from atomic candidate identity")
+    # R22: an imaged row's artifactVersion and plain version must both be the label's platform
+    # version. The generator reads only one of them, so a disagreeing plain version is refused here.
+    stamp = stamp_errors(yaml.safe_load(manifest.read_text(encoding="utf-8")) or {})
+    if stamp:
+        raise ValueError("; ".join(stamp))
     # Per-architecture image identities are signed with the lock, so they are checked against
     # the immutable registry index here, independent of any earlier step in the freeze job.
     draft = generate(manifest, matrix, image_inspector=image_inspector)
@@ -129,6 +135,10 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
             or ".contractVersions:" in fact
             or ".schemaVersions" in fact
             or ".platformDigests:" in fact
+            # An unstamped or non-platform artifact version is a refusal the generator already
+            # made. Ignoring it let a hand-authored lock add any schema-valid version (R22).
+            or (".artifacts[" in fact and ".version:" in fact)
+            or ".releaseVersion:" in fact
         ):
             raise ValueError(refusal)
     _declared(draft.lock["sourceInputs"], lock["sourceInputs"], "sourceInputs")
@@ -150,13 +160,21 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
         for group in ("contractVersions", "schemaVersions"):
             if lock["components"][name].get(group) != expected[group]:
                 raise ValueError(f"components.{name}.{group}: lock differs from frozen input")
+        actual_component = lock["components"][name]
         _declared({k: v for k, v in expected.items() if k != "artifacts"},
-                  lock["components"][name], f"components.{name}")
-        artifacts = lock["components"][name]["artifacts"]
+                  actual_component, f"components.{name}")
+        if "releaseVersion" not in expected and actual_component.get("releaseVersion") is not None:
+            raise ValueError(
+                f"components.{name}.releaseVersion: lock adds a release version the frozen inputs do not release")
+        artifacts = actual_component["artifacts"]
         if len(artifacts) < len(expected["artifacts"]):
             raise ValueError(f"{name}: artifact denominator differs from manifest")
         for index, artifact in enumerate(expected["artifacts"]):
             _declared(artifact, artifacts[index], f"components.{name}.artifacts[{index}]")
+            if "version" not in artifact and "version" in artifacts[index]:
+                raise ValueError(
+                    f"components.{name}.artifacts[{index}].version: lock adds a version the frozen "
+                    "inputs do not release")
             matched.add((name, index))
     # clientArtifacts is the registry-verification denominator. It can include a
     # second package from the same component (notably @honua/mcp-server). Joining

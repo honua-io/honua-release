@@ -177,6 +177,7 @@ def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks(
     resolve = "\n".join(_step_text(step) for step in jobs["resolve_pins"]["steps"])
     assert 'manifest.get("clientArtifacts")' in resolve
     assert "honua-mcp-server" in resolve
+    assert 'prefix == "helm"' in resolve and 'component.get("artifactVersion")' in resolve
     assert "consume-mcp-npm" in jobs
     report = "\n".join(_step_text(step) for step in jobs["report"]["steps"])
     assert '.source=="local"' in report and 'enf=="strict"' in report

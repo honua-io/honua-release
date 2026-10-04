@@ -1224,3 +1224,45 @@ def test_regeneration_recomputes_only_the_manifest_hash(inputs, tmp_path, mutati
     source = nightly.attach_post_gate(paths[0], references, report['evidenceDeclarations'], tmp_path)
     with pytest.raises(ValueError, match='changed facts outside'):
         nightly.regenerate_post_gate(source, paths[1], frozen, references)
+
+
+def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_sdk(tmp_path):
+    """R22 (#231 WI-2): the label's platform version reaches the lock for bound images only."""
+    from generate_platform_lock import generate
+    revision, digest = 'a' * 40, 'sha256:' + 'b' * 64
+    platforms = {'amd64': 'sha256:' + 'c' * 64, 'arm64': 'sha256:' + 'd' * 64}
+    image = {'sha': revision, 'lifecycleStatus': 'GA', 'version': 'pre-release', 'digest': digest,
+             'artifactSourceRevision': revision, 'architectures': ['amd64', 'arm64'], 'platformDigests': platforms}
+    manifest = {'platformRelease': '2026.1-rc.2', 'status': 'rc', 'components': {
+        'honua-server': {**image, 'repository': 'https://github.com/honua-io/honua-server',
+                         'image': 'ghcr.io/honua-io/honua-server:nightly-aaaaaaa',
+                         # Yesterday's stamp never survives into tonight's label.
+                         'artifactVersion': '2026.1.0-rc.2', 'releaseVersion': '2026.1.0-rc.2'},
+        'honua-console': {**image, 'repository': 'https://github.com/honua-io/honua-console',
+                          'image': 'ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1'},
+        # No chart digest is published yet (WI-6), so the chart keeps no platform version.
+        'honua-helm': {'repository': 'https://github.com/honua-io/honua-helm', 'sha': revision,
+                       'lifecycleStatus': 'Preview', 'version': 'pre-release', 'artifact': 'oci-chart:honua'},
+        'honua-sdk-dotnet': {'repository': 'https://github.com/honua-io/honua-sdk-dotnet', 'sha': revision,
+                             'lifecycleStatus': 'GA', 'artifact': 'nuget:Honua.Sdk', 'version': '1.6.2',
+                             'artifactVersion': '1.6.2', 'artifactSourceRevision': revision,
+                             'artifactSha256': digest},
+    }}
+    path, matrix = tmp_path / 'platform-manifest.yaml', tmp_path / 'compatibility-matrix.yaml'
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    matrix.write_text('contracts: {}\n')
+    nightly.stamp_release_label(path, '2026.1-rc.3')
+    stamped = yaml.safe_load(path.read_text())['components']
+    assert stamped['honua-server']['artifactVersion'] == stamped['honua-server']['releaseVersion'] == '2026.1.0-rc.3'
+    assert stamped['honua-console']['artifactVersion'] == '2026.1.0-rc.3'
+    assert 'artifactVersion' not in stamped['honua-helm']
+    assert stamped['honua-sdk-dotnet'] == manifest['components']['honua-sdk-dotnet']
+
+    draft = generate(path, matrix)
+    versions = {name: entry['artifacts'][0].get('version') for name, entry in draft.lock['components'].items()}
+    assert versions == {'honua-server': '2026.1.0-rc.3', 'honua-console': '2026.1.0-rc.3',
+                        'honua-helm': None, 'honua-sdk-dotnet': '1.6.2'}
+    assert draft.lock['components']['honua-server']['releaseVersion'] == '2026.1.0-rc.3'
+    assert [item for item in draft.unresolved if item.split(':')[0].endswith(('.version', '.releaseVersion'))] == [
+        '[PUBLISH] $.components.honua-helm.artifacts[0].version: source snapshot/pre-release is not a '
+        'released artifact version']

@@ -164,6 +164,10 @@ jobs:
               component = components.get(component_name) or {}
               sha = str(component.get("sha", ""))
               version = str(component.get("version", ""))
+              if prefix == "helm":
+                  # R22 leaves version as pre-release and stamps the platform version on
+                  # artifactVersion. helm pull has to request the version the lock names.
+                  version = str(component.get("artifactVersion") or version)
               if not re.fullmatch(r"[0-9a-f]{40}", sha):
                   raise SystemExit(f"{component_name} does not have a full lowercase SHA pin")
               if not version:

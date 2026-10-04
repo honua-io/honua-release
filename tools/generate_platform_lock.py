@@ -17,6 +17,7 @@ from typing import Any
 
 from component_versions import version_map
 from image_platforms import image_platform_digests, registry_image_platform_digests, verify_image_platform_digests
+from platform_version import IMAGED_COMPONENTS, PRERELEASE, artifact_version
 
 from release_facts import (
     CONTENT_DIGEST_FACTS,
@@ -79,6 +80,8 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
     manifest, matrix = _load(manifest_path), _load(matrix_path)
     release = str(manifest.get("platformRelease", ""))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
+    # R22: honua-server, honua-console and the Helm chart carry this version, never their own.
+    platform_version = artifact_version(release) if platform_id else None
     lock: dict[str, Any] = {
         "lockVersion": "platform-lock.v1",
         "platform": {"id": platform_id, "status": manifest.get("status"), "supportTier": "ga"},
@@ -188,10 +191,6 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
         if seed:
             entry["artifacts"].append(seed)
         lock["components"][name] = entry
-        if name == PUBLISHER:
-            for field in ("releaseVersion", "publicationHistory"):
-                if component.get(field):
-                    entry[field] = component[field]
         if name in SDK_COMPONENTS:
             if component.get("serverCompatibility"):
                 entry["serverCompatibility"] = component["serverCompatibility"]
@@ -217,11 +216,12 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
         elif seed:
             apath = f"{cpath}.artifacts[0]"
             version = component.get("artifactVersion") or component.get("version")
-            if version and version != "pre-release":
-                seed["version"] = str(version)
-            else:
-                resolution = "AT-CUT" if name == "honua-server" else ("PUBLISH" if name in {"honua-console", "honua-helm"} else "DECISION")
+            resolution = "AT-CUT" if name == "honua-server" else ("PUBLISH" if name in {"honua-console", "honua-helm"} else "DECISION")
+            imaged = name in IMAGED_COMPONENTS and seed["kind"] in ("image", "oci-chart")
+            if not version or version == PRERELEASE:
                 refuse(f"{apath}.version: source snapshot/pre-release is not a released artifact version", resolution)
+            elif not imaged:
+                seed["version"] = str(version)
             artifact_revision = component.get("artifactSourceRevision")
             if artifact_revision:
                 seed["sourceRevision"] = artifact_revision
@@ -285,10 +285,32 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
                 else:
                     resolution = "MECHANICAL"
                 refuse(f"{apath}.sourceRevision: registry provenance must bind the artifact to its source revision", resolution)
+            if imaged and version and version != PRERELEASE:
+                # The platform version names these exact bytes, so it is accepted only beside them.
+                bound = ("digest", "sourceRevision", "platformDigests" if seed["kind"] == "image" else "sha256")
+                missing = [key for key in bound if key not in seed]
+                if str(version) != platform_version:
+                    refuse(f"{apath}.version: {version!r} is not the lock's platform version "
+                           f"{platform_version!r}; {name} takes the platform version (R22)", "MECHANICAL")
+                elif missing:
+                    refuse(f"{apath}.version: platform version {platform_version} is accepted only when "
+                           f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} bound", resolution)
+                else:
+                    seed["version"] = platform_version
 
         for published in published_by_component[name]:
             if not seed or (published["kind"], published["coordinate"]) != (seed["kind"], seed["coordinate"]):
                 entry["artifacts"].append(published)
+        if name == PUBLISHER:
+            for field in ("releaseVersion", "publicationHistory"):
+                if component.get(field):
+                    entry[field] = component[field]
+            # The first-release floor names the server that ships; a releaseVersion beside a
+            # differently versioned (or unversioned) image would name a server nobody can install.
+            released = {artifact.get("version") for artifact in entry["artifacts"]}
+            if entry.get("releaseVersion") and entry["releaseVersion"] not in released:
+                refuse(f"{cpath}.releaseVersion: {entry.pop('releaseVersion')!r} is not the version of a "
+                       "locked honua-server artifact", "MECHANICAL")
         for client, blocker in (component.get("pendingPublishedClients") or {}).items():
             refuse(f"{cpath}.artifacts[{client}]: published package coordinate is pending {blocker}", "PUBLISH")
 
