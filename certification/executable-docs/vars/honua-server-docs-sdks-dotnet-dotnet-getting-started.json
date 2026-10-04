@@ -3,17 +3,17 @@
   "env": {
     "HONUA_API_KEY": {
       "value": "{candidate.apiKey}",
-      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:132 — \"`ApiKey` is unset or wrong; set it\""
+      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:116 — \"`ApiKey` is unset or wrong; set it\""
     }
   },
   "substitute": {
     "<your-service>": {
       "value": "{fixture.featureService}",
-      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:79 — export HONUA_SERVICE=\"<your-service>\" (a feature layer you published)"
+      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:79 at honua-server@32c769e (#5436; not yet in the pinned revision) — export HONUA_SERVICE=\"<your-service>\" (a feature layer you published)"
     },
     "<your-layer-id>": {
       "value": "{fixture.featureLayerId}",
-      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:80 — export HONUA_LAYER_ID=\"<your-layer-id>\""
+      "documentedAt": "docs/sdks/dotnet/dotnet-getting-started.md:80 at honua-server@32c769e (#5436; not yet in the pinned revision) — export HONUA_LAYER_ID=\"<your-layer-id>\""
     }
   }
 }
