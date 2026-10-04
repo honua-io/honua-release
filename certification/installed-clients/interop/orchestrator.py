@@ -561,9 +561,13 @@ class Interop:
                 # The create response named no publication request, so there is nothing to poll.
                 return {"requestId": None}
             version = state["version"]
-            return outcome(self.js.call("studio-publication-url", timeout=proposal["publicationPollSeconds"] + 60,
-                                        itemId=version["itemId"], versionId=version["versionId"], requestId=request_id,
-                                        timeoutMs=proposal["publicationPollSeconds"] * 1000))
+            observed = outcome(self.js.call("studio-publication-url", timeout=proposal["publicationPollSeconds"] + 60,
+                                            itemId=version["itemId"], versionId=version["versionId"], requestId=request_id,
+                                            timeoutMs=proposal["publicationPollSeconds"] * 1000))
+            if observed.get("state") == "Active" and isinstance(observed.get("publicationUrl"), str):
+                # The handoff: the .NET reader consumes this exact URL, never one rebuilt from the fixture route.
+                state["publicationUrl"] = observed["publicationUrl"]
+            return observed
         step(scenario, "publication-url", publication_url, state, ("request", "resolved"))
 
         def pointer() -> dict[str, Any]:
@@ -574,7 +578,10 @@ class Interop:
         step(scenario, "published-pointer", pointer, state, ("version", "resolved"))
         step(scenario, "published-content", lambda: outcome(self.dotnet.call(
             "studio-version", itemId=state["version"]["itemId"], versionId=state["published"])), state, ("published",))
-        step(scenario, "published-url", lambda: outcome(self.dotnet.call("studio-published-url", route=proposal["route"])), state)
+        # No dependency gate: the missing .NET reader (honua-sdk-dotnet#411) surfaces whatever the upstream steps did.
+        # A reader handed no polled URL refuses, and the judge compares the URL it read with the one the JS SDK polled.
+        step(scenario, "published-url", lambda: outcome(self.dotnet.call(
+            "studio-published-url", url=state.get("publicationUrl"))), state)
 
     # (d) one API key minted by the admin CLI, used by every client, revoked, refused by every client
     def api_key_revocation(self) -> None:
@@ -644,7 +651,13 @@ class Interop:
         mcp_result: dict[str, Any] = {}
         thread = None
         if session is not None and "revokedAt" in state and "mcp-use" in state:
-            thread = threading.Thread(target=lambda: mcp_result.update(self._mcp_revoked(session, probe)), daemon=True)
+            def probe_mcp() -> None:
+                try:
+                    mcp_result.update(self._mcp_revoked(session, probe))
+                except Exception as exc:  # noqa: BLE001 - a probe crash is an error, never the blocked timeout
+                    traceback.print_exc(file=sys.stderr)
+                    mcp_result["crash"] = {"type": type(exc).__name__, "status": None}
+            thread = threading.Thread(target=probe_mcp, daemon=True)
             thread.start()
         wait = revocation_wait_seconds(revocation)
         for name, (runner, request_id) in pending.items():
@@ -659,7 +672,15 @@ class Interop:
             emit(scenario, "mcp-revoked", skipped=f"depends on {missing}, which did not complete")
             return
         thread.join(revocation["observationSeconds"] * (revocation["confirmations"] + 2) + 60)
-        emit(scenario, "mcp-revoked", observed=mcp_result or {"timedOut": True, "timeoutSeconds": revocation["observationSeconds"]})
+        if "crash" in mcp_result:
+            emit(scenario, "mcp-revoked", error=mcp_result["crash"])
+        elif mcp_result:
+            emit(scenario, "mcp-revoked", observed=mcp_result)
+        elif thread.is_alive():
+            # The worker is still blocked in a call past the join bound: a hang, not a crash.
+            emit(scenario, "mcp-revoked", observed={"timedOut": True, "timeoutSeconds": revocation["observationSeconds"]})
+        else:
+            emit(scenario, "mcp-revoked", error={"type": "probe exited without an observation", "status": None})
 
     def _mcp_revoked(self, session: probes.McpProxySession, probe: dict[str, Any]) -> dict[str, Any]:
         """Probe the same proxy session; the per-call deadline is the observation bound."""

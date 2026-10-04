@@ -299,6 +299,11 @@ def oracle_area_buffer(observed: dict[str, Any], fixture: dict[str, Any]) -> tup
     ring = oracles._exterior_ring(observed.get("geometry"))
     if ring is None:
         return False, "the job result holds no polygon geometry"
+    geometry = observed["geometry"]
+    holes = len((geometry.get("geometry") if geometry.get("type") == "Feature" else geometry)["coordinates"]) - 1
+    if holes:
+        # A buffer of a convex polygon is one ring; a hole is missing area the exterior checks cannot see.
+        return False, f"the job result polygon has {holes} interior ring(s); the buffer of the fixture polygon has none"
     if ring[0] != ring[-1]:
         return False, "the job result polygon is not closed"
     points = _closed_ring(ring)
@@ -382,9 +387,14 @@ def oracle_published_content(observed: dict[str, Any], fixture: dict[str, Any], 
 
 
 def oracle_published_url(observed: dict[str, Any], fixture: dict[str, Any], plan: dict[str, Any],
-                         saved: dict[str, Any] | None) -> tuple[bool, str]:
+                         saved: dict[str, Any] | None, polled: dict[str, Any] | None) -> tuple[bool, str]:
+    """The .NET reader reads the exact URL the JS SDK polled, and that URL serves the saved version."""
+    want = (polled or {}).get("publicationUrl")
+    if not isinstance(want, str) or observed.get("url") != want:
+        return False, (f"final publication URL: the .NET reader read {observed.get('url')!r}, "
+                       f"not the URL the JS SDK polled ({want!r})")
     ok, detail = oracle_published_content(observed, fixture, plan, saved)
-    return ok, f"final publication URL: {detail}"
+    return ok, f"final publication URL (the one the JS SDK polled): {detail}"
 
 
 def oracle_key_minted(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
@@ -438,6 +448,11 @@ def _saved(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -
     return observed if isinstance(observed, dict) else None
 
 
+def _polled(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -> dict[str, Any] | None:
+    observed = observations.get((scenario, "publication-url"), {}).get("observed")
+    return observed if isinstance(observed, dict) else None
+
+
 def _draft(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -> dict[str, Any] | None:
     observed = observations.get((scenario, "create-draft"), {}).get("observed")
     return observed if isinstance(observed, dict) else None
@@ -466,7 +481,7 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "interop-publication-active": lambda o, f, p, obs, s: oracle_publication_active(o, p),
     "interop-published-pointer": lambda o, f, p, obs, s: oracle_published_pointer(o, _saved(obs, s)),
     "interop-published-content": lambda o, f, p, obs, s: oracle_published_content(o, f, p, _saved(obs, s)),
-    "interop-published-url": lambda o, f, p, obs, s: oracle_published_url(o, f, p, _saved(obs, s)),
+    "interop-published-url": lambda o, f, p, obs, s: oracle_published_url(o, f, p, _saved(obs, s), _polled(obs, s)),
     "interop-key-minted": lambda o, f, p, obs, s: oracle_key_minted(o, f),
     "interop-key-count": lambda o, f, p, obs, s: _key_count(o, f, p),
     "interop-key-revoked": lambda o, f, p, obs, s: oracle_key_revoked(o),

@@ -139,7 +139,8 @@ async Task<JsonObject> StudioVersion(JsonObject args)
 
 Task<JsonObject> StudioPublishedUrl(JsonObject args) =>
     // Honua.Sdk 1.10.1 reads Studio drafts, versions and pointers, but has no reader for the
-    // final publication route (/api/v1/studio/published/{route}) in any Honua.Sdk.* package.
+    // final publication route (/api/v1/studio/published/{route}) in any Honua.Sdk.* package. A reader must
+    // read args.url, the exact URL the JS SDK polled, refuse a missing one, and echo it as "url" (the judge compares).
     throw new NotSupportedException("Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)");
 
 async Task<int> IdentityQuery(JsonObject args) =>

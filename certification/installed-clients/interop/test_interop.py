@@ -1,8 +1,10 @@
 """Self-tests for the cross-client interop scenarios: contracts, oracles, seams, runners, wiring."""
 import ast
 import base64
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import math
 import os
@@ -282,6 +284,13 @@ class OracleTests(unittest.TestCase):
                    [minx, maxy + distance], [minx - distance, maxy], [minx - distance, miny], [minx, miny - distance]]
         self.assertTrue(judge.oracle_area_buffer(
             {"geometry": {"type": "Polygon", "coordinates": [chamfer + [chamfer[0]]]}}, FIXTURE)[0])
+        # The exterior is a correct buffer, but a hole removes area from it.
+        hole = [[minx, miny], [minx, miny + 1], [minx + 1, miny + 1], [minx, miny]]
+        for geometry in ({"type": "Polygon", "coordinates": [chamfer + [chamfer[0]], hole]},
+                         {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [chamfer + [chamfer[0]], hole]}}):
+            ok, summary = judge.oracle_area_buffer({"geometry": geometry}, FIXTURE)
+            self.assertFalse(ok)
+            self.assertIn("1 interior ring", summary)
 
     def test_polygon_wkb_round_trips_the_ring(self):
         ring = [[-90.0, 0.0], [-45.0, 0.0], [-45.0, 60.0], [-90.0, 0.0]]
@@ -349,6 +358,14 @@ class OracleTests(unittest.TestCase):
         self.assertTrue(judge.oracle_published_content(content, FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, contentHash="b" * 64), FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, body={}), FIXTURE, p, saved)[0])
+        polled = {"state": "Active", "publicationUrl": "http://c" + p["proposal"]["route"]}
+        self.assertTrue(judge.oracle_published_url(dict(content, url=polled["publicationUrl"]), FIXTURE, p, saved, polled)[0])
+        # The .NET reader must consume the URL the JS SDK polled, not rebuild it from the fixture route.
+        for url in ("http://other" + p["proposal"]["route"], p["proposal"]["route"], None):
+            ok, summary = judge.oracle_published_url(dict(content, url=url), FIXTURE, p, saved, polled)
+            self.assertFalse(ok)
+            self.assertIn("not the URL the JS SDK polled", summary)
+        self.assertFalse(judge.oracle_published_url(dict(content, url=None), FIXTURE, p, saved, None)[0])
 
 
 class SeamTests(unittest.TestCase):
@@ -536,6 +553,62 @@ class RunnerTests(unittest.TestCase):
         expect = bound * (1 + revocation["confirmations"])
         self.assertEqual(seen, [expect, expect, expect])
         self.assertLess(seen[0], bound + 120)
+
+    def test_mcp_probe_crash_is_an_error_not_the_blocked_timeout(self):
+        revocation = self.orchestrator.PLAN["identity"]["revocation"]
+        interop = self.orchestrator.Interop.__new__(self.orchestrator.Interop)
+        interop.python = interop.js = interop.dotnet = None
+        state = {"revokedAt": 1.0, "mcp-use": True}
+
+        def observe(probe):
+            with mock.patch.object(interop, "_mcp_revoked", probe), mock.patch.object(self.orchestrator, "emit") as emitted, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                interop._observe_revocation("interop-api-key-revocation", object(), state)
+            return {call.args[1]: call.kwargs for call in emitted.call_args_list}["mcp-revoked"]
+
+        def crash(session, probe):
+            raise TypeError("malformed proxy response")
+        crashed = observe(crash)
+        self.assertEqual(crashed, {"error": {"type": "TypeError", "status": None}})
+        self.assertNotIn("observed", crashed)
+        timed_out = {"timedOut": True, "timeoutSeconds": revocation["observationSeconds"], "succeededAfterRevocation": 0}
+        self.assertEqual(observe(lambda session, probe: dict(timed_out)), {"observed": timed_out})
+
+    def test_published_url_reader_is_handed_the_polled_url(self):
+        calls = []
+
+        class Fake:
+            def __init__(self, reply):
+                self.reply = reply
+
+            def call(self, op, timeout=None, **kwargs):
+                calls.append((op, kwargs))
+                return {"observed": self.reply(op)}
+
+        class Cli:
+            def write_profiles(self):
+                pass
+
+            def run(self, args, env):
+                pass
+
+            def json(self, args, env):
+                return {"status": "Succeeded"}
+
+        route = self.orchestrator.PLAN["proposal"]["route"]
+        # Wrong origin and prefixed: the reader must be handed this string, not the fixture route.
+        polled = "https://elsewhere.example/prefix" + route
+        js = {"studio-create-draft": {"draftId": "d", "itemId": "i"},
+              "studio-save-version": {"itemId": "i", "versionId": "v", "contentHash": "a" * 64},
+              "studio-request-publication": {"proposalId": "proposal-1", "requestId": "r"},
+              "studio-publication-url": {"requestId": "r", "state": "Active", "publicationUrl": polled}}
+        interop = self.orchestrator.Interop.__new__(self.orchestrator.Interop)
+        interop.js, interop.dotnet, interop.cli = Fake(js.get), Fake(lambda op: {"publishedVersionId": "v"}), Cli()
+        interop.proposer = interop.approver = "key"
+        with mock.patch.object(self.orchestrator, "emit"):
+            interop.proposal_approval()
+        self.assertIn(("studio-published-url", {"url": polled}), calls)
+        self.assertNotIn(route, [kwargs.get("route") for op, kwargs in calls if op == "studio-published-url"])
 
     def test_sdk_runners_receive_only_their_own_credentials(self):
         script = "import json, os\nprint(json.dumps(dict(os.environ)), flush=True)\n"
