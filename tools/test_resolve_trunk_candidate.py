@@ -82,6 +82,161 @@ def test_red_ci_never_reads_image_identity():
         resolver.select_component('server', component(), Red(), Tags(), 1)
 
 
+class Dated(GitHub):
+    """Trunk of `count` commits, one a day, newest first; only `qualifies` is published and green."""
+
+    def __init__(self, count, qualifies):
+        self.shas = [f'{index:040x}' for index in range(count, 0, -1)]
+        self.qualifies = qualifies
+
+    def commits(self, repository, limit):
+        return iter(self.shas[:limit])
+
+    def commit_date(self, sha):
+        return f'2026-09-{30 - self.shas.index(sha):02d}T12:00:00Z'
+
+    def green(self, name, repository, sha):
+        return sha == self.qualifies, 'full CI green' if sha == self.qualifies else 'required suite failed'
+
+
+class Published(Registry):
+    def __init__(self, published):
+        self.published = published
+
+    def candidate_tags(self, repository, sha):
+        return ['nightly-' + sha[:7]] if sha in self.published else []
+
+    def image(self, name, component, sha):
+        return {'image': 'ghcr.io/honua-io/server@sha256:' + 'c' * 64, 'digest': 'sha256:' + 'c' * 64,
+                'platformDigests': {'amd64': 'sha256:' + 'd' * 64}, 'artifactSourceRevision': sha}
+
+
+NOW = resolver.datetime(2026, 10, 4, 12, tzinfo=resolver.timezone.utc)
+
+
+def test_a_qualifying_sha_far_behind_head_still_reports_every_skip_and_staleness(capsys):
+    github = Dated(20, None)
+    selected_sha = github.shas[18]
+    github.qualifies = selected_sha
+    # Every newer commit is passed over: odd ones have no image, even ones are published but red.
+    registry = Published({sha for index, sha in enumerate(github.shas) if index % 2 == 0} | {selected_sha})
+    walk = {}
+    selected = resolver.select_component('server', component(), github, registry, 100, walk)
+    assert selected['sha'] == selected_sha
+
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert report['selected'] == selected_sha and report['trunkHead'] == github.shas[0]
+    assert report['commitsBehind'] == 18 and report['skippedTotal'] == 18
+    assert report['daysBehind'] == 18.0 and report['stale'] is True
+    assert report['selectedAgeDays'] == 22.0
+    assert [row['sha'] for row in report['skipped']] == github.shas[:10]
+    assert report['skipped'][0]['reason'] == 'CI required suite failed'
+    assert report['skipped'][1]['reason'] == 'no published SHA-bound image'
+
+    lines = resolver.skip_report_lines(report)
+    assert lines[0].startswith(f'SKIPS server: selected {selected_sha[:7]} (22.0 days old); 18 newer')
+    assert '  ... 8 older skipped commit(s) not listed' in lines
+    assert lines[-1] == f'STALE-CANDIDATE: server selected {selected_sha[:7]} (18 commits, 18.0 days behind)'
+
+
+def test_a_fresh_selection_is_reported_but_not_stale():
+    github = Dated(5, None)
+    github.qualifies = github.shas[2]
+    walk = {}
+    resolver.select_component('server', component(), github, Published(set(github.shas)), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW, stale_days=3)
+    assert (report['commitsBehind'], report['daysBehind'], report['stale']) == (2, 2.0, False)
+    assert not any(line.startswith('STALE-CANDIDATE') for line in resolver.skip_report_lines(report))
+
+
+def test_the_head_itself_qualifying_reports_zero_skips():
+    github = Dated(3, None)
+    github.qualifies = github.shas[0]
+    walk = {}
+    resolver.select_component('server', component(), github, Published(set(github.shas)), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert (report['commitsBehind'], report['skippedTotal'], report['stale']) == (0, 0, False)
+
+
+def test_an_image_read_error_is_a_named_skip_reason():
+    github = Dated(2, None)
+    github.qualifies = github.shas[0]
+
+    class Broken(Published):
+        def image(self, name, component, sha):
+            raise resolver.ResolutionError('config revision is not bound to ' + sha)
+
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='no qualifying'):
+        resolver.select_component('server', component(), github, Broken({github.shas[0]}), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert report['selected'] is None and report['stale'] is None and report['commitsBehind'] is None
+    assert report['skipped'][0] == {'sha': github.shas[0], 'reason': f'config revision is not bound to {github.shas[0]}'}
+    assert resolver.skip_report_lines(report)[0] == 'SKIPS server: no qualifying trunk commit; 2 commit(s) skipped'
+
+
+def test_unknown_commit_dates_never_claim_staleness():
+    walk = {}
+    resolver.select_component('server', component(), GitHub(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, GitHub(), now=NOW)
+    assert (report['commitsBehind'], report['daysBehind'], report['stale']) == (1, None, None)
+
+
+def test_github_commits_records_committer_dates(monkeypatch):
+    row = {'sha': NEW, 'commit': {'committer': {'date': '2026-09-16T08:00:00Z'}}}
+
+    def run(cmd, **kwargs):
+        class Result:
+            stdout, stderr, returncode = json.dumps([row]), '', 0
+        return Result()
+
+    monkeypatch.setattr(resolver.subprocess, 'run', run)
+    github = resolver.GitHub()
+    assert list(github.commits('honua-io/server', 1)) == [NEW]
+    assert github.commit_date(NEW) == '2026-09-16T08:00:00Z'
+
+
+def test_resolve_prints_the_skip_report_for_a_selected_component_then_still_refuses(monkeypatch, capsys):
+    github = Dated(6, None)
+    github.qualifies = github.shas[5]
+
+    original = resolver.select_component
+    monkeypatch.setattr(resolver, 'select_component',
+                        lambda name, comp, gh, registry, limit, walk: original(
+                            name, comp, github, Published(set(github.shas)), limit, walk))
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver, 'component_versions', lambda *a: (_ for _ in ()).throw(
+        resolver.ResolutionError('honua-server: release/component-versions.json is missing')))
+    skips = {}
+    with pytest.raises(resolver.ResolutionError, match='component-versions'):
+        resolver.resolve({'components': {'honua-server': component()}}, {}, github, None, 100, 'produce', skips)
+    out = capsys.readouterr().out
+    assert f'STALE-CANDIDATE: honua-server selected {github.shas[5][:7]} (5 commits, 5.0 days behind)' in out
+    assert skips['honua-server']['stale'] is True
+
+
+def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_path):
+    report = {'component': 'honua-server', 'trunkHead': NEW, 'selected': OLD, 'selectedCommittedAt': None,
+              'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
+              'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}]}
+
+    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
+        skips['honua-server'] = report
+        raise resolver.ResolutionError('honua-server: release/component-versions.json is missing')
+
+    monkeypatch.setattr(resolver, 'resolve', refuse)
+    monkeypatch.setattr(resolver, 'Registry', lambda github: None)
+    summary = tmp_path / 'summary.md'
+    monkeypatch.setenv('GITHUB_STEP_SUMMARY', str(summary))
+    (tmp_path / 'm.yaml').write_text('{}\n')
+    out = tmp_path / 'out'
+    assert resolver.main(['--manifest', str(tmp_path / 'm.yaml'), '--matrix', str(tmp_path / 'm.yaml'),
+                          '--out-dir', str(out)]) == 1
+    assert json.loads((out / 'skips.json').read_text()) == {'components': {'honua-server': report}}
+    text = summary.read_text()
+    assert '| honua-server | bbbbbbb | **STALE-CANDIDATE** 40 commits, 17.5 days | 40 | CI a \\| b |' in text
+
+
 def test_floating_channel_tags_are_not_candidate_images():
     registry = resolver.Registry(None)
     registry.tags = lambda repository: [
@@ -1352,3 +1507,13 @@ def test_the_documented_baseline_is_the_dotnet_fixture_and_resolves():
     assert json.loads(example) == json.loads(baseline_bytes('honua-sdk-dotnet'))
     compatibility, _ = read_baseline('honua-sdk-dotnet', example.encode())
     assert compatibility['minimumServerVersion'] == 'first-release'
+
+
+def test_the_nightly_uploads_the_skip_report_even_when_resolution_refuses():
+    workflow = yaml.safe_load((resolver.ROOT / '.github/workflows/nightly-certification.yml').read_text())
+    steps = workflow['jobs']['resolve']['steps']
+    upload = next(step for step in steps if step.get('with', {}).get('name') == 'resolved-candidate-skips')
+    assert upload['if'] == 'always()'
+    assert upload['with']['path'] == 'resolved-candidate/skips.json'
+    resolve = next(step for step in steps if step.get('name') == 'Resolve the newest qualifying trunk candidate')
+    assert '--out-dir resolved-candidate' in resolve['run']
