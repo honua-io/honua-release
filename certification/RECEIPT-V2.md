@@ -24,6 +24,25 @@ identity fields are present, either cell value differs, or `requirements_revisio
 repository-owned revision. Rejection is fail-closed at every evaluation tier; a context-less receipt
 cannot be made valid by consumer-side binding.
 
+## Nightly producer run identity
+
+The nightly (`nightly-certification.yml`, honua-release#386) dispatches every producer with a
+`nightly_dispatch_id` input in addition to its candidate inputs. A producer must accept that input
+and emit, in every receipt identity, the run that observed the cell:
+
+| `identity.producer_run` field | value |
+|---|---|
+| `repository` | `${{ github.repository }}` |
+| `workflow` | the workflow file name the nightly dispatched, for example `conformance.yml` |
+| `run_id` | `${{ github.run_id }}` as an integer |
+| `run_attempt` | `${{ github.run_attempt }}` as an integer |
+| `dispatch_id` | the `nightly_dispatch_id` input, verbatim |
+
+Like the context fields, this is identity: it is hashed into `evidence_digest` and so into the
+content-addressed `evidence_uri`. The nightly bind refuses a pass or fail without it, or naming any
+run, attempt or dispatch other than the one that night recorded, even when every pin, the candidate
+and the cut match. The gate checks only its shape, so other tiers may omit it.
+
 This contract composes with the truthful execution-identity contract tracked by
 [honua-evidence#46](https://github.com/honua-io/honua-evidence/issues/46) and implemented by
 [honua-evidence#49](https://github.com/honua-io/honua-evidence/pull/49). Producers must satisfy both

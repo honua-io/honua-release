@@ -118,10 +118,12 @@ def test_resolve_and_mint_run_only_on_trunk():
         assert evaluate(jobs['resolve']['if'], {'github.ref': ref}) is expected, ref
         assert evaluate(jobs['protocol_ledger']['if'], {'github.ref': ref}) is expected, ref
         assert evaluate(jobs['mint']['if'], {'github.ref': ref, 'needs.train.result': 'success'}) is expected, ref
-    # capacity, dr and train need the bound candidate, so a branch dispatch reaches none of them.
+    # capacity needs the trunk-only resolve; dr and train need the bound candidate. A branch
+    # dispatch reaches none of them.
     assert jobs['protocol_ledger']['needs'] == 'resolve'
-    for name in ('capacity', 'dr', 'train'):
-        assert 'protocol_ledger' in (jobs[name]['needs'] if isinstance(jobs[name]['needs'], list) else [jobs[name]['needs']])
+    assert jobs['capacity']['needs'] == 'resolve'
+    assert jobs['dr']['needs'] == 'protocol_ledger'
+    assert set(jobs['train']['needs']) >= {'protocol_ledger', 'capacity', 'dr'}
 
 
 def test_mint_needs_a_successful_train_and_a_live_night():
@@ -450,7 +452,7 @@ def github(tmp_path):
     return GitHub()
 
 
-CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'CANDIDATE_REF': SNAPSHOT, 'GH_TOKEN': 'x'}
+CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': REVIEWED, 'GH_TOKEN': 'x'}
 DR_ENV = {'CANDIDATE_REF': SNAPSHOT, 'REVIEWED_SHA': REVIEWED, 'GH_TOKEN': 'x'}
 
 
@@ -476,8 +478,9 @@ def test_capacity_producer_runs_on_a_tag_at_the_exact_server_commit(github):
     assert dispatched['repo'] == 'honua-io/honua-server'
     assert dispatched['workflow'] == 'capacity-soak-candidate.yml'
     assert dispatched['ref'] == f'refs/tags/nightly-candidate/{SERVER}'
+    # The envelope is read at this run's commit: a candidate snapshot never changes it.
     assert dispatched['inputs'] == {'candidate_sha': SERVER, 'candidate_image': IMAGE,
-                                    'lock_ref': SNAPSHOT, 'publish': 'true'}
+                                    'lock_ref': REVIEWED, 'publish': 'true'}
     assert state['refs']['honua-io/honua-server'][f'refs/tags/nightly-candidate/{SERVER}'] == SERVER
     run = state['runs'][str(state['next_run'])]
     assert run['head_sha'] == SERVER  # the producer's workflow source is the candidate commit
@@ -799,6 +802,8 @@ NIGHT = json.loads((ROOT / 'tools/fixtures/protocol-ledger/night.json').read_tex
 CUT = NIGHT['candidate']['cut_at']
 LEDGER_IMAGE = NIGHT['candidate']['server_image']
 PYTHON_PIN = '6' * 40
+DISPATCH_ID = NIGHT['dispatch_id']
+LEDGER_ENV = {'GH_TOKEN': 'x', 'NIGHTLY_DISPATCH_ID': DISPATCH_ID}
 
 
 def ledger_files(catalog=None, server=SERVER):
@@ -823,9 +828,30 @@ def test_the_night_produces_its_ledger_before_any_candidate_exists():
     # The candidate ref exists only after the ledger is bound and the full exact-candidate check passed.
     assert bind.index('--nightly-bind') < bind.index('validate_platform.py --exact-candidate') < bind.index('refs/nightly-candidates/')
     assert '-p "$GITHUB_SHA"' in bind
-    for name in ('capacity', 'dr'):
-        assert jobs[name]['needs'] == 'protocol_ledger'
     assert jobs['train']['with']['candidate_ref'] == '${{ needs.protocol_ledger.outputs.candidate_ref }}'
+    # One correlation id per nightly attempt goes to every producer and is required back at bind.
+    assert jobs['protocol_ledger']['env']['NIGHTLY_DISPATCH_ID'] == \
+        'nightly-certification-${{ github.run_id }}-${{ github.run_attempt }}'
+    dispatch = step(jobs['protocol_ledger'], 'Dispatch the protocol certification producers')['run']
+    assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in dispatch
+    assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in bind
+
+
+def test_capacity_runs_in_parallel_with_the_ledger_and_only_the_train_joins_them():
+    jobs = workflow()['jobs']
+    capacity = step(jobs['capacity'], 'Dispatch the candidate capacity soak')
+    assert jobs['capacity']['needs'] == 'resolve'
+    assert 'protocol_ledger' not in json.dumps(jobs['capacity'])
+    assert capacity['env']['SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
+    assert capacity['env']['SERVER_IMAGE'] == '${{ needs.resolve.outputs.server_image }}'
+    assert capacity['env']['LOCK_REF'] == '${{ github.sha }}'
+    # DR's receipt hashes the bound manifest, so it stays behind the ledger.
+    assert jobs['dr']['needs'] == 'protocol_ledger'
+    assert set(jobs['train']['needs']) == {'resolve', 'protocol_ledger', 'capacity', 'dr'}
+    # The bind refuses a candidate whose server is not the one capacity soaked.
+    bind = step(jobs['protocol_ledger'], 'Bind the verified ledger')
+    assert bind['env']['RESOLVED_SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
+    assert bind['run'].index('is not the resolved') < bind['run'].index('refs/nightly-candidates/')
 
 
 def test_the_night_reads_and_writes_no_repository_variable():
@@ -840,9 +866,10 @@ def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
     state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
     github.save(state)
     result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
-                                {'GH_TOKEN': 'x'}, ledger_files())
+                                LEDGER_ENV, ledger_files())
     assert result.returncode == 0, result.stdout + result.stderr
-    candidate = {'candidate_source_sha': SERVER, 'candidate_image': LEDGER_IMAGE, 'candidate_cut_at': CUT}
+    candidate = {'candidate_source_sha': SERVER, 'candidate_image': LEDGER_IMAGE, 'candidate_cut_at': CUT,
+                 'nightly_dispatch_id': DISPATCH_ID}
     dispatched = github.load()['dispatches']
     assert dispatched == [
         # honua-server trunk has moved past the candidate: the harness runs on a tag at the candidate.
@@ -851,14 +878,34 @@ def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
         # The published SDK source is its trunk head, so the run is a trunk run at the pin.
         {'repo': 'honua-io/honua-sdk-python', 'workflow': 'conformance.yml', 'ref': 'refs/heads/trunk',
          'inputs': {'server_image': LEDGER_IMAGE, 'server_seed_ref': SERVER, 'candidate_cut_at': CUT,
-                    'certification_tier': 'release'}, 'return_run_details': True},
+                    'certification_tier': 'release', 'nightly_dispatch_id': DISPATCH_ID}, 'return_run_details': True},
     ]
     runs = json.loads((github.path.parent / 'protocol_ledger-work' / 'protocol-runs.json').read_text())
-    assert [(row['producer'], row['head_sha'], row['run_id']) for row in runs] == [
-        ('server-protocol-harness', SERVER, 9001), ('honua-sdk-python', PYTHON_PIN, 9002)]
+    assert [(row['producer'], row['head_sha'], row['run_id'], row['dispatch_id']) for row in runs] == [
+        ('server-protocol-harness', SERVER, 9001, DISPATCH_ID), ('honua-sdk-python', PYTHON_PIN, 9002, DISPATCH_ID)]
     waited, _ = github.run_step('protocol_ledger', 'Wait for every producer', {'GH_TOKEN': 'x'})
     assert waited.returncode == 0, waited.stdout + waited.stderr
     assert '2 protocol producers succeeded' in waited.stdout
+    finished = json.loads((github.path.parent / 'protocol_ledger-work' / 'protocol-runs.json').read_text())
+    assert [(row['dispatch_id'], row['run_attempt']) for row in finished] == [(DISPATCH_ID, 1), (DISPATCH_ID, 1)]
+
+
+@pytest.mark.parametrize('dispatch_id', ['', 'nightly certification', '-leading-dash', 'x' * 129])
+def test_a_malformed_dispatch_id_refuses_before_any_dispatch(github, dispatch_id):
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                {**LEDGER_ENV, 'NIGHTLY_DISPATCH_ID': dispatch_id}, ledger_files())
+    assert result.returncode != 0
+    assert github.load()['dispatches'] == []
+
+
+def test_a_catalog_cannot_supply_the_dispatch_id(github):
+    catalog = json.loads(json.dumps(NIGHT['catalog']))
+    catalog['production']['producers'][1]['inputs']['nightly_dispatch_id'] = 'nightly-certification-1-1'
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files(catalog))
+    assert result.returncode != 0
+    assert 'may not set nightly_dispatch_id' in result.stderr
+    assert github.load()['dispatches'] == []
 
 
 @pytest.mark.parametrize('conclusion', ['failure', 'skipped', 'cancelled'])
@@ -868,7 +915,7 @@ def test_a_producer_that_did_not_succeed_leaves_the_ledger_unbound(github, concl
     state['conclusions'] = {'honua-io/honua-sdk-python/conformance.yml': conclusion}
     github.save(state)
     result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
-                                {'GH_TOKEN': 'x'}, ledger_files())
+                                LEDGER_ENV, ledger_files())
     assert result.returncode == 0, result.stdout + result.stderr
     waited, _ = github.run_step('protocol_ledger', 'Wait for every producer', {'GH_TOKEN': 'x'})
     assert waited.returncode != 0
@@ -880,7 +927,7 @@ def test_an_unpinned_producer_refuses_before_any_dispatch(github):
     catalog = json.loads(json.dumps(NIGHT['catalog']))
     del catalog['source_revisions']['sdk-python']
     result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
-                                {'GH_TOKEN': 'x'}, ledger_files(catalog))
+                                LEDGER_ENV, ledger_files(catalog))
     assert result.returncode != 0
     assert 'producer honua-sdk-python has no pinned revision' in result.stderr
     assert github.load()['dispatches'] == []
@@ -888,7 +935,7 @@ def test_an_unpinned_producer_refuses_before_any_dispatch(github):
 
 def test_a_server_producer_pinned_off_the_candidate_refuses_before_any_dispatch(github):
     result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
-                                {'GH_TOKEN': 'x'}, ledger_files(server=NEWER))
+                                LEDGER_ENV, ledger_files(server=NEWER))
     assert result.returncode != 0
     assert f'is pinned to {SERVER}, not the candidate server' in result.stderr
     assert github.load()['dispatches'] == []

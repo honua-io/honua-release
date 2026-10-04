@@ -505,6 +505,46 @@ def test_pass_requires_digest_bound_results_for_every_facet_and_trusted_uri():
         assert report["overall_status"] == "fail"
 
 
+def _with_producer_run(**fields):
+    cell = _cell()
+    cell["evidence_receipt"]["identity"]["producer_run"] = {
+        "repository": "honua-io/honua-server",
+        "workflow": "protocol-harness-certification.yml",
+        "run_id": 37200001,
+        "run_attempt": 1,
+        "dispatch_id": "nightly-certification-37199990-1",
+        **fields,
+    }
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
+    return cell
+
+
+def test_receipt_may_bind_the_producer_run_that_observed_it():
+    # honua-release#386: the nightly binds each cell to the producer run it dispatched, so the
+    # receipt (and therefore evidence_digest) carries that run's identity.
+    cell = _with_producer_run()
+    schema = json.loads(
+        (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    assert not list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "pass"
+
+    for malformed in (
+        _with_producer_run(run_id="37200001"),
+        _with_producer_run(run_attempt=0),
+        _with_producer_run(repository="honua-server"),
+        _with_producer_run(workflow="../protocol-harness-certification.yml"),
+        _with_producer_run(dispatch_id=""),
+        _with_producer_run(extra="field"),
+    ):
+        assert list(Draft202012Validator(schema).iter_errors(_ledger(malformed)))
+        assert _evaluate(_ledger(malformed), "nightly", now=NOW)["overall_status"] == "fail"
+
+
 def test_pass_rejects_digest_valid_but_semantically_empty_receipt():
     cell = _cell(evidence_receipt={})
     report = _evaluate(_ledger(cell), "nightly", now=NOW)

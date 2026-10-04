@@ -3,6 +3,7 @@ import importlib.util
 import json
 import shutil
 
+import jsonschema
 import pytest
 import yaml
 from pathlib import Path
@@ -103,7 +104,7 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     monkeypatch.setattr(MODULE.subprocess, "run", lambda *a, **kw: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})())
     # Assert the complete intended payload rather than mutating the real worktree.
     assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
-    assert tuple(MODULE.CALLERS) == (Path(".github/workflows/pr-protocol-certification.yml"), Path(".github/workflows/nightly-protocol-certification.yml"), Path(".github/workflows/release-train.yml"))
+    assert tuple(MODULE.CALLERS) == (Path(".github/workflows/release-train.yml"),)
 
 
 @pytest.mark.parametrize("ledger_status", ["pending", "bound"])
@@ -223,14 +224,42 @@ class RecordedEvidence:
         return self.ledgers[revision]
 
 
-def refusal(ledger=None, runs=None, catalog=None, manifest=None) -> str:
+def refusal(ledger=None, runs=None, catalog=None, manifest=None, dispatch_id=None) -> str:
     recorded = night()
     with pytest.raises(MODULE.Finding) as refused:
         MODULE.verify_nightly_ledger(ledger or recorded["ledger"], catalog or recorded["catalog"],
                                      manifest or resolved_manifest(), recorded["requirements_revision"],
-                                     recorded["runs"] if runs is None else runs)
+                                     recorded["runs"] if runs is None else runs, dispatch_id or recorded["dispatch_id"])
     assert "protocolCertification.ledger stays pending" in str(refused.value)
     return str(refused.value)
+
+
+def rehash(cell: dict) -> dict:
+    """Re-address a cell whose receipt was edited, the way honua-evidence publishes it: the digest of
+    the canonical receipt bytes, the content-addressed URI and every facet bound to that digest. The
+    cell stays schema-valid and self-consistent, so only the edited identity can refuse it."""
+    cell["evidence_digest"] = "sha256:" + hashlib.sha256(json.dumps(
+        cell["evidence_receipt"], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
+    return cell
+
+
+def schema_errors(ledger: dict) -> list[str]:
+    schema = json.loads((ROOT / "certification/protocol-certification.v1.schema.json").read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker())
+    return [f"{list(error.path)}: {error.message}" for error in validator.iter_errors(ledger)]
+
+
+def test_nightly_fixture_ledger_is_schema_valid():
+    # The fixture is what aggregate.yml commits: every pass and fail is a content-addressed
+    # evidence.honua.io receipt, never a GitHub run URL, so run identity must live in the receipt.
+    recorded = night()
+    assert schema_errors(recorded["ledger"]) == []
+    observed = [cell for cell in recorded["ledger"]["cells"] if cell["result"] in ("pass", "fail")]
+    assert observed and all(cell["evidence_uri"].startswith("https://evidence.honua.io/data/sha256/") for cell in observed)
+    assert all(row["dispatch_id"] == recorded["dispatch_id"] for row in recorded["runs"])
 
 
 def test_nightly_bound_ledger_for_the_resolved_server_passes_freeze(tmp_path):
@@ -238,7 +267,8 @@ def test_nightly_bound_ledger_for_the_resolved_server_passes_freeze(tmp_path):
     root = candidate_root(tmp_path)
     evidence = RecordedEvidence({recorded["evidence_commit"]: recorded["ledger"]})
 
-    result = MODULE.nightly_bind(root, evidence, recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z")
+    result = MODULE.nightly_bind(root, evidence, recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z",
+                                 recorded["dispatch_id"])
 
     assert result["results"] == {"pass": 2, "fail": 1, "skip": 1, "not-addressable": 1}
     bound = yaml.safe_load((root / MODULE.MANIFEST).read_text(encoding="utf-8"))["protocolCertification"]["ledger"]
@@ -281,7 +311,8 @@ def test_nightly_refuses_a_stale_ledger(tmp_path):
     before = (root / MODULE.MANIFEST).read_bytes()
     with pytest.raises(MODULE.Finding) as missing:
         MODULE.nightly_bind(root, RecordedEvidence({"c595f9d6" + "0" * 32: stale}),
-                            recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z")
+                            recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z",
+                            recorded["dispatch_id"])
     assert "found 0" in str(missing.value)
     assert (root / MODULE.MANIFEST).read_bytes() == before
 
@@ -289,9 +320,74 @@ def test_nightly_refuses_a_stale_ledger(tmp_path):
     copied = night()["ledger"]
     copied["cells"][0]["started_at"] = "2026-10-02T11:40:00Z"
     assert "predates the candidate cut" in refusal(ledger=copied)
+
+
+def test_nightly_refuses_a_same_pin_run_this_nightly_did_not_dispatch(tmp_path):
+    """R20/R21: a hand-dispatched producer run after the cut, at the same pins and about the same
+    candidate, is still not tonight's evidence. Only the run this nightly dispatched binds."""
+    recorded = night()
+    sdk = recorded["runs"][1]
+
+    # Same producer, same pin, same candidate, after the cut: only the run id differs.
     foreign = night()["ledger"]
-    foreign["cells"][2]["evidence_uri"] = "https://github.com/honua-io/honua-sdk-python/actions/runs/36000000"
-    assert "is not honua-sdk-python run 37200002" in refusal(ledger=foreign)
+    foreign["cells"][2]["evidence_receipt"]["identity"]["producer_run"]["run_id"] = 36000000
+    rehash(foreign["cells"][2])
+    assert schema_errors(foreign) == []
+    assert f"is not honua-sdk-python run {sdk['run_id']} attempt 1 dispatched by {recorded['dispatch_id']}" in refusal(ledger=foreign)
+
+    # The same run id from another producer repository or workflow is not that run either.
+    for field, value in (("repository", "honua-io/honua-sdk-js"), ("workflow", "manual-conformance.yml")):
+        moved = night()["ledger"]
+        moved["cells"][2]["evidence_receipt"]["identity"]["producer_run"][field] = value
+        rehash(moved["cells"][2])
+        assert schema_errors(moved) == []
+        assert "is not honua-sdk-python run" in refusal(ledger=moved)
+
+    # A failed first attempt does not stand in for the attempt that concluded success.
+    earlier = night()["ledger"]
+    earlier["cells"][2]["evidence_receipt"]["identity"]["producer_run"]["run_attempt"] = 2
+    rehash(earlier["cells"][2])
+    assert "is not honua-sdk-python run" in refusal(ledger=earlier)
+
+    # Another night's correlation id, carried by a run with tonight's id, is not this dispatch.
+    other_night = night()["ledger"]
+    other_night["cells"][0]["evidence_receipt"]["identity"]["producer_run"]["dispatch_id"] = "nightly-certification-37100000-1"
+    rehash(other_night["cells"][0])
+    assert "dispatched by nightly-certification-37199990-1" in refusal(ledger=other_night)
+
+    # A receipt with no run identity cannot be attributed to any run: refused, never assumed.
+    anonymous = night()["ledger"]
+    del anonymous["cells"][1]["evidence_receipt"]["identity"]["producer_run"]
+    rehash(anonymous["cells"][1])
+    assert schema_errors(anonymous) == []
+    assert "harness tiles.tile: fail carries no producer run identity" in refusal(ledger=anonymous)
+    unreceipted = night()["ledger"]
+    unreceipted["cells"][1].update(evidence_receipt=None, evidence_digest=None, evidence_uri=None, facet_results=None)
+    assert "harness tiles.tile: fail carries no producer run identity" in refusal(ledger=unreceipted)
+
+    # The run identity must be in the receipt the evidence URI addresses, not beside it.
+    detached = night()["ledger"]
+    detached["cells"][2]["evidence_receipt"]["identity"]["producer_run"]["run_id"] = 36000000
+    assert "evidence_digest is not the digest of its receipt" in refusal(ledger=detached)
+    readdressed = night()["ledger"]
+    readdressed["cells"][2]["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + "9" * 64
+    assert "evidence_uri does not address its receipt" in refusal(ledger=readdressed)
+
+    # The runs file itself must come from this nightly's dispatch step.
+    replayed = night()["runs"]
+    replayed[1]["dispatch_id"] = "nightly-certification-37100000-1"
+    assert "producer honua-sdk-python run 37200002 was not dispatched by nightly-certification-37199990-1" in refusal(runs=replayed)
+    assert "was not dispatched by nightly-certification-37100000-1" in refusal(dispatch_id="nightly-certification-37100000-1")
+    assert "is not a nightly correlation id" in refusal(dispatch_id=recorded["dispatch_id"] + "\n")
+
+    # Matching identity binds (the bound-ledger test above), and an unrelated nightly id refuses
+    # bind before anything is written.
+    root = candidate_root(tmp_path)
+    before = (root / MODULE.MANIFEST).read_bytes()
+    with pytest.raises(MODULE.Finding):
+        MODULE.nightly_bind(root, RecordedEvidence({recorded["evidence_commit"]: foreign}), recorded["requirements_revision"],
+                            recorded["runs"], "2026-10-03T12:50:00Z", recorded["dispatch_id"])
+    assert (root / MODULE.MANIFEST).read_bytes() == before
 
 
 def test_nightly_refuses_a_missing_producer():
@@ -358,7 +454,8 @@ def test_nightly_convergence_is_deterministic(tmp_path):
     for name in ("first", "second"):
         root = candidate_root(tmp_path / name)
         result = MODULE.nightly_bind(root, RecordedEvidence({recorded["evidence_commit"]: recorded["ledger"]}),
-                                     recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z")
+                                     recorded["requirements_revision"], recorded["runs"], "2026-10-03T12:50:00Z",
+                                     recorded["dispatch_id"])
         bound.append(((root / MODULE.MANIFEST).read_bytes(), result))
     assert bound[0] == bound[1]
 
@@ -369,7 +466,7 @@ def test_nightly_bind_refuses_two_ledgers_for_one_staging(tmp_path):
     ledgers = {recorded["evidence_commit"]: recorded["ledger"], "3" * 40: recorded["ledger"]}
     with pytest.raises(MODULE.Finding, match="found 2"):
         MODULE.nightly_bind(root, RecordedEvidence(ledgers), recorded["requirements_revision"], recorded["runs"],
-                            "2026-10-03T12:50:00Z")
+                            "2026-10-03T12:50:00Z", recorded["dispatch_id"])
 
 
 PROGRAM = """app.MapServerFeatureEndpoints();

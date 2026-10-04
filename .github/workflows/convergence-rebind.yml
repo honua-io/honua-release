@@ -4,8 +4,8 @@ name: convergence-rebind
 # The nightly (nightly-certification.yml, honua-release#386) stages the catalog at the candidate it
 # resolved, dispatches the producers, aggregates the ledger in honua-evidence and binds it into the
 # candidate before freeze. Ruling R18 forbids a hand rebind, so nothing here stages a catalog,
-# dispatches aggregation, opens a pull request or writes a repository variable; the
-# PROTOCOL_CERTIFICATION_* variables are read-only history.
+# dispatches aggregation, opens a pull request or writes a repository variable, and no workflow
+# reads the PROTOCOL_CERTIFICATION_* variables.
 
 on:
   workflow_dispatch:

@@ -17,6 +17,8 @@ a dispatchable ref and the exact commit travels as an input it checks out and ve
   source sha and cut as inputs. honua-evidence harvests producer runs by that revision, so a
   pin that is the producer's trunk head is dispatched on trunk and any other pin on
   refs/tags/nightly-candidate/<pin>. honua-evidence aggregate.yml then joins them on trunk.
+  Every producer also receives `nightly_dispatch_id`, this nightly's correlation id, and records
+  it with its own run identity in each receipt, so the bind accepts only runs this night dispatched.
 
 Run ids come from the dispatch response (`return_run_details`), not a racy run listing.
 Neither receipt lookup follows a branch tip.
@@ -43,6 +45,8 @@ AGGREGATE_WORKFLOW = 'aggregate.yml'
 CANDIDATE_PLACEHOLDERS = ('{server_image}', '{server_sha}', '{cut_at}')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 CUT = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z')
+DISPATCH_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z')
+DISPATCH_ID_INPUT = 'nightly_dispatch_id'
 DELAYS = (0, 10, 30, 60, 120, 60)
 
 
@@ -211,10 +215,12 @@ def protocol_candidate(manifest: dict) -> dict[str, str]:
     return candidate
 
 
-def protocol_inputs(template: dict, candidate: dict[str, str]) -> dict[str, str]:
+def protocol_inputs(template: dict, candidate: dict[str, str], dispatch_id: str) -> dict[str, str]:
     values = {'{server_image}': candidate['server_image'], '{server_sha}': candidate['server_sha'],
               '{cut_at}': candidate['cut_at']}
-    rendered = {}
+    if DISPATCH_ID_INPUT in template:
+        raise ValueError(f'producer inputs may not set {DISPATCH_ID_INPUT}; the nightly supplies it')
+    rendered = {DISPATCH_ID_INPUT: dispatch_id}
     for key, value in template.items():
         if not isinstance(value, str) or ('{' in value and value not in CANDIDATE_PLACEHOLDERS):
             raise ValueError(f'producer input {key} is not a literal or a governed candidate placeholder')
@@ -232,12 +238,16 @@ def protocol_dispatch_ref(api, repository: str, pin: str) -> str:
     return ensure_candidate_tag(api, repository, pin)
 
 
-def dispatch_protocol(api, catalog: dict, manifest: dict) -> list[dict]:
+def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> list[dict]:
     """Dispatch every producer the catalog names at its pin, bound to the resolved candidate.
 
     Refuses before the first dispatch when any producer is unpinned, so a night never runs a
-    partial producer set; a dispatch failure part-way refuses the night as well.
+    partial producer set; a dispatch failure part-way refuses the night as well. Each run row
+    keeps `dispatch_id`, the correlation id every producer receives as an input and echoes in
+    its receipts; the bind refuses a receipt from any run not recorded here.
     """
+    if not isinstance(dispatch_id, str) or not DISPATCH_ID.fullmatch(dispatch_id):
+        raise ValueError(f'nightly dispatch id {dispatch_id!r} is not a correlation id')
     candidate = protocol_candidate(manifest)
     production = (catalog or {}).get('production') or {}
     producers = production.get('producers')
@@ -254,7 +264,7 @@ def dispatch_protocol(api, catalog: dict, manifest: dict) -> list[dict]:
             raise ValueError(f"producer {producer.get('producer')} has no pinned revision in {repository}")
         if producer.get('source_revision_key') in ('server', 'server-certification') and pin != candidate['server_sha']:
             raise ValueError(f"producer {producer.get('producer')} is pinned to {pin}, not the candidate server")
-        plan.append((producer, repository, pin, protocol_inputs(producer.get('inputs') or {}, candidate)))
+        plan.append((producer, repository, pin, protocol_inputs(producer.get('inputs') or {}, candidate, dispatch_id)))
     runs = []
     for producer, repository, pin, inputs in plan:
         workflow = str(producer.get('workflow') or '')
@@ -263,7 +273,7 @@ def dispatch_protocol(api, catalog: dict, manifest: dict) -> list[dict]:
         verify_run(api('GET', f'repos/{repository}/actions/runs/{run_id}'), run_id=run_id,
                    workflow=workflow, head_sha=pin)
         runs.append({'producer': producer['producer'], 'repository': repository, 'workflow': workflow,
-                     'ref': ref, 'head_sha': pin, 'run_id': run_id,
+                     'ref': ref, 'head_sha': pin, 'run_id': run_id, 'dispatch_id': dispatch_id,
                      'client_lanes': list(producer.get('client_lanes') or []),
                      'deployment_targets': list(producer.get('deployment_targets') or [])})
     return runs
@@ -389,6 +399,7 @@ def main(argv=None, api=None) -> int:
     protocol.add_argument('--catalog', type=Path, required=True)
     protocol.add_argument('--manifest', type=Path, required=True)
     protocol.add_argument('--out', type=Path, required=True)
+    protocol.add_argument('--dispatch-id', required=True)
     protocol_wait = commands.add_parser('wait-protocol')
     protocol_wait.add_argument('--runs', type=Path, required=True)
     protocol_wait.add_argument('--timeout', required=True, type=int)
@@ -417,7 +428,7 @@ def main(argv=None, api=None) -> int:
         elif args.command == 'dispatch-protocol':
             import yaml  # only the protocol-ledger job installs PyYAML
             runs = dispatch_protocol(api, json.loads(args.catalog.read_text()),
-                                     yaml.safe_load(args.manifest.read_text()))
+                                     yaml.safe_load(args.manifest.read_text()), args.dispatch_id)
             args.out.write_text(json.dumps(runs, indent=2) + '\n')
             for row in runs:
                 print(f"{row['producer']}: https://github.com/{row['repository']}/actions/runs/{row['run_id']}")

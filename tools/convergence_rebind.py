@@ -5,7 +5,7 @@ PLAN is the default and does not modify tracked files. APPLY stages regenerated
 sources and the catalog. FINALIZE binds a verified evidence ledger and advances
 all reusable-workflow pins in the same review branch. No workflow runs APPLY or
 FINALIZE any more: ruling R18 forbids a hand rebind, convergence-rebind.yml only
-plans, and the PROTOCOL_CERTIFICATION_* repository variables are read-only history.
+plans, and no workflow reads the PROTOCOL_CERTIFICATION_* repository variables.
 
 PLAN, APPLY, and FINALIZE refuse while a .NET, Python, or JavaScript component
 SHA is not the published clientArtifacts sourceSha. That refusal leaves
@@ -44,11 +44,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
 CATALOG = Path("certification/protocol-certification-requirements.v1.json")
 MANIFEST = Path("platform-manifest.yaml")
-CALLERS = (
-    Path(".github/workflows/pr-protocol-certification.yml"),
-    Path(".github/workflows/nightly-protocol-certification.yml"),
-    Path(".github/workflows/release-train.yml"),
-)
+# The only caller: the nightly's train certifies the ledger bound into its candidate manifest. The
+# PR and standalone nightly callers that read the PROTOCOL_CERTIFICATION_* variables are retired.
+CALLERS = (Path(".github/workflows/release-train.yml"),)
 PIN_RE = re.compile(r"(honua-io/honua-release/\.github/workflows/gate-protocol-certification\.yml@)[0-9a-f]{40}([^\n]*)")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REBIND_COMMENT = "pin to the staged catalog commit in the reviewed rebind PR"
@@ -466,7 +464,8 @@ NIGHTLY_CANDIDATE_FILES = frozenset({str(MANIFEST), "compatibility-matrix.yaml",
 LEDGER_SCHEMA = "honua.protocol-certification/v1"
 LEDGER_IDENTITY = ("capability_key", "surface", "operation", "canonical_client", "client_lane",
                    "client_version", "deployment_target")
-RUN_URL_RE = re.compile(r"^https://github\.com/([^/]+/[^/]+)/actions/runs/([0-9]+)(?:/|$)")
+EVIDENCE_URI = "https://evidence.honua.io/data/sha256/"
+DISPATCH_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 def nightly_stage(root: Path, gh: GitHub) -> dict[str, Any]:
@@ -496,6 +495,20 @@ def _timestamp(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else None
 
 
+def receipt_digest(receipt: Any) -> str | None:
+    """The digest honua-evidence content-addresses a receipt by (check_protocol_certification)."""
+    if not isinstance(receipt, dict):
+        return None
+    encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def dispatched_run(run: dict[str, Any], dispatch_id: str) -> dict[str, Any]:
+    """The identity a receipt must carry to be evidence from `run`, as this nightly dispatched it."""
+    return {"repository": run.get("repository"), "workflow": run.get("workflow"), "run_id": run.get("run_id"),
+            "run_attempt": run.get("run_attempt"), "dispatch_id": dispatch_id}
+
+
 def nightly_candidate(manifest: dict[str, Any]) -> dict[str, str]:
     server = manifest["components"]["honua-server"]
     return {"source_sha": server["sha"], "image_digest": server["digest"],
@@ -503,15 +516,24 @@ def nightly_candidate(manifest: dict[str, Any]) -> dict[str, str]:
 
 
 def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manifest: dict[str, Any],
-                          requirements_revision: str, runs: list[dict[str, Any]]) -> dict[str, int]:
+                          requirements_revision: str, runs: list[dict[str, Any]], dispatch_id: str) -> dict[str, int]:
     """Refuse a ledger that is not tonight's evidence for this candidate, else count its results.
 
     Every pass or fail must come from tonight's run of the producer that owns its lane, at that
     producer's pin, about this candidate image, started after the cut: nothing is carried from an
     older ledger. A producer whose lanes hold no observation at all was skipped and refuses too.
+
+    `runs` is what this nightly's own dispatch step recorded and `dispatch_id` the correlation id it
+    passed every producer (R20/R21). Pins, candidate and cut cannot tell tonight's run from another
+    run of the same producer at the same pins, and the content-addressed evidence_uri names no run,
+    so each receipt carries the run that observed it (identity.producer_run) inside the bytes its
+    evidence_digest addresses. A cell without it, or naming any other run, attempt or dispatch, is
+    refused: a same-pin post-cut run this nightly did not dispatch never binds.
     """
     candidate = nightly_candidate(manifest)
     problems: list[str] = []
+    if not isinstance(dispatch_id, str) or not DISPATCH_ID_RE.fullmatch(dispatch_id):
+        problems.append(f"dispatch id {dispatch_id!r} is not a nightly correlation id")
     if ledger.get("schema") != LEDGER_SCHEMA:
         problems.append(f"schema {ledger.get('schema')!r}")
     if ledger.get("requirements_source_revision") != requirements_revision:
@@ -530,6 +552,8 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             continue
         if run.get("head_sha") != catalog["source_revisions"][entry["source_revision_key"]]["commit"]:
             problems.append(f"producer {entry['producer']} ran at {run.get('head_sha')}, not its staged pin")
+        if run.get("dispatch_id") != dispatch_id:
+            problems.append(f"producer {entry['producer']} run {run.get('run_id')} was not dispatched by {dispatch_id}")
         owners.append((entry, run))
     cells = [cell for cell in ledger.get("cells") or [] if isinstance(cell, dict)]
     expected = sorted(tuple(str(row.get(key)) for key in LEDGER_IDENTITY) for row in catalog["requirements"])
@@ -558,9 +582,20 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         started = _timestamp(cell.get("started_at"))
         if started is None or cut is None or started < cut:
             problems.append(f"{label}: started_at {cell.get('started_at')!r} predates the candidate cut")
-        link = RUN_URL_RE.match(str(cell.get("evidence_uri") or ""))
-        if link and (link.group(1) != run["repository"] or int(link.group(2)) != run["run_id"]):
-            problems.append(f"{label}: evidence {cell.get('evidence_uri')} is not {run['producer']} run {run['run_id']}")
+        receipt = cell.get("evidence_receipt")
+        identity = receipt.get("identity") if isinstance(receipt, dict) else None
+        if not isinstance(identity, dict) or "producer_run" not in identity:
+            problems.append(f"{label}: {result} carries no producer run identity")
+            continue
+        digest = receipt_digest(receipt)
+        if cell.get("evidence_digest") != digest:
+            problems.append(f"{label}: evidence_digest is not the digest of its receipt")
+        elif cell.get("evidence_uri") != EVIDENCE_URI + digest.removeprefix("sha256:"):
+            problems.append(f"{label}: evidence_uri does not address its receipt")
+        expected = dispatched_run(run, dispatch_id)
+        if identity["producer_run"] != expected:
+            problems.append(f"{label}: producer run {identity['producer_run']!r} is not {run['producer']} run "
+                            f"{run.get('run_id')} attempt {run.get('run_attempt')} dispatched by {dispatch_id}")
     for producer in sorted(set(succeeded) - observed):
         problems.append(f"producer {producer} contributed no observation for its lanes")
     if problems:
@@ -601,12 +636,14 @@ def bind_nightly_ledger(root: Path, evidence_commit: str, ledger_bytes: bytes, r
     return ledger
 
 
-def nightly_bind(root: Path, gh: Any, requirements_revision: str, runs: list[dict[str, Any]], since: str) -> dict[str, Any]:
+def nightly_bind(root: Path, gh: Any, requirements_revision: str, runs: list[dict[str, Any]], since: str,
+                 dispatch_id: str) -> dict[str, Any]:
     manifest = load_manifest(root)
     ledger = manifest["protocolCertification"]["ledger"]
     commit, data = locate_nightly_ledger(gh, ledger["repository"], ledger["path"], requirements_revision,
                                          nightly_candidate(manifest), since)
-    counts = verify_nightly_ledger(json.loads(data), load_json(root, CATALOG), manifest, requirements_revision, runs)
+    counts = verify_nightly_ledger(json.loads(data), load_json(root, CATALOG), manifest, requirements_revision, runs,
+                                   dispatch_id)
     return {"ledger": bind_nightly_ledger(root, commit, data, requirements_revision), "results": counts}
 
 
@@ -623,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nightly-bind", action="store_true")
     parser.add_argument("--runs", type=Path, help="producer runs written by nightly_receipts.py wait-protocol")
     parser.add_argument("--since", help="ISO-8601 time the evidence aggregation was dispatched")
+    parser.add_argument("--dispatch-id", help="correlation id the nightly passed every producer it dispatched")
     args = parser.parse_args(argv)
     try:
         if sum((args.apply, args.finalize, args.nightly_stage, args.nightly_bind)) > 1:
@@ -634,10 +672,10 @@ def main(argv: list[str] | None = None) -> int:
             print("\nNIGHTLY-STAGE complete. Commit the staged catalog with the candidate before dispatching producers.")
             return 0
         if args.nightly_bind:
-            if not (args.requirements_revision and args.runs and args.since):
-                raise Finding("--nightly-bind requires --requirements-revision, --runs and --since")
+            if not (args.requirements_revision and args.runs and args.since and args.dispatch_id):
+                raise Finding("--nightly-bind requires --requirements-revision, --runs, --since and --dispatch-id")
             result = nightly_bind(ROOT, GhCli(), args.requirements_revision,
-                                  json.loads(args.runs.read_text(encoding="utf-8")), args.since)
+                                  json.loads(args.runs.read_text(encoding="utf-8")), args.since, args.dispatch_id)
             print(json.dumps(result, indent=2))
             return 0
         if args.finalize:

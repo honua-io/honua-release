@@ -247,14 +247,12 @@ def test_protocol_certification_uses_the_ledger_owner_revision_not_the_run_sha()
     assert "out/requirements-owner/certification/protocol-certification-requirements.v1.json" in gate
     assert "--requirements out/protocol-certification-requirements.v1.json" in gate
 
+    # honua-release#386: the ledger bound into the nightly candidate manifest is the only source of
+    # truth. The callers that read the frozen PROTOCOL_CERTIFICATION_* variables are retired.
     for caller in ("pr-protocol-certification.yml", "nightly-protocol-certification.yml"):
-        text = (REPO_ROOT / ".github" / "workflows" / caller).read_text(encoding="utf-8")
-        assert "PROTOCOL_CERTIFICATION_REQUIREMENTS_SOURCE_REVISION" in text
-        assert (
-            "honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@"
-            in text
-        )
-        assert "uses: ./.github/workflows/gate-protocol-certification.yml" not in text
+        assert not (REPO_ROOT / ".github" / "workflows" / caller).exists()
+    for workflow in (REPO_ROOT / ".github" / "workflows").glob("*.y*ml"):
+        assert "vars.PROTOCOL_CERTIFICATION_" not in workflow.read_text(encoding="utf-8"), workflow.name
 
     release_train = (REPO_ROOT / ".github" / "workflows" / "release-train.yml").read_text(
         encoding="utf-8"

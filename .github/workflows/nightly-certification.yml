@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 120
     outputs:
       platform_label: ${{ steps.stamp.outputs.platform_label }}
+      server_sha: ${{ steps.server.outputs.server_sha }}
+      server_image: ${{ steps.server.outputs.server_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,6 +63,22 @@ jobs:
             --stamp resolved-candidate/platform-manifest.yaml)"
           [ -n "$label" ]
           echo "platform_label=${label}" >> "$GITHUB_OUTPUT"
+      # The server the night certifies is fixed here; protocol_ledger binds the ledger for exactly
+      # this server and capacity soaks it in parallel.
+      - name: Read the resolved server
+        id: server
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import yaml
+          manifest = yaml.safe_load(open("resolved-candidate/platform-manifest.yaml", encoding="utf-8"))
+          server = manifest["components"]["honua-server"]
+          image = str(server["image"])
+          if "@sha256:" not in image or ":" in image.split("@", 1)[0].split("/", 1)[-1]:
+              raise SystemExit(f"server image is not an immutable digest reference: {image}")
+          print(f"server_sha={server['sha']}")
+          print(f"server_image={image}")
+          PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: resolved-candidate
@@ -73,7 +91,9 @@ jobs:
   # resolved. Catalog staging, every producer run, the honua-evidence aggregation and the binding
   # are this job's own outputs; nothing is hand-dispatched and no repository variable is read or
   # written. A producer that fails, is skipped, or reports another source sha leaves the ledger
-  # unbound, and an unbound ledger never becomes a candidate ref, so nothing downstream runs.
+  # unbound, and an unbound ledger never becomes a candidate ref, so neither DR nor the train runs.
+  # Every producer receives NIGHTLY_DISPATCH_ID and echoes it with its own run identity in each
+  # receipt; the bind refuses any cell whose run this job did not dispatch (R20/R21).
   protocol_ledger:
     needs: resolve
     if: github.ref == 'refs/heads/trunk'
@@ -81,10 +101,10 @@ jobs:
     timeout-minutes: 330
     permissions:
       contents: write          # pushes refs/nightly-requirements/<sha> and refs/nightly-candidates/<sha>
+    env:
+      NIGHTLY_DISPATCH_ID: nightly-certification-${{ github.run_id }}-${{ github.run_attempt }}
     outputs:
       candidate_ref: ${{ steps.bind.outputs.candidate_ref }}
-      server_sha: ${{ steps.bind.outputs.server_sha }}
-      server_image: ${{ steps.bind.outputs.server_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,7 +145,8 @@ jobs:
           set -euo pipefail
           python tools/nightly_receipts.py dispatch-protocol \
             --catalog certification/protocol-certification-requirements.v1.json \
-            --manifest platform-manifest.yaml --out "${RUNNER_TEMP}/protocol-runs.json"
+            --manifest platform-manifest.yaml --dispatch-id "$NIGHTLY_DISPATCH_ID" \
+            --out "${RUNNER_TEMP}/protocol-runs.json"
       - name: Wait for every producer; one that did not succeed refuses the night
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -154,10 +175,13 @@ jobs:
           REQUIREMENTS_REVISION: ${{ steps.stage.outputs.requirements_revision }}
           SINCE: ${{ steps.aggregate.outputs.since }}
           LABEL: ${{ needs.resolve.outputs.platform_label }}
+          RESOLVED_SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
+          RESOLVED_SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
         run: |
           set -euo pipefail
           python tools/convergence_rebind.py --nightly-bind --requirements-revision "$REQUIREMENTS_REVISION" \
-            --runs "${RUNNER_TEMP}/protocol-runs.json" --since "$SINCE" | tee "${RUNNER_TEMP}/protocol-ledger-binding.json"
+            --runs "${RUNNER_TEMP}/protocol-runs.json" --since "$SINCE" --dispatch-id "$NIGHTLY_DISPATCH_ID" \
+            | tee "${RUNNER_TEMP}/protocol-ledger-binding.json"
           python tools/validate_platform.py --exact-candidate
           # The candidate is one data commit over this run's commit (candidate-input requires that
           # parent): the staged catalog and sources of the requirements commit plus the bound manifest.
@@ -166,17 +190,15 @@ jobs:
           sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
             GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
             git commit-tree "$tree" -p "$GITHUB_SHA" -m "chore: nightly candidate snapshot ${LABEL}")"
-          git push origin "${sha}:refs/nightly-candidates/${sha}"
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import yaml
-          manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
-          server = manifest["components"]["honua-server"]
-          image = str(server["image"])
-          if "@sha256:" not in image or ":" in image.split("@", 1)[0].split("/", 1)[-1]:
-              raise SystemExit(f"server image is not an immutable digest reference: {image}")
-          print(f"server_sha={server['sha']}")
-          print(f"server_image={image}")
+          # capacity soaked the resolved server in parallel: the bound candidate must be that server.
+          python - <<'PY'
+          import os, yaml
+          server = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))["components"]["honua-server"]
+          resolved = (os.environ["RESOLVED_SERVER_SHA"], os.environ["RESOLVED_SERVER_IMAGE"])
+          if (server["sha"], str(server["image"])) != resolved:
+              raise SystemExit(f"bound server {server['sha']} {server['image']} is not the resolved {resolved}")
           PY
+          git push origin "${sha}:refs/nightly-candidates/${sha}"
           echo "candidate_ref=${sha}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -188,8 +210,12 @@ jobs:
             ${{ runner.temp }}/protocol-ledger-binding.json
           if-no-files-found: warn
 
+  # capacity soaks the resolved server image in parallel with protocol_ledger: it reads only the
+  # server sha and image (fixed by resolve) and certification/capacity-envelope.v1.json at
+  # lock_ref, which a candidate snapshot never changes (candidate-input admits manifest, matrix and
+  # catalog data only), so this run's commit is the same envelope bytes.
   capacity:
-    needs: protocol_ledger
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
@@ -206,14 +232,14 @@ jobs:
         id: receipt
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-          SERVER_SHA: ${{ needs.protocol_ledger.outputs.server_sha }}
-          SERVER_IMAGE: ${{ needs.protocol_ledger.outputs.server_image }}
-          CANDIDATE_REF: ${{ needs.protocol_ledger.outputs.candidate_ref }}
+          SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
+          SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
+          LOCK_REF: ${{ github.sha }}
         run: |
           set -euo pipefail
           repo=honua-io/honua-server
           run_id="$(python tools/nightly_receipts.py dispatch-capacity --repository "$repo" \
-            --candidate-sha "$SERVER_SHA" --candidate-image "$SERVER_IMAGE" --lock-ref "$CANDIDATE_REF")"
+            --candidate-sha "$SERVER_SHA" --candidate-image "$SERVER_IMAGE" --lock-ref "$LOCK_REF")"
           echo "capacity producer: https://github.com/${repo}/actions/runs/${run_id}"
           set +e
           python tools/nightly_receipts.py wait --repository "$repo" --run-id "$run_id" --timeout 20400
@@ -228,6 +254,10 @@ jobs:
             exit 1
           fi
 
+  # DR has a real data dependency on the bound ledger: the drill's receipt binds candidateLockDigest
+  # to the candidate snapshot's platform-manifest.yaml bytes, which gate-dr re-hashes from the
+  # train's frozen manifest, and those bytes include protocolCertification.ledger as bound. A drill
+  # over the pre-bind manifest would carry a digest the train refuses.
   dr:
     needs: protocol_ledger
     runs-on: ubuntu-latest
@@ -273,7 +303,8 @@ jobs:
 
   train:
     needs: [resolve, protocol_ledger, capacity, dr]
-    # A failed producer that still published a receipt is judged by the train. Cancelled nights stop.
+    # The train alone joins the ledger, capacity and DR; a failed producer that still published a
+    # receipt is judged by the train. Cancelled nights stop.
     if: ${{ !cancelled() && needs.protocol_ledger.result == 'success' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != '' }}
     # release-train's own top-level scopes; a called workflow cannot exceed its caller job.
     permissions:
