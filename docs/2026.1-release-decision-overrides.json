@@ -96,7 +96,7 @@
     "R19": {
       "date": "2026-10-02",
       "authority": "https://github.com/honua-io/honua-release/issues/376",
-      "ruling": "Certified lock and promotion candidate: an all-green nightly strict train on trunk head mints a certified lock (every automated gate, the deterministic journey on all 4 GA cells plus one genuine-model cell). A promotion candidate is a certified lock the release captain selects to burn; during its burn it gathers the lock-bound qualifying evidence (genuine-model journey on all 4 GA cells, update and rollback proof, external Esri/CITE evidence, canaries), every receipt binding the lock digest. Only a promotion candidate that completed its burn can be promoted; 2026.1-rc.3 is the first certified lock.",
+      "ruling": "Certified lock and promotion candidate: an all-green nightly strict train on trunk head mints a certified lock (every automated gate, the deterministic journey on all 4 GA cells plus one genuine-model cell). A promotion candidate is a certified lock the release captain selects to burn; during its burn it gathers the lock-bound qualifying evidence (genuine-model journey on all 4 GA cells, update and rollback proof, externally produced GeoServices bundle and CITE evidence, canaries), every receipt binding the lock digest. Only a promotion candidate that completed its burn can be promoted; 2026.1-rc.3 is the first certified lock.",
       "effect": "Amends R18. Lock-bound evidence is proven against the promotion candidate, not before the lock is minted; it places no issue in a different bucket.",
       "moved": []
     },
@@ -308,7 +308,7 @@
     },
     "honua-migrate#142": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-release#120": {
       "bucket": "must-fix-before-cut",
@@ -397,7 +397,7 @@
     },
     "honua-release#317": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-release#57": {
       "bucket": "must-fix-before-cut",
@@ -413,11 +413,11 @@
     },
     "honua-sales#14": {
       "bucket": "post-cut-hardening",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Commercial discovery is release scope but not a candidate-cut gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Commercial discovery is release scope but not a candidate-cut gate."
     },
     "honua-sdk-dotnet#340": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-sdk-dotnet#341": {
       "bucket": "must-fix-before-cut",
@@ -426,7 +426,7 @@
     },
     "honua-sdk-js#1419": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-sdk-js#1569": {
       "bucket": "2026.2",
@@ -434,7 +434,7 @@
     },
     "honua-sdk-js#1662": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-sdk-python#21": {
       "bucket": "prove-against-candidate",
@@ -590,11 +590,11 @@
     },
     "honua-server#4599": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-server#4600": {
       "bucket": "must-fix-before-cut",
-      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost Esri migration program) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
+      "reason": "Operator ruling 2026-09-10: everything labelled release/2026.1 is release scope; the 2026-09-09 backlog additions (low-switching-cost migration program, release#316) are adopted 2026.1 promises. Member of the adopted migration program; first-release gate."
     },
     "honua-site#234": {
       "bucket": "must-fix-before-cut",
