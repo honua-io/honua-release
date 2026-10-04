@@ -9,6 +9,7 @@ from sdk_baselines import SDK_COMPONENTS, content_digest
 import yaml
 
 import generate_platform_lock as generator
+from platform_version import artifact_version
 import validate_platform_lock as validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -758,3 +759,122 @@ def test_generator_false_does_not_allow_empty_version_sets(tmp_path):
     assert not any("sourcePinnedOnly: must be a boolean" in item for item in draft.unresolved)
     for group in ("contractVersions", "schemaVersions"):
         assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals)
+
+
+# --- R22: imaged components take the lock's platform version (#231 WI-2) ---
+
+AMD64, ARM64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
+
+
+def _imaged_manifest(release="2026.1-rc.3", **server):
+    """honua-server, honua-console and honua-helm with every identity fact bound and stamped."""
+    image = {"lifecycleStatus": "GA", "sha": REVISION, "digest": DIGEST, "artifactSourceRevision": REVISION,
+             "architectures": ["amd64", "arm64"], "platformDigests": {"amd64": AMD64, "arm64": ARM64},
+             "version": "pre-release", "artifactVersion": artifact_version(release)}
+    rows = {
+        "honua-server": {**image, "repository": "https://github.com/honua-io/honua-server",
+                         "image": "ghcr.io/honua-io/honua-server:nightly-aaaaaaa",
+                         "releaseVersion": artifact_version(release)},
+        "honua-console": {**image, "repository": "https://github.com/honua-io/honua-console",
+                          "image": "ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1"},
+        "honua-helm": {"repository": "https://github.com/honua-io/honua-helm", "sha": REVISION,
+                       "lifecycleStatus": "Preview", "artifact": "oci-chart:honua", "digest": DIGEST,
+                       "artifactSourceRevision": REVISION, "architectures": ["amd64", "arm64"],
+                       "artifactSha256": AMD64, "version": "pre-release",
+                       "artifactVersion": artifact_version(release)},
+    }
+    rows["honua-server"].update(server)
+    for row in rows.values():
+        for key in [key for key, value in row.items() if value is None]:
+            del row[key]
+    return {"platformRelease": release, "components": rows}
+
+
+def _version_items(draft, name):
+    return [item for item in draft.unresolved
+            if f"$.components.{name}.artifacts[0].version" in item or f"$.components.{name}.releaseVersion" in item]
+
+
+@pytest.mark.parametrize("release,version", [("2026.1-rc.3", "2026.1.0-rc.3"), ("2026.1.0", "2026.1.0")])
+def test_generator_accepts_the_platform_version_beside_bound_bytes(tmp_path, release, version):
+    draft = draft_of(tmp_path, _imaged_manifest(release))
+    for name in ("honua-server", "honua-console", "honua-helm"):
+        assert draft.lock["components"][name]["artifacts"][0]["version"] == version
+        assert _version_items(draft, name) == []
+    # The first-release floor names the server image that ships.
+    assert draft.lock["components"]["honua-server"]["releaseVersion"] == version
+
+
+@pytest.mark.parametrize("name,field,missing", [
+    ("honua-server", "digest", "digest"),
+    ("honua-server", "artifactSourceRevision", "sourceRevision"),
+    ("honua-server", "platformDigests", "platformDigests"),
+    ("honua-console", "digest", "digest"),
+    ("honua-console", "platformDigests", "platformDigests"),
+    ("honua-helm", "artifactSha256", "sha256"),
+    ("honua-helm", "artifactSourceRevision", "sourceRevision"),
+])
+def test_generator_refuses_a_platform_version_stamped_without_bound_bytes(tmp_path, name, field, missing):
+    manifest = _imaged_manifest()
+    del manifest["components"][name][field]
+    draft = draft_of(tmp_path, manifest)
+    assert "version" not in draft.lock["components"][name]["artifacts"][0]
+    assert any(f"$.components.{name}.artifacts[0].version: platform version 2026.1.0-rc.3 is accepted "
+               f"only when {missing} is bound" in item for item in draft.unresolved), draft.unresolved
+
+
+@pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1-rc.3", "1.0.0", "0.4.0"])
+@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+def test_generator_refuses_an_imaged_version_other_than_the_platform_version(tmp_path, name, version):
+    manifest = _imaged_manifest()
+    manifest["components"][name]["artifactVersion"] = version
+    draft = draft_of(tmp_path, manifest)
+    assert "version" not in draft.lock["components"][name]["artifacts"][0]
+    assert any(f"[MECHANICAL] $.components.{name}.artifacts[0].version: {version!r} is not the lock's "
+               "platform version '2026.1.0-rc.3'" in item for item in draft.unresolved), draft.unresolved
+
+
+@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+def test_generator_still_refuses_pre_release(tmp_path, name):
+    manifest = _imaged_manifest()
+    del manifest["components"][name]["artifactVersion"]
+    draft = draft_of(tmp_path, manifest)
+    assert "version" not in draft.lock["components"][name]["artifacts"][0]
+    assert any(f"$.components.{name}.artifacts[0].version: source snapshot/pre-release" in item
+               for item in draft.unresolved)
+
+
+def test_generator_refuses_an_imaged_version_when_the_release_names_no_platform_version(tmp_path):
+    manifest = _imaged_manifest()
+    manifest["platformRelease"] = "snapshot"
+    draft = draft_of(tmp_path, manifest)
+    assert all("version" not in draft.lock["components"][name]["artifacts"][0]
+               for name in ("honua-server", "honua-console", "honua-helm"))
+    assert any("is not the lock's platform version None" in item for item in draft.unresolved)
+
+
+@pytest.mark.parametrize("release_version", ["2026.1.0-rc.2", "2026.1.0"])
+def test_generator_refuses_a_release_version_no_locked_server_image_carries(tmp_path, release_version):
+    draft = draft_of(tmp_path, _imaged_manifest(releaseVersion=release_version))
+    assert "releaseVersion" not in draft.lock["components"]["honua-server"]
+    assert any(f"[MECHANICAL] $.components.honua-server.releaseVersion: {release_version!r} is not the "
+               "version of a locked honua-server artifact" in item for item in draft.unresolved)
+
+
+def test_generator_drops_the_release_version_of_an_unversioned_server_image(tmp_path):
+    manifest = _imaged_manifest()
+    del manifest["components"]["honua-server"]["platformDigests"]
+    draft = draft_of(tmp_path, manifest)
+    assert "releaseVersion" not in draft.lock["components"]["honua-server"]
+    assert any("honua-server.releaseVersion" in item for item in draft.unresolved)
+
+
+def test_generator_keeps_sdk_semver_independent_of_the_platform_version(tmp_path):
+    manifest = _imaged_manifest()
+    manifest["components"]["honua-sdk-dotnet"] = {
+        "repository": "https://github.com/honua-io/honua-sdk-dotnet", "sha": REVISION, "lifecycleStatus": "GA",
+        "artifact": "nuget:Honua.Sdk", "version": "1.6.2", "artifactVersion": "1.6.2",
+        "artifactSourceRevision": REVISION, "artifactSha256": DIGEST}
+    draft = draft_of(tmp_path, manifest)
+    assert draft.lock["components"]["honua-sdk-dotnet"]["artifacts"][0]["version"] == "1.6.2"
+    assert _version_items(draft, "honua-sdk-dotnet") == []
