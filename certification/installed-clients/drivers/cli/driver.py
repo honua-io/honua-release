@@ -36,6 +36,9 @@ PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
 BASE = PLAN["baseUrl"]
 SCENARIO = "cli-workflow"
 COMMAND_TIMEOUT = 180
+# An approved proposal executes asynchronously; it is read until one of these statuses or the deadline.
+TERMINAL_PROPOSAL_STATES = {"Succeeded", "Failed", "Rejected", "RolledBack", "Cancelled"}
+PROPOSAL_POLL_SECONDS = 120
 HTTP_STATUS = re.compile(r"\bHTTP (\d{3})\b")
 
 API = {
@@ -47,10 +50,10 @@ API = {
         "list": "honua admin publish getPublishedLayers",
         "query": "honua query --where --format geojson",
         "served": "honua query --count",
-        "propose-publication": "honua-mcp-proxy tools/call honua_publish_service (proposer)",
+        "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
         "self-approval-refused": "honua admin operate approveOperationProposal --profile proposer --yes",
         "approve": "honua admin operate approveOperationProposal --profile approver --yes",
-        "proposal-resolved": "honua admin operate getOperationProposal --profile approver",
+        "proposal-resolved": "honua admin operate getOperationProposal --profile approver (until terminal)",
         "approved-served": "honua query --format geojson",
         "unpublish": "honua admin publish setLayerEnabled --yes",
         "unpublished-refused": "honua query --format geojson",
@@ -150,6 +153,16 @@ def step(client: str, name: str, action: Callable[[], dict[str, Any]], state: di
         emit(client, name, error=error_of(exc))
 
 
+def until_terminal(read: Callable[[], dict[str, Any]], timeout: float = PROPOSAL_POLL_SECONDS) -> dict[str, Any]:
+    """Read the proposal until its status is terminal or the deadline passes; returns the last record."""
+    deadline = time.monotonic() + timeout
+    while True:
+        record = read()
+        if record.get("status") in TERMINAL_PROPOSAL_STATES or time.monotonic() >= deadline:
+            return record
+        time.sleep(1)
+
+
 def geojson_rows(document: dict[str, Any]) -> dict[str, Any]:
     features = []
     for feature in document["features"]:
@@ -223,9 +236,16 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         arguments = {"connectionId": state["connection"], "schema": proposal["schema"], "table": proposal["table"],
                      "layerName": proposal["layerName"], "serviceName": proposal["service"], "geometryColumn": "geom",
                      "geometryType": proposal["geometryType"], "srid": 4326, "primaryKey": "gid"}
-        # Scrubbed proxy environment: the proposer's key is the only credential it can read.
+        # Scrubbed proxy environment: the proposer's key is the only credential it can read. As in the
+        # terminal journey, the agent discovers the publish tool in the setup view before calling it; the
+        # default view does not list it. (The pinned proxy drops the initialize selector, sdk-js#1875, so
+        # the view is also named on tools/list.)
         with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer}) as session:
-            session.initialize()
+            session.initialize(workflow_view="setup")
+            listed = session.request("tools/list", {"view": "setup"})
+            names = {tool.get("name") for tool in (listed.get("result") or {}).get("tools") or []}
+            if "error" in listed or "honua_publish_service" not in names:
+                raise probes.McpError("honua_publish_service is not in the proposer's setup view")
             response = session.request("tools/call", {"name": "honua_publish_service", "arguments": arguments})
         if "error" in response:
             raise probes.McpError(f"tools/call refused: {response['error'].get('code')}")
@@ -267,7 +287,9 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
     step("npm", "approve", approve, state, ("proposal",))
 
     def resolved() -> dict[str, Any]:
-        record = read_proposal(approver, "approver")
+        record = until_terminal(lambda: read_proposal(approver, "approver"))
+        if record.get("status") == "Succeeded":
+            state["resolved"] = True
         return {key: record.get(key) for key in ("status", "kind", "requestedBy", "resolvedBy")}
     step("npm", "proposal-resolved", resolved, state, ("approved",))
 
@@ -276,7 +298,7 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         if len(layers) != 1:
             raise RuntimeError(f"the approved service lists {len(layers)} layers")
         return geojson_rows(cli.json(["query", f"{proposal['service']}/{layers[0]['id']}", "--format", "geojson"], data))
-    step("npm", "approved-served", approved_served, state, ("approved",))
+    step("npm", "approved-served", approved_served, state, ("resolved",))
 
     def unpublish() -> dict[str, Any]:
         summary = cli.json(["admin", "publish", "setLayerEnabled", "--path", f"id={state['connection']}",

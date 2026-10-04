@@ -42,7 +42,7 @@
     {
       "id": "propose-publication",
       "oracle": "proposal-pending",
-      "description": "As the proposer principal, propose publishing the client's proposal table; the server records a proposal awaiting approval instead of publishing."
+      "description": "As the proposer principal, find honua_publish_service in the setup view and call it to publish the client's proposal table; the server records a proposal awaiting approval instead of publishing."
     },
     {
       "id": "self-approval-refused",
@@ -57,7 +57,7 @@
     {
       "id": "proposal-resolved",
       "oracle": "proposal-resolved",
-      "description": "Read the proposal: it succeeded, was requested by the proposer and resolved by the approver."
+      "description": "Read the proposal until its status is terminal (bounded deadline): it succeeded, was requested by the proposer and resolved by the approver."
     },
     {
       "id": "approved-served",
@@ -94,10 +94,10 @@
       "list": "honua admin publish getPublishedLayers",
       "query": "honua query --where --format geojson",
       "served": "honua query --count",
-      "propose-publication": "honua-mcp-proxy tools/call honua_publish_service (proposer)",
+      "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
       "self-approval-refused": "honua admin operate approveOperationProposal --profile proposer --yes",
       "approve": "honua admin operate approveOperationProposal --profile approver --yes",
-      "proposal-resolved": "honua admin operate getOperationProposal --profile approver",
+      "proposal-resolved": "honua admin operate getOperationProposal --profile approver (until terminal)",
       "approved-served": "honua query --format geojson",
       "unpublish": "honua admin publish setLayerEnabled --yes",
       "unpublished-refused": "honua query --format geojson"

@@ -139,6 +139,17 @@ def point_wkb(x: float, y: float) -> str:
     return base64.b64encode(struct.pack("<BIdd", 1, 1, x, y)).decode()
 
 
+def buffer_plan(processes: dict[str, Any]) -> dict[str, Any]:
+    """One geometry.buffer step. The candidate's AnalysisPlan takes step kinds QueryFeatures, Geoprocess,
+    Aggregate, RenderMap or Export and `outputs` as artifact kinds; it refuses `kind: Process` with
+    invalid_argument."""
+    x, y = processes["point"]
+    return {"planId": "sdkreg-mcp-buffer", "intentId": "sdkreg-mcp-buffer", "outputs": ["FeatureLayer"],
+            "steps": [{"stepId": "buffer", "kind": "Geoprocess", "processId": processes["processId"], "inputs": {
+                "wkb": point_wkb(x, y), "srid": str(processes["srid"]), "distance": str(processes["distance"]),
+                "geodesic": "false"}}]}
+
+
 def run(proxy: str) -> None:
     key = os.environ["SDKREG_API_KEY"]
     sites, area, processes, render_spec = PLAN["sites"], PLAN["area"], PLAN["processes"], PLAN["mcp"]["render"]
@@ -190,12 +201,8 @@ def run(proxy: str) -> None:
         step("render", render, state)
 
         def submit() -> dict[str, Any]:
-            x, y = processes["point"]
-            plan = {"planId": "sdkreg-mcp-buffer", "intentId": "sdkreg-mcp-buffer", "outputs": ["FeatureLayer"],
-                    "steps": [{"stepId": "buffer", "kind": "Geoprocess", "processId": processes["processId"], "inputs": {
-                        "wkb": point_wkb(x, y), "srid": str(processes["srid"]), "distance": str(processes["distance"]),
-                        "geodesic": "false"}}]}
-            content = tool(operator, "honua_execute_plan", {"plan": plan, "idempotencyKey": f"sdkreg-mcp-buffer-{time.time_ns()}"})
+            content = tool(operator, "honua_execute_plan", {"plan": buffer_plan(processes),
+                                                            "idempotencyKey": f"sdkreg-mcp-buffer-{time.time_ns()}"})
             if content.get("jobId"):
                 state["job"] = content["jobId"]
             return {"jobId": content.get("jobId"), "status": content.get("status")}

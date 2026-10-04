@@ -547,19 +547,21 @@ def oracle_mcp_permission_denied(observation: dict[str, Any]) -> tuple[bool, str
     return kind == "permission_denied", f"anonymous full-view request refused with {kind!r} (expected 'permission_denied')"
 
 
-def oracle_mcp_full_catalog(observed: dict[str, Any], fixture: dict[str, Any], default_names: list[str] | None) -> tuple[bool, str]:
+def oracle_mcp_full_catalog(observed: dict[str, Any], roster: list[str], default_names: list[str] | None) -> tuple[bool, str]:
+    """The drained full view is exactly the pinned roster (names), with no duplicates, and restores the default view."""
     names = observed.get("names") if isinstance(observed.get("names"), list) else []
-    setup = fixture["mcp"]["views"]["setup"]["toolCount"]
-    missing = sorted(set(default_names or []) - set(names))
+    missing, extra = sorted(set(roster) - set(names)), sorted(set(names) - set(roster))
     checks = {
         "unique": len(names) == len(set(names)),
-        f"more than the {setup} setup tools": len(names) > setup,
-        "includes the default view": bool(default_names) and not missing,
+        f"exactly the {len(roster)}-tool pinned roster": bool(roster) and not missing and not extra,
+        "includes the default view": bool(default_names) and not set(default_names) - set(names),
         "selector-free list restores the default view": observed.get("restoredView") == "default",
     }
     failed = [name for name, ok in checks.items() if not ok]
+    drift = "".join(f"; {label} {values}" for label, values in (("missing", missing), ("not pinned", extra)) if values)
     return not failed, (f"full catalog drained over {observed.get('pages')} pages: {len(names)} tools"
-                        + (f"; failed: {', '.join(failed)}" if failed else "; includes the default view, unique, view restored"))
+                        + (f"; failed: {', '.join(failed)}{drift}" if failed
+                           else f"; equals the {len(roster)}-tool pinned roster, includes the default view, view restored"))
 
 
 def render_expectations(fixture: dict[str, Any]) -> list[tuple[int, int, bool]]:

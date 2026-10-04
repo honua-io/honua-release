@@ -37,6 +37,8 @@ import oracles
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixture.v1.json"
+# The pinned MCP discovery surface of the candidate image (regenerated on every server re-pin).
+TOOL_ROSTER = HERE.parents[1] / "e2e" / "drivers" / "mcp" / "expected-tools.json"
 SCENARIOS = HERE / "scenarios"
 # Driver -> the slug that names its per-client fixture tables and services.
 SUITE_DRIVERS = {"pypi-sdk": "python", "npm-sdk": "js", "nuget-sdk": "dotnet",
@@ -77,6 +79,11 @@ class RegressionError(RuntimeError):
 
 def load_fixture(path: Path = FIXTURE) -> dict[str, Any]:
     return json.loads(path.read_text())
+
+
+def load_tool_roster(path: Path = TOOL_ROSTER) -> list[str]:
+    """The tool names of the pinned full catalog."""
+    return list(json.loads(path.read_text())["fullCatalog"]["tools"])
 
 
 def load_scenarios(directory: Path = SCENARIOS) -> dict[str, dict[str, Any]]:
@@ -431,7 +438,7 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "mcp-setup-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "setup"),
     "mcp-default-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "default"),
     "mcp-permission-denied": lambda o, f, p, obs, s: oracles.oracle_mcp_permission_denied(o),
-    "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, f, _observed_names(obs, s, "default-tools-list")),
+    "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, load_tool_roster(), _observed_names(obs, s, "default-tools-list")),
     "map-render": lambda o, f, p, obs, s: oracles.oracle_map_render(o, f),
     "mcp-job-accepted": lambda o, f, p, obs, s: oracles.oracle_mcp_job_accepted(o),
     "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_job_succeeded(o),

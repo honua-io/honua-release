@@ -40,6 +40,16 @@ DRIVER_SOURCES = {
     ("mcp", "honua-mcp-server"): MCP_DRIVER,
 }
 SUITE_CELLS = [cell for cell in MATRIX["cells"] if cell["driver"] in run.SUITE_DRIVERS]
+PINNED_DEFAULT_VIEW = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]["tools"]
+
+
+def load_driver(name, plan_path):
+    """Import a driver program as a module; drivers read SDKREG_PLAN at import."""
+    with mock.patch.dict(os.environ, {"SDKREG_PLAN": str(plan_path)}):
+        spec_ = importlib.util.spec_from_file_location(f"{name}_driver_under_test", HERE / "drivers" / name / "driver.py")
+        module = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(module)
+    return module
 
 
 def png(width, height, painted):
@@ -477,7 +487,7 @@ def setup_view(view, names, revision):
 
 
 def passing_mcp_observations(setup=None):
-    default_names = [f"default_{i}" for i in range(FIXTURE["mcp"]["views"]["default"]["toolCount"])]
+    default_names = PINNED_DEFAULT_VIEW
     setup_names = [f"setup_{i}" for i in range(FIXTURE["mcp"]["views"]["setup"]["toolCount"])]
     spec = FIXTURE["mcp"]["render"]
     painted = {(x, y) for x, y, inside in oracles.render_expectations(FIXTURE) if inside}
@@ -491,7 +501,7 @@ def passing_mcp_observations(setup=None):
         "setup-tools-list": {"observed": setup or setup_view("setup", setup_names, "setup.v2")},
         "default-tools-list": {"observed": setup_view("default", default_names, "default.v1")},
         "full-catalog-refused": {"error": {"type": "permission_denied", "status": None}},
-        "full-catalog": {"observed": {"names": setup_names + default_names, "pages": 4, "restoredView": "default"}},
+        "full-catalog": {"observed": {"names": regression.load_tool_roster(), "pages": 5, "restoredView": "default"}},
         "read": {"observed": {"features": [{"attributes": {k: r[k] for k in ("gid", "name", "rank")}, "x": r["x"], "y": r["y"]}
                                            for r in oracles.filtered_sites(FIXTURE)]}},
         "render": {"observed": {"png": image, "mimeType": "image/png"}},
@@ -566,17 +576,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(status, "fail")
         self.assertIn("was not observed", detail)
 
-    def test_mcp_full_catalog_must_be_authenticated_complete_and_restore_the_view(self):
-        default = [f"default_{i}" for i in range(12)]
-        full = lambda names, restored="default": {"names": names, "pages": 3, "restoredView": restored}  # noqa: E731
-        catalog = default + [f"extra_{i}" for i in range(20)]
-        self.assertTrue(oracles.oracle_mcp_full_catalog(full(catalog), FIXTURE, default)[0])
-        self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog + catalog[:1]), FIXTURE, default)[0])
-        self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog[1:]), FIXTURE, default)[0])
-        self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog[:20]), FIXTURE, default)[0])
-        self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog, "full"), FIXTURE, default)[0])
-        self.assertFalse(oracles.oracle_mcp_full_catalog(full(catalog), FIXTURE, None)[0])
-        self.assertFalse(oracles.oracle_mcp_permission_denied({"observed": {"names": catalog}})[0])
+    def test_mcp_full_catalog_must_equal_the_pinned_roster_and_restore_the_view(self):
+        roster, default = regression.load_tool_roster(), PINNED_DEFAULT_VIEW
+        self.assertEqual(len(roster), len(set(roster)))
+        self.assertGreater(len(roster), FIXTURE["mcp"]["views"]["setup"]["toolCount"])
+        full = lambda names, restored="default": {"names": names, "pages": 5, "restoredView": restored}  # noqa: E731
+        self.assertTrue(oracles.oracle_mcp_full_catalog(full(roster), roster, default)[0])
+        self.assertTrue(oracles.oracle_mcp_full_catalog(full(list(reversed(roster))), roster, default)[0])
+        cases = {
+            "duplicate": (full(roster + roster[:1]), "unique"),
+            "one tool missing": (full(roster[1:]), f"missing ['{sorted(roster)[0]}']"),
+            "one tool renamed": (full(roster[:-1] + ["honua_unpinned"]), "not pinned ['honua_unpinned']"),
+            # The former >setup-count check passed this truncated export.
+            "truncated": (full(default + [name for name in roster if name not in default][:14]), "pinned roster"),
+            "view not restored": (full(roster, "full"), "restores the default view"),
+        }
+        for case, (observed, message) in cases.items():
+            with self.subTest(case=case):
+                ok, detail = oracles.oracle_mcp_full_catalog(observed, roster, default)
+                self.assertFalse(ok, detail)
+                self.assertIn(message, detail)
+        self.assertFalse(oracles.oracle_mcp_full_catalog(full(roster), roster, None)[0])
+        self.assertFalse(oracles.oracle_mcp_full_catalog(full([]), [], default)[0])
+        self.assertFalse(oracles.oracle_mcp_permission_denied({"observed": {"names": roster}})[0])
         self.assertFalse(oracles.oracle_mcp_permission_denied({"error": {"type": "InvalidRequest"}})[0])
 
     def test_mcp_driver_anonymous_session_inherits_no_credential(self):
@@ -592,9 +614,7 @@ class WorkflowTests(unittest.TestCase):
                                               api_key="root", bearer="bearer", db_password="db", plan_path=plan,
                                               principals=PRINCIPALS)
             with mock.patch.dict(os.environ, inherited, clear=True):
-                spec_ = importlib.util.spec_from_file_location("mcp_driver_under_test", HERE / "drivers/mcp/driver.py")
-                driver = importlib.util.module_from_spec(spec_)
-                spec_.loader.exec_module(driver)
+                driver = load_driver("mcp", plan)
                 for key, expected in (("", {}), ("root", {"HONUA_API_KEY": "root"})):
                     with self.subTest(key=key), driver.session(str(proxy), key) as session:
                         seen = session.request("tools/list")["result"]["env"]
@@ -602,6 +622,35 @@ class WorkflowTests(unittest.TestCase):
                                        if name.startswith(("SDKREG_", "E2E_", "HONUA_")) and name != "HONUA_MCP_REMOTE_URL"}
                         self.assertEqual(credentials, expected)
                         self.assertFalse({"admin", "operator", "bearer", "db", "secret-proposer", "secret-approver"} & set(seen.values()))
+
+    def test_mcp_buffer_plan_uses_the_candidates_step_and_artifact_kinds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path = Path(tmp) / "plan.json"
+            plan_path.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            plan = load_driver("mcp", plan_path).buffer_plan(FIXTURE["processes"])
+        self.assertEqual([(step["stepId"], step["kind"], step["processId"]) for step in plan["steps"]],
+                         [("buffer", "Geoprocess", "geometry.buffer")])
+        # AnalysisPlan.Outputs are artifact kinds; the buffer-result step reads the FeatureLayer artifact.
+        self.assertEqual(plan["outputs"], ["FeatureLayer"])
+        self.assertEqual(set(plan["steps"][0]["inputs"]), {"wkb", "srid", "distance", "geodesic"})
+
+    def test_cli_proposal_is_read_until_terminal_within_a_deadline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path = Path(tmp) / "plan.json"
+            plan_path.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("cli", plan_path)
+        with mock.patch.object(driver.time, "sleep"):
+            reads = iter([{"status": "Executing"}, {"status": "Submitted"}, {"status": "Reconciling"}, {"status": "Succeeded"}])
+            self.assertEqual(driver.until_terminal(lambda: next(reads)), {"status": "Succeeded"})
+            for terminal in ("Failed", "Rejected", "RolledBack", "Cancelled"):
+                self.assertEqual(driver.until_terminal(lambda: {"status": terminal})["status"], terminal)
+            # Past the deadline the last, non-terminal record is returned and the oracle fails it.
+            clock = iter([0.0, 0.5, 1.0, 2.0])
+            with mock.patch.object(driver.time, "monotonic", lambda: next(clock)):
+                last = driver.until_terminal(lambda: {"status": "Submitted"}, timeout=1.0)
+        self.assertEqual(last, {"status": "Submitted"})
+        self.assertFalse(oracles.oracle_proposal_resolved({**last, "kind": "ServicePublish", "requestedBy": "key-proposer",
+                                                           "resolvedBy": "key-approver"}, cli_plan()["principals"])[0])
 
     def test_render_oracle_checks_painted_and_transparent_pixels(self):
         spec = FIXTURE["mcp"]["render"]

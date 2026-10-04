@@ -27,7 +27,7 @@
     {
       "id": "full-catalog",
       "oracle": "mcp-full-catalog",
-      "description": "An authenticated tools/list for the full view, drained page by page, returns unique tools that include the default view and outnumber the setup view; a later selector-free tools/list returns the initialized view again."
+      "description": "An authenticated tools/list for the full view, drained page by page, returns exactly the pinned tool roster (e2e/drivers/mcp/expected-tools.json, names, no duplicates) including the default view; a later selector-free tools/list returns the initialized view again."
     },
     {
       "id": "read",
