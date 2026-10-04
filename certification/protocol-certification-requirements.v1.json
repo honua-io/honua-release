@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-09-29-complete.15",
+  "revision": "2026-10-03-complete.16",
   "receipt_schema_min": "v2",
   "complete": true,
   "scope_notes": "Complete supported denominator generated from pinned server capability/CITE/interop assignments, Esri operation matrices, SDK entrypoints, cloud-native canonical clients, generated gRPC clients, governed external-client assignments for every supported OGC/STAC/SensorThings surface, official MCP SDK/Inspector operations, explicit three-SDK parity cells for every supported protocol and every Honua-specific application capability, executable operation contracts for all three Honua SDKs, explicit fail-closed SDK operation-contract blockers where those contracts do not yet exist, pinned external harnesses for identity, operations, raster, BIM, and point-cloud capabilities, exact operation-to-test contracts for the server protocol integration harness, and one governed test ID per bounded 2026.1 external-client cell. The gRPC scope ruling (grpc-2026.1-implemented-rpcs, geospatial-grpc#88, honua-release#376) keeps 14 RPCs the default honua-server image implements, for 42 generated-client cells. It excludes 66 RPCs (198 cells) as Preview or Experimental, each listed with its rationale and owner issue in sources/geospatial-grpc/operations.v1.json. 5 bounded cells on Preview surfaces are excluded by the preview-surfaces roster ruling and 2 cells no released client can exercise remain non-addressable rows (release#351, release#359). The .NET contract contributes 285 addressable operations; 18 explicitly non-addressable public abstractions remain documented in its pinned source contract and excluded from client certification. Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported.",
@@ -41,6 +41,280 @@
       "repository": "honua-io/geospatial-mcp",
       "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
     }
+  },
+  "production": {
+    "revision": "2026-10-03.1",
+    "cells": {
+      "produced": 1503,
+      "unproduced": 412,
+      "not_addressable": 5
+    },
+    "producers": [
+      {
+        "producer": "honua-server-cng",
+        "repository": "honua-io/honua-server",
+        "workflow": "cng-conformance.yml",
+        "source_revision_key": "server",
+        "inputs": {
+          "server_image": "{server_image}",
+          "source_sha": "{server_sha}",
+          "candidate_cut_at": "{cut_at}"
+        },
+        "client_lanes": [
+          "gdal-cog",
+          "rio-cogeo",
+          "rasterio-cog",
+          "gdal-flatgeobuf",
+          "geopandas-flatgeobuf",
+          "pyogrio-flatgeobuf",
+          "node-flatgeobuf",
+          "gdal-geoparquet",
+          "pyarrow-geoparquet",
+          "geopandas-geoparquet",
+          "h5py",
+          "h5dump",
+          "h5stat",
+          "h5repack",
+          "xarray-netcdf",
+          "python-pmtiles",
+          "node-pmtiles",
+          "tippecanoe-pmtiles",
+          "zarr-python",
+          "dask-zarr",
+          "xarray-zarr",
+          "fsspec-zarr"
+        ],
+        "cells": 22
+      },
+      {
+        "producer": "honua-server-cite",
+        "repository": "honua-io/honua-server",
+        "workflow": "cite-certification.yml",
+        "source_revision_key": "server-certification",
+        "inputs": {
+          "server_image": "{server_image}",
+          "source_sha": "{server_sha}",
+          "candidate_cut": "{cut_at}"
+        },
+        "client_lanes": [
+          "cite-ogc-api-features-1-0",
+          "cite-ogc-api-tiles-1-0",
+          "cite-wcs-2-0",
+          "cite-wfs-1-0",
+          "cite-wfs-1-1",
+          "cite-wfs-2-0",
+          "cite-wms-1-3",
+          "cite-wmts-1-0"
+        ],
+        "cells": 8
+      },
+      {
+        "producer": "server-protocol-harness",
+        "repository": "honua-io/honua-server",
+        "workflow": "protocol-harness-certification.yml",
+        "source_revision_key": "server-certification",
+        "inputs": {
+          "candidate_source_sha": "{server_sha}",
+          "candidate_image": "{server_image}",
+          "candidate_cut_at": "{cut_at}"
+        },
+        "client_lanes": [
+          "server-protocol-harness"
+        ],
+        "cells": 32
+      },
+      {
+        "producer": "geospatial-grpc",
+        "repository": "honua-io/geospatial-grpc",
+        "workflow": "protocol-certification.yml",
+        "source_revision_key": "geospatial-grpc",
+        "inputs": {
+          "tier": "release",
+          "server_image": "{server_image}",
+          "server_source_sha": "{server_sha}",
+          "release_cut": "{cut_at}"
+        },
+        "client_lanes": [
+          "grpc-dotnet",
+          "grpc-python",
+          "grpc-typescript"
+        ],
+        "cells": 42
+      },
+      {
+        "producer": "geospatial-mcp",
+        "repository": "honua-io/geospatial-mcp",
+        "workflow": "protocol-certification.yml",
+        "source_revision_key": "geospatial-mcp",
+        "inputs": {
+          "tier": "release",
+          "server_image": "{server_image}",
+          "server_source_sha": "{server_sha}",
+          "server_seed_ref": "{server_sha}",
+          "release_cut": "{cut_at}"
+        },
+        "client_lanes": [
+          "mcp-inspector",
+          "mcp-typescript-sdk"
+        ],
+        "cells": 84
+      },
+      {
+        "producer": "honua-sdk-python",
+        "repository": "honua-io/honua-sdk-python",
+        "workflow": "conformance.yml",
+        "source_revision_key": "sdk-python",
+        "inputs": {
+          "server_image": "{server_image}",
+          "server_seed_ref": "{server_sha}",
+          "candidate_cut_at": "{cut_at}",
+          "certification_tier": "release"
+        },
+        "client_lanes": [
+          "sdk-python-certification"
+        ],
+        "cells": 10
+      },
+      {
+        "producer": "honua-sdk-dotnet",
+        "repository": "honua-io/honua-sdk-dotnet",
+        "workflow": "sdk-certification.yml",
+        "source_revision_key": "sdk-dotnet",
+        "inputs": {
+          "tier": "release",
+          "server_image": "{server_image}",
+          "server_source_sha": "{server_sha}",
+          "server_seed_ref": "{server_sha}",
+          "release_cut": "{cut_at}"
+        },
+        "client_lanes": [
+          "sdk-dotnet-certification"
+        ],
+        "cells": 285
+      },
+      {
+        "producer": "honua-esri-compat",
+        "repository": "honua-io/honua-esri-compat",
+        "workflow": "esri-sdk-certification.yml",
+        "source_revision_key": "esri-compat",
+        "inputs": {
+          "tier": "release",
+          "honua_image": "{server_image}",
+          "honua_server_ref": "{server_sha}",
+          "candidate_cut_at": "{cut_at}"
+        },
+        "client_lanes": [
+          "raw-geoservices-*",
+          "arcgis-python-*",
+          "esri-dotnet-*"
+        ],
+        "deployment_targets": [
+          "windows-licensed"
+        ],
+        "cells": 1020
+      }
+    ],
+    "unproduced": [
+      {
+        "client_lanes": [
+          "sdk-js-certification"
+        ],
+        "owner": "honua-io/honua-sdk-js",
+        "issue": "https://github.com/honua-io/honua-sdk-js/issues/39",
+        "missing_producer": "integration.yml runs self-contained only on the repository-variable server image; it needs workflow_dispatch inputs that set the self-contained candidate image, server commit and cut (candidate_image, candidate_source_sha, candidate_cut_at) so the nightly can bind it to the resolved candidate.",
+        "cells": 67
+      },
+      {
+        "client_lanes": [
+          "sdk-js"
+        ],
+        "owner": "honua-io/honua-sdk-js",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-js:<capability>); protocol-certification-fragment.mjs emits only sdk-js-certification observations.",
+        "cells": 94
+      },
+      {
+        "client_lanes": [
+          "sdk-python",
+          "sdk-python-ogc"
+        ],
+        "owner": "honua-io/honua-sdk-python",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-python:<capability>) or the OGC matrix source-preview cell; conformance.yml emits only sdk-python-certification observations.",
+        "cells": 74
+      },
+      {
+        "client_lanes": [
+          "sdk-dotnet"
+        ],
+        "owner": "honua-io/honua-sdk-dotnet",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-dotnet:<capability>); sdk-certification.yml emits only sdk-dotnet-certification observations.",
+        "cells": 64
+      },
+      {
+        "client_lanes": [
+          "desktop-qgis",
+          "gdal",
+          "js-maplibre",
+          "js-cesium",
+          "py-owslib",
+          "py-pystac",
+          "js",
+          "cli",
+          "arcgis-stub",
+          "desktop-arcgis",
+          "bi-excel",
+          "bi-powerbi",
+          "ci-bi"
+        ],
+        "owner": "honua-io/honua-server",
+        "issue": "https://github.com/honua-io/honua-server/issues/3481",
+        "missing_producer": "client-interop-nightly.yml builds its own server image and accepts only a lanes input; it needs candidate_image, candidate_source_sha and candidate_cut_at inputs so its .cert.json receipts name the resolved candidate image digest.",
+        "cells": 74
+      },
+      {
+        "client_lanes": [
+          "cite-ogc",
+          "cite-ogc-api-coverages",
+          "cite-ogc-api-edr",
+          "cite-ogc-api-features",
+          "cite-ogc-api-maps",
+          "cite-ogc-api-processes",
+          "cite-ogc-api-records",
+          "cite-ogc-api-styles",
+          "cite-ogc-api-tiles",
+          "cite-sensorthings",
+          "cite-wcs",
+          "cite-wfs",
+          "cite-wms",
+          "cite-wmts"
+        ],
+        "owner": "honua-io/honua-server",
+        "issue": "https://github.com/honua-io/honua-server/issues/4425",
+        "missing_producer": "cite-certification.yml maps only versioned surfaces onto a CITE suite; these lanes are cite_lane_status absent in certification/cite-protocol-requirements.v1.json and always emit skips.",
+        "cells": 28
+      },
+      {
+        "client_lanes": [
+          "openid-conformance-*",
+          "saml-conformance-*",
+          "scim2-test-suite-*",
+          "curl-*",
+          "otel-collector-*",
+          "prometheus-*",
+          "rasterio-raster-*",
+          "xarray-raster-*",
+          "ifcopenshell-*",
+          "pdal-scene-*",
+          "frost-client-*"
+        ],
+        "owner": "honua-io/honua-server",
+        "issue": "https://github.com/honua-io/honua-server/issues/3387",
+        "missing_producer": "No workflow runs the pinned external harnesses (canonical-client-applicability canonical-external-required clients) against a candidate image.",
+        "cells": 11
+      }
+    ]
   },
   "requirements": [
     {
