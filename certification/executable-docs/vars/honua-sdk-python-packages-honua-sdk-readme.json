@@ -2,9 +2,9 @@
   "document": "honua-sdk-python-packages-honua-sdk-readme",
   "env": {},
   "substitute": {
-    "https://your-honua-server.com": {
+    "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "packages/honua-sdk/README.md:54 — the `your-honua-server.com` placeholder for the reader's server"
+      "documentedAt": "packages/honua-sdk/README.md:51-54 — the examples read the public demo `https://demo.honua.io` `maui-zoning` layer 2; \"To use your own server, change the base URL\""
     }
   }
 }

@@ -4,7 +4,15 @@
   "substitute": {
     "https://your-honua-server.com": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "INSTALL.md:68-121 — the `your-honua-server.com` placeholder for the reader's server in the verification snippets"
+      "documentedAt": "INSTALL.md:142 — the `your-honua-server.com` placeholder for the reader's server in the admin snippet"
+    },
+    "https://demo.honua.io": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:68-71 — \"Check the install against the public, anonymous demo server at `https://demo.honua.io` ... To query your own server, change the base URL\""
+    },
+    "your-honua-server.com:8081": {
+      "value": "{candidate.grpcAddress}",
+      "documentedAt": "INSTALL.md:98-103 — \"The Honua Server quickstart serves plaintext gRPC (h2c) on port 8081. Replace `your-honua-server.com:8081` with that address\""
     }
   }
 }
