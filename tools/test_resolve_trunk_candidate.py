@@ -409,6 +409,23 @@ def test_a_chart_identity_from_another_sha_cannot_take_tonights_version():
     assert 'releaseVersion' not in components['honua-server']
 
 
+@pytest.mark.parametrize('name', ['honua-helm', 'honua-server', 'honua-console'])
+def test_a_carried_plain_imaged_version_does_not_survive_selection(name):
+    """R22: an imaged row's version is pre-release; a version carried from another night is reset."""
+    row = {'sha': NEW, 'version': '2026.1.0-rc.2', 'artifactVersion': '2026.1.0-rc.2'}
+    if name == 'honua-helm':
+        row.update(artifact='oci-chart:honua', digest='sha256:' + 'c' * 64, artifactSourceRevision=OLD,
+                   artifactSha256='sha256:' + 'd' * 64)
+    else:
+        row.update(image=f'ghcr.io/honua-io/{name}@sha256:' + 'e' * 64, digest='sha256:' + 'e' * 64,
+                   artifactSourceRevision=NEW)
+    components = {name: row, 'honua-sdk-js': {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}
+    resolver.release_carried_platform_identity(components)
+    assert components[name]['version'] == 'pre-release'
+    assert 'artifactVersion' not in components[name]
+    assert components['honua-sdk-js'] == {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
 def test_a_chart_identity_bound_to_the_selected_sha_is_kept_for_the_stamp():
     digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
     components = {'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,

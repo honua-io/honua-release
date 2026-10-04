@@ -19,6 +19,7 @@ from generate_compatibility_table import render
 from generate_bom import _purl
 from generate_platform_lock import generate
 from image_platforms import registry_image_platform_digests
+from platform_version import stamp_errors
 from release_inspect import canonical_digest
 from validate_platform_lock import load_lock, validate
 
@@ -114,6 +115,11 @@ def bind(lock: dict, manifest: Path, matrix: Path, label: str, *,
         raise ValueError("candidate lock must have rc status")
     if lock["platform"]["id"] != f"honua-{label}":
         raise ValueError("platform label differs from atomic candidate identity")
+    # R22: an imaged row's artifactVersion and plain version must both be the label's platform
+    # version. The generator reads only one of them, so a disagreeing plain version is refused here.
+    stamp = stamp_errors(yaml.safe_load(manifest.read_text(encoding="utf-8")) or {})
+    if stamp:
+        raise ValueError("; ".join(stamp))
     # Per-architecture image identities are signed with the lock, so they are checked against
     # the immutable registry index here, independent of any earlier step in the freeze job.
     draft = generate(manifest, matrix, image_inspector=image_inspector)

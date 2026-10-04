@@ -13,6 +13,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import candidate_binding as cb  # noqa: E402
 import finalize_release as fr  # noqa: E402
@@ -179,6 +181,77 @@ def _real():
     import yaml
     return (yaml.safe_load((REPO_ROOT / "platform-manifest.yaml").read_text(encoding="utf-8")),
             yaml.safe_load((REPO_ROOT / "compatibility-matrix.yaml").read_text(encoding="utf-8")))
+
+
+def _promotable(**server):
+    revision, digest = "a" * 40, "sha256:" + "b" * 64
+    image = {"version": "pre-release", "digest": digest, "artifactSourceRevision": revision,
+             "platformDigests": {"amd64": digest, "arm64": digest},
+             "artifactVersion": "2026.1.0-rc.3"}
+    manifest = {"platformRelease": "2026.1-rc.3", "status": "rc", "components": {
+        "honua-server": {**image, "releaseVersion": "2026.1.0-rc.3"},
+        "honua-console": dict(image),
+        "honua-helm": {"version": "pre-release", "artifact": "oci-chart:honua"},
+    }}
+    manifest["components"]["honua-server"].update(server)
+    return manifest
+
+
+@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+def test_finalize_refuses_an_rc_suffixed_plain_version_in_the_ga_manifest(name):
+    """Promotion restamps artifactVersion; a plain rc version left beside it must not ship as GA."""
+    manifest = _promotable()
+    manifest["components"][name]["version"] = "2026.1.0-rc.3"
+    with pytest.raises(ValueError, match=rf"{name}\.version '2026\.1\.0-rc\.3' must be pre-release or "
+                       r"the platform version '2026\.1\.0' of platformRelease '2026\.1' \(R22\)"):
+        fr.finalize_manifest(manifest, "2026.1-rc.3", "2026-07-01T00:00:00Z")
+
+
+def test_driver_refuses_an_incoherent_ga_stamp_before_writing_release_files(tmp_path):
+    import yaml
+    certified = tmp_path / "certified"
+    certified.mkdir()
+    manifest = certified / cb.PLATFORM_MANIFEST
+    matrix = certified / cb.COMPATIBILITY_MATRIX
+    manifest.write_text(yaml.safe_dump(_promotable(version="2026.1.0-rc.3")), encoding="utf-8")
+    matrix.write_text("matrixVersion: 1\n", encoding="utf-8")
+    identity = {
+        "source_repository": "honua-io/honua-release",
+        "source_sha": "a" * 40,
+        "source_branch": "trunk",
+        "workflow_path": ".github/workflows/release-train.yml",
+        "train_run_id": "28720697360",
+        "train_run_attempt": 1,
+        "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "certification_mode": "live",
+    }
+    report = cb.bind_gate_report(
+        {**_report("pass"),
+         "gates": [{"gate": gate, "status": "pass"} for gate in sorted(cb.REQUIRED_RELEASE_GATES)]},
+        manifest, matrix, **identity)
+    report_path = certified / "gate-report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    out_manifest = tmp_path / "finalized-manifest.yaml"
+    out_notes = tmp_path / "release-notes.md"
+    rc = fr.main([
+        "--label", "2026.1",
+        "--gate-report", str(report_path),
+        "--released-at", "2026-07-01T00:00:00Z",
+        "--manifest", str(manifest),
+        "--matrix", str(matrix),
+        "--source-repository", identity["source_repository"],
+        "--source-sha", identity["source_sha"],
+        "--source-branch", identity["source_branch"],
+        "--workflow-path", identity["workflow_path"],
+        "--train-run-id", identity["train_run_id"],
+        "--train-run-attempt", str(identity["train_run_attempt"]),
+        "--train-run-url", identity["train_run_url"],
+        "--certification-mode", identity["certification_mode"],
+        "--out-manifest", str(out_manifest),
+        "--out-notes", str(out_notes),
+    ])
+    assert rc == 1
+    assert not out_manifest.exists() and not out_notes.exists()
 
 
 def test_release_notes_render_the_stamped_artifact_version():

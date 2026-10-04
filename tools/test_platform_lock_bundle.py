@@ -457,6 +457,26 @@ def test_bind_refuses_a_version_the_frozen_inputs_do_not_release(candidate, monk
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
+@pytest.mark.parametrize("field", ["artifactVersion", "version"])
+def test_bind_refuses_an_rc_suffixed_imaged_version_in_a_ga_lock(candidate, field):
+    """A GA freeze names 2026.1.0; an RC stamp on artifactVersion or a plain version is fatal (R22)."""
+    lock, paths, _ = candidate
+    lock["platform"]["id"] = "honua-2026.1"
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformRelease"] = "2026.1"
+    manifest["components"]["honua-helm"] = {
+        "repository": "https://github.com/honua-io/honua-helm", "sha": REVISION, "lifecycleStatus": "Preview",
+        "artifact": "oci-chart:honua", "digest": "sha256:" + "d" * 64, "artifactSourceRevision": REVISION,
+        "architectures": ["amd64", "arm64"], "artifactSha256": "sha256:" + "e" * 64,
+        "contractVersions": {"chart": "v1"}, "schemaVersions": {"values": "1.0.0"},
+        "version": "pre-release", "artifactVersion": "2026.1.0"}
+    manifest["components"]["honua-helm"][field] = "2026.1.0-rc.3"
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match=rf"honua-helm\.{field} '2026\.1\.0-rc\.3' must (be pre-release or|be) "
+                                         r"the platform version '2026\.1\.0' of platformRelease '2026\.1'"):
+        bundle.bind(lock, *paths, "2026.1")
+
+
 def test_bind_refuses_sbom_the_frozen_inputs_never_declared(candidate):
     """A lock cannot supply its own SBOM: the frozen inputs are the only declaration."""
     lock, paths, _ = candidate

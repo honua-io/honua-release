@@ -79,3 +79,47 @@ def stamp_platform_version(manifest: dict[str, Any], label: str) -> dict[str, st
             component["releaseVersion"] = version
         stamped[name] = version
     return stamped
+
+
+def stamp_errors(manifest: dict[str, Any]) -> list[str]:
+    """Every way an imaged component's version disagrees with the label's platform version (R22).
+
+    Both fields an imaged row can version itself with are checked: the stamp on `artifactVersion`,
+    and a plain `version`, which stays `pre-release` unless it names the platform version itself.
+    Either must be the label's platform version and stand beside bound bytes, and honua-server's
+    `releaseVersion` must be the version that ships. The validator, the freeze binding and
+    promotion share this one rule, so a GA manifest can never keep an RC version in either field.
+    Absent versions are not errors here; the lock generator refuses an unversioned image.
+    """
+    errors: list[str] = []
+    components = manifest.get("components") or {}
+    release = str(manifest.get("platformRelease", ""))
+    for name in IMAGED_COMPONENTS:
+        component = components.get(name)
+        if not isinstance(component, dict):
+            continue
+        plain = component.get("version")
+        plain = None if plain in (None, PRERELEASE) else plain
+        stamped = component.get("artifactVersion")
+        ships = stamped if stamped is not None else plain
+        if name == PUBLISHER and component.get("releaseVersion") is not None \
+                and component.get("releaseVersion") != ships:
+            errors.append(f"{name}.releaseVersion {component.get('releaseVersion')!r} must equal its "
+                          f"stamped artifactVersion {ships!r} (R22)")
+        for field, value in (("artifactVersion", stamped), ("version", plain)):
+            if value is None:
+                continue
+            try:
+                expected = artifact_version(release)
+            except ValueError as exc:
+                errors.append(f"{name}.{field} cannot be checked: platformRelease {exc}")
+                continue
+            if value != expected:
+                allowed = "be pre-release or" if field == "version" else "be"
+                errors.append(f"{name}.{field} {value!r} must {allowed} the platform version "
+                              f"{expected!r} of platformRelease {release!r} (R22)")
+            missing = unbound_identity(component)
+            if missing:
+                errors.append(f"{name}.{field} is stamped but {', '.join(missing)} "
+                              f"{'is' if len(missing) == 1 else 'are'} not bound (R22)")
+    return errors

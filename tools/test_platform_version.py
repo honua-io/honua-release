@@ -4,7 +4,8 @@ import copy
 
 import pytest
 
-from platform_version import IMAGED_COMPONENTS, artifact_version, stamp_platform_version, unbound_identity
+from platform_version import (IMAGED_COMPONENTS, artifact_version, stamp_errors, stamp_platform_version,
+                              unbound_identity)
 
 REVISION = "a" * 40
 DIGEST = "sha256:" + "b" * 64
@@ -133,3 +134,56 @@ def test_stamp_refuses_a_label_that_names_no_platform_version():
     with pytest.raises(ValueError, match="not a platform label"):
         stamp_platform_version(data, "nightly")
     assert "artifactVersion" not in data["components"]["honua-server"]
+
+
+# --- one stamp rule for artifactVersion and a plain version (validate, freeze bind, promotion) ---
+
+def test_a_stamped_manifest_has_no_stamp_errors():
+    data = manifest()
+    stamp_platform_version(data, "2026.1-rc.3")
+    assert stamp_errors(data) == []
+
+
+@pytest.mark.parametrize("name", IMAGED_COMPONENTS)
+@pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1.0", "1.0.0"])
+def test_a_plain_version_other_than_the_platform_version_is_an_error(name, version):
+    data = manifest()
+    stamp_platform_version(data, "2026.1-rc.3")
+    data["components"][name]["version"] = version
+    assert stamp_errors(data) == [
+        f"{name}.version {version!r} must be pre-release or the platform version '2026.1.0-rc.3' "
+        "of platformRelease '2026.1-rc.3' (R22)"]
+
+
+def test_a_plain_platform_version_must_name_bound_bytes():
+    data = manifest()
+    data["components"]["honua-helm"].pop("artifactSha256")
+    data["components"]["honua-helm"]["version"] = "2026.1.0-rc.3"
+    assert stamp_errors(data) == [
+        "honua-helm.version is stamped but artifactSha256 is not bound (R22)"]
+
+
+@pytest.mark.parametrize("field", ["artifactVersion", "version"])
+def test_a_ga_manifest_refuses_an_rc_suffixed_imaged_version(field):
+    data = manifest()
+    stamp_platform_version(data, "2026.1")
+    data["platformRelease"] = "2026.1"
+    data["components"]["honua-console"][field] = "2026.1.0-rc.3"
+    allowed = "be pre-release or" if field == "version" else "be"
+    assert stamp_errors(data) == [
+        f"honua-console.{field} '2026.1.0-rc.3' must {allowed} the platform version '2026.1.0' "
+        "of platformRelease '2026.1' (R22)"]
+
+
+def test_a_server_release_version_follows_a_plain_platform_version():
+    data = manifest()
+    server = data["components"]["honua-server"]
+    server.update(version="2026.1.0-rc.3", releaseVersion="2026.1.0-rc.3")
+    assert stamp_errors(data) == []
+
+
+def test_sdk_versions_are_never_stamp_errors():
+    data = manifest()
+    stamp_platform_version(data, "2026.1-rc.3")
+    data["components"]["honua-sdk-js"]["version"] = "9.9.9"
+    assert stamp_errors(data) == []
