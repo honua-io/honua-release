@@ -479,6 +479,17 @@ def _unique_keys(pairs):
     return dict(pairs)
 
 
+def _require_visible_revision(github, where, repository, sha):
+    try:
+        commit = github.json(f'repos/{repository}/commits/{sha}')
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is missing, but the pinned revision is not readable '
+                              f'either, so the 404 proves nothing: {exc}') from exc
+    if not isinstance(commit, dict) or commit.get('sha') != sha:
+        raise ResolutionError(f'{where} is missing, but repos/{repository}/commits/{sha} '
+                              'did not answer that commit')
+
+
 def component_versions(github, name, component):
     """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
 
@@ -500,7 +511,10 @@ def component_versions(github, name, component):
     except (KeyError, TypeError, ValueError) as exc:
         # Only an absent file is exempt. Authentication, network and malformed-response
         # errors must retain their refusal rather than masquerade as an empty declaration.
+        # GitHub also answers 404 for a repository or revision this token cannot see, so the
+        # exemption needs the pinned commit itself to be readable first.
         if preview and 'HTTP 404' in str(exc):
+            _require_visible_revision(github, where, repository, sha)
             return empty
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
     if preview and not raw.strip():

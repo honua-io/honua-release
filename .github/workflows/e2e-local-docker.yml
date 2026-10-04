@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-python
-          ref: 40ecf7318573214fb6c702b12ebd56b3ad47ba60   # 2026-09-12 re-pin; mirrors components.honua-sdk-python.sha
+          ref: a9cd320a1d330e758e1dd6c186f62a922d259cef   # 2026-10-04 R25 advance; mirrors components.honua-sdk-python.sha
           path: _e2e-sdk-python
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -132,7 +132,7 @@ jobs:
           # published client candidate. The .NET/Python package coordinates remain unchanged.
           expected = {
               "honua-sdk-js": ("d7cec2d510e053fc86252b125bde21313a7e6e7c", "0.1.9-beta.0"),
-              "honua-sdk-python": ("40ecf7318573214fb6c702b12ebd56b3ad47ba60", "0.1.11"),
+              "honua-sdk-python": ("a9cd320a1d330e758e1dd6c186f62a922d259cef", "0.1.13"),
               "honua-sdk-dotnet": ("6ba49ec32ea846c64bc2094807761d4884dbc4bf", "1.6.2"),
           }
           for name, (sha, version) in expected.items():

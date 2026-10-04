@@ -921,8 +921,16 @@ def declaration_bytes(component, **overrides):
 class Declarations:
     """`GitHub.file` for one declaration per (repository, sha); anything else is a 404."""
 
-    def __init__(self, files):
-        self.files, self.reads = files, []
+    def __init__(self, files, hidden=()):
+        self.files, self.reads, self.hidden = files, [], set(hidden)
+
+    def json(self, path):
+        # Pinned commits are readable unless the repository is hidden from the token.
+        self.reads.append(path)
+        repository, _, sha = path.removeprefix('repos/').rpartition('/commits/')
+        if repository in self.hidden:
+            raise resolver.ResolutionError(f'gh api {path} failed: gh: Not Found (HTTP 404)')
+        return {'sha': sha}
 
     def file(self, repository, revision, path):
         self.reads.append((repository, revision, path))
@@ -1032,6 +1040,26 @@ def test_missing_declaration_exemption_is_only_for_source_pinned_previews(name, 
             'sourcePinnedOnly': source_pinned})
 
 
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_preview_404_from_an_invisible_repository_is_not_an_empty_set(name):
+    source = Declarations({}, hidden={f'honua-io/{name}'})
+    with pytest.raises(resolver.ResolutionError, match='pinned revision is not readable'):
+        resolver.component_versions(source, name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': True})
+    assert source.reads[-1] == f'repos/honua-io/{name}/commits/{NEW}'
+
+
+def test_preview_404_needs_the_commit_probe_to_answer_the_pinned_sha():
+    class OtherCommit(Declarations):
+        def json(self, path):
+            return {'sha': OLD}
+    with pytest.raises(resolver.ResolutionError, match='did not answer that commit'):
+        resolver.component_versions(OtherCommit({}), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
 @pytest.mark.parametrize('detail', ['HTTP 403', 'HTTP 500', 'connection reset by peer'])
 def test_preview_declaration_read_errors_are_not_empty_sets(detail):
     class Unreadable:
@@ -1065,6 +1093,11 @@ class TreeAndDeclarations(MigrationSource):
         if repository == 'honua-io/honua-server':
             return super().file(repository, revision, path)
         return self.declarations.file(repository, revision, path)
+
+    def json(self, path):
+        if '/commits/' in path:
+            return self.declarations.json(path)
+        return super().json(path)
 
 
 @pytest.mark.parametrize("missing_preview", [False, True])
