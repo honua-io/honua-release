@@ -592,9 +592,13 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         (directory / "extended").mkdir(parents=True, exist_ok=True)
         (directory / "extended" / "gate-report.json").write_bytes(gate.read_bytes())
     result = {**journey, "journeyAttempts": records}
-    if records and not passed:
+    # A provisioned endpoint the journey recorded no attempt against is a failed journey, whatever
+    # the upload claims: an empty history must not leave the cell's verdict to the other rows.
+    if not passed and (records or state.get("endpoint")):
         result["status"] = "fail"
-        result["why"] = journey.get("why") or "journey did not pass within the recorded attempt budget"
+        result["why"] = (journey.get("why") if journey.get("status") == "fail" else None) or (
+            "journey did not pass within the recorded attempt budget" if records
+            else "journey recorded no attempt against the provisioned endpoint")
     return result
 
 

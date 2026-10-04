@@ -1756,18 +1756,28 @@ def test_live_receipt_server_is_observed_not_copied_from_the_manifest(monkeypatc
         import pytest
         with pytest.raises(ValueError, match="wrong candidate"):
             cj.validate_attempt(record, receipt, "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
-        # Nothing advertised and no control-plane image: visibly unobserved, never the manifest,
-        # and refused even on a failed attempt.
+        # Nothing advertised and no control-plane image: visibly unobserved, never the manifest.
+        # A passing attempt is refused; a failed one is recorded as the cell's failure, since only
+        # ECS reports a running image (serverless, EKS and mixed cells never observe one).
         record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.invalid", "key", None)
         receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
         assert receipt["server"] == {"sourceSha": cj.UNOBSERVED_SHA, "image": "unobserved"}
+        with pytest.raises(ValueError, match="not observed"):
+            cj.validate_attempt(record, receipt, "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
         receipt["status"] = "fail"
         receipt["stages"][0]["status"] = "fail"
         receipt["failure"] = {"number": 1, "stage": receipt["stages"][0]["stage"],
             "command": "fixture", "check": "fixture", "detail": "infrastructure fixture"}
-        with pytest.raises(ValueError, match="not observed"):
-            cj.validate_attempt({**record, "failureAttribution": "infrastructure"}, receipt,
-                                "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
+        failed = {**record, "failureAttribution": "infrastructure"}
+        assert cj.validate_attempt(failed, receipt, "aws-ecs/redis-off",
+                                   run_id="offline-run", run_attempt="2") is False
+        receipt["server"] = {"sourceSha": sha, "image": "unobserved"}
+        assert cj.validate_attempt(failed, receipt, "aws-ecs/redis-off",
+                                   run_id="offline-run", run_attempt="2") is False
+        # A server observed to be another candidate is refused on a failed attempt too.
+        receipt["server"] = {"sourceSha": sha, "image": image.rsplit("@", 1)[0] + "@sha256:" + "9" * 64}
+        with pytest.raises(ValueError, match="wrong candidate"):
+            cj.validate_attempt(failed, receipt, "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
         # A driver that raised before any stage still reports what the reached cell advertised.
         monkeypatch.setattr(driver, "run_live", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
         identities = iter([{"revision": "b" * 40, "source": "commit-sha"}])
@@ -1992,6 +2002,23 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
                                          _journey_upload(upload, [_ecs_receipt()]), upload)
             with pytest.raises(ValueError, match="1..n"):
                 run_cloud.verify_journey(state, {"journeyAttempts": [{"number": 2}]}, upload)
+            # No control-plane image (every non-ECS cell): the failed attempts are recorded, not rejected.
+            unobserved = {**failed, "server": {"sourceSha": sha, "image": "unobserved"}}
+            verified = run_cloud.verify_journey({**state, "runningImage": None},
+                                                _journey_upload(upload, [unobserved, unobserved]), upload)
+            assert verified["status"] == "fail" and "did not pass" in verified["why"]
+            assert len(verified["journeyAttempts"]) == 2
+            # An upload that claims a pass with no attempt against the provisioned endpoint fails.
+            for claimed in ({"status": "pass"}, {}):
+                empty = run_cloud.verify_journey({**state, "endpoint": "http://cell.invalid"},
+                                                 {"cell": "aws-ecs/redis-off", "journeyAttempts": [],
+                                                  "why": "forged", **claimed}, upload)
+                assert empty["status"] == "fail" and "no attempt" in empty["why"]
+            # A journey that failed before any attempt keeps its own reason.
+            empty = run_cloud.verify_journey({**state, "endpoint": "http://cell.invalid"},
+                                             {"journeyAttempts": [], "status": "fail",
+                                              "why": "ingress admission failed"}, upload)
+            assert empty["status"] == "fail" and empty["why"] == "ingress admission failed"
     finally:
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 

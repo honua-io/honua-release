@@ -277,11 +277,16 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
             or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     # A cell receipt's server pins are what the cell advertised and its control plane reported
-    # (honua-release#381); every attempt, failed or not, must show the exact candidate.
-    if receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}:
-        if UNOBSERVED_SHA == receipt["server"]["sourceSha"] or receipt["server"]["image"] == "unobserved":
+    # (honua-release#381). No attempt, failed or not, may show a server other than the candidate.
+    # Only ECS reports its running image today, so a failed attempt may leave a value visibly
+    # unobserved and is still recorded as that cell's failure; a passing one must show the candidate.
+    candidate = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    if receipt["server"] != candidate:
+        if (receipt["server"]["sourceSha"] not in (candidate["sourceSha"], UNOBSERVED_SHA)
+                or receipt["server"]["image"] not in (candidate["image"], "unobserved")):
+            raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
+        if receipt["status"] == "pass":
             raise ValueError("cell receipt server identity was not observed on the live cell")
-        raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     suffix = run_binding(run_id, run_attempt)
     uris = [stage["evidence"]["uri"] for stage in receipt["stages"]]
     if len(set(uris)) != 1 or uris[0].count("#") != 1 or not uris[0].endswith(suffix):
