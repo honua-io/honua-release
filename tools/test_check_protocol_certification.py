@@ -166,7 +166,7 @@ def _requirements(*cells, complete=True):
             "sdk-dotnet": {"commit": SHA},
             "geospatial-grpc": {"commit": SHA},
             "geospatial-mcp": {"commit": SHA},
-            "esri-compat": {"commit": SHA},
+            cert._owned_source_name({"deployment_target": "windows-licensed"}): {"commit": SHA},
         },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
@@ -273,32 +273,50 @@ def test_producer_source_sha_must_match_owned_client_revision():
     assert any("owned sdk-js revision" in finding["why"] for finding in report["findings"])
 
 
-def test_licensed_desktop_target_binds_the_esri_producer_revision():
-    esri_sha = "e" * 40
-    cell = _licensed_cell(
-        policy="esri-arcgis-pro-arcpy-v1",
-        deployment_target="windows-licensed",
-        auth_policy_revision="anonymous-and-protected-v1",
-        client_lane="desktop-pro",
-        producer_source_sha=esri_sha,
-    )
-    requirements = _requirements(cell)
-    requirements["source_revisions"]["esri-compat"] = {"commit": esri_sha}
-    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
-    assert not [finding for finding in report["findings"] if "owned" in finding["why"] and "revision" in finding["why"]]
+def _licensed_desktop_cell(**overrides):
+    return _licensed_cell(**{
+        "policy": "licensed-desktop-client-v1",
+        "deployment_target": "windows-licensed",
+        "auth_policy_revision": "anonymous-and-protected-v1",
+        "client_lane": "desktop-pro",
+        **overrides,
+    })
 
-    cell = _licensed_cell(
-        policy="esri-arcgis-pro-arcpy-v1",
-        deployment_target="windows-licensed",
-        auth_policy_revision="anonymous-and-protected-v1",
-        client_lane="desktop-pro",
-        producer_source_sha=SHA,
+
+def test_licensed_desktop_target_binds_its_production_map_producer_revision():
+    production = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
     )
+    [owner] = [
+        producer["source_revision_key"] for producer in production["producers"]
+        if "windows-licensed" in producer.get("deployment_targets", [])
+    ]
+    producer_sha = "e" * 40
+    cell = _licensed_desktop_cell(producer_source_sha=producer_sha)
     requirements = _requirements(cell)
-    requirements["source_revisions"]["esri-compat"] = {"commit": esri_sha}
+    requirements["source_revisions"][owner] = {"commit": producer_sha}
+    assert _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)["overall_status"] == "pass"
+
+    cell = _licensed_desktop_cell(producer_source_sha=SHA)
+    requirements = _requirements(cell)
+    requirements["source_revisions"][owner] = {"commit": producer_sha}
     report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
     assert report["overall_status"] == "fail"
-    assert any("owned esri-compat revision" in finding["why"] for finding in report["findings"])
+    assert any(f"owned {owner} revision" in finding["why"] for finding in report["findings"])
+
+
+def test_licensed_desktop_policy_is_governed_and_fresh():
+    wrong_target = _licensed_desktop_cell(deployment_target="windows")
+    report = _evaluate(_ledger(wrong_target), "nightly", now=NOW)
+    assert any("windows-licensed target" in finding["why"] for finding in report["findings"])
+
+    stale = _licensed_desktop_cell(
+        started_at="2026-08-16T10:00:00Z",
+        completed_at="2026-08-16T10:05:00Z",
+        checked_at="2026-08-16T10:02:00Z",
+    )
+    report = _evaluate(_ledger(stale), "nightly", now=NOW)
+    assert any("licensed evidence is older than 72 hours" in finding["why"] for finding in report["findings"])
 
 
 def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
@@ -1446,8 +1464,19 @@ def test_owned_denominator_runs_every_desktop_row_licensed_on_its_governed_targe
         row for row in requirements["requirements"]
         if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
     ]
-    assert {row["client_lane"] for row in rows} >= {"desktop-pro", "desktop-arcgis"}
     assert {
         (row["licensed"], row["entitlement_policy_revision"], row["deployment_target"], row["auth_policy_revision"])
         for row in rows
-    } == {(True, "esri-arcgis-pro-arcpy-v1", "windows-licensed", "anonymous-and-protected-v1")}
+    } >= {(True, desktop["entitlement_policy_revision"], "windows-licensed", "anonymous-and-protected-v1")}
+    own_rows = [row for row in rows if row["canonical_client"] == desktop["name"]]
+    # Both the server-matrix GeoServices rows and the OGC assignment rows.
+    assert {row["contract_revision"].split("@")[0] for row in own_rows} == {
+        "server-capability-matrix", "desktop-client-certification",
+    }
+    assert own_rows and all(
+        row["licensed"] and row["entitlement_policy_revision"] == desktop["entitlement_policy_revision"]
+        and row["deployment_target"] == desktop["deployment_target"]
+        and row["auth_policy_revision"] == desktop["auth_policy_revision"]
+        for row in own_rows
+    )
+    assert all(row["licensed"] and row["deployment_target"] == "windows-licensed" for row in rows)

@@ -155,7 +155,7 @@
             "then": {
               "properties": {
                 "entitlement_policy_revision": {
-                  "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1"]
+                  "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"]
                 }
               }
             },
@@ -175,7 +175,7 @@
           },
           {
             "if": {
-              "properties": { "entitlement_policy_revision": { "const": "esri-arcgis-pro-arcpy-v1" } },
+              "properties": { "entitlement_policy_revision": { "enum": ["esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"] } },
               "required": ["entitlement_policy_revision"]
             },
             "then": {

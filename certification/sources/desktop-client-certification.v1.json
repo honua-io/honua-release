@@ -15,7 +15,7 @@
       "lane": "desktop-pro",
       "deployment_target": "windows-licensed",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "geoservices_release_bucket": "must-fix",
       "ogc_release_bucket": "prove-against-candidate"
     }

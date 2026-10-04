@@ -80,10 +80,6 @@ REQUIREMENT_FIELDS = {
 
 
 def _owned_source_name(cell: dict) -> str:
-    # The production map assigns the governed licensed desktop target to the Esri producer by
-    # deployment target, keeping desktop-client lanes unnamed (R30).
-    if cell.get("deployment_target") == "windows-licensed":
-        return "esri-compat"
     lane = str(cell.get("client_lane", ""))
     if lane == "server-protocol-harness":
         return "server-certification"
@@ -97,7 +93,9 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-grpc"
     if lane.startswith("mcp-"):
         return "geospatial-mcp"
-    if lane.startswith((
+    # The production map assigns the governed licensed desktop target to one producer by deployment
+    # target, keeping desktop-client lanes unnamed (R30).
+    if cell.get("deployment_target") == "windows-licensed" or lane.startswith((
         "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
         "desktop-arcgis", "arcgis-stub", "ci-desktop",
     )):
@@ -910,6 +908,11 @@ def evaluate(
                     fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
                 if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
                     fail(prefix, "ArcPy evidence must execute the governed anonymous-and-protected auth policy")
+            elif entitlement_policy == "licensed-desktop-client-v1":
+                if raw.get("deployment_target") != "windows-licensed":
+                    fail(prefix, "Licensed desktop evidence must execute on the governed windows-licensed target")
+                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
+                    fail(prefix, "Licensed desktop evidence must execute the governed anonymous-and-protected auth policy")
             else:
                 fail(prefix, "licensed evidence must bind a governed entitlement policy")
         elif raw.get("entitlement_policy_revision") is not None:

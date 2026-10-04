@@ -636,7 +636,7 @@ def main() -> None:
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
         ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, PRO["entitlement_policy_revision"], PRO["geoservices_release_bucket"]),
+        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", PRO["geoservices_release_bucket"]),
     ]
     for service in esri_index["services"]:
         matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])

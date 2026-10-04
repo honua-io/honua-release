@@ -173,6 +173,7 @@ def main() -> None:
     licensed_policies = {
         "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
         "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
+        "licensed-desktop-client-v1": ("windows-licensed", "anonymous-and-protected-v1"),
     }
     for row in catalog["requirements"]:
         policy = row.get("entitlement_policy_revision")
@@ -688,13 +689,13 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
             continue
         if row["client_version"] != pro["version"]:
             raise ValueError(f"Desktop requirement {row['surface']}/{row['operation']} must certify {pro['version']!r}.")
-        if not row["licensed"] or row["entitlement_policy_revision"] != pro["entitlement_policy_revision"] \
-                or row["deployment_target"] != pro["deployment_target"] \
+        if not row["licensed"] or row["deployment_target"] != pro["deployment_target"] \
+                or (client == pro["name"] and row["entitlement_policy_revision"] != pro["entitlement_policy_revision"]) \
                 or row["auth_policy_revision"] != pro["auth_policy_revision"]:
             raise ValueError(
-                f"Desktop requirement {row['surface']}/{row['operation']} must be licensed under "
-                f"{pro['entitlement_policy_revision']!r} on {pro['deployment_target']!r} with "
-                f"{pro['auth_policy_revision']!r}."
+                f"Desktop requirement {row['surface']}/{row['operation']} must be licensed on "
+                f"{pro['deployment_target']!r} with {pro['auth_policy_revision']!r}; the desktop client's "
+                f"own rows bind {pro['entitlement_policy_revision']!r}."
             )
         if row["contract_revision"] == contract:
             if row.get("release_bucket") != pro["ogc_release_bucket"] or client != pro["name"] \

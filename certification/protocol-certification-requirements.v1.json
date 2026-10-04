@@ -40083,7 +40083,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -41130,7 +41130,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -41512,7 +41512,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -43529,7 +43529,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -44072,7 +44072,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -44730,7 +44730,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -45605,7 +45605,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -45723,7 +45723,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46047,7 +46047,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46468,7 +46468,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46811,7 +46811,7 @@
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
       "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
+      "entitlement_policy_revision": "licensed-desktop-client-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
