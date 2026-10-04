@@ -101,6 +101,9 @@ to an RSA key the journey runner generated, and opens the ECS ALB / EKS Service 
 own /32. Job outputs and step env are printed in the public log, so no credential travels that way. The
 Terraform working directory reaches teardown as a sealed artifact (ciphertext only; the passphrase,
 digest and application key are in Secrets Manager under `honua-cloud-cell-state/`, deleted by teardown).
+Teardown adopts no verdict the journey job reported about itself: it re-checks every receipt (path,
+digest, run/candidate binding, and the server identity provision observed before any client ran) and
+copies only verified files into the cell's evidence.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 

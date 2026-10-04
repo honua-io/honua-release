@@ -1264,8 +1264,10 @@ def test_cloud_stale_and_wrong_candidate_receipts_fail():
         receipt["generatedAt"] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
         assert "stale" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
         receipt = _ecs_receipt()
-        receipt["server"]["sourceSha"] = "0" * 40
+        receipt["server"]["sourceSha"] = "b" * 40
         assert "wrong candidate" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
+        receipt["server"]["sourceSha"] = cj.UNOBSERVED_SHA
+        assert "not observed" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
         receipt = _ecs_receipt()
         report = _cell_report(root, receipt)
         report["journeyAttempts"][0]["candidateDigest"] = "0" * 64
@@ -1331,7 +1333,9 @@ def test_attempt_strips_cloud_credentials_and_binds_the_run(monkeypatch):
         raise RuntimeError("stop after capturing the candidate environment")
 
     monkeypatch.setattr(driver, "run_live", live)
-    record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.example", "admin-secret")
+    sha, image = _manifest_server()
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: {"revision": sha, "source": "commit-sha"})
+    record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.example", "admin-secret", image)
     try:
         env = seen["env"]
         for key in env:
@@ -1389,6 +1393,10 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
         (workdir / "created-by-journey").write_text("cleanup fixture")
         raise RuntimeError("simulated journey failure")
     monkeypatch.setattr(driver, "run_live", live)
+    # The cell reports the exact candidate, so each failed attempt is an attributed failure.
+    sha, image = _manifest_server()
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: {"revision": sha, "source": "commit-sha"})
+    monkeypatch.setattr(cj, "observed_ecs_image", lambda *a, **k: image)
     def cost(*args, **kwargs):
         events.append("cost")
         return {"status": "pass"}
@@ -1748,7 +1756,8 @@ def test_live_receipt_server_is_observed_not_copied_from_the_manifest(monkeypatc
         import pytest
         with pytest.raises(ValueError, match="wrong candidate"):
             cj.validate_attempt(record, receipt, "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
-        # Nothing advertised and no control-plane image: visibly unobserved, never the manifest.
+        # Nothing advertised and no control-plane image: visibly unobserved, never the manifest,
+        # and refused even on a failed attempt.
         record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.invalid", "key", None)
         receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
         assert receipt["server"] == {"sourceSha": cj.UNOBSERVED_SHA, "image": "unobserved"}
@@ -1756,8 +1765,15 @@ def test_live_receipt_server_is_observed_not_copied_from_the_manifest(monkeypatc
         receipt["stages"][0]["status"] = "fail"
         receipt["failure"] = {"number": 1, "stage": receipt["stages"][0]["stage"],
             "command": "fixture", "check": "fixture", "detail": "infrastructure fixture"}
-        assert cj.validate_attempt({**record, "failureAttribution": "infrastructure"}, receipt,
-                                   "aws-ecs/redis-off", run_id="offline-run", run_attempt="2") is False
+        with pytest.raises(ValueError, match="not observed"):
+            cj.validate_attempt({**record, "failureAttribution": "infrastructure"}, receipt,
+                                "aws-ecs/redis-off", run_id="offline-run", run_attempt="2")
+        # A driver that raised before any stage still reports what the reached cell advertised.
+        monkeypatch.setattr(driver, "run_live", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+        identities = iter([{"revision": "b" * 40, "source": "commit-sha"}])
+        record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.invalid", "key", image)
+        receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
+        assert record["failureAttribution"] == "infrastructure" and receipt["server"]["sourceSha"] == "b" * 40
     finally:
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 
@@ -1919,6 +1935,65 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             assert "another run" in json.loads(run_cloud.REPORT_PATH.read_text())["why"]
         finally:
             shutil.rmtree(cj.EVIDENCE / "phase381", ignore_errors=True)
+
+
+def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2"):
+    """A journey job's upload: receipt files plus the journey.json records that name them."""
+    cj = run_cloud.cloud_journey
+    cell_dir = cj.cell_dir("aws-ecs/redis-off")
+    records = []
+    for number, receipt in enumerate(receipts, 1):
+        data = json.dumps(receipt).encode()
+        (directory / f"receipt-{number}.json").write_bytes(data)
+        records.append({"number": number, "runId": run_id, "runAttempt": run_attempt,
+            "cell": "aws-ecs/redis-off", "candidateDigest": cj.candidate_digest(),
+            "receipt": str((cell_dir / f"receipt-{number}.json").relative_to(E2E_DIR)),
+            "receiptSha256": hashlib.sha256(data).hexdigest(),
+            "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"})
+    return {"cell": "aws-ecs/redis-off", "status": "pass", "journeyAttempts": records}
+
+
+def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monkeypatch):
+    import pytest
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv("GITHUB_RUN_ID", "offline-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    sha, image = _manifest_server()
+    state = {"cell": "aws-ecs/redis-off", "observedServer": {"revision": sha, "source": "commit-sha"},
+             "runningImage": image}
+    failed = _ecs_receipt()
+    failed["status"] = "fail"
+    failed["stages"][0]["status"] = "fail"
+    failed["failure"] = {"number": 1, "stage": failed["stages"][0]["stage"], "command": "fixture",
+                         "check": "fixture", "detail": "infrastructure fixture"}
+    try:
+        with tempfile.TemporaryDirectory() as upload:
+            upload = Path(upload)
+            # The journey job claims a pass; its receipts say otherwise. Teardown decides.
+            journey = _journey_upload(upload, [failed, failed])
+            verified = run_cloud.verify_journey(state, journey, upload)
+            assert verified["status"] == "fail" and "did not pass" in verified["why"]
+            assert (cj.cell_dir("aws-ecs/redis-off") / "receipt-2.json").is_file()
+            # A genuine pass is adopted.
+            assert run_cloud.verify_journey(state, _journey_upload(upload, [_ecs_receipt()]), upload)[
+                "status"] == "pass"
+            # Edited bytes, a foreign path, and a server provision never saw are all refused.
+            journey = _journey_upload(upload, [_ecs_receipt()])
+            (upload / "receipt-1.json").write_text("{}")
+            with pytest.raises(ValueError, match="digest"):
+                run_cloud.verify_journey(state, journey, upload)
+            journey = _journey_upload(upload, [_ecs_receipt()])
+            journey["journeyAttempts"][0]["receipt"] = "cloud-evidence/other/receipt-1.json"
+            with pytest.raises(ValueError, match="not this cell's"):
+                run_cloud.verify_journey(state, journey, upload)
+            with pytest.raises(ValueError, match="provision observed"):
+                run_cloud.verify_journey({**state, "observedServer": {"revision": "b" * 40,
+                                                                      "source": "commit-sha"}},
+                                         _journey_upload(upload, [_ecs_receipt()]), upload)
+            with pytest.raises(ValueError, match="1..n"):
+                run_cloud.verify_journey(state, {"journeyAttempts": [{"number": 2}]}, upload)
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 
 
 def test_journey_job_refuses_a_foreign_handoff_and_an_unadmitted_endpoint(monkeypatch):

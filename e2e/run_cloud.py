@@ -132,7 +132,7 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
                    "runAttempt": run_attempt, "candidateDigest": cloud_journey.candidate_digest(),
                    "startedAt": cloud_journey.now(), "requireReal": require_real,
                    "provisionAttempted": False, "endpoint": None, "ready": False,
-                   "runningImage": None, "seedError": None,
+                   "runningImage": None, "observedServer": None, "seedError": None,
                    "admission": getattr(target, "admission", "none"), "report": report}
 
     if not avail.ok:
@@ -173,6 +173,10 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
+        # What the cell advertises before any pinned client ran: teardown holds journey receipts to it.
+        identity = fetch(endpoint.rstrip("/") + cloud_journey.CAPABILITY_MANIFEST)
+        state["observedServer"] = (cloud_journey.parse_server_identity(identity.body)
+                                   if identity.status == 200 else None)
         # The seed needs the cell's database secret, so it runs here. Every seam driver and the
         # journey run later, in the job that holds no cloud credential, before any teardown.
         state["seedError"] = seed_cell(endpoint, target=target,
@@ -234,8 +238,15 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
             record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"))
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
-            if cloud_journey.validate_attempt(record, receipt, cell,
-                    run_id=run_id, run_attempt=run_attempt):
+            try:
+                passed = cloud_journey.validate_attempt(record, receipt, cell,
+                                                        run_id=run_id, run_attempt=run_attempt)
+            except ValueError as error:
+                # validate_attempt's reasons are fixed strings; they carry no receipt content.
+                journey["status"] = "fail"
+                journey["why"] = f"journey evidence rejected: {error}"
+                break
+            if passed:
                 break
         else:
             journey["status"] = "fail"
@@ -535,6 +546,58 @@ def open_key(sealed: Path, private_key: Path, *, run=subprocess.run) -> str:
                capture_output=True, check=True).stdout.decode("utf-8")
 
 
+def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
+    """Re-check the credential-free job's attempts; adopt no verdict it reported about itself.
+
+    Every receipt must be this cell's, intact (digest), bound to this run and candidate
+    (validate_attempt), and show the server identity provision observed before any pinned
+    client ran. Only the verified files are copied into the cell's evidence directory.
+    """
+    cell = state["cell"]
+    run_id, run_attempt = _run_identity()
+    directory = cloud_journey.cell_dir(cell)
+    records = journey.get("journeyAttempts")
+    if (not isinstance(records, list) or len(records) > 2 or not all(isinstance(r, dict) for r in records)
+            or [r.get("number") for r in records] != list(range(1, len(records) + 1))):
+        raise ValueError("journey attempt history is not 1..n within two attempts")
+    expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+    verified: list[tuple[int, bytes, bytes | None]] = []
+    passed = False
+    for record in records:
+        if passed:
+            raise ValueError("attempt recorded after a passing journey")
+        number = record["number"]
+        if record.get("receipt") != str((directory / f"receipt-{number}.json").relative_to(E2E_DIR)):
+            raise ValueError("journey receipt path is not this cell's")
+        data = (journey_dir / f"receipt-{number}.json").read_bytes()
+        if hashlib.sha256(data).hexdigest() != record.get("receiptSha256"):
+            raise ValueError("journey receipt digest mismatch")
+        receipt = json.loads(data)
+        if receipt["server"] != expected:
+            raise ValueError("journey receipt server differs from what provision observed")
+        config = journey_dir / f"target-{number}.json"
+        config_bytes = config.read_bytes() if config.is_file() else None
+        if receipt["target"].get("configSha256") and (
+                config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
+            raise ValueError("journey target config digest mismatch")
+        passed = cloud_journey.validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+        verified.append((number, data, config_bytes))
+    directory.mkdir(parents=True, exist_ok=True)
+    for number, data, config_bytes in verified:
+        (directory / f"receipt-{number}.json").write_bytes(data)
+        if config_bytes is not None:
+            (directory / f"target-{number}.json").write_bytes(config_bytes)
+    gate = journey_dir / "extended" / "gate-report.json"
+    if gate.is_file() and gate.resolve() != (directory / "extended" / "gate-report.json").resolve():
+        (directory / "extended").mkdir(parents=True, exist_ok=True)
+        (directory / "extended" / "gate-report.json").write_bytes(gate.read_bytes())
+    result = {**journey, "journeyAttempts": records}
+    if records and not passed:
+        result["status"] = "fail"
+        result["why"] = journey.get("why") or "journey did not pass within the recorded attempt budget"
+    return result
+
+
 def _target(target_name: str):
     return REGISTRY[target_name](run_id=os.environ.get("GITHUB_RUN_ID", "local"))
 
@@ -647,7 +710,9 @@ def _phase_teardown(args) -> int:
     cell = _cell(args.target, args.redis)
     directory = cloud_journey.cell_dir(cell)
     state = _read_json(directory / HANDOFF_NAME)
-    journey = _read_json(directory / JOURNEY_NAME) or {}
+    # The journey's upload lives apart from provision's handoff; nothing in it is adopted unverified.
+    journey_dir = args.journey_dir or directory
+    journey = _read_json(journey_dir / JOURNEY_NAME) or {}
     marker = os.environ.get("HONUA_CLOUD_PROVISION_MARKER")
     restored = bool(marker) and Path(marker).is_file()
     problems = []
@@ -667,6 +732,15 @@ def _phase_teardown(args) -> int:
         journey = {}
     elif state.get("endpoint") and not journey:
         problems.append("journey job left no handoff")
+    if journey:
+        try:
+            journey = verify_journey(state, journey, journey_dir)
+        except ValueError as error:
+            problems.append(f"journey evidence rejected: {error}")
+            journey = {"cell": cell, "status": "fail", "why": "journey evidence rejected"}
+        except Exception as error:
+            problems.append(f"journey evidence rejected: {type(error).__name__}")
+            journey = {"cell": cell, "status": "fail", "why": "journey evidence rejected"}
     attempted = bool(state.get("provisionAttempted")) or restored
     stranded = attempted and not restored
     state["provisionAttempted"] = attempted
@@ -712,6 +786,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cidr", help="the journey runner's IPv4 /32 (admit)")
     ap.add_argument("--public-key", type=Path, help="the journey runner's RSA public key (deliver-key)")
     ap.add_argument("--private-key", type=Path, help="this journey runner's RSA private key (journey)")
+    ap.add_argument("--journey-dir", type=Path,
+                    help="where the journey job's upload was downloaded (teardown); verified, never trusted")
     ap.add_argument("--sealed-key", type=Path,
                     help="the application key sealed to the journey runner (deliver-key writes, journey reads)")
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)

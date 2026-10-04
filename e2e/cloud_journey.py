@@ -142,12 +142,14 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
 UNOBSERVED_SHA = "0" * 40
 
 
-def server_identity(endpoint, *, opener=urllib.request.urlopen):
-    """The revision the live deployment advertises on its anonymous capability manifest, or None."""
+CAPABILITY_MANIFEST = "/api/v1/capabilities/manifest"
+
+
+def parse_server_identity(body):
+    """deploymentRevision and its source from an anonymous capability manifest body, or None."""
     try:
-        with opener(endpoint.rstrip("/") + "/api/v1/capabilities/manifest", timeout=15) as response:
-            document = json.loads(response.read().decode("utf-8"))
-    except Exception:
+        document = json.loads(body)
+    except (TypeError, ValueError):
         return None
     server = (document.get("server") or document.get("Server") or {}) if isinstance(document, dict) else {}
     if not isinstance(server, dict):
@@ -155,6 +157,15 @@ def server_identity(endpoint, *, opener=urllib.request.urlopen):
     revision = server.get("deploymentRevision") or server.get("DeploymentRevision")
     source = server.get("deploymentRevisionSource") or server.get("DeploymentRevisionSource")
     return {"revision": revision, "source": source} if isinstance(revision, str) else None
+
+
+def server_identity(endpoint, *, opener=urllib.request.urlopen):
+    """The revision the live deployment advertises on its anonymous capability manifest, or None."""
+    try:
+        with opener(endpoint.rstrip("/") + CAPABILITY_MANIFEST, timeout=15) as response:
+            return parse_server_identity(response.read().decode("utf-8"))
+    except Exception:
+        return None
 
 
 def observed_server(identity, running_image):
@@ -231,9 +242,10 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
             stage["evidence"]["source"] = "live-aws-ecs"
     receipt["target"]["composeProject"] = None
     identity = None
-    if not build_only:
-        # honua-release#381: a live receipt states what the live cell reported, not what the
-        # manifest says it should be; validate_attempt then compares the two.
+    if endpoint is not None:
+        # honua-release#381: a receipt for a real cell states what that cell reported, not what the
+        # manifest says it should be, even when the driver failed before any stage ran;
+        # validate_attempt then compares the two.
         identity = server_identity(endpoint)
         receipt["server"] = observed_server(identity, running_image)
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
@@ -264,11 +276,11 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
             or receipt["release"] != pinned["platformRelease"]
             or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
-    # A live receipt's server pins are what the cell advertised and its control plane reported
-    # (honua-release#381). A failed attempt may record a different or unobserved server; only a
-    # passing one must be the exact candidate.
-    if (receipt["status"] == "pass"
-            and receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}):
+    # A cell receipt's server pins are what the cell advertised and its control plane reported
+    # (honua-release#381); every attempt, failed or not, must show the exact candidate.
+    if receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}:
+        if UNOBSERVED_SHA == receipt["server"]["sourceSha"] or receipt["server"]["image"] == "unobserved":
+            raise ValueError("cell receipt server identity was not observed on the live cell")
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     suffix = run_binding(run_id, run_attempt)
     uris = [stage["evidence"]["uri"] for stage in receipt["stages"]]

@@ -930,6 +930,7 @@ def test_cloud_journey_job_holds_no_aws_credentials_or_oidc_token():
     commands = "\n".join(_step_text(step) for step in journey["steps"])
     assert "--phase journey" in commands and "--ignore-scripts" in commands
     assert "AWS_" not in commands and "HONUA_AWS_ROLE_ARN" not in commands
+    assert "secrets." not in yaml.safe_dump(journey)
     assert all(step.get("with", {}).get("persist-credentials") is False
                for step in journey["steps"] if str(step.get("uses", "")).startswith("actions/checkout"))
     # Every pinned client, npm package and browser lives in that job; none in a credentialed one.
@@ -967,6 +968,11 @@ def test_cloud_teardown_reaper_is_fail_closed():
     assert set(teardown["needs"]) == {"provision", "journey", "admit"}
     assert destroy["if"] == "always()"
     assert _uses_aws_credentials(teardown)
+    # The journey's upload is verified, never merged into provision's evidence directory unchecked.
+    journey_download = next(step for step in teardown["steps"]
+                            if step.get("name") == "Download the journey receipts")
+    assert journey_download["with"]["path"] == "${{ runner.temp }}/journey-upload"
+    assert '--journey-dir "$RUNNER_TEMP/journey-upload"' in destroy["run"]
     for step in (seal, restore, destroy):
         assert "|| true" not in step["run"] and not _neutralised(step)
 

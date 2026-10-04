@@ -454,12 +454,14 @@ jobs:
           name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
           path: ${{ env.CELL_DIR }}
         continue-on-error: true       # absent => the teardown verdict says so and fails closed
+      # Kept apart from the provision handoff: teardown re-verifies every receipt against what
+      # provision observed and copies only verified files into the cell's evidence directory.
       - name: Download the journey receipts
         if: ${{ needs.journey.result != 'skipped' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: cloud-cell-journey-${{ env.CELL_ARTIFACT }}
-          path: ${{ env.CELL_DIR }}
+          path: ${{ runner.temp }}/journey-upload
         continue-on-error: true
       - name: Download the sealed state
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -490,11 +492,10 @@ jobs:
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
-          if [ "${{ inputs.require_real }}" = "true" ]; then
-            python e2e/run_cloud.py --phase teardown --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" --require-real
-          else
-            python e2e/run_cloud.py --phase teardown --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
-          fi
+          ARGS=(--phase teardown --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
+                --journey-dir "$RUNNER_TEMP/journey-upload")
+          if [ "${{ inputs.require_real }}" = "true" ]; then ARGS+=(--require-real); fi
+          python e2e/run_cloud.py "${ARGS[@]}"
 
       - name: Upload cloud gate-report (per cell)
         if: always()
