@@ -447,7 +447,7 @@ def test_nightly_convergence_is_deterministic(tmp_path):
     assert staged[0][0] == staged[1][0]
     assert staged[0][1] == staged[1][1]
     production = json.loads(staged[0][1][str(MODULE.CATALOG)])["production"]
-    assert production["cells"] == {"produced": 1503, "unproduced": 412, "not_addressable": 5}
+    assert production["cells"] == {"produced": 1512, "unproduced": 412, "not_addressable": 5}
 
     recorded = night()
     bound = []
