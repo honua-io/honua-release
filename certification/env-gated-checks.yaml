@@ -37,6 +37,13 @@ honua-console:
       lanes (Validate Console, Playwright smoke, the pinned-image Testcontainers lane) remain
       authoritative and are NOT listed here.
 
+  - name: "live-aws-browser"
+    why: >-
+      Scheduled live AWS browser smoke against the demo deployment. Its operator-preflight job
+      skips the lane when HONUA_CONSOLE_AWS_OPERATOR_USERNAME / HONUA_CONSOLE_AWS_OPERATOR_PASSWORD
+      are not configured (honua-console#409) — an unprovisioned operator identity, not a console
+      build failure. With the secrets present it runs and its assertions are authoritative.
+
 honua-sdk-dotnet:
   - name: "Staging Read-Only Integration"
     why: >-
@@ -52,6 +59,16 @@ honua-iac:
       resources that the build/test fan-out does not create. The release train owns this verdict in
       its dedicated e2e-cloud-aws cloud-parity gate. Static Terraform Validate and Terraform Policy
       Gates remain authoritative core IaC checks and are NOT listed here.
+
+  - name: "Reap orphaned validation infrastructure"
+    why: >-
+      Scheduled maintenance job (Terraform Validation Infra Reaper) that assumes the OIDC cleanup
+      role; it skips when HONUA_AWS_VALIDATION_REAPER_ROLE_ARN is not configured. It tears down
+      leftovers of the live validation and certifies nothing about the IaC at the pinned sha.
+  - name: "Sweep orphaned validation IAM principals"
+    why: >-
+      Scheduled maintenance job (Terraform Validation IAM Sweeper) with the same role precondition
+      as the reaper; cleanup only, never a verdict on the pinned sha.
 
 honua-sdk-python:
   - name: "staging-smoke"
