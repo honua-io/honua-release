@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -88,7 +89,56 @@ def bound_evidence_uri(cell, run_id, run_attempt):
     return base.split("#", 1)[0] + run_binding(run_id, run_attempt)
 
 
-def attempt(cell, number, endpoint, admin_key):
+@contextmanager
+def external_image(driver, image_ref):
+    # run_live reports no image for an external URL; it cannot see a cloud deployment. Supply
+    # the image read back from the cloud control plane to the owned observe(), unchanged otherwise.
+    original = driver.observe
+
+    def observe(target, base_url, workspace, bindir, _image_ref, expected_revision):
+        return original(target, base_url, workspace, bindir, image_ref, expected_revision)
+
+    driver.observe = observe
+    try:
+        yield
+    finally:
+        driver.observe = original
+
+
+def observed_ecs_image(target, pinned, *, run=subprocess.run):
+    """The pinned server image only if every RUNNING task of the deployed ECS service runs it.
+
+    Read from ECS DescribeTasks, never inferred from the apply inputs. Anything else is None.
+    """
+    server = pinned["components"]["honua-server"]
+    root = target._workdir
+    if root is None:
+        return None
+    cluster, service = (target._tf(root, "output", "-raw", name).stdout.strip()
+                        for name in ("ecs_cluster_name", "ecs_service_name"))
+    if not cluster or not service:
+        return None
+
+    def aws(*args):
+        return json.loads(run(["aws", "ecs", *args, "--output", "json"], text=True,
+                              capture_output=True, check=True).stdout)
+
+    arns = aws("list-tasks", "--cluster", cluster, "--service-name", service,
+               "--desired-status", "RUNNING")["taskArns"]
+    if not arns:
+        return None
+    tasks = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns)["tasks"]
+    for task in tasks:
+        servers = [c for c in task.get("containers", [])
+                   if str(c.get("image", "")).split("@", 1)[0] == server["image"]]
+        if (task.get("lastStatus") != "RUNNING" or not servers
+                or any(c.get("imageDigest") != server["digest"] or c.get("lastStatus") != "RUNNING"
+                       for c in servers)):
+            return None
+    return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
+
+
+def attempt(cell, number, endpoint, admin_key, running_image=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
@@ -115,7 +165,7 @@ def attempt(cell, number, endpoint, admin_key):
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
             # That drops AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN
             # and GH_TOKEN before npm install and the candidate CLIs start.
-            with admin_credential(admin_key):
+            with admin_credential(admin_key), external_image(driver, running_image):
                 with driver.pins.candidate_sandbox():
                     workspace, results, observed_notices, _ = driver.run_live(
                         target, pinned, contract, workdir, endpoint, True)
@@ -234,9 +284,16 @@ def cleanup(cell):
             shutil.rmtree(workdir)
 
 
-def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt):
+def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
+              final_cost=None):
     cells = []
     failures = []
+    # Per-cell readings predate later cells, teardowns and iac-live. Only a reading taken after
+    # every cloud job finished bounds the whole run.
+    if final_cost is not None and final_cost.get("status") != "pass":
+        failures.append("final run cost: " + final_cost.get("why", "run cost ceiling exceeded"))
+    elif final_cost is None and full_scope:
+        failures.append("final run cost evidence missing after all cloud jobs")
     by_cell = {}
     for report in reports:
         cell = report.get("cell", report.get("gate", "unknown"))
@@ -302,7 +359,8 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
             ("GA cloud journeys passed" if full_scope else "focused dispatch is diagnostic only"),
             "cells": cells, "canaryProbes": [probe for row in cells for probe in row.get("canaryProbes", [])],
             "certifying": full_scope and require_real and status == "pass",
-            "certifyingScope": full_scope, "lambdaGaQualification": "pending", "generatedAt": now()}
+            "certifyingScope": full_scope, "lambdaGaQualification": "pending",
+            "finalCost": final_cost, "generatedAt": now()}
 
 
 def main():
@@ -310,7 +368,19 @@ def main():
     parser = argparse.ArgumentParser(description="Validate cloud artifacts and assemble the GA gate")
     parser.add_argument("--reports", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--final-cost", type=Path,
+                        help="run-cost.json refreshed after every cloud job completed")
+    parser.add_argument("--final-cost-after",
+                        help="ISO time the aggregation began; the final reading must be later")
+    parser.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     args = parser.parse_args()
+    final_cost = None
+    if args.final_cost is not None:
+        try:
+            after = datetime.fromisoformat(args.final_cost_after.replace("Z", "+00:00"))
+            final_cost = check_cost(args.final_cost, args.cost_ceiling_usd, started_at=after)
+        except Exception as error:
+            final_cost = {"status": "fail", "why": f"unavailable: {type(error).__name__}"}
     reports = []
     for path in sorted(args.reports.rglob("gate-report-cloud.json")):
         try:
@@ -323,7 +393,7 @@ def main():
         require_real=os.environ.get("REQUIRE_REAL") == "true",
         full_scope=os.environ.get("FULL_SCOPE") == "true",
         run_id=os.environ.get("GITHUB_RUN_ID", "local"),
-        run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+        run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"), final_cost=final_cost)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     return 0

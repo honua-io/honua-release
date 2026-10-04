@@ -161,7 +161,14 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         canary_results = canary_probes.run_canary(endpoint, fetch)
         report["canaryProbes"] = _check_dicts(canary_results)
         for number in range(1, max_attempts + 1):
-            record = cloud_journey.attempt(cell, number, endpoint, target.admin_api_key)
+            # The owned 1.1-candidate-image check needs the image ECS reports running now.
+            running_image = None
+            if target_name == "aws-ecs":
+                try:
+                    running_image = cloud_journey.observed_ecs_image(target, cloud_journey.manifest())
+                except Exception:
+                    running_image = None
+            record = cloud_journey.attempt(cell, number, endpoint, target.admin_api_key, running_image)
             report["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             if cloud_journey.validate_attempt(record, receipt, cell,

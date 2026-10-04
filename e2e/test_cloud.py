@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import atexit
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,6 +31,12 @@ import demo_canary  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 from targets.terraform_target import ecs, serverless  # noqa: E402
+
+# The parity job runs this self-test with the live run's GITHUB_RUN_ID before the live cell, and
+# uploads e2e/cloud-evidence/**/receipt-*.json. Fixture receipts must never land in that tree.
+SELFTEST_EVIDENCE = E2E_DIR / ".cloud-evidence-selftest" / str(os.getpid())
+run_cloud.cloud_journey.EVIDENCE = SELFTEST_EVIDENCE
+atexit.register(shutil.rmtree, SELFTEST_EVIDENCE.parent, True)
 
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
             "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
@@ -1217,9 +1225,16 @@ def _artifact(directory, receipt, *, number=1):
     return record
 
 
-def _aggregate_fixture(reports, directory, full_scope=False):
+def _final_cost(amount="1", status="pass"):
+    return {"status": status, "scope": "run", "amountUsd": amount, "ceilingUsd": "20",
+            "runId": "offline-run", "runAttempt": "2", "measuredAt": run_cloud.cloud_journey.now()}
+
+
+def _aggregate_fixture(reports, directory, full_scope=False, final_cost=None):
+    if final_cost is None and full_scope:
+        final_cost = _final_cost()
     return run_cloud.cloud_journey.aggregate(reports, directory, require_real=True,
-        full_scope=full_scope, run_id="offline-run", run_attempt="2")
+        full_scope=full_scope, run_id="offline-run", run_attempt="2", final_cost=final_cost)
 
 
 def _cell_report(directory, receipt):
@@ -1471,6 +1486,131 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             del previews[0]["cost"]
             reports[0]["status"] = "fail"
             assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "fail"
+
+
+def test_cloud_full_scope_requires_a_final_run_cost_reading_after_every_cloud_job():
+    cj = run_cloud.cloud_journey
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        reports = []
+        for cell in cj.GA_CELLS:
+            subdir = root / cell.replace("/", "-")
+            subdir.mkdir()
+            reports.append(_cell_report(subdir, _ecs_receipt(cell)))
+        with mock.patch.object(cj, "validate_attempt", return_value=True):
+            # Every per-cell reading is under the ceiling; the later whole-run reading is not.
+            over = cj.aggregate(reports, root, require_real=True, full_scope=True,
+                                run_id="offline-run", run_attempt="2",
+                                final_cost=_final_cost("20.01", "fail"))
+            assert over["status"] == "fail" and "final run cost" in over["why"]
+            missing = cj.aggregate(reports, root, require_real=True, full_scope=True,
+                                   run_id="offline-run", run_attempt="2")
+            assert missing["status"] == "fail" and "final run cost evidence missing" in missing["why"]
+            assert _aggregate_fixture(reports, root, full_scope=True)["status"] == "pass"
+
+
+def test_cloud_report_cli_reads_the_final_cost_after_aggregation_started(monkeypatch):
+    cj = run_cloud.cloud_journey
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        cost = root / "run-cost.json"
+        output = root / "out.json"
+        started = datetime.now(timezone.utc)
+        cost.write_text(json.dumps({"runId": os.environ.get("GITHUB_RUN_ID", "local"),
+            "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"), "currency": "USD",
+            "scope": "run", "amount": "3",
+            "measuredAt": (started - timedelta(seconds=5)).isoformat()}))
+        args = ["cloud_journey.py", "--reports", str(root / "none"), "--output", str(output),
+                "--final-cost", str(cost), "--final-cost-after", started.isoformat()]
+        monkeypatch.setattr(sys, "argv", args)
+        cj.main()
+        stale = json.loads(output.read_text())
+        assert stale["status"] == "fail" and stale["finalCost"]["status"] == "fail"
+        cost.write_text(cost.read_text().replace(
+            (started - timedelta(seconds=5)).isoformat(), cj.now()))
+        monkeypatch.setattr(sys, "argv", [*args[:-1], (started - timedelta(seconds=1)).isoformat()])
+        cj.main()
+        assert json.loads(output.read_text())["finalCost"]["amountUsd"] == "3"
+
+
+def test_cloud_report_validates_receipts_against_the_candidate_overlay():
+    import yaml
+    workflow = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
+    for name in ("parity", "cloud-report"):
+        steps = workflow["jobs"][name]["steps"]
+        uses = [step.get("uses") for step in steps]
+        overlay = uses.index("./.github/actions/candidate-input")
+        assert steps[overlay]["with"]["candidate_ref"] == "${{ inputs.candidate_ref }}"
+        if name == "cloud-report":
+            assemble = next(i for i, step in enumerate(steps) if step.get("id") == "assemble")
+            assert overlay < assemble and "--final-cost-after" in steps[assemble]["run"]
+
+
+def test_self_test_receipts_never_enter_the_uploaded_evidence_tree():
+    cj = run_cloud.cloud_journey
+    production = E2E_DIR / "cloud-evidence"
+    assert not cj.cell_dir("aws-ecs/redis-off").is_relative_to(production)
+    assert cj.cell_dir("aws-ecs/redis-off").is_relative_to(E2E_DIR)  # receipts stay e2e-relative
+
+
+def _ecs_aws(tasks, *, task_status="RUNNING"):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[2] == "list-tasks":
+            body = {"taskArns": [task["taskArn"] for task in tasks]}
+        else:
+            body = {"tasks": [{**task, "lastStatus": task_status} for task in tasks]}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+    return run, calls
+
+
+class _EcsOutputs:
+    _workdir = Path("/iac")
+
+    def _tf(self, root, *args):
+        return subprocess.CompletedProcess(args, 0, {"ecs_cluster_name": "c1",
+            "ecs_service_name": "s1"}[args[-1]], "")
+
+
+def test_ecs_running_image_is_read_back_from_every_running_task():
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    server = pinned["components"]["honua-server"]
+    good = {"taskArn": "t1", "containers": [
+        {"image": f"{server['image']}@{server['digest']}", "imageDigest": server["digest"],
+         "lastStatus": "RUNNING"},
+        {"image": "public.ecr.aws/aws-observability/aws-otel-collector:v1", "imageDigest": "sha256:" + "0" * 64,
+         "lastStatus": "RUNNING"}]}
+    run, calls = _ecs_aws([good])
+    assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) == f"{server['image']}@{server['digest']}"
+    assert calls[0][:3] == ["aws", "ecs", "list-tasks"] and "s1" in calls[0] and "c1" in calls[1]
+    stale = {"taskArn": "t2", "containers": [{**good["containers"][0], "imageDigest": "sha256:" + "1" * 64}]}
+    for tasks, status in (([good, stale], "RUNNING"), ([], "RUNNING"), ([good], "PENDING"),
+                          ([{"taskArn": "t3", "containers": good["containers"][1:]}], "RUNNING")):
+        run, _ = _ecs_aws(tasks, task_status=status)
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None
+
+
+def test_external_ecs_image_reaches_the_owned_candidate_image_check(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    seen = []
+    original = driver.observe
+
+    def observe(target, base_url, workspace, bindir, image_ref, expected_revision):
+        seen.append(image_ref)
+        raise RuntimeError("stop after observation")
+    monkeypatch.setattr(driver, "observe", observe)
+    monkeypatch.setattr(driver.pins, "resolve_client_workspace", lambda *a, **k:
+        driver.pins.ClientWorkspace(status="blocked", root=None, reason="fixture"))
+    for image in ("ghcr.io/honua-io/honua-server@sha256:" + "a" * 64, None):
+        record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.invalid", "key", image)
+        assert record["failureAttribution"] == "infrastructure"
+    assert seen == ["ghcr.io/honua-io/honua-server@sha256:" + "a" * 64, None]
+    assert driver.observe is observe and original is not observe
+    cj.cleanup("aws-ecs/redis-off")
 
 
 def test_cloud_invalid_schema_wrong_cell_and_tampered_receipt_fail():

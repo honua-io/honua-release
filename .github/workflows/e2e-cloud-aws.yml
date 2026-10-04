@@ -522,7 +522,18 @@ jobs:
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
+      # Every parity and iac-live job has finished before this job starts; the final run cost
+      # reading must be taken after this instant.
+      - name: Record aggregation start
+        id: started
+        run: echo "at=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Receipts were bound to the candidate snapshot's manifest; validate against that same manifest.
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -544,10 +555,16 @@ jobs:
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
           REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
+          HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
+          AGGREGATION_STARTED_AT: ${{ steps.started.outputs.at }}
+        # The harness meter must refresh e2e/cloud-evidence/run-cost.json with cumulative run USD
+        # after every cloud job above has finished. Missing, stale or over-ceiling fails the gate.
         run: |
           set -euo pipefail
           mkdir -p out
-          python e2e/cloud_journey.py --reports reports --output merged.json
+          python e2e/cloud_journey.py --reports reports --output merged.json \
+            --final-cost "${HONUA_CLOUD_COST_REPORT:-e2e/cloud-evidence/run-cost.json}" \
+            --final-cost-after "$AGGREGATION_STARTED_AT"
           if [ "$CANDIDATE_RESULT" != "success" ]; then
             jq --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
               '.status="fail" | .why=$why' merged.json > checked.json
