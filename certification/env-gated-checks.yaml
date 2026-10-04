@@ -37,13 +37,6 @@ honua-console:
       lanes (Validate Console, Playwright smoke, the pinned-image Testcontainers lane) remain
       authoritative and are NOT listed here.
 
-  - name: "live-aws-browser"
-    why: >-
-      Scheduled live AWS browser smoke against the demo deployment. Its operator-preflight job
-      skips the lane when HONUA_CONSOLE_AWS_OPERATOR_USERNAME / HONUA_CONSOLE_AWS_OPERATOR_PASSWORD
-      are not configured (honua-console#409) — an unprovisioned operator identity, not a console
-      build failure. With the secrets present it runs and its assertions are authoritative.
-
 honua-sdk-dotnet:
   - name: "Staging Read-Only Integration"
     why: >-
