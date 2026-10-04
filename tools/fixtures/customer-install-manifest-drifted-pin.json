@@ -97,10 +97,10 @@
     "honua-sdk-dotnet": {
       "ecosystem": "nuget",
       "package": "Honua.Sdk",
-      "version": "1.10.1",
-      "digest": "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+      "version": "1.10.2",
+      "digest": "sha256:f699463e9dc1119024b216478654a7d91a5683cc6addcf494fc8263d2ee6f88c",
       "repository": "honua-io/honua-sdk-dotnet",
-      "sourceSha": "8a0a06c815baefd49e7398d38a9f22642a8c80c5",
+      "sourceSha": "ed05745cbd0783970c218eb9857ea130a1e2354a",
       "publicationState": "published",
       "registry": "nuget.org",
       "targets": [
@@ -108,7 +108,7 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-sdk-dotnet",
-      "filename": "honua.sdk.1.10.1.nupkg"
+      "filename": "honua.sdk.1.10.2.nupkg"
     }
   }
 }
