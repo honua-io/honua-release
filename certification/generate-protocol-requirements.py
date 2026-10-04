@@ -161,7 +161,10 @@ PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
 
 
 def selects(entry: dict[str, Any], row: dict[str, Any]) -> bool:
-    """A disposition owns a requirement by its client lane (glob) or its deployment target."""
+    """A disposition owns a requirement by its client lane (glob) or its deployment target, less
+    the lanes it hands to another disposition (except_client_lanes, glob)."""
+    if any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("except_client_lanes", [])):
+        return False
     return any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", [])) \
         or row["deployment_target"] in entry.get("deployment_targets", [])
 
@@ -705,7 +708,10 @@ def main() -> None:
                     lane=f"{lane}-{service['service']}", version=version,
                     contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
-                    licensed=licensed, entitlement_policy=entitlement_policy, facets=facets,
+                    licensed=licensed, entitlement_policy=entitlement_policy,
+                    # The licensed scripting driver replaces the coarse desktop interop rows, which
+                    # were the licensed client's only metadata coverage; its metadata cases keep it.
+                    facets=facets + ["metadata"] if scripting and "metadata" in case["name"].lower() else facets,
                     release_bucket=bucket,
                     client_driver=scripting_driver if scripting else None,
                 )
@@ -857,7 +863,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-04-complete.19",
+        "revision": "2026-10-04-complete.20",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,

@@ -1557,3 +1557,41 @@ def test_owned_denominator_runs_licensed_desktop_drivers_on_their_governed_targe
         not row["licensed"] and row["deployment_target"] == "local-docker" and row["client_version"] == "3.44.x"
         for row in qgis_drivers
     )
+
+
+def test_ledger_schema_governs_the_licensed_desktop_entitlement():
+    # Every pro-ui row binds licensed-desktop-client-v1, so the ledger schema must admit it, on the
+    # same governed windows-licensed target and auth policy as the scripting entitlement.
+    schema = json.loads(
+        (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    cell = _licensed_desktop_cell()
+    assert not list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    for overrides in ({"deployment_target": "windows"}, {"auth_policy_revision": "anonymous-public-v1"}):
+        assert list(Draft202012Validator(schema).iter_errors(_ledger({**cell, **overrides})))
+
+
+def test_pro_ui_lane_has_its_own_unproduced_disposition():
+    # The licensed producer selects windows-licensed by target; it must not claim the UI driver,
+    # whose cells no pinned workflow emits.
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    production = requirements["production"]
+    [licensed] = [entry for entry in production["producers"] if "windows-licensed" in entry.get("deployment_targets", [])]
+    assert "desktop-pro-ui" in licensed["except_client_lanes"]
+    [pro_ui] = [entry for entry in production["unproduced"] if "desktop-pro-ui" in entry.get("client_lanes", [])]
+    assert pro_ui["cells"] == sum(row.get("client_driver") == "pro-ui" for row in requirements["requirements"])
+    assert pro_ui["cells"] > 0
+
+
+def test_licensed_scripting_driver_keeps_the_metadata_facet():
+    # The coarse desktop interop rows were the licensed client's only metadata coverage; their
+    # FeatureServer and MapServer replacement rows must still declare the metadata facet.
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    scripting_driver = next(iter(set(requirements["desktop_driver_summary"]["drivers"]) - {"pyqgis", "pro-ui", "qgis-ui"}))
+    covered = {
+        row["surface"] for row in requirements["requirements"]
+        if row.get("client_driver") == scripting_driver and "metadata" in row["scenario_facets"]
+        and row["release_bucket"] == "must-fix-before-cut"
+    }
+    assert {"feature-server", "map-server"} <= covered, covered

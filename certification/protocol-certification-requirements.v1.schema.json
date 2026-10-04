@@ -94,6 +94,7 @@
               "inputs": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string" } },
               "client_lanes": { "$ref": "#/$defs/clientLanes" },
               "deployment_targets": { "$ref": "#/$defs/deploymentTargets" },
+              "except_client_lanes": { "$ref": "#/$defs/clientLanes" },
               "cells": { "type": "integer", "minimum": 0 }
             }
           }

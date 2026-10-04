@@ -862,8 +862,9 @@ def validate_production(catalog: dict) -> None:
             continue
         owners = {
             index for index, entry in enumerate(dispositions)
-            if any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", []))
-            or row["deployment_target"] in entry.get("deployment_targets", [])
+            if not any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("except_client_lanes", []))
+            and (any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", []))
+                 or row["deployment_target"] in entry.get("deployment_targets", []))
         }
         if len(owners) != 1:
             raise ValueError(

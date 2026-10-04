@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-04-complete.19",
+  "revision": "2026-10-04-complete.20",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -65,10 +65,10 @@
     }
   },
   "production": {
-    "revision": "2026-10-04.2",
+    "revision": "2026-10-04.3",
     "cells": {
-      "produced": 1592,
-      "unproduced": 480,
+      "produced": 1527,
+      "unproduced": 545,
       "not_addressable": 5
     },
     "producers": [
@@ -233,7 +233,10 @@
         "deployment_targets": [
           "windows-licensed"
         ],
-        "cells": 1109
+        "except_client_lanes": [
+          "desktop-pro-ui"
+        ],
+        "cells": 1044
       }
     ],
     "unproduced": [
@@ -273,6 +276,15 @@
         "issue": "https://github.com/honua-io/honua-release/issues/360",
         "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-dotnet:<capability>); sdk-certification.yml emits only sdk-dotnet-certification observations.",
         "cells": 64
+      },
+      {
+        "client_lanes": [
+          "desktop-pro-ui"
+        ],
+        "owner": "honua-io/honua-server",
+        "issue": "https://github.com/honua-io/honua-server/issues/5259",
+        "missing_producer": "No workflow drives the licensed desktop client UI against a candidate image; esri-sdk-certification.yml runs only the scripting and SDK lanes, so the pro-ui driver cells have no receipt producer.",
+        "cells": 65
       },
       {
         "client_lanes": [
@@ -3492,7 +3504,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -5326,7 +5339,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -8560,7 +8574,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -11500,7 +11515,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -14636,7 +14652,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -17894,7 +17911,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -22990,7 +23008,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -23834,7 +23853,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",
@@ -26982,7 +27002,8 @@
       "scenario_facets": [
         "positive",
         "auth",
-        "media-schema"
+        "media-schema",
+        "metadata"
       ],
       "contract_revision": "esri-matrix@ece4c3a2f68557fe8329e9932de36193d0732894",
       "auth_policy_revision": "anonymous-and-protected-v1",

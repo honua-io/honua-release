@@ -1,11 +1,11 @@
 {
   "schema": "honua.protocol-certification-production/v1",
-  "revision": "2026-10-04.2",
+  "revision": "2026-10-04.3",
   "tracking_issues": [
     "https://github.com/honua-io/honua-release/issues/386",
     "https://github.com/honua-io/honua-release/issues/360"
   ],
-  "notes": "Every client-addressable requirement has exactly one disposition. A lane is produced when the nightly (nightly-certification.yml) dispatches the named workflow at the candidate it resolved; its source revision is the catalog's source_revisions[source_revision_key]. Input values are literal strings or one of {server_image}, {server_sha}, {cut_at} from the resolved candidate. An unproduced lane has no producer the nightly can bind to a candidate: it stays a skip in the ledger, the gate refuses it at its required tier, and its owner cuts the producer named in missing_producer. Non-addressable requirements need no producer and are counted separately. A disposition selects requirements by client_lanes (glob) or deployment_targets; deployment_targets keeps desktop-client lanes unnamed in this public repository (R30).",
+  "notes": "Every client-addressable requirement has exactly one disposition. A lane is produced when the nightly (nightly-certification.yml) dispatches the named workflow at the candidate it resolved; its source revision is the catalog's source_revisions[source_revision_key]. Input values are literal strings or one of {server_image}, {server_sha}, {cut_at} from the resolved candidate. An unproduced lane has no producer the nightly can bind to a candidate: it stays a skip in the ledger, the gate refuses it at its required tier, and its owner cuts the producer named in missing_producer. Non-addressable requirements need no producer and are counted separately. A disposition selects requirements by client_lanes (glob) or deployment_targets, less any except_client_lanes (glob); deployment_targets keeps desktop-client lanes unnamed in this public repository (R30), and except_client_lanes hands a lane on that target to another disposition.",
   "producers": [
     {
       "producer": "honua-server-cng",
@@ -79,7 +79,8 @@
       "source_revision_key": "esri-compat",
       "inputs": {"tier": "release", "honua_image": "{server_image}", "honua_server_ref": "{server_sha}", "candidate_cut_at": "{cut_at}"},
       "client_lanes": ["raw-geoservices-*", "arcgis-python-*", "esri-dotnet-*"],
-      "deployment_targets": ["windows-licensed"]
+      "deployment_targets": ["windows-licensed"],
+      "except_client_lanes": ["desktop-pro-ui"]
     }
   ],
   "unproduced": [
@@ -106,6 +107,12 @@
       "owner": "honua-io/honua-sdk-dotnet",
       "issue": "https://github.com/honua-io/honua-release/issues/360",
       "missing_producer": "No producer emits the sdk-coverage entrypoint cells (surface sdk-dotnet:<capability>); sdk-certification.yml emits only sdk-dotnet-certification observations."
+    },
+    {
+      "client_lanes": ["desktop-pro-ui"],
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/5259",
+      "missing_producer": "No workflow drives the licensed desktop client UI against a candidate image; esri-sdk-certification.yml runs only the scripting and SDK lanes, so the pro-ui driver cells have no receipt producer."
     },
     {
       "client_lanes": ["desktop-qgis", "desktop-pyqgis", "desktop-qgis-ui", "gdal", "js-maplibre", "js-cesium", "py-owslib", "py-pystac", "js", "cli", "arcgis-stub", "bi-excel", "bi-powerbi", "ci-bi"],
