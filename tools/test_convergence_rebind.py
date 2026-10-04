@@ -446,8 +446,11 @@ def test_nightly_convergence_is_deterministic(tmp_path):
         staged.append((plan, payloads))
     assert staged[0][0] == staged[1][0]
     assert staged[0][1] == staged[1][1]
-    production = json.loads(staged[0][1][str(MODULE.CATALOG)])["production"]
-    assert production["cells"] == {"produced": 1512, "unproduced": 412, "not_addressable": 5}
+    catalog = json.loads(staged[0][1][str(MODULE.CATALOG)])
+    # the expectation is the checked-in generated catalog, so a requirement row change cannot strand a literal
+    generated = json.loads((ROOT / MODULE.CATALOG).read_text(encoding="utf-8"))
+    assert catalog["production"]["cells"] == generated["production"]["cells"]
+    assert sum(catalog["production"]["cells"].values()) == len(catalog["requirements"])
 
     recorded = night()
     bound = []

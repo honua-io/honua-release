@@ -658,10 +658,10 @@ def evaluate(
                 "client_version_observed from its receipt",
             )
         owned_requirement = owned_by_signature.get(_requirement_signature(raw))
-        if "release_bucket" in raw and (
-            not isinstance(owned_requirement, dict)
-            or raw["release_bucket"] != owned_requirement.get("release_bucket")
-        ):
+        required_bucket = owned_requirement.get("release_bucket") if isinstance(owned_requirement, dict) else None
+        if required_bucket is not None and "release_bucket" not in raw:
+            fail(prefix, f"release_bucket is required: the owned requirement is {required_bucket!r}")
+        elif "release_bucket" in raw and (required_bucket is None or raw["release_bucket"] != required_bucket):
             fail(prefix, "release_bucket does not match the owned requirement")
 
         evidence_digest = raw["evidence_digest"]

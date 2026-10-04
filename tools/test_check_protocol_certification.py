@@ -1355,6 +1355,15 @@ def test_ledger_release_bucket_must_match_the_owned_requirement():
     assert any("release_bucket" in finding["why"] for finding in report["findings"])
 
 
+def test_ledger_cell_must_carry_the_owned_requirement_release_bucket():
+    cell = _release_line_cell()
+    cell.pop("release_bucket", None)
+    requirements = _requirements(cell)
+    requirements["requirements"][0]["release_bucket"] = "prove-against-candidate"
+    report = _evaluate(_ledger(cell), "nightly", now=NOW, requirements=requirements)
+    assert report["overall_status"] == "fail"
+    assert any("release_bucket is required" in finding["why"] for finding in report["findings"])
+
 def _desktop_source():
     return json.loads(
         (cert.REQUIREMENTS_PATH.parent / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8")
