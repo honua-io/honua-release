@@ -471,7 +471,8 @@ def passing_cli_observations():
         "list": {"observed": {"layers": [{"layerId": 12, "enabled": True}]}},
         "query": {"observed": {"features": rows(oracles.filtered_sites(FIXTURE), ("gid", "name", "rank"))}},
         "served": {"observed": {"count": len(life["features"])}},
-        "propose-publication": {"observed": {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1"}},
+        "propose-publication": {"observed": {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1",
+                                             "servedBeforeApproval": False}},
         "self-approval-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 403}, "observed": {"status": "AwaitingApproval"}},
         "approve": {"observed": {"status": "Succeeded"}},
         "proposal-resolved": {"observed": {"status": "Succeeded", "kind": "ServicePublish",
@@ -559,6 +560,65 @@ class WorkflowTests(unittest.TestCase):
         status, detail, _ = evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())
         self.assertEqual(status, "fail")
         self.assertIn("set it active", detail)
+
+    def test_proposal_must_not_be_served_before_approval(self):
+        pending = {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1"}
+        self.assertTrue(oracles.oracle_proposal_pending({**pending, "servedBeforeApproval": False})[0])
+        ok, detail = oracles.oracle_proposal_pending({**pending, "servedBeforeApproval": True})
+        self.assertFalse(ok)
+        self.assertIn("served before approval", detail)
+        # The absence check must have run.
+        self.assertFalse(oracles.oracle_proposal_pending(pending)[0])
+
+    def test_cli_children_inherit_no_suite_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            honua, plan = Path(tmp) / "honua", Path(tmp) / "plan.json"
+            honua.write_text(f"#!{sys.executable}\nimport json, os\nprint(json.dumps(dict(os.environ)))\n")
+            honua.chmod(0o700)
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            inherited = regression.driver_env({"PATH": os.environ["PATH"], "PYTHONPATH": "/wheels", "E2E_API_KEY": "admin",
+                                               "HONUA_API_KEY": "operator", "GH_TOKEN": "gh"},
+                                              api_key="root", bearer="bearer", db_password="db", plan_path=plan,
+                                              principals=PRINCIPALS)
+            with mock.patch.dict(os.environ, inherited, clear=True):
+                driver = load_driver("cli", plan)
+                cli = driver.Cli("npm", str(honua), None, Path(tmp))
+                seen = json.loads(cli.run(["services"], {"HONUA_ADMIN_KEY": "secret-proposer"}))
+        self.assertEqual({key: value for key, value in seen.items() if key.startswith(("SDKREG_", "E2E_", "HONUA_"))},
+                         {"HONUA_BASE_URL": "http://localhost:8080", "HONUA_CONFIG_HOME": str(Path(tmp) / "honua-config"),
+                          "HONUA_ADMIN_KEY": "secret-proposer"})
+        self.assertEqual(seen["PYTHONPATH"], "/wheels")
+        self.assertNotIn("GH_TOKEN", seen)
+
+    def test_anonymous_full_view_is_judged_on_its_first_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("mcp", plan)
+        session = mock.Mock()
+        # A first page is disclosed and only the second is refused: the observation must carry the disclosure.
+        session.request.side_effect = [
+            {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "honua_admin_role_list"}], "nextCursor": "c2"}},
+            {"jsonrpc": "2.0", "id": 2, "error": {"code": -32603, "data": {"code": "permission_denied"}}},
+        ]
+        observation = {"observed": driver.anonymous_full_view(session)}
+        self.assertEqual(observation["observed"]["names"], ["honua_admin_role_list"])
+        self.assertFalse(oracles.oracle_mcp_permission_denied(observation)[0])
+        session.request.side_effect = [{"jsonrpc": "2.0", "id": 1, "error": {"code": -32603, "data": {"code": "permission_denied"}}}]
+        with self.assertRaises(driver.RpcError) as refused:
+            driver.anonymous_full_view(session)
+        self.assertEqual(refused.exception.kind, "permission_denied")
+
+    def test_default_view_must_be_the_pinned_roster_and_revision(self):
+        pinned = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]
+        good = setup_view("default", list(PINNED_DEFAULT_VIEW), pinned["revision"])
+        judge = regression.ORACLES["mcp-default-view"]
+        self.assertTrue(judge(good, FIXTURE, {}, {}, {})[0])
+        swapped = setup_view("default", PINNED_DEFAULT_VIEW[1:] + ["honua_admin_role_list"], pinned["revision"])
+        ok, detail = judge(swapped, FIXTURE, {}, {}, {})
+        self.assertFalse(ok)
+        self.assertIn("honua_admin_role_list", detail)
+        self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
 
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
         cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()

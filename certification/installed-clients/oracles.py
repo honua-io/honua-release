@@ -488,9 +488,13 @@ def oracle_empty_tile(observed: dict[str, Any]) -> tuple[bool, str]:
 def oracle_proposal_pending(observed: dict[str, Any]) -> tuple[bool, str]:
     status, proposal = observed.get("status"), observed.get("proposalId")
     ok = status == "RequiresApproval" and observed.get("requiresApproval") is True and isinstance(proposal, str) and bool(proposal)
-    return ok, (f"publication recorded as a proposal awaiting approval (status {status!r})" if ok
-                else f"status {status!r}, requiresApproval {observed.get('requiresApproval')!r}, proposal id present: {bool(proposal)}; "
-                     "the fixture's approval policy requires a proposal")
+    if not ok:
+        return False, (f"status {status!r}, requiresApproval {observed.get('requiresApproval')!r}, proposal id present: {bool(proposal)}; "
+                       "the fixture's approval policy requires a proposal")
+    if observed.get("servedBeforeApproval") is not False:
+        return False, (f"the proposed service was served before approval (servedBeforeApproval "
+                       f"{observed.get('servedBeforeApproval')!r}); the approval policy must hold the publication")
+    return True, f"publication recorded as a proposal awaiting approval (status {status!r}), not served before approval"
 
 
 def oracle_self_approval_refused(observation: dict[str, Any]) -> tuple[bool, str]:
@@ -530,14 +534,23 @@ def oracle_mcp_initialized(observed: dict[str, Any], fixture: dict[str, Any]) ->
     return version == want and named, f"protocol {version!r} (fixture {want!r}), server identity present: {named}"
 
 
-def oracle_mcp_view(observed: dict[str, Any], fixture: dict[str, Any], view: str) -> tuple[bool, str]:
+def oracle_mcp_view(observed: dict[str, Any], fixture: dict[str, Any], view: str,
+                    pinned: dict[str, Any] | None = None) -> tuple[bool, str]:
+    """The complete view with the fixture's count; with a pinned roster, exactly its revision and tool names."""
     count = fixture["mcp"]["views"][view]["toolCount"]
     names = observed.get("names") if isinstance(observed.get("names"), list) else []
     got_view, revision, meta_count = observed.get("view"), observed.get("revision"), observed.get("toolCount")
     ok = (got_view == view and isinstance(revision, str) and bool(revision) and meta_count == count
           and len(names) == count == len(set(names)) and observed.get("nextCursor") is None)
-    return ok, (f"selector-free tools/list returned view {got_view!r} ({revision}) with {len(names)} tools "
-                f"(metadata {meta_count}); the fixture expects the complete {view!r} view with {count}")
+    detail = (f"selector-free tools/list returned view {got_view!r} ({revision}) with {len(names)} tools "
+              f"(metadata {meta_count}); the fixture expects the complete {view!r} view with {count}")
+    if pinned is None:
+        return ok, detail
+    missing, extra = sorted(set(pinned["tools"]) - set(names)), sorted(set(names) - set(pinned["tools"]))
+    if ok and revision == pinned["revision"] and not missing and not extra:
+        return True, f"{detail}, equal to the pinned {pinned['revision']} roster"
+    drift = "".join(f"; {label} {values}" for label, values in (("missing", missing), ("not pinned", extra)) if values)
+    return False, f"{detail}; the pinned roster is {pinned['revision']} with {len(pinned['tools'])} tools{drift}"
 
 
 def oracle_mcp_permission_denied(observation: dict[str, Any]) -> tuple[bool, str]:

@@ -86,6 +86,11 @@ def load_tool_roster(path: Path = TOOL_ROSTER) -> list[str]:
     return list(json.loads(path.read_text())["fullCatalog"]["tools"])
 
 
+def load_default_view(path: Path = TOOL_ROSTER) -> dict[str, Any]:
+    """The pinned default view: its revision and tool names."""
+    return json.loads(path.read_text())["defaultView"]
+
+
 def load_scenarios(directory: Path = SCENARIOS) -> dict[str, dict[str, Any]]:
     scenarios: dict[str, dict[str, Any]] = {}
     for path in sorted(directory.glob("*.json")):
@@ -436,7 +441,7 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "approved-features": lambda o, f, p, obs, s: oracles._compare_features(o, f["proposal"]["features"], ["gid", "name"], "approved publication"),
     "mcp-initialized": lambda o, f, p, obs, s: oracles.oracle_mcp_initialized(o, f),
     "mcp-setup-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "setup"),
-    "mcp-default-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "default"),
+    "mcp-default-view": lambda o, f, p, obs, s: oracles.oracle_mcp_view(o, f, "default", load_default_view()),
     "mcp-permission-denied": lambda o, f, p, obs, s: oracles.oracle_mcp_permission_denied(o),
     "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, load_tool_roster(), _observed_names(obs, s, "default-tools-list")),
     "map-render": lambda o, f, p, obs, s: oracles.oracle_map_render(o, f),

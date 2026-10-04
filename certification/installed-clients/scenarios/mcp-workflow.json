@@ -17,12 +17,12 @@
     {
       "id": "default-tools-list",
       "oracle": "mcp-default-view",
-      "description": "A new session initialized without a selector lists the complete default view with the fixture's tool count."
+      "description": "A new session initialized without a selector lists the complete default view: the fixture's tool count and exactly the pinned default roster and revision (e2e/drivers/mcp/expected-tools.json)."
     },
     {
       "id": "full-catalog-refused",
       "oracle": "mcp-permission-denied",
-      "description": "An anonymous tools/list that asks for the full view is refused with permission_denied."
+      "description": "The first anonymous tools/list page for the full view is refused with permission_denied; any page returned is a disclosure."
     },
     {
       "id": "full-catalog",

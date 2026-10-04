@@ -42,7 +42,7 @@
     {
       "id": "propose-publication",
       "oracle": "proposal-pending",
-      "description": "As the proposer principal, find honua_publish_service in the setup view and call it to publish the client's proposal table; the server records a proposal awaiting approval instead of publishing."
+      "description": "As the proposer principal, find honua_publish_service in the setup view and call it to publish the client's proposal table; the server records a proposal awaiting approval instead of publishing, and the proposed service is not served (honua layers: 404 or no layers) until approval."
     },
     {
       "id": "self-approval-refused",

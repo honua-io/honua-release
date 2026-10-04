@@ -96,8 +96,8 @@ class Cli:
 
     def run(self, args: list[str], credentials: dict[str, str]) -> str:
         """Run one command with only the credentials it needs; returns stdout, raises on a non-zero exit."""
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("SDKREG_", "HONUA_")) or key == "HONUA_CONFIG_HOME"}
+        # Startup variables only (PYTHONPATH carries the isolated PyPI wheels); no SDKREG_*, E2E_* or HONUA_* value.
+        env = {key: os.environ[key] for key in (*probes.PROXY_INHERITED_ENV, "PYTHONPATH") if key in os.environ}
         env.update({"HONUA_BASE_URL": BASE, "HONUA_CONFIG_HOME": str(self.profiles), **credentials})
         print(f"[cli-driver] $ honua {' '.join(args)}", file=sys.stderr)
         proc = subprocess.run([self.honua, *args], env=env, cwd=self.workdir, text=True, capture_output=True,
@@ -254,7 +254,17 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         state["proposal"] = content.get("proposalId")
         if not state["proposal"]:
             state.pop("proposal")
-        return {key: content.get(key) for key in ("status", "requiresApproval", "proposalId")}
+        return {**{key: content.get(key) for key in ("status", "requiresApproval", "proposalId")},
+                "servedBeforeApproval": served_before_approval()}
+
+    def served_before_approval() -> bool:
+        """The proposed service must not be served until the approver acts (unknown service: exit 1, 404)."""
+        try:
+            return bool(cli.json(["layers", proposal["service"], "--json"], data).get("layers"))
+        except CommandFailed as exc:
+            if exc.status == 404:
+                return False
+            raise
     step("npm", "propose-publication", propose, state, ("connection",))
 
     def read_proposal(key: str, profile: str) -> dict[str, Any]:

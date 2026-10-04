@@ -135,6 +135,12 @@ def full_catalog(mcp: probes.McpProxySession) -> tuple[list[str], int]:
     raise RpcError("unbounded-pagination")
 
 
+def anonymous_full_view(mcp: probes.McpProxySession) -> dict[str, Any]:
+    """Only the first full-view page. A refusal raises; any page returned is a disclosure the oracle fails."""
+    result = result_of(mcp.request("tools/list", {"view": "full"}))
+    return {"names": [tool.get("name") for tool in result.get("tools") or []], "pages": 1}
+
+
 def point_wkb(x: float, y: float) -> str:
     return base64.b64encode(struct.pack("<BIdd", 1, 1, x, y)).decode()
 
@@ -172,8 +178,7 @@ def run(proxy: str) -> None:
     with session(proxy) as anonymous:
         def refused() -> dict[str, Any]:
             initialized(anonymous.initialize())
-            names, pages = full_catalog(anonymous)
-            return {"names": names, "pages": pages}
+            return anonymous_full_view(anonymous)
         step("full-catalog-refused", refused, state)
 
     with session(proxy, key) as operator:
