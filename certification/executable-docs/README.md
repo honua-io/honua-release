@@ -6,6 +6,7 @@ See [the executable docs guide](../../docs/EXECUTABLE-DOCS.md) for inventory, pr
 Only a witnessed failure of that block’s command becomes `blocked`. Runner exceptions,
 container/infrastructure errors, output assertions and installed-package audit failures stay `fail`.
 A linked blocked marker on an unsupported language fails instead of being silently unexecuted.
+An unlabelled command fence still runs as shell; only a witnessed command failure becomes `blocked`.
 A passing command records `staleBlockedMarker` so authors can remove the marker.
 
 Readiness attributes combine with the issue marker:

@@ -98,7 +98,9 @@ are not meant to run are reported as `not-run` with their intent.
 - **blocked.** The document marks the block `<!-- doc-run: blocked <issue> -->`: the command is
   right and the product (or another repository) misbehaves, tracked in the linked issue. The block
   still runs. A failure is recorded as `blocked` with the issue (`blockedBy`) and the output tails; a
-  pass is recorded as `pass` with `staleBlockedMarker`, so the marker can be removed.
+  pass is recorded as `pass` with `staleBlockedMarker`, so the marker can be removed. A linked marker
+  on a language this gate cannot execute (PowerShell, JSON, YAML, and other non-run fences) fails
+  that block instead of recording `not-run`. An unlabelled command fence still runs as shell.
 
 Document status is `fail` when any block or check fails, zero blocks execute, or a Docker document's
 candidate-image check is unevaluated; otherwise it is `needs-input` when a block needs a value,
@@ -154,7 +156,7 @@ the fence (only blank lines may separate them). The comment is invisible when re
 | `<!-- doc-run: skip reason="..." -->` | Deliberately illustrative. The block is not run, and the inventory records it as `excluded` with the reason. **A skip without a reason is ignored and the block still runs.** |
 | `<!-- doc-run: file=path/name.ext -->` | Save the block as this file (relative to the reader's current directory). Later blocks run it. If none mentions it, a runnable file is also run. |
 | `<!-- doc-run: output -->` | This block is the expected output of the preceding runnable block. |
-| `<!-- doc-run: blocked https://github.com/<owner>/<repo>/issues/<n> -->` | The command is right and the linked issue tracks why it fails against the candidate. The block still runs; only its own command failure becomes `blocked`, and the gate stays red. Runner exceptions, container/infrastructure errors, output assertions and package audits remain `fail`. Also accepts `<owner>/<repo>#<n>`. **A blocked marker without an issue is ignored and the block still runs.** |
+| `<!-- doc-run: blocked https://github.com/<owner>/<repo>/issues/<n> -->` | The command is right and the linked issue tracks why it fails against the candidate. The block still runs; only its own command failure becomes `blocked`, and the gate stays red. Runner exceptions, container/infrastructure errors, output assertions and package audits remain `fail`. Also accepts `<owner>/<repo>#<n>`. **A blocked marker without an issue is ignored and the block still runs.** A linked marker on a language this gate cannot execute fails the block instead of `not-run`. An unlabelled command fence still runs as shell. |
 | `<!-- doc-run: expect-fail -->` | The command is meant to fail (for example, a validator shown rejecting a bad input): a non-zero exit passes, and exit 0 fails. Prose that says "deliberately broken" or "to see it catch/fail/reject" right above the block means the same. |
 | `<!-- doc-run: teardown -->` | This block stops what the reader started. It runs when the reader is done, after the last document of the session. A shell block made only of `docker compose down/stop/rm` lines is treated this way without a marker. |
 | `<!-- doc-run: run -->` | Run this block even though no heuristic says so (for example, an unlabelled fence). |

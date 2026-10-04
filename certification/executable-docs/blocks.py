@@ -17,6 +17,8 @@ Intent of a block:
 A run block may also carry `<!-- doc-run: blocked <issue> -->`: the command is right and the product
 (or another repository) misbehaves, tracked in the linked issue. The block still runs; a failure is
 recorded as `blocked` with that issue instead of `fail`, and the gate stays blocked, not green.
+A linked marker on a language this gate cannot execute fails the block instead of `not-run`.
+An unlabelled fence that the heuristic can run as shell still runs.
 """
 from __future__ import annotations
 
@@ -234,9 +236,12 @@ def classify(blocks: list[Block]) -> list[Block]:
                     block.intent, block.blocked_by = "run", marker["blocked"]
                     previous_run = block
                     continue
-                block.marker_error = ("doc-run: blocked needs a linked issue (https://github.com/<owner>/<repo>/issues/<n>); "
-                                      "the block runs as usual" if not marker["blocked"] else
-                                      f"doc-run: blocked on a language this gate cannot execute ({block.language})")
+                # A linked marker on a not-yet-runnable fence is settled after heuristics: an
+                # unlabelled command is promoted to shell and must still run. Setting the
+                # cannot-execute error here would fail that fence before promotion.
+                if not marker["blocked"]:
+                    block.marker_error = ("doc-run: blocked needs a linked issue (https://github.com/<owner>/<repo>/issues/<n>); "
+                                          "the block runs as usual")
                 block.intent_source = "heuristic"
             elif "skip" in marker:
                 if marker.get("reason", "").strip():
@@ -332,7 +337,35 @@ def classify(blocks: list[Block]) -> list[Block]:
                 continue
         block.intent = "illustrative"
         block.reason = f"{lang or 'unlabelled'} block is not executable by this gate"
+    for block in blocks:
+        _settle_blocked(block)
     return blocks
+
+
+def _settle_blocked(block: Block) -> None:
+    """Apply a linked blocked marker once the fence's language has settled.
+
+    The marker is read before an unlabelled command fence is promoted to shell, so a
+    cannot-execute error decided at that moment would skip a command this gate can run.
+    After classification, a fence that is shell (or another runnable language) with intent
+    `run` still runs and records a witnessed command failure as `blocked`. A fence that is
+    still PowerShell, JSON, YAML, or any other non-run language fails closed.
+    """
+    marker = block.marker or {}
+    issue = marker.get("blocked", "")
+    if "blocked" not in marker or not issue:
+        return
+    runnable = set(RUN_LANGUAGES.values())
+    if block.language in runnable and block.intent == "run":
+        block.blocked_by = issue
+        block.intent_source = "marker"
+        if (block.marker_error or "").startswith("doc-run: blocked on a language"):
+            block.marker_error = None
+        return
+    if block.language not in runnable:
+        shown = block.language or "unlabelled"
+        block.marker_error = f"doc-run: blocked on a language this gate cannot execute ({shown})"
+        block.blocked_by = None
 
 
 def extract(text: str, fmt: str) -> list[Block]:

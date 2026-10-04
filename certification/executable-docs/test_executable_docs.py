@@ -918,8 +918,65 @@ def test_blocked_marker_on_unsupported_language_keeps_document_red(tmp_path, lan
     session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
                               installed_honua=lambda runtime: {})
     text = f'```sh\ntrue\n```\n\n<!-- doc-run: blocked o/r#1 -->\n```{language}\nunsupported\n```\n'
+    classified = by_index(text)
+    assert classified[1].blocked_by is None
+    assert "cannot execute" in (classified[1].marker_error or "")
+    assert classified[1].intent in {"alternative", "illustrative"}
     result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
                              {"env": {}, "substitute": {}}, "sha256:test", [], set())
     assert result["blocks"][1]["status"] == "fail"
     assert "cannot execute" in result["blocks"][1]["markerError"]
+    assert result["status"] == "fail"
+
+
+def test_blocked_marker_on_unlabelled_command_still_runs(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    ran = []
+
+    def run_shell(code, *args):
+        ran.append(code)
+        return Outcome("fail", "exit code 1", exit_code=1, command_failed=True)
+
+    text = "<!-- doc-run: blocked o/r#1 -->\n```\nnpm test\n```\n"
+    classified = by_index(text)
+    assert classified[0].language == "shell" and classified[0].intent == "run"
+    assert classified[0].blocked_by == "o/r#1" and classified[0].marker_error is None
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert ran == ["npm test\n"]
+    assert result["blocks"][0]["status"] == "blocked"
+    assert result["blocks"][0]["blockedBy"] == "o/r#1"
+    assert result["status"] == "blocked"
+
+
+def test_blocked_marker_on_unlabelled_non_command_fails(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = "```sh\ntrue\n```\n\n<!-- doc-run: blocked o/r#1 -->\n```\nnot a command\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][1]["status"] == "fail"
+    assert "cannot execute (unlabelled)" in result["blocks"][1]["markerError"]
+    assert result["status"] == "fail"
+
+
+def test_blocked_marker_on_file_cued_unsupported_fence_keeps_document_red(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = ("Save this as `compose.yaml`:\n\n<!-- doc-run: blocked o/r#1 -->\n```yaml\nservices: {}\n```\n\n"
+            "```sh\ntrue\n```\n")
+    classified = by_index(text)
+    assert classified[0].intent == "file" and classified[0].file == "compose.yaml"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][0]["status"] == "fail"
+    assert "cannot execute" in result["blocks"][0]["markerError"]
+    assert result["blocks"][1]["status"] == "pass"
     assert result["status"] == "fail"
