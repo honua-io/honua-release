@@ -20,7 +20,7 @@ DRIVERS = {
 }
 
 
-def run_extended(endpoint, *, target, out, ready, require_real=False):
+def run_extended(endpoint, *, target, out, ready, require_real=False, redis_enabled=True):
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     # Drivers carry only the application key. Cloud credentials and dispatch tokens never reach
@@ -30,7 +30,10 @@ def run_extended(endpoint, *, target, out, ready, require_real=False):
         "E2E_SITE_DIR", "E2E_SITE_SHA", "E2E_PW_HOME", "E2E_PLAYWRIGHT_VERSION")}
     env.update(E2E_BASE=endpoint.rstrip("/"), E2E_API_KEY=target.admin_api_key,
         E2E_OUT=str(out), E2E_REQUIRE_REAL="1" if require_real else "",
-        E2E_SERVER_BOOTED="true" if ready else "false", E2E_SITE_PORT="18099")
+        E2E_SERVER_BOOTED="true" if ready else "false", E2E_SITE_PORT="18099",
+        # A Redis-off cell is a different topology, not a broken one: the GP driver asserts the
+        # typed capability-unavailable refusal there instead of a durable job run.
+        E2E_REDIS="on" if redis_enabled else "off")
     seed_error = None
     try:
         seed(endpoint, target.admin_api_key, target, out)

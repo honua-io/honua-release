@@ -164,7 +164,8 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         # The seed and every seam driver run BEFORE any journey mutation or teardown. Preserve the
         # same detailed gate-report rows as the local harness, alongside the four cloud summaries.
         extended = run_extended(endpoint, target=target,
-            out=cloud_journey.cell_dir(cell) / "extended", ready=ready, require_real=require_real)
+            out=cloud_journey.cell_dir(cell) / "extended", ready=ready, require_real=require_real,
+            redis_enabled=redis_enabled)
         report["scenarioCoverage"] = _check_dicts(extended)
         for number in range(1, max_attempts + 1):
             # The owned 1.1-candidate-image check needs the image ECS reports running now.

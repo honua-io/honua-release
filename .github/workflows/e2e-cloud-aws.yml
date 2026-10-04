@@ -367,12 +367,19 @@ jobs:
         # dependency, so install the declared set rather than assuming the runner image carries it.
         run: python -m pip install -r e2e/requirements.txt pytest
 
+      # The checkout below is static so the code driven on this host stays review-visible. The
+      # candidate declares its demo source in the (possibly overlaid) platform manifest, so that
+      # canonical pin, not only the compatibility copy, must equal the reviewed one: a candidate
+      # that moves evidenceSources.demos fails closed here instead of certifying other demos.
       - name: Resolve the reviewed demo source
         run: |
           python - <<'PY'
           import yaml
-          pin = yaml.safe_load(open("certification/conformance-evidence.yaml"))["demos"]["sourceRef"]
-          if pin != "0db19d7e6e5826fd885fb8f9c21c1798077c9b71":
+          reviewed = "0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("demos") or {}
+          if source.get("repository") != "honua-io/honua-site" or source.get("producerSha") != reviewed:
+              raise SystemExit("candidate evidenceSources.demos differs from the reviewed workflow pin")
+          if yaml.safe_load(open("certification/conformance-evidence.yaml"))["demos"]["sourceRef"] != reviewed:
               raise SystemExit("demo sourceRef differs from the reviewed workflow pin")
           PY
       - name: Checkout the pinned demo pages

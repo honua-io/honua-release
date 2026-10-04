@@ -1685,6 +1685,7 @@ def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=F
         assert not any(k.startswith('AWS_') or k in ('GH_TOKEN', 'GITHUB_TOKEN') for k in env)
         assert env['E2E_BASE'] == 'https://cell.example.invalid'
         assert env['E2E_API_KEY'] == 'test-app-key'
+        assert env['E2E_REDIS'] == 'on'
         driver = Path(command[1]).parent.name
         invoked.append(driver)
         rows = next(expected for name, (d, expected) in cloud_driver.DRIVERS.items() if d == driver)
@@ -1801,3 +1802,75 @@ if __name__ == "__main__":
                 patches.undo()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+def test_run_passes_the_cell_redis_mode_to_the_extended_runner(monkeypatch):
+    seen = {}
+    stub = _ServingStub()
+    def extended(endpoint, **kwargs):
+        seen["redis_enabled"] = kwargs["redis_enabled"]
+        return []
+    monkeypatch.setattr(run_cloud, "run_extended", extended)
+    monkeypatch.setattr(stub, "provision", lambda **kwargs: stub.endpoint)
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None)
+    monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-ecs": lambda **kwargs: stub})
+    monkeypatch.setattr(run_cloud, "make_fetch", lambda **kwargs: lambda url: cc.HttpResponse(200, ""))
+    monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.cloud_journey, "attempt", lambda *a, **k: {"receipt": "x"})
+    monkeypatch.setattr(run_cloud.cloud_journey, "check_cost", lambda *a, **k: {"status": "pass"})
+    monkeypatch.setattr(run_cloud.cloud_journey, "cleanup", lambda cell: None)
+    run_cloud.run("aws-ecs", False, None, redis_enabled=False)
+    assert seen["redis_enabled"] is False
+
+
+def _run_gp_driver_against(status, body):
+    """Run the real S5 driver in Redis-off mode against a one-shot HTTP stub."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _reply(self, code, payload):
+            data = payload.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/problem+json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._reply(200 if self.path == "/healthz/ready" else 404, "{}")
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            assert self.path == "/ogc/processes/processes/geometry.area/execution"
+            self._reply(status, body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            env = {**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_address[1]}",
+                   "E2E_API_KEY": "k", "E2E_OUT": out, "E2E_REDIS": "off"}
+            subprocess.run(["bash", str(E2E_DIR / "drivers/gp/run.sh")], env=env, check=True,
+                           capture_output=True, timeout=60)
+            rows = [json.loads(line) for line in Path(out, "scenarios.jsonl").read_text().splitlines()]
+    finally:
+        server.shutdown()
+    assert [row["scenario"] for row in rows] == ["S5-geoprocessing"]
+    return rows[0]
+
+
+def test_gp_driver_redis_off_passes_on_the_typed_capability_unavailable_refusal():
+    row = _run_gp_driver_against(503, json.dumps({
+        "type": "https://honua.io/problems/capability-unavailable", "status": 503,
+        "code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis"}))
+    assert row["status"] == "pass" and row["evidence"]["missingDependency"] == "redis"
+
+
+def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untyped():
+    assert _run_gp_driver_against(201, json.dumps({"jobID": "j1", "status": "accepted"}))["status"] == "fail"
+    assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
