@@ -101,25 +101,27 @@ def test_unadmitted_gate_is_removed_with_comment_signal():
 
 def test_working_candidate_is_rendered_without_cutting_the_candidate():
     data = json.loads(decision.INPUTS.read_text())
-    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    config = json.loads(decision.OVERRIDES.read_text())
+    rows = decision.decisions(data, config)
     wc = data['working_candidate']
-    record = decision.render(data, rows)
+    record = decision.render(data, rows, config)
     assert '**Candidate digest: not yet cut ·' in record
-    assert f'**Working candidate {wc["label"]} ({wc["status"]})' in record
+    assert f'**Working candidate {wc["label"]} ({wc["status"]}) · {wc["train_kind"]} train [' in record
     for name, sha, _ in wc['pins']:
         assert f'| {name} | `{sha}` |' in record
     assert all(not r['qualified_against_candidate'] for r in rows)
     without = {k: v for k, v in data.items() if k != 'working_candidate'}
-    assert 'Working candidate' not in decision.render(without, rows)
+    assert 'Working candidate' not in decision.render(without, rows, config)
 
 
 def test_working_candidate_note_is_rendered_and_optional():
     data = json.loads(decision.INPUTS.read_text())
-    rows = decision.decisions(data, json.loads(decision.OVERRIDES.read_text()))
+    config = json.loads(decision.OVERRIDES.read_text())
+    rows = decision.decisions(data, config)
     wc = data['working_candidate']
-    assert wc['note'] in decision.render(data, rows)
+    assert wc['note'] in decision.render(data, rows, config)
     stripped = {k: v for k, v in wc.items() if k != 'note'}
-    record = decision.render({**data, 'working_candidate': stripped}, rows)
+    record = decision.render({**data, 'working_candidate': stripped}, rows, config)
     assert wc['note'] not in record
     assert f'**Working candidate {wc["label"]}' in record
 
@@ -160,7 +162,7 @@ def test_snapshot_and_generated_record_are_complete_and_current():
         assert 'body' not in row  # issue bodies / raw API responses never enter the repo
         if row['state']=='open' and row['bucket']=='must-fix-before-cut':
             assert f"https://github.com/honua-io/{row['repo']}/issues/{row['number']}" in table
-    assert decision.RECORD.read_text() == decision.render(data, rows)
+    assert decision.RECORD.read_text() == decision.render(data, rows, config)
     ledger = json.loads(decision.LEDGER.read_text())
     assert ledger['issues'] == rows
 
@@ -232,3 +234,124 @@ def test_interrupted_apply_retains_new_cohort_before_removing_release_label(tmp_
     with pytest.raises(ValueError, match='simulated interruption'):
         decision.main()
     assert json.loads(inputs.read_text())['issues'] == fresh['issues']
+
+
+def test_working_candidate_train_is_labelled_by_its_kind():
+    data = json.loads(decision.INPUTS.read_text())
+    config = json.loads(decision.OVERRIDES.read_text())
+    rows = decision.decisions(data, config)
+    wc = data['working_candidate']
+    # Run 37132168180 was the first scheduled nightly strict train, not a dry run.
+    assert wc['train'].endswith('/37132168180') and wc['train_kind'] == 'scheduled strict'
+    assert '· scheduled strict train [37132168180]' in decision.render(data, rows, config)
+    assert 'dry-run train [37132168180]' not in decision.render(data, rows, config)
+    for kind in (None, 'nightly', ''):
+        bad = {**wc, 'train_kind': kind} if kind is not None else {k: v for k, v in wc.items() if k != 'train_kind'}
+        with pytest.raises(ValueError, match='train_kind'):
+            decision.render({**data, 'working_candidate': bad}, rows, config)
+
+
+SEC_COUNTS = {'security-review-2026-10-03': {'counts': {'ga_blocker': 2}}}
+
+
+def sec_rules(*rows):
+    return {**rules(), 'rulings': SEC_COUNTS, 'security_findings': [dict(r) for r in rows]}
+
+
+OPEN = {'id':'SEC-4', 'repo':'honua-io/honua-server', 'status':'open'}
+FIXED = {'id':'SEC-9', 'repo':'honua-io/honua-server', 'status':'fixed', 'fixedBy':'5082'}
+LOCK = {'tag':'2026.1-rc.3', 'digest':'sha256:' + 'a' * 64}
+
+
+@pytest.mark.parametrize('rows', [
+    [],
+    [OPEN],  # fewer rows than the ruling's GA-blocker count
+    [OPEN, {**OPEN}],  # duplicate id
+    [OPEN, {**FIXED, 'id':'SEC-09'}],
+    [OPEN, {**FIXED, 'id':'4'}],
+    [OPEN, {**FIXED, 'repo':'mikemcdougall/honua-security-findings'}],
+    [OPEN, {k: v for k, v in FIXED.items() if k != 'fixedBy'}],  # fixed needs its PR
+    [OPEN, {**FIXED, 'fixedBy':'#5082'}],
+    [OPEN, {**FIXED, 'status':'open'}],  # open cannot claim a fix
+    [OPEN, {**FIXED, 'status':'mitigated'}],
+])
+def test_security_rows_fail_closed(rows):
+    with pytest.raises(ValueError):
+        decision.security_findings(sec_rules(*rows))
+    if not rows:
+        with pytest.raises(ValueError, match='missing'):
+            decision.security_findings({**rules(), 'rulings': SEC_COUNTS})
+
+
+def test_committed_security_rows_cover_the_ruled_ga_blockers():
+    config = json.loads(decision.OVERRIDES.read_text())
+    ids = [f['id'] for f in decision.security_findings(config)]
+    assert ids == ['SEC-4', 'SEC-5', 'SEC-9', 'SEC-13', 'SEC-14', 'SEC-16', 'SEC-18', 'SEC-21', 'SEC-23', 'SEC-28']
+
+
+def blocker(state='open'):
+    return {**issue('priority/P0'), 'state': state, 'bucket': 'must-fix-before-cut'}
+
+
+def test_decision_is_go_only_with_no_blocker_every_finding_fixed_and_a_signed_lock():
+    fixed = sec_rules({**OPEN, 'status':'fixed', 'fixedBy':'5398'}, FIXED)
+    clear = [blocker('closed'), {**issue('priority/P2', number=2), 'bucket': 'post-cut-hardening'}]
+    data = {'candidate_digest':'not yet cut', 'signed_lock': LOCK}
+    assert decision.decision(data, clear, fixed) == ('GO', 'Decision: GO (signed lock 2026.1-rc.3)')
+    assert decision.decision(data, [blocker()], fixed) == ('HOLD', 'Decision: HOLD (1 pre-cut blockers)')
+    assert decision.decision(data, clear, sec_rules(OPEN, FIXED)) == (
+        'HOLD', 'Decision: HOLD (1 GA-blocking security findings open)')
+    assert decision.decision({'candidate_digest':'not yet cut'}, clear, fixed) == ('HOLD', 'Decision: HOLD (no signed lock)')
+    assert decision.decision({}, [blocker()], sec_rules(OPEN, FIXED))[1] == (
+        'Decision: HOLD (1 pre-cut blockers; 1 GA-blocking security findings open; no signed lock)')
+    for lock in ({'tag':'2026.1.0', 'digest':LOCK['digest']}, {'tag':'2026.1-rc.3'}, 'rc.3'):
+        with pytest.raises(ValueError, match='signed_lock'):
+            decision.decision({'signed_lock': lock}, clear, fixed)
+
+
+def test_committed_record_computes_hold():
+    data = json.loads(decision.INPUTS.read_text())
+    config = json.loads(decision.OVERRIDES.read_text())
+    rows = decision.decisions(data, config)
+    verdict, line = decision.decision(data, rows, config)
+    assert verdict == 'HOLD' and 'GA-blocking security findings open' in line
+    assert f'· {line} ·' in decision.RECORD.read_text()
+
+
+def pr(merged=True, body='Closes #5073. SEC-9.', base='trunk'):
+    return {'merged_at':'2026-09-22T14:59:38Z' if merged else None, 'title':'fix(auth): bind tokens', 'body':body,
+            'base':{'ref':base, 'repo':{'default_branch':'trunk'}}}
+
+
+def verify(config, responses, record=None):
+    data = {'candidate_digest':'not yet cut'}
+    rows = [blocker('closed')]
+    text = record if record is not None else decision.decision(data, rows, config)[1]
+    with patch.object(decision, 'gh', side_effect=responses) as call:
+        verdict = decision.verify_security(data, rows, config, text)
+    return verdict, call
+
+
+def test_security_gate_verifies_each_fixed_row_against_its_merged_pr():
+    config = sec_rules(OPEN, FIXED)
+    verdict, call = verify(config, [pr()])
+    assert verdict == 'HOLD'
+    call.assert_called_once_with('api', 'repos/honua-io/honua-server/pulls/5082')
+    for response, why in [(pr(merged=False), 'not merged'), (pr(body='Hardening.'), 'does not cite SEC-9'),
+                          (pr(body='SEC-90 only.'), 'does not cite SEC-9'), (pr(base='release/2026.0'), 'not the default branch')]:
+        with pytest.raises(ValueError, match=why):
+            verify(config, [response])
+
+
+def test_security_gate_fails_closed_on_unreadable_pr():
+    with pytest.raises(ValueError, match='GitHub request failed'):
+        verify(sec_rules(OPEN, FIXED), ValueError('GitHub request failed (HTTP 404): repos/honua-io/honua-server/pulls/5082'))
+
+
+def test_security_gate_requires_hold_while_a_row_is_open():
+    config = sec_rules(OPEN, FIXED)
+    with pytest.raises(ValueError, match='computed decision'):
+        verify(config, [pr()], record='Decision: GO (signed lock 2026.1-rc.3)')
+    # With every row fixed, the open-row rule no longer applies; the computed line still must match.
+    fixed = sec_rules({**OPEN, 'status':'fixed', 'fixedBy':'5398'}, FIXED)
+    assert verify(fixed, [pr(body='SEC-4 follow-up.'), pr()])[0] == 'HOLD'

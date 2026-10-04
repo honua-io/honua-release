@@ -3,6 +3,7 @@
 
 Offline: python3 tools/release_decision_record.py [--check]
 Live:    python3 tools/release_decision_record.py --refresh [--apply] [--verify-live]
+Gate:    python3 tools/release_decision_record.py --verify-security
 Bodies are used only in memory to check admission-review hashes; never persisted.
 --apply adds/removes only managed labels and posts the authorized admission comment.
 """
@@ -35,6 +36,9 @@ BUCKETS = {
 LABELS = {'bucket/' + b for b in BUCKETS}
 CONTRACT = 'https://github.com/honua-io/honua-flow/blob/trunk/docs/2026.1-quality-contract.md'
 RULING = 'https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823'
+# A working-candidate train is described by what produced it, never by a fixed label.
+TRAIN_KINDS = {'dry-run', 'scheduled strict', 'dispatched strict'}
+SECURITY_REVIEW = 'security-review-2026-10-03'
 TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by peer',
              'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
 
@@ -205,6 +209,89 @@ def decisions(data, rules):
     return rows
 
 
+def security_findings(rules):
+    """Public GA-blocking security rows: `SEC-N` ids and status only; detail stays private.
+
+    Fail closed: the rows must match the ruling's GA-blocker count, and a `fixed` row must
+    name the PR that fixed it while an `open` row must not claim one.
+    """
+    rows = rules.get('security_findings')
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('security_findings: missing; every GA-blocking finding needs a public row')
+    seen = set()
+    for row in rows:
+        sid = row.get('id', '')
+        if not re.fullmatch(r'SEC-[1-9][0-9]*', sid) or sid in seen:
+            raise ValueError(f'security_findings: invalid or duplicate id {sid!r}')
+        seen.add(sid)
+        if not re.fullmatch(r'honua-io/[a-z0-9-]+', row.get('repo', '')):
+            raise ValueError(f'{sid}: invalid repo')
+        if row.get('status') == 'fixed':
+            if not re.fullmatch(r'[1-9][0-9]*', str(row.get('fixedBy', ''))):
+                raise ValueError(f'{sid}: a fixed row needs fixedBy: the number of the merged PR')
+        elif row.get('status') == 'open':
+            if row.get('fixedBy'):
+                raise ValueError(f'{sid}: an open row cannot name fixedBy')
+        else:
+            raise ValueError(f'{sid}: status must be open or fixed')
+    expected = rules.get('rulings', {}).get(SECURITY_REVIEW, {}).get('counts', {}).get('ga_blocker')
+    if expected != len(rows):
+        raise ValueError(f'security_findings: {len(rows)} rows, ruling counts {expected} GA blockers')
+    return rows
+
+
+def signed_lock(data):
+    lock = data.get('signed_lock')
+    if lock is None:
+        return None
+    if (not isinstance(lock, dict) or not re.fullmatch(r'2026\.1-rc\.[0-9]+', str(lock.get('tag', '')))
+            or not re.fullmatch(r'sha256:[a-f0-9]{64}', str(lock.get('digest', '')))):
+        raise ValueError('signed_lock: needs tag 2026.1-rc.N and a sha256 digest')
+    return lock
+
+
+def decision(data, rows, rules):
+    """GO only with no pre-cut blocker, every GA-blocking security row fixed and a signed lock."""
+    blockers = sum(r['state'] == 'open' and r['bucket'] == 'must-fix-before-cut' for r in rows)
+    unfixed = [f['id'] for f in security_findings(rules) if f['status'] != 'fixed']
+    lock = signed_lock(data)
+    if not blockers and not unfixed and lock:
+        return 'GO', f'Decision: GO (signed lock {lock["tag"]})'
+    why = []
+    if blockers:
+        why.append(f'{blockers} pre-cut blockers')
+    if unfixed:
+        why.append(f'{len(unfixed)} GA-blocking security findings open')
+    if not lock:
+        why.append('no signed lock')
+    return 'HOLD', 'Decision: HOLD (' + '; '.join(why) + ')'
+
+
+def verify_security(data, rows, rules, record_text):
+    """Live gate: each fixed row's PR is merged to its default branch and cites the id;
+    any open row keeps the committed record at HOLD."""
+    errors = []
+    for row in security_findings(rules):
+        if row['status'] != 'fixed':
+            continue
+        pr = gh('api', f"repos/{row['repo']}/pulls/{row['fixedBy']}")
+        text = (pr.get('title') or '') + '\n' + (pr.get('body') or '')
+        if not pr.get('merged_at'):
+            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} is not merged")
+        elif pr['base']['ref'] != pr['base']['repo']['default_branch']:
+            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} merged to {pr['base']['ref']}, not the default branch")
+        if not re.search(r'\b' + re.escape(row['id']) + r'\b', text):
+            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} does not cite {row['id']}")
+    verdict, line = decision(data, rows, rules)
+    if line not in record_text:
+        errors.append(f'record does not carry the computed decision: {line}')
+    if any(f['status'] == 'open' for f in security_findings(rules)) and verdict != 'HOLD':
+        errors.append('an open GA-blocking security finding requires Decision: HOLD')
+    if errors:
+        raise ValueError('Security findings gate failed:\n' + '\n'.join(errors))
+    return verdict
+
+
 def label_plan(row, rules):
     labels = set(row['labels'])
     target = 'bucket/' + row['bucket']
@@ -319,12 +406,14 @@ def decision_tables(rows):
 
 
 def working_candidate(data):
-    # Working candidate pins and their latest dry-run train. Informational only: the digest header
-    # stays `not yet cut` and nothing here can mark a row qualified against the candidate.
+    # Working candidate pins and the latest train that observed them. Informational only: the digest
+    # header stays `not yet cut` and nothing here can mark a row qualified against the candidate.
     wc = data.get('working_candidate')
     if not wc:
         return []
-    lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · dry-run train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
+    if wc.get('train_kind') not in TRAIN_KINDS:
+        raise ValueError(f'working_candidate.train_kind must be one of {sorted(TRAIN_KINDS)}')
+    lines = [f'**Working candidate {wc["label"]} ({wc["status"]}) · {wc["train_kind"]} train [{wc["train"].rsplit("/", 1)[-1]}]({wc["train"]}) · Observed: {wc["observed_at"]}**', '',
              '| Component | Pinned sha | Selection |', '|---|---|---|']
     lines += [f'| {name} | `{sha}` | {why} |' for name, sha, why in wc['pins']]
     lines += ['', '| Train gate | Result | Cause |', '|---|---|---|']
@@ -336,7 +425,9 @@ def working_candidate(data):
     return lines + ['']
 
 
-def render(data, rows):
+def render(data, rows, rules):
+    _, decision_line = decision(data, rows, rules)
+    findings = security_findings(rules)
     active = [r for r in rows if r['state'] == 'open']
     p0_unowned = [link(issue_key(r)) for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut' and (not r.get('family') or r['family']['status']=='parked')]
     p0_activity = Counter(('queued' if r.get('family') and r['family']['status']=='queued' else 'dispatched; not confirmed running' if r.get('family') and r['family']['status'].startswith('dispatched') else 'UNOWNED/parked') for r in active if 'priority/P0' in r['labels'] and r['bucket']=='must-fix-before-cut')
@@ -345,10 +436,13 @@ def render(data, rows):
         (f'**Candidate digest: {data["candidate_digest"]}'
          + (f' · Working server AOT image digest: {data["working_candidate"]["server_image_digest"]}'
             if data.get("working_candidate", {}).get("server_image_digest") else "")
-         + f' · Decision: HOLD · Observed: {data["observed_at"]}**'), '',
+         + f' · {decision_line} · Observed: {data["observed_at"]}**'), '',
         f'[Contract / amendments]({CONTRACT}) · [Canonical rulings]({RULING}) · [Pinned index](https://github.com/honua-io/honua-release/issues/274) · [Every issue + reasons](2026.1-release-decision-ledger.json)', '',
         '2026.1 ships with licensing disabled (`Licensing__Mode=Disabled`): no license file, minting, edition gating or capacity metering. All catalog entitlements are active; serving-unit bands are neither measured nor enforced. Authentication, authorization, safety limits and release maturity remain in force. Whole-catalog GP and COG/Zarr/GeoParquet/PMTiles retain their GA scope; alerting and offline sync remain Preview; multi-tenancy is internal (ruling R29). Licensing hardening, bands, metering, marketplace and the Console licensing page move to 2026.2 (server#4720, iac#190, helm#78, console#384). Operator ruling 2026-09-12 ([release#338](https://github.com/honua-io/honua-release/issues/338)); supersedes the September 5 strict license failure-mode contract for this release.', '',
         *working_candidate(data),
+        ('**GA-blocking security findings** (public ids; detail on the private tracker; Decision stays HOLD while any is open): '
+         + ', '.join(f'{f["id"]} ' + (f'fixed by [{f["repo"]}#{f["fixedBy"]}](https://github.com/{f["repo"]}/pull/{f["fixedBy"]})' if f['status'] == 'fixed' else 'open')
+                     for f in findings) + '.'), '',
         decision_tables(rows), '',
         '**P0 without an assigned fix family:** ' + (', '.join(p0_unowned) or 'None.') + '. P0 fix activity: ' + '; '.join(f'{n} {state}' for state,n in sorted(p0_activity.items())) + '.', '',
         '**Release-label drift (recorded bucket kept, not silently reconciled):** ' + (', '.join(f'{link(key)} — {why}' for key, why in label_drift(rows)) or 'None.'), '',
@@ -367,7 +461,7 @@ def render(data, rows):
         f'| Cut blocked by the first bucket; all candidate proofs remain outstanding. Closed machinery is not a receipt. | {link("honua-release#231")}, {link("honua-release#269")} |',
         f'| Whole-catalog GP and all four cloud-native formats retained; exact-candidate SIGKILL/TLS/cleanup follow cut. Explicit exceptions, including superseded P0 labels, carry reasons in the override file. | {link("honua-release#268")}, {link("honua-server#3849")}, {link("honua-devops#183")} |',
         f'| Supported sizes, limits, SLOs and recovery envelope: not qualified until receipts. Support manual; no automated marketplace dependency. Cluster C/D/E rulings not explicitly superseded remain OPEN. | {link("honua-release#235")}, {link("honua-support#5")}, {link("honua-release#268")} |',
-        f'| Three strict trains, 48–72h unchanged burn-in, seven six-hour canaries; independent product/quality/security/SRE/support/release approvals; exact-byte promotion and prior-lock rollback. Docker E2E expansion is post-cut hardening. | {link("honua-release#232")}, {link("honua-release#210")}, {link("honua-release#256")} |', '',
+        f'| 48-hour burn per promotion candidate with seven consecutive six-hour canaries bound to its lock digest (R19, R20); independent product/quality/security/SRE/support/release approvals; exact-byte promotion and prior-lock rollback. Docker E2E expansion is post-cut hardening. | {link("honua-release#232")}, {link("honua-release#210")}, {link("honua-release#256")} |', '',
         '[Regeneration and label application](2026.1-release-decision-maintenance.md) · [Explicit exceptions / admission reviews](2026.1-release-decision-overrides.json) · [Timestamped inputs](2026.1-release-decision-inputs.json)', '',
     ]
     return '\n'.join(content)
@@ -386,16 +480,23 @@ def main():
     parser.add_argument('--verify-live', action='store_true')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--tables', type=Path)
+    parser.add_argument('--verify-security', action='store_true')
     args = parser.parse_args()
     if (args.apply or args.verify_live) and not args.refresh:
         parser.error('--apply/--verify-live require --refresh')
     if args.check and (args.refresh or args.apply):
         parser.error('--check is offline and cannot mutate inputs')
+    if args.verify_security and (args.refresh or args.apply):
+        parser.error('--verify-security reads the committed record and cannot mutate inputs')
     data = json.loads(INPUTS.read_text())
     rules = json.loads(OVERRIDES.read_text())
     if args.refresh:
         data = refresh(data)
     rows = decisions(data, rules)
+    if args.verify_security:
+        verdict = verify_security(data, rows, rules, RECORD.read_text())
+        print(f'Security findings gate passed; {verdict}.')
+        return
     if args.apply:
         # Keep newly discovered cohort members before removing any release label.
         # An interrupted write pass must remain resumable from this same inventory.
@@ -406,7 +507,7 @@ def main():
         verify_labels(rows, rules)
     elif args.verify_live or args.check:
         verify_labels(rows, rules)
-    artifacts = {RECORD: render(data, rows), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
+    artifacts = {RECORD: render(data, rows, rules), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
         artifacts[INPUTS] = compact_snapshot(data)
     for path, text in artifacts.items():

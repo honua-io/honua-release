@@ -61,11 +61,11 @@
     "R9": {
       "date": "2026-09-29",
       "authority": "https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928",
-      "ruling": "Support policy 2026.1-r2 approved; open until the signed lock cites it. Bucket unchanged.",
-      "moved": [],
-      "cited": [
+      "ruling": "Support policy 2026.1-r2 approved; the issue stays open until the signed 2026.1 lock cites r2 by commit and digest.",
+      "moved": [
         "honua-support#60"
-      ]
+      ],
+      "effect": "The approval was the pre-cut work. The remaining condition, the lock citation, can only be met by the lock the cut mints, so support#60 is proven against the candidate rather than holding the cut (PR #430 review, 2026-10-03)."
     },
     "R10": {
       "date": "2026-09-29",
@@ -92,6 +92,27 @@
       "moved": [
         "honua-sdk-js#1824"
       ]
+    },
+    "R19": {
+      "date": "2026-10-02",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Certified lock and promotion candidate: an all-green nightly strict train on trunk head mints a certified lock (every automated gate, the deterministic journey on all 4 GA cells plus one genuine-model cell). A promotion candidate is a certified lock the release captain selects to burn; during its burn it gathers the lock-bound qualifying evidence (genuine-model journey on all 4 GA cells, update and rollback proof, external Esri/CITE evidence, canaries), every receipt binding the lock digest. Only a promotion candidate that completed its burn can be promoted; 2026.1-rc.3 is the first certified lock.",
+      "effect": "Amends R18. Lock-bound evidence is proven against the promotion candidate, not before the lock is minted; it places no issue in a different bucket.",
+      "moved": []
+    },
+    "R20": {
+      "date": "2026-10-02",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Burn per lock: 48 hours on the lock with seven consecutive passing six-hour canaries bound to its digest. The freeze model's during/after strict trains are withdrawn; promotion is allowed from hour 48 until any of the lock's evidence passes its freshness bound.",
+      "effect": "Amends R18 and replaces the three-strict-train burn-in; it places no issue in a different bucket.",
+      "moved": []
+    },
+    "R21": {
+      "date": "2026-10-02",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Evidence per lock: every evidence class the gates consume is produced by the nightly train against trunk head or against the promotion candidate during its burn. No class is carried forward from another lock or hand-minted outside a workflow; honua-release#386 owns the classification.",
+      "effect": "Amends R18; release#386 classifies each evidence class. It places no issue in a different bucket.",
+      "moved": []
     },
     "R22-R27": {
       "date": "2026-10-03",
@@ -163,7 +184,7 @@
     "security-review-2026-10-03": {
       "date": "2026-10-03",
       "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5965525512",
-      "ruling": "GA disposition of the server security review findings, recorded on the private findings tracker; counts only.",
+      "ruling": "GA disposition of the server security review findings, recorded on the private findings tracker. Public data is limited to the SEC-N ids and their status in security_findings.",
       "counts": {
         "total": 33,
         "fixed_and_closed": 4,
@@ -171,9 +192,61 @@
         "fix_before_ga_not_gating_multi_tenant_only": 2,
         "post_ga_2026_1_x": 17
       },
-      "effect": "Highs and default-on Mediums block GA. The two multi-tenant-only findings do not gate (R29). No public cohort issue changes bucket."
+      "effect": "Highs and default-on Mediums block GA; each is a security_findings row, and the Decision stays HOLD while any row is open. The two multi-tenant-only findings do not gate (R29). No public cohort issue changes bucket."
     }
   },
+  "security_findings": [
+    {
+      "id": "SEC-4",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-5",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-9",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-13",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-14",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-16",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-18",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-21",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-23",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    },
+    {
+      "id": "SEC-28",
+      "repo": "honua-io/honua-server",
+      "status": "open"
+    }
+  ],
   "exceptions": {
     "honua-console#334": {
       "bucket": "must-fix-before-cut",
@@ -596,7 +669,7 @@
     },
     "honua-studio#2": {
       "bucket": "prove-against-candidate",
-      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The real-model compose/save/reopen/propose/approved-URL smoke must still be proven against the RC before GA; it no longer holds the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained.",
+      "reason": "Operator ruling R3 (2026-09-29, https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. studio#2 is the Studio v0.1 delivery epic, not a security, isolation or integrity finding, and R3 names it among the issues it moves. The floor its body names, proposer self-approval denied, is a server control fixed under honua-server#4901 and enforced by the server for every client; a regression there is a security floor that stays before cut on its own issue. The real-model compose/save/reopen/propose/approved-URL smoke must still be proven against the RC before GA. The P0 and first-release-gate labels are retained.",
       "ruling": "R3"
     },
     "honua-studio#26": {
@@ -606,7 +679,7 @@
     },
     "honua-studio#41": {
       "bucket": "prove-against-candidate",
-      "reason": "Operator ruling 2026-09-29 (https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. Studio is Preview in 2026.1, and the release#120 criterion that named studio#2/#26/#41 lapsed when #120 closed on 2026-09-26. The versioned self-hosted Studio tag and its runtime-configuration receipt must still be proven against the RC before GA; they no longer hold the cut. Studio security/isolation/integrity floors stay in force under the #268 experimental-safety ruling; the P0 and first-release-gate labels are retained.",
+      "reason": "Operator ruling R3 (2026-09-29, https://github.com/honua-io/honua-studio/issues/2#issuecomment-5883905244) amends the 2026-09-05 \"every priority/P0 before cut\" rule for Preview surfaces: a P0 on a Preview surface is not a cut blocker unless it is a security, isolation or integrity floor. studio#41 is a release-packaging deliverable (versioned bundle, container and runtime configuration), not a security, isolation or integrity finding, and R3 names it among the issues it moves. Its \"no embedded provider/admin credentials\" clause is a property of the bundle the candidate ships, checked by that receipt; a credential found in a shipped bundle would be a new security finding filed before cut. The versioned self-hosted Studio tag and its runtime-configuration receipt must still be proven against the RC before GA. The P0 and first-release-gate labels are retained.",
       "ruling": "R3"
     },
     "honua-release#424": {
@@ -768,6 +841,11 @@
       "bucket": "must-fix-before-cut",
       "ruling": "R28",
       "reason": "Ruling R28 (2026-10-03, https://github.com/honua-io/honua-release/issues/376#issuecomment-5971529679): executable docs are a required nightly gate from day one; a failing getting-started block is a release defect and a red night that mints nothing, so this finding is fixed before the cut. No reporting-only period."
+    },
+    "honua-support#60": {
+      "bucket": "prove-against-candidate",
+      "reason": "Operator ruling R9 (2026-09-29, https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928) approved support policy 2026.1-r2, which completes the pre-cut work; the issue stays open until the signed 2026.1 lock cites r2 by commit and digest. That lock is minted by the cut, so the citation is proven against the candidate before GA and cannot be a pre-cut blocker.",
+      "ruling": "R9"
     }
   },
   "admission_reviews": {
@@ -2219,7 +2297,7 @@
     "honua-studio#2": {
       "body_sha256": "2b249809d5e5c95b01983273dda6ffa9ff4d4c357ad6619efa445368c79ee813",
       "named_promise": true,
-      "reason": "Reviewed 2026-09-29: names governed publication with a separate human approver and no self-approval, the Studio security floor retained by the #268 experimental-safety ruling; bucket is set by the 2026-09-29 Preview amendment."
+      "reason": "Reviewed 2026-09-29: names governed publication with a separate human approver and no proposer self-approval. The issue is the Studio v0.1 delivery epic; the self-approval floor it names is enforced server-side (honua-server#4901). Bucket is set by R3."
     },
     "honua-studio#26": {
       "body_sha256": "5cff36f1dad36d17297e840bc904f600b4397341c8cb83340b7d9058e69e0b81",
@@ -2229,7 +2307,7 @@
     "honua-studio#41": {
       "body_sha256": "b7321fce7a858554e991c759f01d2f8854a38320f4dad3b58a7f3d24d3882dda",
       "named_promise": true,
-      "reason": "Reviewed 2026-09-29: names no embedded provider/admin credentials in the self-hosted bundle, a retained security floor; bucket is set by the 2026-09-29 Preview amendment."
+      "reason": "Reviewed 2026-09-29: names a versioned self-hosted bundle with runtime configuration and no embedded provider/admin credentials. The issue is a release-packaging deliverable, not a security finding. Bucket is set by R3."
     },
     "honua-console#403": {
       "body_sha256": "e7959dc42155177848fb994133ce09632a8ad866ec65961c510df700104c3dfd",
