@@ -482,8 +482,9 @@ def _unique_keys(pairs):
 def component_versions(github, name, component):
     """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
 
-    A missing, unreadable or invalid declaration refuses the component. An explicit empty map is a
-    declaration only where the manifest marks the component sourcePinnedOnly.
+    Missing declarations for the source-only mobile/collect previews are empty sets (R39).
+    Other missing, unreadable or invalid declarations refuse the component. Explicit empty maps
+    are declarations only where the manifest marks the component sourcePinnedOnly.
     """
     if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
         raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
@@ -492,10 +493,18 @@ def component_versions(github, name, component):
     if not SHA.fullmatch(sha):
         raise ResolutionError(f'{name}: no immutable revision to read {COMPONENT_VERSIONS_PATH} at')
     where = f'{name}: {repository}@{sha}:{COMPONENT_VERSIONS_PATH}'
+    preview = component.get('sourcePinnedOnly') is True and name in {'honua-mobile', 'honua-collect'}
+    empty = {'contractVersions': {}, 'schemaVersions': {}}
     try:
         raw = github.file(repository, sha, COMPONENT_VERSIONS_PATH)
     except (KeyError, TypeError, ValueError) as exc:
+        # Only an absent file is exempt. Authentication, network and malformed-response
+        # errors must retain their refusal rather than masquerade as an empty declaration.
+        if preview and 'HTTP 404' in str(exc):
+            return empty
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+    if preview and not raw.strip():
+        return empty
     try:
         declaration = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
     except (UnicodeDecodeError, ValueError) as exc:

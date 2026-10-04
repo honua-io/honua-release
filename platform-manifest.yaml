@@ -503,24 +503,13 @@ components:
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # PyPI 0.1.11 was published on 2026-08-21. The wheel and immutable release tag both bind this
-    # artifact identity to f7930b6e; a later unreleased trunk head must not overwrite that fact (see
-    # clientArtifacts.honua-sdk-python-wheel below, which stays on f7930b6e unchanged by this re-pin).
-    # 2026-09-12 CANDIDATE RE-PIN (release#332 follow-up): f7930b6e -> 40ecf731. The old pin's core
-    # check-runs were 10/26 cancelled (runner starvation, 2026-08-13) -- re-runnable but stale.
-    # 40ecf731 (honua-sdk-python#234 merge commit, IS trunk HEAD) is fully green except
-    # `staging-smoke`, which is env-gated (certification/env-gated-checks.yaml: read-only smoke
-    # against an external staging deployment the build/test fan-out does not provision):
-    #   $ gh api repos/honua-io/honua-sdk-python/commits/40ecf73.../check-runs
-    #   -> 33 success/skipped, 1 failure (staging-smoke, env-gated), 0 cancelled
-    # No python-sdk release tag newer than v0.1.11 exists yet, so `version` is unchanged.
-    version: "0.1.11"
-    sha: "40ecf7318573214fb6c702b12ebd56b3ad47ba60"   # trunk HEAD, newest green; release tag python-sdk-v0.1.11 is f7930b6e
+    # R25 manual advance: PyPI wheel bytes and publish attestations verified 2026-10-04.
+    # SDK 0.1.13 and admin 0.1.10 share this published source, which carries the declaration.
+    version: "0.1.13"
+    sha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
-    # Companion honua-admin 0.1.8: tag python-admin-v0.1.8 at f7930b6e;
-    # PyPI wheel digest and full release source revision are in clientArtifacts below.
 
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"
@@ -632,11 +621,11 @@ clientArtifacts:
   honua-admin-python-wheel:
     ecosystem: pypi
     package: "honua-admin"
-    version: "0.1.9"
-    filename: honua_admin-0.1.9-py3-none-any.whl
-    digest: "sha256:3bcdc8eaadfafbb4bc45dd96b1c785c666843f34b950d678d958c9198a6f68b8"
+    version: "0.1.10"
+    filename: "honua_admin-0.1.10-py3-none-any.whl"
+    digest: "sha256:74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a"
     repository: honua-io/honua-sdk-python
-    sourceSha: "12670676a1e8acb835e911c358adbf46a731120a"
+    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     publicationState: published
     targets: [python3]
   honua-sdk-js:
@@ -662,11 +651,11 @@ clientArtifacts:
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
-    version: "0.1.12"
-    filename: honua_sdk-0.1.12-py3-none-any.whl
-    digest: "sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2"
+    version: "0.1.13"
+    filename: "honua_sdk-0.1.13-py3-none-any.whl"
+    digest: "sha256:c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6"
     repository: honua-io/honua-sdk-python
-    sourceSha: "12670676a1e8acb835e911c358adbf46a731120a"
+    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:

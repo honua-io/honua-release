@@ -1011,10 +1011,41 @@ def test_server_may_leave_schema_versions_to_the_derived_database_floor():
         declared('honua-server', declaration_bytes('honua-server', contractVersions={}))
 
 
-def test_a_source_pinned_component_still_needs_the_file():
-    with pytest.raises(resolver.ResolutionError, match='honua-collect: .*missing or unreadable'):
-        resolver.component_versions(Declarations({}), 'honua-collect', {
-            'repository': 'https://github.com/honua-io/honua-collect', 'sha': NEW, 'sourcePinnedOnly': True})
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_source_pinned_previews_allow_missing_and_empty_declarations(name):
+    row = {'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+           'sourcePinnedOnly': True}
+    assert resolver.component_versions(Declarations({}), name, row) == {
+        'contractVersions': {}, 'schemaVersions': {}}
+    for raw in (b'', b' \n', declaration_bytes(name, contractVersions={}, schemaVersions={})):
+        assert declared(name, raw, sourcePinnedOnly=True)[0] == {
+            'contractVersions': {}, 'schemaVersions': {}}
+
+
+@pytest.mark.parametrize('name,source_pinned', [
+    ('honua-mobile', False), ('honua-collect', False), ('honua-helm', True),
+    ('honua-server', True), ('honua-sdk-js', True)])
+def test_missing_declaration_exemption_is_only_for_source_pinned_previews(name, source_pinned):
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Declarations({}), name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': source_pinned})
+
+
+@pytest.mark.parametrize('detail', ['HTTP 403', 'HTTP 500', 'connection reset by peer'])
+def test_preview_declaration_read_errors_are_not_empty_sets(detail):
+    class Unreadable:
+        def file(self, *args):
+            raise resolver.ResolutionError(detail)
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Unreadable(), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
+def test_preview_invalid_declaration_still_refuses():
+    with pytest.raises(resolver.ResolutionError, match='not a JSON document'):
+        declared('honua-mobile', b'{', sourcePinnedOnly=True)
 
 
 def test_a_declaration_is_never_read_at_a_moving_ref():
@@ -1079,10 +1110,10 @@ def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_m
         resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64,
                         extra={'components': components, 'experimental': experimental})
     lines = str(refused.value).splitlines()
-    for name in ('honua-console', 'honua-helm', 'honua-collect'):
+    for name in ('honua-console', 'honua-helm'):
         assert any(line.startswith(f'{name}: ') and 'release/component-versions.json is missing' in line
                    for line in lines), (name, lines)
-    assert not any(line.startswith('honua-server: ') for line in lines)
+    assert not any(line.startswith(('honua-server: ', 'honua-collect: ')) for line in lines)
 
 
 def test_the_documented_example_is_a_valid_declaration():
