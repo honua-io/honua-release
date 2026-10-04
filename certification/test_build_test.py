@@ -404,3 +404,13 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+def test_console_live_aws_browser_is_classified_by_its_exact_check_name():
+    gated = bt.load_env_gated()["honua-console"]
+    assert "live-aws-browser" in gated
+    payload = _named(("Validate Console", "success"), ("live-aws-browser", "skipped"))
+    assert bt.classify(payload, gated)[0] == "pass"
+    payload = _named(("Validate Console", "failure"), ("live-aws-browser", "skipped"))
+    assert bt.classify(payload, gated)[0] == "fail"
+    assert bt.classify(_named(("live-aws-browser", "skipped")), gated)[0] == "blocked"

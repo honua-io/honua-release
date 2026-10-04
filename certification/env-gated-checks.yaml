@@ -28,6 +28,13 @@
 # Keyed by component name (must match platform-manifest.yaml components).
 
 honua-console:
+  - name: "live-aws-browser"
+    why: >-
+      Scheduled Console browser journeys against the EXTERNAL demo.honua.io AWS backend require
+      HONUA_CONSOLE_AWS_OPERATOR_USERNAME and HONUA_CONSOLE_AWS_OPERATOR_PASSWORD for a provisioned
+      operator. The release build/test fan-out does not provision that backend or those secrets.
+      Console's operator preflight reports the named missing precondition and skips this check
+      when either secret is absent; configured browser assertions still fail the live lane.
   - name: "Live Integration (Testcontainers)"
     why: >-
       Nightly live-integration lane (Console Nightly Live Integration) that boots an EXTERNAL
