@@ -2,7 +2,7 @@
 # Every cell retains attempts, reads the run cost meter before teardown, and runs a reaper.
 # Extended MCP / Studio / GP / demo seams use the local drivers on the live endpoint before teardown.
 # Install the pinned browser client here: shell/HTTP drivers need no separate harness image. The
-# reviewed site's CSP may genuinely BLOCK top-demo on an AWS hostname (honua-release#35); strict
+# reviewed site's CSP genuinely BLOCKs top-demo on an AWS hostname (honua-release#450); strict
 # require_real still fails that cell. A driver FAIL always fails, including bootstrap dispatches.
 name: e2e-cloud-aws
 
@@ -388,16 +388,33 @@ jobs:
           repository: honua-io/honua-site
           ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
           path: _site
+      # This job holds id-token: write, so no npm-supplied code runs as root or with the OIDC request
+      # token in its environment. Root installs only the distro packages named here: the list is
+      # Playwright 1.61.1's own ubuntu24.04 chromium + font set (--with-deps, less headed-only xvfb),
+      # so a runner image move fails this step loudly instead of letting Playwright pick packages.
+      # npm skips lifecycle scripts; the browser download runs as the runner user. Both precede the
+      # AWS credential step. Moving them to a credential-free job is the #381 job-split follow-up.
       - name: Install pinned extended driver clients
         env:
           E2E_PW_HOME: ${{ runner.temp }}/cloud-playwright
         run: |
           set -euo pipefail
+          . /etc/os-release
+          [ "$ID-$VERSION_ID" = ubuntu-24.04 ] || {
+            echo "::error ::chromium dependency list is for ubuntu-24.04, runner is $ID-$VERSION_ID"; exit 1; }
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends curl jq postgresql-client
+          sudo apt-get install -y --no-install-recommends curl jq postgresql-client \
+            libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+            libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+            libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+            libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji fonts-unifont \
+            fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf \
+            xfonts-cyrillic xfonts-scalable
           mkdir -p "$E2E_PW_HOME"
-          npm install --prefix "$E2E_PW_HOME" --no-audit --no-fund --save-exact playwright@1.61.1
-          node "$E2E_PW_HOME/node_modules/playwright/cli.js" install --with-deps chromium
+          no_oidc=(env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL)
+          "${no_oidc[@]}" npm install --prefix "$E2E_PW_HOME" --ignore-scripts --no-audit --no-fund \
+            --save-exact playwright@1.61.1
+          "${no_oidc[@]}" node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium
           echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
           echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
           echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"

@@ -1459,6 +1459,30 @@ def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
     assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
 
 
+def test_cloud_driver_clients_install_without_scripts_root_or_oidc_token():
+    import yaml
+    workflow = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
+    steps = workflow["jobs"]["parity"]["steps"]
+    names = [step.get("name") for step in steps]
+    install = names.index("Install pinned extended driver clients")
+    assert install < names.index("Configure AWS credentials (OIDC)")
+    script = steps[install]["run"]
+    # This job holds id-token: write: npm code never runs lifecycle scripts, as root, or with the
+    # OIDC request token; root installs only the reviewed distro package list.
+    assert "--with-deps" not in script and "install-deps" not in script
+    assert all("sudo" not in line for line in script.splitlines() if "npm" in line or "node" in line)
+    assert '"${no_oidc[@]}" npm install' in script and "--ignore-scripts" in script
+    assert '"${no_oidc[@]}" node' in script
+    assert "env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL" in script
+
+
+def test_demo_csp_block_cites_the_cell_hostname_issue_not_format_samples():
+    driver = (E2E_DIR / "drivers/demos/run.sh").read_text()
+    csp_block = next(line for line in driver.splitlines() if "CSP does not allow" in line)
+    assert "honua-release#450" in csp_block and "#35" not in csp_block
+    assert "--ignore-scripts" in driver
+
+
 def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
     cj = run_cloud.cloud_journey
     # Isolate matrix verdict policy from the owned driver's currently ECS-only schema. Actual

@@ -70,7 +70,7 @@ done
 # ── Playwright (cached outside the repo; CI warms the same cache) ──────────────────────────────
 # Execute the pinned site's own allow-list; never copy or widen its security policy here.
 if ! node "$HERE/check-backend.mjs" "$SITE_DIR/assets/demos/csp-bootstrap.js"; then
-  block_all "honua-release#35 top-demo: pinned honua-site${E2E_SITE_SHA:+@$E2E_SITE_SHA} CSP does not allow this cell's backend origin; an HTTPS honua.io cell endpoint is required"
+  block_all "honua-release#450 top-demo: pinned honua-site${E2E_SITE_SHA:+@$E2E_SITE_SHA} CSP does not allow this cell's backend origin; an HTTPS honua.io cell endpoint is required"
   exit 0
 fi
 
@@ -80,7 +80,7 @@ mkdir -p "$PW_HOME"
 [ -f "$PW_HOME/package.json" ] || echo '{"name":"honua-e2e-playwright","private":true}' > "$PW_HOME/package.json"
 if ! node -e "require('$PW_HOME/node_modules/playwright')" >/dev/null 2>&1; then
   echo "== S9: installing playwright@$PW_VERSION into $PW_HOME =="
-  ( cd "$PW_HOME" && npm install --silent --no-audit --no-fund "playwright@$PW_VERSION" ) \
+  ( cd "$PW_HOME" && npm install --silent --ignore-scripts --no-audit --no-fund "playwright@$PW_VERSION" ) \
     || { block_all "could not install playwright@$PW_VERSION (no network / npm unavailable)"; exit 0; }
 fi
 if ! node -e "
