@@ -494,6 +494,22 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(judge.oracle_revocation_observed(unhealthy, FIXTURE)[0])
         self.assertEqual(mcp.MCP_TIMEOUT_SECONDS, 120)
 
+    def test_imported_attributes_are_the_properties_column(self):
+        """The import stores gid and name inside the JSON properties column, not as columns."""
+        stored = {"id": 1, "created_at": 1, "properties": '{"gid": 1, "name": "block"}'}
+        self.assertEqual(self.orchestrator.imported_attributes(stored), {"gid": 1, "name": "block"})
+        self.assertEqual(self.orchestrator.imported_attributes({"properties": {"gid": 1, "name": "block"}}),
+                         {"gid": 1, "name": "block"})
+        self.assertEqual(self.orchestrator.imported_attributes({"gid": 1, "name": "block"}),
+                         {"gid": 1, "name": "block"})
+        feature = FIXTURE["area"]["features"][0]
+        ring = [list(point) for point in judge.envelope_ring(feature["envelope"])]
+        dropped = self.orchestrator.imported_attributes({"id": 1, "properties": "{}"})
+        self.assertFalse(judge.oracle_area_features(
+            {"rings": [ring + [ring[0]]], "attributes": [dropped]}, FIXTURE)[0])
+        self.assertFalse(judge.oracle_area_features(
+            {"rings": [ring + [ring[0]]], "attributes": [self.orchestrator.imported_attributes({"id": 1})]}, FIXTURE)[0])
+
     def test_sdk_revocation_wait_is_one_observation_period_per_call(self):
         """observationSeconds + 120 let a 401 at 60–149s come back and be graded."""
         revocation = self.orchestrator.PLAN["identity"]["revocation"]

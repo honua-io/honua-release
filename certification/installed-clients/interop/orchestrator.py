@@ -308,6 +308,25 @@ def mcp_tool(session: probes.McpProxySession, name: str, arguments: dict[str, An
     return content
 
 
+def imported_attributes(raw: Any) -> dict[str, Any] | None:
+    """``gid`` and ``name`` from one queried feature.
+
+    A file import stores the GeoJSON properties in a single JSON column named
+    ``properties`` (a string or an object). A table that already has those
+    columns returns them as attributes. Either shape is the imported data.
+    """
+    if not isinstance(raw, dict):
+        return None
+    props = raw.get("properties")
+    if isinstance(props, str):
+        try:
+            props = json.loads(props)
+        except json.JSONDecodeError:
+            props = None
+    source = props if isinstance(props, dict) else raw
+    return {key: source.get(key) for key in ("gid", "name")}
+
+
 def revocation_wait_seconds(revocation: dict[str, Any]) -> float:
     """How long to wait for one client's revocation reply.
 
@@ -432,7 +451,7 @@ class Interop:
                     raw = feature.get("attributes")
                     if not isinstance(raw, dict):
                         raw = feature.get("properties")
-                    attributes.append({key: raw.get(key) for key in ("gid", "name")} if isinstance(raw, dict) else None)
+                    attributes.append(imported_attributes(raw))
                 if len(rings) == 1 and isinstance(rings[0], list) and isinstance(features[0].get("geometry"), dict):
                     state["polygon"] = features[0]["geometry"].get("coordinates")
                 return {"rings": rings, "attributes": attributes}
