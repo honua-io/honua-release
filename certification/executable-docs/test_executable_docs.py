@@ -88,7 +88,7 @@ def test_blocked_marker_preserves_readiness(tmp_path, attribute, value):
     assert result["status"] == "pass"
 
 
-@pytest.mark.parametrize("failure", ["runner", "container", "audit", "output"])
+@pytest.mark.parametrize("failure", ["runner", "container", "audit", "audit-after-command-failure", "output"])
 def test_blocked_marker_does_not_hide_runner_or_audit_failures(tmp_path, failure):
     from types import SimpleNamespace
     from run import Outcome, run_document
@@ -97,9 +97,11 @@ def test_blocked_marker_does_not_hide_runner_or_audit_failures(tmp_path, failure
             raise RuntimeError("container setup broke")
         if failure == "container":
             return Outcome("fail", "container is not running", exit_code=1)
+        if failure == "audit-after-command-failure":
+            return Outcome("fail", "exit code 1", exit_code=1, command_failed=True)
         return Outcome("pass", "exit code 0", exit_code=0)
     session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
-                              installed_honua=lambda runtime: {"honua-sdk": "unexpected"} if failure == "audit" else {})
+                              installed_honua=lambda runtime: {"honua-sdk": "unexpected"} if failure.startswith("audit") else {})
     text = "<!-- doc-run: blocked o/r#1 -->\n```sh\nnode build.mjs\n```\n"
     if failure == "output":
         text += "\nIt prints:\n\n```text\nexpected output\n```\n"
@@ -867,3 +869,32 @@ def test_boot_keeps_health_licensing_and_seed_failures_fatal(monkeypatch, failur
         assert calls[1] == ["bash", str(run.ROOT / "e2e/harness/boot.sh"), "wait"]
     if len(calls) > 2:
         assert calls[2] == ["bash", str(run.ROOT / "e2e/harness/seed/seed.sh")]
+
+
+@pytest.mark.parametrize("executor", ["shell", "exec"])
+@pytest.mark.parametrize("command_ran", [False, True])
+def test_executors_distinguish_command_failure_from_docker_failure(tmp_path, monkeypatch, executor, command_ran):
+    import subprocess
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    class Process:
+        returncode = 1
+        def poll(self):
+            return 1
+        def wait(self):
+            return 1
+    def popen(args, **kwargs):
+        if command_ran:
+            next(session.state.glob("*.sh")).with_suffix(".env").write_text("PWD=/tmp\0")
+        return Process()
+    def execute(args, **kwargs):
+        if command_ran:
+            next(session.state.glob("*.out")).with_suffix(".exit").write_text("1\n")
+        return subprocess.CompletedProcess(args, 1)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(subprocess, "run", execute)
+    result = (session.run_shell("false", "node", 10, False) if executor == "shell" else
+              session._exec("test-container", ["false"], 10))
+    assert result.status == "fail"
+    assert result.command_failed is command_ran
