@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
-from platform_version import IMAGED_COMPONENTS, PUBLISHER
+from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER
 import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
@@ -610,7 +610,9 @@ def release_carried_platform_identity(components):
     An image is re-resolved onto the selected sha, so its digest and artifactSourceRevision are
     tonight's. A chart is not: select_component copies yesterday's digest, artifactSourceRevision
     and artifactSha256 and only the sha moves. Those bytes must not receive tonight's platform
-    version. Identity that is already bound to the selected sha is kept for the stamp.
+    version. Identity that is already bound to the selected sha is kept for the stamp. An imaged
+    row's plain version is pre-release (the stamp lives on artifactVersion), so a carried one is
+    reset rather than left for the generator or the release notes to read.
     """
     if not isinstance(components, dict):
         return
@@ -619,6 +621,8 @@ def release_carried_platform_identity(components):
         if not isinstance(selected, dict):
             continue
         selected.pop('artifactVersion', None)
+        if selected.get('version') not in (None, PRERELEASE):
+            selected['version'] = PRERELEASE
         if name == PUBLISHER:
             selected.pop('releaseVersion', None)
         chart = str(selected.get('artifact') or '').startswith('oci-chart:') and not selected.get('image')

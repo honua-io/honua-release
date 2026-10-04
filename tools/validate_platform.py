@@ -160,33 +160,11 @@ def check_platform_version_stamp(manifest: dict, f: Findings) -> None:
 
     The stamp is optional for an ordinary validate (the resolver runs before mint names the label).
     An exact candidate whose imaged identity is already bound must carry it (check_exact_candidate).
-    The lock generator refuses an imaged component that carries none. What is stamped must agree.
+    The lock generator refuses an imaged component that carries none. What is stamped must agree,
+    on artifactVersion and on a plain version alike (platform_version.stamp_errors).
     """
-    components = manifest.get("components") or {}
-    release = str(manifest.get("platformRelease", ""))
-    for name in platform_version.IMAGED_COMPONENTS:
-        comp = components.get(name)
-        if not isinstance(comp, dict):
-            continue
-        stamped = comp.get("artifactVersion")
-        if name == platform_version.PUBLISHER and comp.get("releaseVersion") is not None \
-                and comp.get("releaseVersion") != stamped:
-            f.error(f"manifest: {name}.releaseVersion {comp.get('releaseVersion')!r} must equal its "
-                    f"stamped artifactVersion {stamped!r} (R22)")
-        if stamped is None:
-            continue
-        try:
-            expected = platform_version.artifact_version(release)
-        except ValueError as exc:
-            f.error(f"manifest: {name}.artifactVersion cannot be checked: platformRelease {exc}")
-            continue
-        if stamped != expected:
-            f.error(f"manifest: {name}.artifactVersion {stamped!r} must be the platform version "
-                    f"{expected!r} of platformRelease {release!r} (R22)")
-        missing = platform_version.unbound_identity(comp)
-        if missing:
-            f.error(f"manifest: {name}.artifactVersion is stamped but {', '.join(missing)} "
-                    f"{'is' if len(missing) == 1 else 'are'} not bound (R22)")
+    for error in platform_version.stamp_errors(manifest):
+        f.error(f"manifest: {error}")
 
 
 def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:

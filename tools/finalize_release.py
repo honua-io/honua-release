@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
-from platform_version import stamp_platform_version
+from platform_version import stamp_errors, stamp_platform_version
 
 try:
     import yaml
@@ -105,7 +105,8 @@ def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
     Promotion re-tags the certified bytes without rebuilding them (promote.yml). The RC stamp
     `2026.1.0-rc.N` belongs to the candidate label; the released manifest's platformRelease is the
     base label, whose platform version is `2026.1.0` (R22). Leaving the RC stamp in place makes
-    `check_platform_version_stamp` reject the manifest promotion is about to publish.
+    `check_platform_version_stamp` reject the manifest promotion is about to publish. A version the
+    restamp cannot fix (an RC `version` left on an imaged row) refuses promotion (ValueError).
     """
     m = copy.deepcopy(manifest)
     base = _base_label(label)
@@ -113,6 +114,9 @@ def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
     m["status"] = "released"
     m["releasedDate"] = released_at
     stamp_platform_version(m, base)
+    errors = stamp_errors(m)
+    if errors:
+        raise ValueError("finalized manifest is not the GA platform version: " + "; ".join(errors))
     return m
 
 
@@ -261,7 +265,11 @@ def main(argv: list[str] | None = None) -> int:
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
     matrix = yaml.safe_load(Path(args.matrix).read_text(encoding="utf-8")) or {}
 
-    finalized = finalize_manifest(manifest, args.label, args.released_at)
+    try:
+        finalized = finalize_manifest(manifest, args.label, args.released_at)
+    except ValueError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 1
     Path(args.out_manifest).write_text(yaml.safe_dump(finalized, sort_keys=False), encoding="utf-8")
 
     notes = render_release_notes(

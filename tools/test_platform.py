@@ -876,6 +876,29 @@ def test_validator_refuses_a_server_release_version_beside_another_artifact_vers
     assert len(_r22_errors(manifest, matrix)) == 1
 
 
+@pytest.mark.parametrize("name", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1.0", "1.0.0"])
+def test_validator_checks_a_plain_imaged_version_too(name, version):
+    """The coordinator follow-up: a plain version key beside the stamp is checked, not ignored."""
+    manifest, matrix = _stamped_manifest()
+    manifest["components"][name]["version"] = version
+    assert _r22_errors(manifest, matrix) == [
+        f"manifest: {name}.version {version!r} must be pre-release or the platform version "
+        "'2026.1.0-rc.3' of platformRelease '2026.1-rc.3' (R22)"]
+
+
+def test_validator_refuses_an_rc_version_in_a_ga_manifest():
+    from platform_version import stamp_platform_version
+    manifest, matrix = _stamped_manifest()
+    manifest["platformRelease"] = "2026.1"
+    stamp_platform_version(manifest, "2026.1")
+    assert _r22_errors(manifest, matrix) == []
+    manifest["components"]["honua-console"]["version"] = "2026.1.0-rc.3"
+    assert _r22_errors(manifest, matrix) == [
+        "manifest: honua-console.version '2026.1.0-rc.3' must be pre-release or the platform version "
+        "'2026.1.0' of platformRelease '2026.1' (R22)"]
+
+
 def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     manifest, matrix = _stamped_manifest()
     manifest["platformRelease"] = "snapshot"
