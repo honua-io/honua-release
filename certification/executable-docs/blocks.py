@@ -196,7 +196,7 @@ def _markers(prose: str) -> dict[str, str] | None:
     attrs = _attrs(found.group(1))
     if re.match(r"blocked\b", found.group(1)):
         issue = ISSUE_REF.search(found.group(1))
-        attrs = {"blocked": issue.group(0) if issue else ""}
+        attrs["blocked"] = issue.group(0) if issue else ""
     return attrs
 
 

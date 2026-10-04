@@ -199,6 +199,7 @@ class Outcome:
     exit_code: int | None = None
     duration: float = 0.0
     mode: str | None = None
+    command_failed: bool = False  # executor witnessed the block command fail, not Docker or the runner
 
 
 @dataclass
@@ -390,11 +391,11 @@ class Session:
                           "documented readiness evidence was not observed" if readiness else
                           "long-running command needs a documented readiness URL or expected log line")
                 return Outcome(status, detail,
-                               stdout, stderr, code_, duration, "serve")
+                               stdout, stderr, code_, duration, "serve", command_failed=envfile.exists())
             return Outcome("fail", f"timed out after {window}s (waiting for input or a process that never ends)",
-                           stdout, stderr, code_, duration)
+                           stdout, stderr, code_, duration, command_failed=envfile.exists())
         if code_:
-            return Outcome("fail", f"exit code {code_}", stdout, stderr, code_, duration)
+            return Outcome("fail", f"exit code {code_}", stdout, stderr, code_, duration, command_failed=envfile.exists())
         if serve:
             return Outcome("fail", "long-running command exited before readiness could be established",
                            stdout, stderr, 0, duration, "serve")
@@ -438,7 +439,7 @@ class Session:
         if answer["ok"]:
             return Outcome("pass", "completed without an exception", stdout, stderr, 0, duration)
         last = [l for l in answer["error"].strip().splitlines() if l.strip()]
-        return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration)
+        return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration, command_failed=True)
 
     def run_js(self, code: str, language: str, timeout: int) -> Outcome:
         name = self.container("node")
@@ -535,16 +536,18 @@ class Session:
         started = time.monotonic()
         out, err = self.next_path(".out"), self.next_path(".err")
         runtime = next((key for key, value in self.containers.items() if value == name), None)
+        exitfile = out.with_suffix(".exit")
+        wrapper = f'"$@"; rc=$?; echo "$rc" > {shlex.quote(str(exitfile))}; exit "$rc"'
         proc = subprocess.run(["docker", "exec", "-w", self.cwd, *self.exec_env(runtime), name,
-                               "timeout", "-k", "5", str(timeout), *cmd],
+                               "bash", "-c", wrapper, "docrun", "timeout", "-k", "5", str(timeout), *cmd],
                               stdin=subprocess.DEVNULL, stdout=open(out, "w"), stderr=open(err, "w"),
                               timeout=timeout + 60, check=False)
         stdout, stderr = out.read_text(errors="replace"), err.read_text(errors="replace")
         duration = time.monotonic() - started
         if proc.returncode == 124:
-            return Outcome("fail", f"timed out after {timeout}s", stdout, stderr, 124, duration)
+            return Outcome("fail", f"timed out after {timeout}s", stdout, stderr, 124, duration, command_failed=exitfile.exists())
         if proc.returncode:
-            return Outcome("fail", f"exit code {proc.returncode}", stdout, stderr, proc.returncode, duration)
+            return Outcome("fail", f"exit code {proc.returncode}", stdout, stderr, proc.returncode, duration, command_failed=exitfile.exists())
         return Outcome("pass", "exit code 0", stdout, stderr, 0, duration)
 
 
@@ -699,7 +702,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             # The document says this command is right and links the issue that tracks the misbehaviour:
             # a failure is recorded against that issue (the gate stays blocked); a pass means the marker is stale.
             row["blockedBy"] = block.blocked_by
-            if status == "fail":
+            if status == "fail" and outcome is not None and outcome.command_failed:
                 row["status"] = "blocked"
                 row["detail"] = scrub(f"blocked by {block.blocked_by}: {detail}", secrets)
             elif status == "pass":
@@ -728,6 +731,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                        for name, version in installed.items() if allowed.get(name) not in {version, "*"})
         if wrong:
             outcome.status = "fail"
+            outcome.command_failed = False
             outcome.detail += "; installed a Honua package the release does not pin: " + "; ".join(wrong)
         return outcome
 
@@ -818,6 +822,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                     ok, why = assert_output(block.expected_output, outcome.stdout)
                     if not ok:
                         outcome.status, outcome.detail = "fail", f"{outcome.detail}; output assertion failed: {why}"
+                        outcome.command_failed = False
                     else:
                         outcome.detail = f"{outcome.detail}; {why}"
             if doc.get("docker") and block.language == "shell":

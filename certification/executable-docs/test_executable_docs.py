@@ -57,7 +57,8 @@ def test_blocked_block_still_runs_and_records_the_issue(tmp_path, exit_code, blo
 
     def run_shell(code, *args):
         ran.append(code)
-        return Outcome("pass" if exit_code == 0 else "fail", f"exit code {exit_code}", exit_code=exit_code)
+        return Outcome("pass" if exit_code == 0 else "fail", f"exit code {exit_code}", exit_code=exit_code,
+                       command_failed=exit_code != 0)
 
     session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
                               installed_honua=lambda runtime: {})
@@ -68,6 +69,45 @@ def test_blocked_block_still_runs_and_records_the_issue(tmp_path, exit_code, blo
     assert ran and row["status"] == block_status and row["blockedBy"] == "https://github.com/o/r/issues/1"
     assert result["status"] == doc_status
     assert row.get("staleBlockedMarker", False) is (exit_code == 0)
+
+
+@pytest.mark.parametrize("attribute,value", [("ready-url", "http://localhost:3000/"), ("ready-log", "ready now")])
+def test_blocked_marker_preserves_readiness(tmp_path, attribute, value):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    calls = []
+    def run_shell(code, runtime, timeout, serve, readiness):
+        calls.append((serve, readiness))
+        return Outcome("pass", "ready", exit_code=124)
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    text = f'<!-- doc-run: blocked o/r#1 {attribute}="{value}" -->\n```sh\nnpx serve src\n```\n'
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert calls == [(True, {attribute.removeprefix("ready-"): value})]
+    assert result["status"] == "pass"
+
+
+@pytest.mark.parametrize("failure", ["runner", "container", "audit", "output"])
+def test_blocked_marker_does_not_hide_runner_or_audit_failures(tmp_path, failure):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    def run_shell(*args):
+        if failure == "runner":
+            raise RuntimeError("container setup broke")
+        if failure == "container":
+            return Outcome("fail", "container is not running", exit_code=1)
+        return Outcome("pass", "exit code 0", exit_code=0)
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {"honua-sdk": "unexpected"} if failure == "audit" else {})
+    text = "<!-- doc-run: blocked o/r#1 -->\n```sh\nnode build.mjs\n```\n"
+    if failure == "output":
+        text += "\nIt prints:\n\n```text\nexpected output\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][0]["status"] == "fail"
+    assert result["status"] == "fail"
+    assert not result["blocks"][0].get("staleBlockedMarker")
 
 
 def test_blocked_outranks_pass_but_not_fail_or_needs_input():
