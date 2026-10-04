@@ -22,6 +22,7 @@
   "properties": {
     "schema": { "const": "honua.protocol-certification-requirements/v1" },
     "revision": { "type": "string", "minLength": 1 },
+    "trademarkNotice": { "type": "string", "minLength": 1 },
     "receipt_schema_min": { "enum": ["v1", "v2"] },
     "complete": { "type": "boolean" },
     "scope_notes": { "type": "string", "minLength": 1 },
@@ -121,6 +122,7 @@
           "addressability_reason": { "type": ["string", "null"] },
           "scenario_facets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
           "test_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "release_bucket": { "enum": ["must-fix", "prove-against-candidate"] },
           "contract_revision": { "type": "string", "minLength": 1 },
           "auth_policy_revision": { "type": "string", "minLength": 1 },
           "fixture_revision": { "type": "string", "minLength": 1 },

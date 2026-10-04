@@ -639,9 +639,71 @@ def main() -> None:
             f"unexpected={sorted(present_decision_cells - expected_decision_cells)})"
         )
     validate_bounded_roster(catalog, bounded_roster)
+    validate_desktop_clients(catalog, bounded_roster)
     validate_grpc_scope(catalog)
     validate_production(catalog)
     print(f"Validated {len(keys)} complete, unique protocol certification cells.")
+
+
+VERSION_LINE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
+RELEASE_BUCKETS = {"must-fix", "prove-against-candidate"}
+
+
+def validate_desktop_clients(catalog: dict, roster: dict) -> None:
+    """R38 (honua-release#376): desktop clients are certified against a release line, and the
+    licensed desktop client's OGC surfaces are prove-against-candidate rows beside its must-fix
+    GeoServices rows. Only that client's rows carry a release_bucket."""
+    source = json.loads((ROOT / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
+    qgis, pro = source["clients"]["qgis"], source["clients"]["pro"]
+    for client in (qgis, pro):
+        if not VERSION_LINE.fullmatch(client["version"]):
+            raise ValueError(f"Desktop client {client['name']} must name a release line <major>.<minor>.x, "
+                             f"not {client['version']!r}.")
+    if catalog.get("trademarkNotice") != source["trademarkNotice"]:
+        raise ValueError("Catalog trademarkNotice differs from sources/desktop-client-certification.v1.json.")
+    if roster["clients"]["QGIS"]["client_version"] != qgis["version"]:
+        raise ValueError(f"Bounded roster QGIS version differs from the desktop release line {qgis['version']!r}.")
+    if {pro["geoservices_release_bucket"], pro["ogc_release_bucket"]} - RELEASE_BUCKETS \
+            or pro["ogc_release_bucket"] == pro["geoservices_release_bucket"]:
+        raise ValueError("Desktop client release buckets must be two distinct governed buckets.")
+    contract = f"desktop-client-certification@{source['revision']}"
+    matrix = json.loads((ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8"))
+    implemented = {
+        capability["key"] for capability in matrix["capabilities"]
+        if capability.get("maturity", {}).get("implemented")
+    }
+    expected_ogc = {
+        (assignment["capability_key"], assignment["surface"], tuple(assignment["scenario_facets"]))
+        for assignment in source["ogc_assignments"]
+        if assignment["capability_key"] in implemented
+    }
+    present_ogc = set()
+    for row in catalog["requirements"]:
+        client = row["canonical_client"]
+        if client == qgis["name"] and row["client_version"] != qgis["version"]:
+            raise ValueError(f"QGIS requirement {row['surface']}/{row['operation']} must certify {qgis['version']!r}.")
+        if client != pro["name"] and not client.startswith(f"{pro['name']}/"):
+            if "release_bucket" in row:
+                raise ValueError(f"Only the licensed desktop client's rows carry a release_bucket: {client!r}.")
+            continue
+        if row["client_version"] != pro["version"]:
+            raise ValueError(f"Desktop requirement {row['surface']}/{row['operation']} must certify {pro['version']!r}.")
+        if row["contract_revision"] == contract:
+            if row.get("release_bucket") != pro["ogc_release_bucket"] or client != pro["name"] \
+                    or row["client_lane"] != pro["lane"] or row["deployment_target"] != pro["deployment_target"] \
+                    or row["operation"] != row["capability_key"] or row.get("test_ids"):
+                raise ValueError(f"Desktop OGC requirement {row['surface']} differs from its source assignment.")
+            present_ogc.add((row["capability_key"], row["surface"], tuple(row["scenario_facets"])))
+        elif row.get("release_bucket") != pro["geoservices_release_bucket"]:
+            raise ValueError(
+                f"Desktop GeoServices requirement {row['surface']}/{row['operation']} must be "
+                f"{pro['geoservices_release_bucket']!r}."
+            )
+    if present_ogc != expected_ogc:
+        raise ValueError(
+            "Desktop OGC requirements differ from sources/desktop-client-certification.v1.json "
+            f"(missing={sorted(expected_ogc - present_ogc)}, unexpected={sorted(present_ogc - expected_ogc)})"
+        )
 
 
 CANDIDATE_INPUTS = ("{server_image}", "{server_sha}", "{cut_at}")

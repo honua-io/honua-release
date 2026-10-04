@@ -77,7 +77,7 @@ def test_denominator_reflects_the_qgis_and_lane_identity_rulings():
         assert not lanes & set(client["replaced_lanes"]), name
         if client["client_version"] is not None:
             assert {row["client_version"] for row in rows} == {client["client_version"]}, name
-    assert roster["clients"]["QGIS"]["client_version"] == "3.44.13-Solothurn"
+    assert roster["clients"]["QGIS"]["client_version"] == "3.44.x"
 
 
 @pytest.fixture

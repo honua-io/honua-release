@@ -1,0 +1,33 @@
+{
+  "schema": "honua.desktop-client-certification/v1",
+  "revision": "2026-10-04.1",
+  "ruling": "R38 https://github.com/honua-io/honua-release/issues/376#issuecomment-5977886218",
+  "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
+  "version_rule": "A client_version of the form <major>.<minor>.x names a release line: a receipt from any patch release of that line satisfies it, and the receipt records the exact version it observed.",
+  "clients": {
+    "qgis": {
+      "name": "QGIS",
+      "version": "3.44.x"
+    },
+    "pro": {
+      "name": "ArcGIS Pro",
+      "version": "3.7.x",
+      "lane": "desktop-pro",
+      "deployment_target": "windows-licensed",
+      "auth_policy_revision": "anonymous-and-protected-v1",
+      "geoservices_release_bucket": "must-fix",
+      "ogc_release_bucket": "prove-against-candidate"
+    }
+  },
+  "ogc_assignments": [
+    {"capability_key": "serve.wms", "surface": "wms", "scenario_facets": ["positive", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wmts", "surface": "wmts", "scenario_facets": ["positive", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wfs", "surface": "wfs", "scenario_facets": ["positive", "auth", "pagination", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.wcs", "surface": "wcs", "scenario_facets": ["positive", "auth", "boundary", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-features", "surface": "ogc-api-features", "scenario_facets": ["positive", "auth", "pagination", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-tiles", "surface": "ogc-api-tiles", "scenario_facets": ["positive", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.ogc-api-maps", "surface": "ogc-api-maps", "scenario_facets": ["positive", "auth", "crs-axis", "media-schema"]},
+    {"capability_key": "serve.vector-tiles", "surface": "vector-tiles", "scenario_facets": ["positive", "auth", "media-schema"]},
+    {"capability_key": "serve.i3s-scene", "surface": "i3s", "scenario_facets": ["positive", "auth", "media-schema"]}
+  ]
+}
