@@ -9,6 +9,8 @@ names the seam: the producing client and API, and the consuming client and API.
 from __future__ import annotations
 
 import base64
+import binascii
+import hashlib
 import json
 import math
 import re
@@ -373,17 +375,43 @@ def oracle_published_pointer(observed: dict[str, Any], saved: dict[str, Any] | N
     return bool(want) and got == want, f"published pointer {'is' if got == want and want else 'is not'} the version the JS SDK saved"
 
 
+def content_hash_derived(observed: dict[str, Any], body: Any) -> tuple[bool, str]:
+    """The content hash is recomputed here, not taken on agreement: SHA-256 of the canonical hash input, which must carry the fixture body.
+
+    Two clients reporting the same digest prove only that they read the same server value. The server
+    hashes its source-generated serialization of the whole stored envelope, so the digest cannot be
+    rebuilt from the fixture without copying that contract; the reader hands over the canonical input
+    bytes (base64 `contentHashInput`) instead. No published client exposes them yet: honua-server#5449.
+    """
+    encoded, digest = observed.get("contentHashInput"), observed.get("contentHash")
+    if not isinstance(encoded, str) or not encoded:
+        return False, "no canonical content-hash input from the reader, so the digest cannot be recomputed (honua-server#5449)"
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        envelope = json.loads(raw)
+    except (binascii.Error, ValueError):
+        return False, "the canonical content-hash input is not base64-encoded JSON"
+    if hashlib.sha256(raw).hexdigest() != digest:
+        return False, "the content hash is not the SHA-256 of its canonical input"
+    if not isinstance(envelope, dict) or envelope.get("body") != body:
+        return False, "the canonical content-hash input does not carry the fixture map body"
+    return True, "the content hash is the SHA-256 of a canonical input carrying the fixture map body"
+
+
 def oracle_published_content(observed: dict[str, Any], fixture: dict[str, Any], plan: dict[str, Any],
                              saved: dict[str, Any] | None) -> tuple[bool, str]:
     body = bound_map_body(fixture, plan["sites"]["collectionId"])
+    derived, derivation = content_hash_derived(observed, body)
     checks = {
         "family map": str(observed.get("family") or "").lower() == fixture["proposal"]["envelope"]["family"],
         "content hash equals the saved version's": bool(saved) and observed.get("contentHash") == (saved or {}).get("contentHash"),
+        "content hash recomputed from the approved content": derived,
         "map body equals the fixture": observed.get("body") == body,
     }
     failed = [name for name, ok in checks.items() if not ok]
-    return not failed, ("published version's family, content hash and map body equal the fixture and the saved version"
-                        if not failed else f"published version differs: failed {', '.join(failed)}")
+    if not failed:
+        return True, f"published version's family, content hash and map body equal the fixture and the saved version; {derivation}"
+    return False, f"published version differs: failed {', '.join(failed)}" + ("" if derived else f" ({derivation})")
 
 
 def oracle_published_url(observed: dict[str, Any], fixture: dict[str, Any], plan: dict[str, Any],

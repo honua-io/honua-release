@@ -124,7 +124,8 @@ async Task<JsonObject> StudioPointers(JsonObject args)
     };
 }
 
-// IHonuaStudioPackageClient.GetVersionAsync
+// IHonuaStudioPackageClient.GetVersionAsync. The judge recomputes contentHash from "contentHashInput" (base64 canonical
+// hash input bytes); Honua.Sdk exposes none yet (honua-server#5449), so published-content cannot pass until it does.
 async Task<JsonObject> StudioVersion(JsonObject args)
 {
     var version = await root.GetRequiredService<IHonuaStudioPackageClient>().GetVersionAsync(Guid.Parse(Text(args, "itemId")), Guid.Parse(Text(args, "versionId")));

@@ -3,6 +3,7 @@ import ast
 import base64
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -338,7 +339,11 @@ class OracleTests(unittest.TestCase):
 
     def test_publication_oracles(self):
         p = plan()
-        saved = {"itemId": "i", "versionId": "v", "contentHash": "a" * 64}
+        body = p["proposal"]["envelope"]["body"]
+        # Stand-in canonical hash input: the oracle hashes the exact bytes it is handed, whatever their serialization.
+        canonical = json.dumps({"family": "map", "validation": {"status": "valid"}, "body": body}).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
+        saved = {"itemId": "i", "versionId": "v", "contentHash": digest}
         self.assertTrue(judge.oracle_version_saved(saved, {"itemId": "i"})[0])
         self.assertFalse(judge.oracle_version_saved(saved, {"itemId": "other"})[0])
         self.assertTrue(judge.oracle_publication_proposed({"proposalId": "proposal-1", "requestId": None})[0])
@@ -354,7 +359,8 @@ class OracleTests(unittest.TestCase):
                                                          "publicationUrl": "http://c" + p["proposal"]["route"]}, p)[0])
         self.assertTrue(judge.oracle_published_pointer({"publishedVersionId": "v"}, saved)[0])
         self.assertFalse(judge.oracle_published_pointer({"publishedVersionId": None}, saved)[0])
-        content = {"family": "Map", "contentHash": "a" * 64, "body": p["proposal"]["envelope"]["body"]}
+        content = {"family": "Map", "contentHash": digest, "body": body,
+                   "contentHashInput": base64.b64encode(canonical).decode()}
         self.assertTrue(judge.oracle_published_content(content, FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, contentHash="b" * 64), FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, body={}), FIXTURE, p, saved)[0])
@@ -366,6 +372,38 @@ class OracleTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("not the URL the JS SDK polled", summary)
         self.assertFalse(judge.oracle_published_url(dict(content, url=None), FIXTURE, p, saved, None)[0])
+
+    def test_published_content_hash_is_recomputed_not_agreed(self):
+        p = plan()
+        body = p["proposal"]["envelope"]["body"]
+        canonical = json.dumps({"family": "map", "body": body}).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
+        encoded = base64.b64encode(canonical).decode()
+        # Both clients agree on an arbitrary digest: agreement alone must not pass.
+        agreed = "c" * 64
+        ok, summary = judge.oracle_published_content({"family": "Map", "contentHash": agreed, "body": body},
+                                                     FIXTURE, p, {"contentHash": agreed})
+        self.assertFalse(ok)
+        self.assertIn("content hash recomputed from the approved content", summary)
+        self.assertIn("honua-server#5449", summary)
+        ok, summary = judge.oracle_published_content(
+            {"family": "Map", "contentHash": agreed, "body": body, "contentHashInput": encoded}, FIXTURE, p, {"contentHash": agreed})
+        self.assertFalse(ok)
+        self.assertIn("not the SHA-256 of its canonical input", summary)
+        # A correct digest of content that is not the approved map body.
+        other = json.dumps({"family": "map", "body": {"layers": []}}).encode()
+        other_digest = hashlib.sha256(other).hexdigest()
+        ok, summary = judge.oracle_published_content(
+            {"family": "Map", "contentHash": other_digest, "body": body, "contentHashInput": base64.b64encode(other).decode()},
+            FIXTURE, p, {"contentHash": other_digest})
+        self.assertFalse(ok)
+        self.assertIn("does not carry the fixture map body", summary)
+        ok, summary = judge.oracle_published_content(
+            {"family": "Map", "contentHash": digest, "body": body, "contentHashInput": "not base64!"}, FIXTURE, p, {"contentHash": digest})
+        self.assertFalse(ok)
+        self.assertIn("not base64-encoded JSON", summary)
+        self.assertTrue(judge.oracle_published_content(
+            {"family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}, FIXTURE, p, {"contentHash": digest})[0])
 
 
 class SeamTests(unittest.TestCase):
