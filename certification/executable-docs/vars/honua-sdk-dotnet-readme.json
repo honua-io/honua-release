@@ -1,0 +1,18 @@
+{
+  "document": "honua-sdk-dotnet-readme",
+  "env": {},
+  "substitute": {
+    "<your-api-key>": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "README.md:128 — `export HONUA_API_KEY=\"<your-api-key>\"  # an admin API key`; docs/quickstart.md:34-36 names the admin password the server quickstart generated"
+    },
+    "<your-service-id>": {
+      "value": "{fixture.featureService}",
+      "documentedAt": "README.md:129 — `export HONUA_SERVICE_ID=\"<your-service-id>\"  # the serviceName of a published layer`; docs/quickstart.md:31-33 points to the layer Publish your first dataset prints"
+    },
+    "<your-layer-id>": {
+      "value": "{fixture.featureLayerId}",
+      "documentedAt": "README.md:130 — `export HONUA_LAYER_ID=\"<your-layer-id>\"  # that layer's layerId (a number)`"
+    }
+  }
+}

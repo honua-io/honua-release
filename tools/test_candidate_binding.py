@@ -423,3 +423,24 @@ def test_nightly_opt_in_preserves_every_other_run_identity_guard(target, field, 
         expected_workflow_path=('.github/workflows/release-train.yml', '.github/workflows/nightly-certification.yml'),
         allowed_events=('workflow_dispatch', 'schedule'), expected_run_id='7')
     assert not ok and identity is None, why
+
+
+@pytest.mark.parametrize("status", [None, "fail", "blocked", "skipped"])
+def test_live_promotion_requires_a_passing_contract_live_receipt(status):
+    now = datetime.now(timezone.utc)
+    report = _live_report(now)
+    report["gates"] = [row for row in report["gates"] if row["gate"] != "contract-live"]
+    if status is not None:
+        report["gates"].append({"gate": "contract-live", "status": status})
+    ok, why = cb.validate_live_report(report, now=now)
+    assert not ok
+    assert "contract-live" in why
+
+
+def test_nightly_mint_refuses_a_report_without_the_contract_live_row():
+    import mint_nightly_lock as nightly
+
+    assert "contract-live" in nightly.REQUIRED_NIGHTLY_GATES
+    report = {"gates": [{"gate": name, "status": "pass"} for name in sorted(nightly.REQUIRED_NIGHTLY_GATES)
+                        if name != "contract-live"]}
+    assert "contract-live: missing required gate" in nightly.failures(report)
