@@ -43,7 +43,24 @@ DELAYS = (0, 10, 30, 60, 120, 60)
 
 
 class ResolutionError(ValueError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        # The HTTP status the API answered, when the refusal is an API answer; never parsed from prose.
+        self.status = status
+
+
+def api_status(exc):
+    """The HTTP status of a failed `gh api` call: the error body's status, else gh's exit report."""
+    body = exc.stdout.decode('utf-8', errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
+    try:
+        status = json.loads(body).get('status')
+        if str(status).isdigit():
+            return int(status)
+    except (ValueError, AttributeError):
+        pass
+    stderr = exc.stderr.decode('utf-8', errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr or ''
+    match = re.search(r'\(HTTP (\d{3})\)\s*$', stderr.strip().splitlines()[-1] if stderr.strip() else '')
+    return int(match.group(1)) if match else None
 
 
 def retry(operation):
@@ -82,7 +99,7 @@ class GitHub:
                 ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join(str(exc.stderr or exc).split())
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -168,7 +185,7 @@ class GitHub:
                 capture_output=True, check=True))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         return result.stdout
 
 
@@ -479,11 +496,23 @@ def _unique_keys(pairs):
     return dict(pairs)
 
 
+def _require_visible_revision(github, where, repository, sha):
+    try:
+        commit = github.json(f'repos/{repository}/commits/{sha}')
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is missing, but the pinned revision is not readable '
+                              f'either, so the 404 proves nothing: {exc}') from exc
+    if not isinstance(commit, dict) or commit.get('sha') != sha:
+        raise ResolutionError(f'{where} is missing, but repos/{repository}/commits/{sha} '
+                              'did not answer that commit')
+
+
 def component_versions(github, name, component):
     """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
 
-    A missing, unreadable or invalid declaration refuses the component. An explicit empty map is a
-    declaration only where the manifest marks the component sourcePinnedOnly.
+    Missing declarations for the source-only mobile/collect previews are empty sets (R39).
+    Other missing, unreadable or invalid declarations refuse the component. Explicit empty maps
+    are declarations only where the manifest marks the component sourcePinnedOnly.
     """
     if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
         raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
@@ -492,10 +521,21 @@ def component_versions(github, name, component):
     if not SHA.fullmatch(sha):
         raise ResolutionError(f'{name}: no immutable revision to read {COMPONENT_VERSIONS_PATH} at')
     where = f'{name}: {repository}@{sha}:{COMPONENT_VERSIONS_PATH}'
+    preview = component.get('sourcePinnedOnly') is True and name in {'honua-mobile', 'honua-collect'}
+    empty = {'contractVersions': {}, 'schemaVersions': {}}
     try:
         raw = github.file(repository, sha, COMPONENT_VERSIONS_PATH)
     except (KeyError, TypeError, ValueError) as exc:
+        # Only an absent file is exempt. Authentication, network and malformed-response
+        # errors must retain their refusal rather than masquerade as an empty declaration.
+        # GitHub also answers 404 for a repository or revision this token cannot see, so the
+        # exemption needs the pinned commit itself to be readable first.
+        if preview and getattr(exc, 'status', None) == 404:
+            _require_visible_revision(github, where, repository, sha)
+            return empty
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+    if preview and not raw.strip():
+        return empty
     try:
         declaration = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
     except (UnicodeDecodeError, ValueError) as exc:

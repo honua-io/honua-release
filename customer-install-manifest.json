@@ -18,26 +18,26 @@
     "honua-admin": {
       "ecosystem": "pypi",
       "package": "honua-admin",
-      "version": "0.1.9",
-      "filename": "honua_admin-0.1.9-py3-none-any.whl",
-      "digest": "sha256:3bcdc8eaadfafbb4bc45dd96b1c785c666843f34b950d678d958c9198a6f68b8",
-      "downloadUrl": "https://files.pythonhosted.org/packages/95/61/4ca077245410cbdaa30233413f04dd97c09c5005e0cc956411ee2b262c85/honua_admin-0.1.9-py3-none-any.whl",
-      "metadataUrl": "https://pypi.org/pypi/honua-admin/0.1.9/json",
+      "version": "0.1.10",
+      "filename": "honua_admin-0.1.10-py3-none-any.whl",
+      "digest": "sha256:74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a",
+      "downloadUrl": "https://files.pythonhosted.org/packages/e0/aa/eafcec2fd08815b60764c171d23853c32b8eb2836d0b8f35a8dabcc484a8/honua_admin-0.1.10-py3-none-any.whl",
+      "metadataUrl": "https://pypi.org/pypi/honua-admin/0.1.10/json",
       "repository": "honua-io/honua-sdk-python",
-      "sourceSha": "12670676a1e8acb835e911c358adbf46a731120a",
+      "sourceSha": "a9cd320a1d330e758e1dd6c186f62a922d259cef",
       "credentialsRequired": false,
       "role": "control-plane"
     },
     "honua-sdk": {
       "ecosystem": "pypi",
       "package": "honua-sdk",
-      "version": "0.1.12",
-      "filename": "honua_sdk-0.1.12-py3-none-any.whl",
-      "digest": "sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2",
-      "downloadUrl": "https://files.pythonhosted.org/packages/29/7d/ad04a696860960b5cce865c9a8b2ea53b165da200c6b8a2156ba5501f926/honua_sdk-0.1.12-py3-none-any.whl",
-      "metadataUrl": "https://pypi.org/pypi/honua-sdk/0.1.12/json",
+      "version": "0.1.13",
+      "filename": "honua_sdk-0.1.13-py3-none-any.whl",
+      "digest": "sha256:c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6",
+      "downloadUrl": "https://files.pythonhosted.org/packages/7a/ce/2a21985a6eb4dc0ce19899702bfd37dc2621b16f4e1667a12b3d339ee7e4/honua_sdk-0.1.13-py3-none-any.whl",
+      "metadataUrl": "https://pypi.org/pypi/honua-sdk/0.1.13/json",
       "repository": "honua-io/honua-sdk-python",
-      "sourceSha": "12670676a1e8acb835e911c358adbf46a731120a",
+      "sourceSha": "a9cd320a1d330e758e1dd6c186f62a922d259cef",
       "credentialsRequired": false,
       "role": "data-plane"
     },
@@ -97,10 +97,10 @@
     "honua-sdk-dotnet": {
       "ecosystem": "nuget",
       "package": "Honua.Sdk",
-      "version": "1.10.1",
-      "digest": "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+      "version": "1.10.2",
+      "digest": "sha256:f699463e9dc1119024b216478654a7d91a5683cc6addcf494fc8263d2ee6f88c",
       "repository": "honua-io/honua-sdk-dotnet",
-      "sourceSha": "8a0a06c815baefd49e7398d38a9f22642a8c80c5",
+      "sourceSha": "ed05745cbd0783970c218eb9857ea130a1e2354a",
       "publicationState": "published",
       "registry": "nuget.org",
       "targets": [
@@ -108,7 +108,7 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-sdk-dotnet",
-      "filename": "honua.sdk.1.10.1.nupkg"
+      "filename": "honua.sdk.1.10.2.nupkg"
     }
   }
 }

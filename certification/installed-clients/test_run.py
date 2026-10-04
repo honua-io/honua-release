@@ -467,13 +467,14 @@ class NugetInstallTests(unittest.TestCase):
         def run(cmd, **kwargs):
             calls.append(cmd)
             if cmd[1] == "restore":
-                packages = Path(kwargs["env"]["NUGET_PACKAGES"]) / "honua.sdk" / "1.10.1"
+                version = self.pin["version"]
+                packages = Path(kwargs["env"]["NUGET_PACKAGES"]) / "honua.sdk" / version
                 packages.mkdir(parents=True)
-                (packages / "honua.sdk.1.10.1.nupkg").write_bytes(restored_bytes)
+                (packages / f"honua.sdk.{version}.nupkg").write_bytes(restored_bytes)
                 (packages / ".nupkg.metadata").write_text(json.dumps({"source": source}))
                 (kwargs["cwd"] / "obj").mkdir()
                 (kwargs["cwd"] / "obj" / "project.assets.json").write_text(
-                    json.dumps({"libraries": {"Honua.Sdk/1.10.1": {}}})
+                    json.dumps({"libraries": {f"Honua.Sdk/{version}": {}}})
                 )
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -489,7 +490,7 @@ class NugetInstallTests(unittest.TestCase):
         self.assertIn("live GeoServices error probe passed", detail)
         self.assertEqual([c[1] for c in calls], ["restore", "build", str(work / "out" / "Consumer.dll")])
         csproj = (work / "consumer" / "Consumer.csproj").read_text()
-        self.assertIn('<PackageReference Include="Honua.Sdk" Version="[1.10.1]" />', csproj)
+        self.assertIn(f'<PackageReference Include="Honua.Sdk" Version="[{self.pin['version']}]" />', csproj)
         self.assertIn("<TargetFramework>net10.0</TargetFramework>", csproj)
         self.assertIn("<clear />", (work / "NuGet.config").read_text())
 
