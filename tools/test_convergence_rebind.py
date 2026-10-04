@@ -55,15 +55,15 @@ def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
         MODULE.prepare(root, StubGitHub(root), "keep")
     message = str(exc.value)
     assert "protocolCertification.ledger stays pending" in message
-    # Committed working pins versus the recorded published package commits.
-    for source, component_sha, published_sha in (
-        ("sdk-dotnet", "6ba49ec32ea846c64bc2094807761d4884dbc4bf", "8a0a06c815baefd49e7398d38a9f22642a8c80c5"),
-        ("sdk-python", "40ecf7318573214fb6c702b12ebd56b3ad47ba60", "12670676a1e8acb835e911c358adbf46a731120a"),
-        ("sdk-js", "d7cec2d510e053fc86252b125bde21313a7e6e7c", "1102d2d55916340edca13cb28411df8da8206f92"),
-    ):
-        assert source in message
-        assert component_sha in message
-        assert published_sha in message
+    # Assert the actual committed divergences; a published SDK may now be aligned.
+    manifest = yaml.safe_load(before)
+    for source, component, artifact in MODULE.SDK_PRODUCERS:
+        component_sha = manifest['components'][component]['sha']
+        published_sha = manifest['clientArtifacts'][artifact]['sourceSha']
+        if component_sha != published_sha:
+            assert source in message
+            assert component_sha in message
+            assert published_sha in message
     assert (root / MODULE.MANIFEST).read_text(encoding="utf-8") == before
     assert yaml.safe_load(before)["protocolCertification"]["ledger"] == {
         "status": "pending",

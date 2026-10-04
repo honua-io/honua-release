@@ -921,8 +921,16 @@ def declaration_bytes(component, **overrides):
 class Declarations:
     """`GitHub.file` for one declaration per (repository, sha); anything else is a 404."""
 
-    def __init__(self, files):
-        self.files, self.reads = files, []
+    def __init__(self, files, hidden=()):
+        self.files, self.reads, self.hidden = files, [], set(hidden)
+
+    def json(self, path):
+        # Pinned commits are readable unless the repository is hidden from the token.
+        self.reads.append(path)
+        repository, _, sha = path.removeprefix('repos/').rpartition('/commits/')
+        if repository in self.hidden:
+            raise resolver.ResolutionError(f'gh api {path} failed: gh: Not Found (HTTP 404)', status=404)
+        return {'sha': sha}
 
     def file(self, repository, revision, path):
         self.reads.append((repository, revision, path))
@@ -930,7 +938,7 @@ class Declarations:
             return self.files[(repository, revision, path)]
         except KeyError:
             raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={revision} '
-                                           'failed: gh: Not Found (HTTP 404)') from None
+                                           'failed: gh: Not Found (HTTP 404)', status=404) from None
 
 
 def declared(name, raw, **component):
@@ -1011,10 +1019,64 @@ def test_server_may_leave_schema_versions_to_the_derived_database_floor():
         declared('honua-server', declaration_bytes('honua-server', contractVersions={}))
 
 
-def test_a_source_pinned_component_still_needs_the_file():
-    with pytest.raises(resolver.ResolutionError, match='honua-collect: .*missing or unreadable'):
-        resolver.component_versions(Declarations({}), 'honua-collect', {
-            'repository': 'https://github.com/honua-io/honua-collect', 'sha': NEW, 'sourcePinnedOnly': True})
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_source_pinned_previews_allow_missing_and_empty_declarations(name):
+    row = {'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+           'sourcePinnedOnly': True}
+    assert resolver.component_versions(Declarations({}), name, row) == {
+        'contractVersions': {}, 'schemaVersions': {}}
+    for raw in (b'', b' \n', declaration_bytes(name, contractVersions={}, schemaVersions={})):
+        assert declared(name, raw, sourcePinnedOnly=True)[0] == {
+            'contractVersions': {}, 'schemaVersions': {}}
+
+
+@pytest.mark.parametrize('name,source_pinned', [
+    ('honua-mobile', False), ('honua-collect', False), ('honua-helm', True),
+    ('honua-server', True), ('honua-sdk-js', True)])
+def test_missing_declaration_exemption_is_only_for_source_pinned_previews(name, source_pinned):
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Declarations({}), name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': source_pinned})
+
+
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_preview_404_from_an_invisible_repository_is_not_an_empty_set(name):
+    source = Declarations({}, hidden={f'honua-io/{name}'})
+    with pytest.raises(resolver.ResolutionError, match='pinned revision is not readable'):
+        resolver.component_versions(source, name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': True})
+    assert source.reads[-1] == f'repos/honua-io/{name}/commits/{NEW}'
+
+
+def test_preview_404_needs_the_commit_probe_to_answer_the_pinned_sha():
+    class OtherCommit(Declarations):
+        def json(self, path):
+            return {'sha': OLD}
+    with pytest.raises(resolver.ResolutionError, match='did not answer that commit'):
+        resolver.component_versions(OtherCommit({}), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
+@pytest.mark.parametrize('detail,status', [
+    ('HTTP 403', 403), ('HTTP 500', 500), ('connection reset by peer', None),
+    # A message that merely mentions a 404 is not an API 404.
+    ('blob HTTP 404 in the body text', None)])
+def test_preview_declaration_read_errors_are_not_empty_sets(detail, status):
+    class Unreadable:
+        def file(self, *args):
+            raise resolver.ResolutionError(detail, status=status)
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Unreadable(), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
+def test_preview_invalid_declaration_still_refuses():
+    with pytest.raises(resolver.ResolutionError, match='not a JSON document'):
+        declared('honua-mobile', b'{', sourcePinnedOnly=True)
 
 
 def test_a_declaration_is_never_read_at_a_moving_ref():
@@ -1035,8 +1097,14 @@ class TreeAndDeclarations(MigrationSource):
             return super().file(repository, revision, path)
         return self.declarations.file(repository, revision, path)
 
+    def json(self, path):
+        if '/commits/' in path:
+            return self.declarations.json(path)
+        return super().json(path)
 
-def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
+
+@pytest.mark.parametrize("missing_preview", [False, True])
+def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch, missing_preview):
     path = resolver.COMPONENT_VERSIONS_PATH
     source = TreeAndDeclarations({
         ('honua-io/honua-console', NEW, path): declaration_bytes(
@@ -1044,6 +1112,8 @@ def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
         ('honua-io/honua-mobile', OLD, path): declaration_bytes(
             'honua-mobile', contractVersions={}, schemaVersions={}),
     })
+    if missing_preview:
+        source.declarations.files.pop(('honua-io/honua-mobile', OLD, path))
     experimental = {'honua-mobile': {'repository': 'https://github.com/honua-io/honua-mobile', 'sha': OLD,
                                      'sourcePinnedOnly': True, 'contractVersions': {'hand': '1'}}}
     candidate, _ = resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64, extra={
@@ -1079,10 +1149,10 @@ def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_m
         resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64,
                         extra={'components': components, 'experimental': experimental})
     lines = str(refused.value).splitlines()
-    for name in ('honua-console', 'honua-helm', 'honua-collect'):
+    for name in ('honua-console', 'honua-helm'):
         assert any(line.startswith(f'{name}: ') and 'release/component-versions.json is missing' in line
                    for line in lines), (name, lines)
-    assert not any(line.startswith('honua-server: ') for line in lines)
+    assert not any(line.startswith(('honua-server: ', 'honua-collect: ')) for line in lines)
 
 
 def test_the_documented_example_is_a_valid_declaration():
@@ -1576,3 +1646,13 @@ def test_the_nightly_uploads_the_skip_report_even_when_resolution_refuses():
     assert upload['with']['path'] == 'resolved-candidate/skips.json'
     resolve = next(step for step in steps if step.get('name') == 'Resolve the newest qualifying trunk candidate')
     assert '--out-dir resolved-candidate' in resolve['run']
+
+
+@pytest.mark.parametrize('stdout,stderr,status', [
+    ('{"message": "Not Found", "status": "404"}', 'gh: Not Found (HTTP 404)', 404),
+    ('', 'gh: Not Found (HTTP 404)', 404),
+    (b'{"message": "Server Error", "status": "502"}', b'', 502),
+    ('', 'error connecting to api.github.com', None)])
+def test_gh_failures_carry_the_api_status(stdout, stderr, status):
+    exc = subprocess.CalledProcessError(1, ['gh', 'api'], output=stdout, stderr=stderr)
+    assert resolver.api_status(exc) == status
