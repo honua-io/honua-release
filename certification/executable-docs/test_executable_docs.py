@@ -909,3 +909,17 @@ def test_csharp_scaffolding_failure_is_not_a_block_command_failure(tmp_path, mon
     result = session.run_csharp("Console.WriteLine(1);", [], 10)
     assert result.status == "fail"
     assert not result.command_failed
+
+
+@pytest.mark.parametrize("language", ["powershell", "json", "yaml"])
+def test_blocked_marker_on_unsupported_language_keeps_document_red(tmp_path, language):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = f'```sh\ntrue\n```\n\n<!-- doc-run: blocked o/r#1 -->\n```{language}\nunsupported\n```\n'
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][1]["status"] == "fail"
+    assert "cannot execute" in result["blocks"][1]["markerError"]
+    assert result["status"] == "fail"

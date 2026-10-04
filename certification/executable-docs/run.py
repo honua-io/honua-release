@@ -763,7 +763,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
         try:
-            if (block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run":
+            if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
+                    or (block.marker_error or "").startswith("doc-run: blocked on a language")):
                 record(block, None, "fail", block.marker_error)
                 continue
             if block.intent in {"illustrative", "alternative", "excluded", "output"}:

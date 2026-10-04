@@ -5,6 +5,7 @@ See [the executable docs guide](../../docs/EXECUTABLE-DOCS.md) for inventory, pr
 `<!-- doc-run: blocked owner/repo#123 -->` requires a linked issue and still runs the block.
 Only a witnessed failure of that block’s command becomes `blocked`. Runner exceptions,
 container/infrastructure errors, output assertions and installed-package audit failures stay `fail`.
+A linked blocked marker on an unsupported language fails instead of being silently unexecuted.
 A passing command records `staleBlockedMarker` so authors can remove the marker.
 
 Readiness attributes combine with the issue marker:
