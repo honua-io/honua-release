@@ -182,6 +182,65 @@ def test_unknown_commit_dates_never_claim_staleness():
     assert (report['commitsBehind'], report['daysBehind'], report['stale']) == (1, None, None)
 
 
+def test_a_lag_just_past_the_threshold_is_stale_though_it_displays_at_the_threshold():
+    class Hours(GitHub):
+        def commit_date(self, sha):
+            return '2026-09-04T01:00:00Z' if sha == NEW else '2026-09-01T00:00:00Z'
+
+    walk = {}
+    resolver.select_component('server', component(), Hours(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, Hours(), now=NOW, stale_days=3)
+    # 73 hours is 3.04 days: shown rounded, compared raw.
+    assert (report['daysBehind'], report['stale']) == (3.0, True)
+    assert resolver.skip_report_lines(report)[-1] == f'STALE-CANDIDATE: server selected {OLD[:7]} (1 commits, 3.0 days behind)'
+
+
+def test_a_spec_read_that_raises_reports_an_aborted_walk_not_an_exhausted_one():
+    class Missing(GitHub):
+        def file(self, repository, sha, path):
+            raise resolver.ResolutionError(f'{path} at {sha}: HTTP 404')
+
+    spec = {'repository': 'https://github.com/honua-io/geospatial-mcp',
+            'artifact': f'spec:https://github.com/honua-io/geospatial-mcp/blob/{OLD}/spec/schemas/index.json'}
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='HTTP 404'):
+        resolver.select_component('geospatial-mcp', spec, Missing(), None, 2, walk)
+    report = resolver.skip_report('geospatial-mcp', walk, Missing(), now=NOW)
+    assert report['selected'] is None and report['skippedTotal'] == 0
+    assert report['aborted'] == {'sha': NEW, 'reason': f'spec/schemas/index.json at {NEW}: HTTP 404'}
+    assert resolver.skip_report_lines(report) == [
+        f'SKIPS geospatial-mcp: walk aborted at {NEW[:7]} (spec/schemas/index.json at {NEW}: HTTP 404); '
+        '0 newer commit(s) skipped before it; older commits not examined']
+    assert (f'| geospatial-mcp | - | walk aborted at {NEW[:7]} | 0 | aborted: spec/schemas/index.json at {NEW}: '
+            'HTTP 404 |') in resolver.skip_report_markdown({'geospatial-mcp': report})
+
+
+def test_a_trunk_listing_that_fails_after_a_skip_names_the_listing_not_the_skipped_sha():
+    class Truncated(GitHub):
+        def commits(self, repository, limit):
+            yield NEW
+            raise OSError('gh api: connection reset')
+
+    walk = {}
+    with pytest.raises(OSError):
+        resolver.select_component('server', component(), Truncated(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, Truncated(), now=NOW)
+    assert report['aborted'] == {'sha': None, 'reason': 'gh api: connection reset'}
+    assert resolver.skip_report_lines(report)[0] == (
+        'SKIPS server: walk aborted at trunk listing (gh api: connection reset); '
+        '1 newer commit(s) skipped before it; older commits not examined')
+
+
+def test_a_completed_walk_is_never_marked_aborted():
+    walk = {}
+    resolver.select_component('server', component(), GitHub(), Registry(), 2, walk)
+    assert resolver.skip_report('server', walk, GitHub(), now=NOW)['aborted'] is None
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='no qualifying'):
+        resolver.select_component('server', component(), GitHub(), Registry(), 1, walk)
+    assert resolver.skip_report('server', walk, GitHub(), now=NOW)['aborted'] is None
+
+
 def test_github_commits_records_committer_dates(monkeypatch):
     row = {'sha': NEW, 'commit': {'committer': {'date': '2026-09-16T08:00:00Z'}}}
 
@@ -218,7 +277,7 @@ def test_resolve_prints_the_skip_report_for_a_selected_component_then_still_refu
 def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_path):
     report = {'component': 'honua-server', 'trunkHead': NEW, 'selected': OLD, 'selectedCommittedAt': None,
               'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
-              'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}]}
+              'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}], 'aborted': None}
 
     def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
         skips['honua-server'] = report

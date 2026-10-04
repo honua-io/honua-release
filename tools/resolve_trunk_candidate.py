@@ -301,36 +301,46 @@ def select_component(name, component, github, registry, limit, skips=None):
         reasons.append(f'{sha}: {reason}')
         skipped.append({'sha': sha, 'reason': reason})
 
-    for sha in github.commits(repository, limit):
-        if not SHA.fullmatch(sha):
-            raise ResolutionError(f'{name}: trunk returned a non-immutable revision')
-        if skips is not None and 'head' not in skips:
-            skips.update(head=sha, skipped=skipped, selected=None)
-        if component.get('image'):
-            image_repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
-            if registry is None or not registry.candidate_tags(image_repository, sha):
-                skip(sha, 'no published SHA-bound image')
+    sha = None
+    try:
+        for sha in github.commits(repository, limit):
+            if not SHA.fullmatch(sha):
+                raise ResolutionError(f'{name}: trunk returned a non-immutable revision')
+            if skips is not None and 'head' not in skips:
+                skips.update(head=sha, skipped=skipped, selected=None)
+            if component.get('image'):
+                image_repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
+                if registry is None or not registry.candidate_tags(image_repository, sha):
+                    skip(sha, 'no published SHA-bound image')
+                    continue
+            green, why = github.green(name, repository, sha)
+            if not green:
+                skip(sha, f'CI {why}')
                 continue
-        green, why = github.green(name, repository, sha)
-        if not green:
-            skip(sha, f'CI {why}')
-            continue
-        selected = {**component, 'sha': sha}
-        if component.get('image'):
-            try:
-                selected.update(registry.image(name, component, sha))
-            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-                skip(sha, str(exc))
-                continue
-        if str(component.get('artifact', '')).startswith('spec:'):
-            path = component['artifact'].split('/blob/', 1)[1].split('/', 1)[1]
-            data = github.file(repository, sha, path)
-            selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
-                artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
-                artifactVersion='1.0.0+' + sha[:8])
-        if skips is not None:
-            skips['selected'] = sha
-        return selected
+            selected = {**component, 'sha': sha}
+            if component.get('image'):
+                try:
+                    selected.update(registry.image(name, component, sha))
+                except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                    skip(sha, str(exc))
+                    continue
+            if str(component.get('artifact', '')).startswith('spec:'):
+                path = component['artifact'].split('/blob/', 1)[1].split('/', 1)[1]
+                data = github.file(repository, sha, path)
+                selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
+                    artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
+                    artifactVersion='1.0.0+' + sha[:8])
+            if skips is not None:
+                skips['selected'] = sha
+            return selected
+    except Exception as exc:
+        # A read that raises mid-walk leaves older commits unexamined: the report names where and
+        # why it stopped, never 'no qualifying trunk commit'.
+        if skips is not None and 'head' in skips:
+            # A sha already skipped was fully examined; the failure was listing the next one.
+            at = None if skipped and skipped[-1]['sha'] == sha else sha
+            skips['aborted'] = {'sha': at, 'reason': str(exc) or type(exc).__name__}
+        raise
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
 
 
@@ -354,7 +364,8 @@ def skip_report(name, skips, github, *, keep=SKIP_REPORT_LIMIT, stale_days=STALE
     skipped, selected, head = skips.get('skipped') or [], skips.get('selected'), skips.get('head')
     head_at, selected_at = _commit_time(github, head), _commit_time(github, selected)
     days = lambda delta: round(delta.total_seconds() / 86400, 1)
-    behind = days(head_at - selected_at) if head_at and selected_at else None
+    # Staleness compares the unrounded lag: 73 hours is past a three-day threshold though it shows 3.0.
+    lag = (head_at - selected_at).total_seconds() / 86400 if head_at and selected_at else None
     return {
         'component': name,
         'trunkHead': head,
@@ -362,11 +373,12 @@ def skip_report(name, skips, github, *, keep=SKIP_REPORT_LIMIT, stale_days=STALE
         'selectedCommittedAt': selected_at and selected_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
         'selectedAgeDays': days(now - selected_at) if selected_at else None,
         'commitsBehind': len(skipped) if selected else None,
-        'daysBehind': behind,
+        'daysBehind': None if lag is None else round(lag, 1),
         'staleAfterDays': stale_days,
-        'stale': None if behind is None else behind > stale_days,
+        'stale': None if lag is None else lag > stale_days,
         'skippedTotal': len(skipped),
         'skipped': skipped[:keep],
+        'aborted': skips.get('aborted'),
     }
 
 
@@ -377,6 +389,11 @@ def skip_report_lines(report):
         lines = [f"SKIPS {name}: selected {selected[:7]} "
                  f"({'age unknown' if age is None else f'{age} days old'}); "
                  f"{report['skippedTotal']} newer trunk commit(s) skipped"]
+    elif report.get('aborted'):
+        aborted = report['aborted']
+        at = aborted['sha'][:7] if aborted['sha'] else 'trunk listing'
+        lines = [f"SKIPS {name}: walk aborted at {at} ({aborted['reason']}); "
+                 f"{report['skippedTotal']} newer commit(s) skipped before it; older commits not examined"]
     else:
         lines = [f"SKIPS {name}: no qualifying trunk commit; {report['skippedTotal']} commit(s) skipped"]
     lines += [f"  skipped {row['sha'][:7]}: {row['reason']}" for row in report['skipped']]
@@ -393,7 +410,10 @@ def skip_report_markdown(reports):
             '| Component | Selected | Behind trunk head | Skipped | Newest skip reason |', '|---|---|---|---|---|']
     for report in reports.values():
         selected = report['selected']
-        if not selected:
+        aborted = report.get('aborted')
+        if aborted:
+            where = f"walk aborted at {aborted['sha'][:7] if aborted['sha'] else 'trunk listing'}"
+        elif not selected:
             where = 'none qualifies'
         elif report['daysBehind'] is None:
             where = f"{report['commitsBehind']} commits"
@@ -402,6 +422,8 @@ def skip_report_markdown(reports):
         if report['stale']:
             where = f'**STALE-CANDIDATE** {where}'
         reason = report['skipped'][0]['reason'] if report['skipped'] else ''
+        if aborted:
+            reason = f"aborted: {aborted['reason']}"
         reason = ' '.join(reason.split()).replace('|', '\\|')[:200]
         rows.append(f"| {report['component']} | {selected[:7] if selected else '-'} | {where} | "
                     f"{report['skippedTotal']} | {reason} |")
