@@ -649,6 +649,58 @@ LICENSED_POLICIES = {
 }
 
 
+def _validate_pyqgis_grid(rows: list[dict], driver: dict, must_fix: str, preview: set[str]) -> None:
+    """R40: the pyqgis lane is the full surface × function grid. A cell the client cannot perform
+    stays in the grid as not-applicable, with that reason declared on the row."""
+    grid = json.loads((ROOT / "sources" / "pyqgis-function-grid.v1.json").read_text(encoding="utf-8"))
+    if grid.get("schema") != "honua.pyqgis-function-grid/v1" or grid.get("ruling") != "R40":
+        raise ValueError("pyqgis function grid must be schema honua.pyqgis-function-grid/v1 under ruling R40.")
+    operations = [item["operation"] for item in grid["functions"]]
+    if len(operations) != len(set(operations)) or not operations:
+        raise ValueError("pyqgis function grid needs a unique operation per function.")
+    expected: dict[tuple[str, str], str | None] = {}
+    for surface in grid["surfaces"]:
+        declared = surface["not_applicable"]
+        unknown = set(declared) - set(operations)
+        if unknown:
+            raise ValueError(f"pyqgis surface {surface['surface']} names unknown functions {sorted(unknown)}.")
+        if surface["capability_key"] in preview and set(declared) != set(operations):
+            raise ValueError(f"preview surface {surface['surface']} must declare every function not-applicable.")
+        for operation in operations:
+            reason = declared.get(operation)
+            if reason is not None and not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+                raise ValueError(f"pyqgis {surface['surface']}/{operation} needs a not-applicable reason.")
+            expected[(surface["surface"], operation)] = reason
+    for dropped in grid["dropped_functions"]:
+        reason = dropped["addressability_reason"]
+        if not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+            raise ValueError(f"dropped PyQGIS function {dropped['operation']} needs a not-applicable reason.")
+        key = (dropped["surface"], dropped["operation"])
+        if key in expected:
+            raise ValueError(f"dropped PyQGIS function {key} collides with a grid cell.")
+        expected[key] = reason
+    present = {
+        (row["surface"], row["operation"]): row
+        for row in rows
+        if row["client_lane"] == driver["lane"] and row["surface"] != "ogc"
+    }
+    if set(present) != set(expected):
+        raise ValueError(
+            "pyqgis function grid rows differ from sources/pyqgis-function-grid.v1.json "
+            f"(missing={sorted(set(expected) - set(present))[:8]}, "
+            f"unexpected={sorted(set(present) - set(expected))[:8]})."
+        )
+    for key, reason in expected.items():
+        row = present[key]
+        if row["release_bucket"] != must_fix or row["canonical_client"] != driver["canonical_client"]:
+            raise ValueError(f"pyqgis {key} is not a must-fix scripting row.")
+        if reason is None:
+            if not row["addressable_by_client"] or row["addressability_reason"] is not None:
+                raise ValueError(f"pyqgis {key} is applicable and must stay addressable.")
+        elif row["addressable_by_client"] or row["addressability_reason"] != reason:
+            raise ValueError(f"pyqgis {key} must carry its not-applicable reason.")
+
+
 def _ui_functions(surface: dict, ui: dict) -> list[str]:
     functions = list(ui["functions"])
     if surface.get("edit"):
@@ -781,6 +833,7 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
     )
     if missing_surfaces:
         raise ValueError(f"pyqgis is missing OGC surfaces {missing_surfaces}.")
+    _validate_pyqgis_grid(pyqgis_rows, drivers["pyqgis"], must_fix, preview)
     ui = source["ui"]
     expected_ui: dict[str, dict[tuple[str, str], str]] = {"pro-ui": {}, "qgis-ui": {}}
     for surface in ui["surfaces"]:

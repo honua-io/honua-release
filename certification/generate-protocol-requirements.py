@@ -64,6 +64,75 @@ def desktop_driver_summary(requirements: list[dict[str, Any]], drivers: tuple[st
             raise ValueError(f"desktop row {row['surface']}/{row['operation']} has no governed release_bucket")
         counts[driver][bucket] += 1
     return {"ruling": "R40", "drivers": counts}
+
+
+def emit_pyqgis_grid(add, *, preview_capabilities: set[str]) -> None:
+    """R40: PyQGIS is every server-declared surface crossed with every function that client can
+    perform, not one row per surface. A function the client cannot perform is not-applicable,
+    with the reason carried on the row."""
+    grid = load(SOURCES / "pyqgis-function-grid.v1.json")
+    if grid.get("schema") != "honua.pyqgis-function-grid/v1" or grid.get("ruling") != "R40":
+        raise ValueError("pyqgis function grid must be schema honua.pyqgis-function-grid/v1 under ruling R40")
+    functions = grid["functions"]
+    operations = [item["operation"] for item in functions]
+    if len(operations) != len(set(operations)) or not operations:
+        raise ValueError("pyqgis function grid needs a unique operation per function")
+    families: dict[str, str] = {}
+    allowed_families = {
+        "connect/discover", "add", "render", "identify", "query/filter", "edit",
+        "raster read", "save/reopen", "auth",
+    }
+    for item in functions:
+        family = item["family"]
+        if family not in allowed_families:
+            raise ValueError(f"pyqgis function {item['operation']} names an unknown family {family!r}")
+        families[item["operation"]] = family
+    surfaces = grid["surfaces"]
+    if not surfaces or len({item["surface"] for item in surfaces}) != len(surfaces):
+        raise ValueError("pyqgis function grid repeats a surface or declares none")
+    contract = f"pyqgis-function-grid@{grid['revision']}"
+    driver = DESKTOP_DRIVERS["pyqgis"]
+    for surface in surfaces:
+        declared = surface["not_applicable"]
+        unknown = set(declared) - set(operations)
+        if unknown:
+            raise ValueError(f"pyqgis surface {surface['surface']} names unknown functions {sorted(unknown)}")
+        if surface["capability_key"] in preview_capabilities and set(declared) != set(operations):
+            raise ValueError(
+                f"preview surface {surface['surface']} must declare every PyQGIS function not-applicable"
+            )
+        for operation in operations:
+            reason = declared.get(operation)
+            addressable = reason is None
+            if not addressable and not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+                raise ValueError(
+                    f"pyqgis {surface['surface']}/{operation} needs a not-applicable reason, not {reason!r}"
+                )
+            facets = (
+                ["not-client-addressable"] if not addressable
+                else ["auth"] if families[operation] == "auth"
+                else ["positive", "auth", "media-schema"]
+            )
+            add(
+                capability=surface["capability_key"], surface=surface["surface"], operation=operation,
+                client=driver["canonical_client"], lane=driver["lane"], version=QGIS_VERSION,
+                contract=contract, auth_policy=QGIS["auth_policy_revision"],
+                target=QGIS["deployment_target"], facets=facets, addressable=addressable,
+                addressability_reason=reason, release_bucket=MUST_FIX, client_driver="pyqgis",
+            )
+    for dropped in grid["dropped_functions"]:
+        reason = dropped["addressability_reason"]
+        if not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+            raise ValueError(f"dropped PyQGIS function {dropped['operation']} needs a not-applicable reason")
+        add(
+            capability=dropped["surface"], surface=dropped["surface"], operation=dropped["operation"],
+            client=driver["canonical_client"], lane=driver["lane"], version=QGIS_VERSION,
+            contract=contract, auth_policy=QGIS["auth_policy_revision"], target=QGIS["deployment_target"],
+            facets=["not-client-addressable"], addressable=False, addressability_reason=reason,
+            release_bucket=MUST_FIX, client_driver="pyqgis",
+        )
+
+
 PR_SDK_SMOKE_OPERATIONS = {
     "sdk-js": {
         ("featureserver", "metadata"),
@@ -744,16 +813,13 @@ def main() -> None:
 
     # R40: scripting drivers take every applicable OGC function, GeoServices and OGC alike.
     # The licensed scripting driver gets each supported OGC matrix case plus each implemented
-    # OGC surface. pyqgis keeps the roster-bound QGIS rows (stamped below) and gains only the
-    # cases and surfaces that row set does not already cover. Preview capabilities stay off
-    # the QGIS canonical client.
+    # OGC surface. pyqgis keeps the roster-bound QGIS rows (stamped below) and the matrix cases
+    # that roster does not already cover. Its surfaces are the function grid emitted below, not
+    # one more row per surface. Preview capabilities stay off the QGIS canonical client.
     desktop_contract = f"desktop-client-certification@{DESKTOP['revision']}"
     ogc_facets = ["positive", "negative", "auth", "crs-axis", "media-schema"]
     qgis_operations = {
         row["operation"] for row in requirements if row["canonical_client"] == QGIS["name"]
-    }
-    qgis_capabilities = {
-        row["capability_key"] for row in requirements if row["canonical_client"] == QGIS["name"]
     }
     for case in ogc["cases"]:
         if case.get("status") not in SUPPORTED:
@@ -788,17 +854,7 @@ def main() -> None:
             version=PRO["version"], contract=desktop_contract, facets=assignment["scenario_facets"],
             **licensed_desktop(MUST_FIX, scripting_driver, entitlement=scripting_entitlement),
         )
-        if assignment["capability_key"] in qgis_capabilities or assignment["capability_key"] in preview_capabilities:
-            continue
-        add(
-            capability=assignment["capability_key"], surface=assignment["surface"],
-            operation=assignment["capability_key"],
-            client=DESKTOP_DRIVERS["pyqgis"]["canonical_client"],
-            lane=DESKTOP_DRIVERS["pyqgis"]["lane"], version=QGIS_VERSION,
-            contract=desktop_contract, auth_policy=QGIS["auth_policy_revision"],
-            target=QGIS["deployment_target"], facets=assignment["scenario_facets"],
-            release_bucket=MUST_FIX, client_driver="pyqgis",
-        )
+    emit_pyqgis_grid(add, preview_capabilities=preview_capabilities)
 
     ui = DESKTOP["ui"]
     for surface in ui["surfaces"]:
@@ -863,7 +919,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-04-complete.20",
+        "revision": "2026-10-04-complete.21",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
@@ -892,7 +948,11 @@ def main() -> None:
             f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and "
             f"{PRO['name']} {PRO['version']}; a receipt records the exact patch it observed. "
             "R40 splits those clients by driver. Scripting rows are must-fix-before-cut on every "
-            "applicable GeoServices and OGC cell. pro-ui and qgis-ui are must-fix-before-cut only on "
+            "applicable GeoServices and OGC cell. PyQGIS is every server-declared surface crossed with "
+            "every function that client can perform (connect/discover, add, render, identify, "
+            "query/filter, edit, raster read, save/reopen, and the auth modes). A function PyQGIS "
+            "has no client for is not-applicable, and the reason is declared on the row. "
+            "pro-ui and qgis-ui are must-fix-before-cut only on "
             "the core set recorded in the desktop source (FeatureServer, MapServer, ImageServer render, "
             "connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
             "QGIS UI also WMS, WFS, WCS and WFS-T edit). Every other UI cell is "

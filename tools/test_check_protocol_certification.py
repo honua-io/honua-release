@@ -1595,3 +1595,45 @@ def test_licensed_scripting_driver_keeps_the_metadata_facet():
         and row["release_bucket"] == "must-fix-before-cut"
     }
     assert {"feature-server", "map-server"} <= covered, covered
+
+
+def test_pyqgis_is_the_full_surface_function_grid():
+    """R40: pyqgis is every server-declared surface crossed with every function, and a function
+    PyQGIS has no client for is not-applicable with that reason declared on the row."""
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    grid = json.loads(
+        (Path(__file__).parents[1] / "certification" / "sources" / "pyqgis-function-grid.v1.json")
+        .read_text(encoding="utf-8")
+    )
+    operations = [item["operation"] for item in grid["functions"]]
+    expected = {
+        (surface["surface"], operation): surface["not_applicable"].get(operation)
+        for surface in grid["surfaces"]
+        for operation in operations
+    }
+    for dropped in grid["dropped_functions"]:
+        expected[(dropped["surface"], dropped["operation"])] = dropped["addressability_reason"]
+    rows = [
+        row for row in requirements["requirements"]
+        if row.get("client_driver") == "pyqgis" and row["client_lane"] == "desktop-pyqgis"
+        and row["surface"] != "ogc"
+    ]
+    present = {(row["surface"], row["operation"]): row for row in rows}
+    assert set(present) == set(expected)
+    assert all(row["release_bucket"] == "must-fix-before-cut" for row in rows)
+    for key, reason in expected.items():
+        row = present[key]
+        if reason is None:
+            assert row["addressable_by_client"] and row["addressability_reason"] is None
+        else:
+            assert not row["addressable_by_client"] and row["addressability_reason"] == reason
+            assert reason.startswith("not-applicable: ")
+    # The coarse one-row-per-surface fill is gone; matrix cases the roster does not cover remain.
+    assert all(row["surface"] == "ogc" for row in requirements["requirements"]
+               if row.get("client_driver") == "pyqgis" and row["client_lane"] == "desktop-pyqgis"
+               and (row["surface"], row["operation"]) not in expected)
+    families = {item["operation"]: item["family"] for item in grid["functions"]}
+    assert set(families.values()) == {
+        "connect/discover", "add", "render", "identify", "query/filter", "edit",
+        "raster read", "save/reopen", "auth",
+    }

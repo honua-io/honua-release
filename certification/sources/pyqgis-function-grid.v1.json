@@ -1,0 +1,932 @@
+{
+  "schema": "honua.pyqgis-function-grid/v1",
+  "revision": "2026-10-04.1",
+  "ruling": "R40",
+  "notes": "PyQGIS is every server-declared surface crossed with every function that client can perform. The functions are the QGIS scripting column set: connect/discover, add, render, identify, query/filter, edit, raster read, save/reopen (save layer, save project, save package, reopen), and the auth modes anonymous, token, api key, portal sign-in and pki. A function that does not apply to the surface, or that PyQGIS has no client for, is not-applicable with a declared reason and is not a supported pass. Preview and experimental surfaces stay outside the supported denominator, so a function that would otherwise be applicable there is not-applicable for that reason. Remote processing, branch versioning and attachment editing are dropped functions: PyQGIS has no client, and each is declared not-applicable rather than omitted.",
+  "functions": [
+    {
+      "operation": "connect",
+      "family": "connect/discover"
+    },
+    {
+      "operation": "add-layer",
+      "family": "add"
+    },
+    {
+      "operation": "render",
+      "family": "render"
+    },
+    {
+      "operation": "identify",
+      "family": "identify"
+    },
+    {
+      "operation": "query",
+      "family": "query/filter"
+    },
+    {
+      "operation": "edit",
+      "family": "edit"
+    },
+    {
+      "operation": "raster-read",
+      "family": "raster read"
+    },
+    {
+      "operation": "save-layer",
+      "family": "save/reopen"
+    },
+    {
+      "operation": "save-project",
+      "family": "save/reopen"
+    },
+    {
+      "operation": "save-package",
+      "family": "save/reopen"
+    },
+    {
+      "operation": "reopen",
+      "family": "save/reopen"
+    },
+    {
+      "operation": "anonymous",
+      "family": "auth"
+    },
+    {
+      "operation": "token",
+      "family": "auth"
+    },
+    {
+      "operation": "api-key",
+      "family": "auth"
+    },
+    {
+      "operation": "portal-sign-in",
+      "family": "auth"
+    },
+    {
+      "operation": "pki",
+      "family": "auth"
+    }
+  ],
+  "dropped_functions": [
+    {
+      "surface": "geoprocessing",
+      "operation": "invoke",
+      "addressability_reason": "not-applicable: PyQGIS has no client for remote processing"
+    },
+    {
+      "surface": "versioned-edit",
+      "operation": "edit",
+      "addressability_reason": "not-applicable: PyQGIS has no branch-versioning client"
+    },
+    {
+      "surface": "attachment-edit",
+      "operation": "edit",
+      "addressability_reason": "not-applicable: PyQGIS has no attachment client"
+    }
+  ],
+  "surfaces": [
+    {
+      "surface": "ogc-wms",
+      "capability_key": "serve.wms",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogc-wmts",
+      "capability_key": "serve.wmts",
+      "not_applicable": {
+        "connect": "not-applicable: preview surface, outside the supported denominator",
+        "add-layer": "not-applicable: preview surface, outside the supported denominator",
+        "render": "not-applicable: preview surface, outside the supported denominator",
+        "identify": "not-applicable: preview surface, outside the supported denominator",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: preview surface, outside the supported denominator",
+        "save-project": "not-applicable: preview surface, outside the supported denominator",
+        "save-package": "not-applicable: preview surface, outside the supported denominator",
+        "reopen": "not-applicable: preview surface, outside the supported denominator",
+        "anonymous": "not-applicable: preview surface, outside the supported denominator",
+        "token": "not-applicable: preview surface, outside the supported denominator",
+        "api-key": "not-applicable: preview surface, outside the supported denominator",
+        "portal-sign-in": "not-applicable: preview surface, outside the supported denominator",
+        "pki": "not-applicable: preview surface, outside the supported denominator"
+      }
+    },
+    {
+      "surface": "ogc-wfs-read",
+      "capability_key": "serve.wfs",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogc-wfs-t",
+      "capability_key": "serve.wfs",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogc-wcs",
+      "capability_key": "serve.wcs",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "ogc-wps",
+      "capability_key": "serve.wps",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no WPS client",
+        "add-layer": "not-applicable: PyQGIS has no WPS client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no WPS client",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no WPS client",
+        "anonymous": "not-applicable: PyQGIS has no WPS client",
+        "token": "not-applicable: PyQGIS has no WPS client",
+        "api-key": "not-applicable: PyQGIS has no WPS client",
+        "portal-sign-in": "not-applicable: PyQGIS has no WPS client",
+        "pki": "not-applicable: PyQGIS has no WPS client"
+      }
+    },
+    {
+      "surface": "ogc-csw",
+      "capability_key": "serve.csw",
+      "not_applicable": {
+        "connect": "not-applicable: the server does not ship this surface",
+        "add-layer": "not-applicable: the server does not ship this surface",
+        "render": "not-applicable: the server does not ship this surface",
+        "identify": "not-applicable: the server does not ship this surface",
+        "query": "not-applicable: the server does not ship this surface",
+        "edit": "not-applicable: the server does not ship this surface",
+        "raster-read": "not-applicable: the server does not ship this surface",
+        "save-layer": "not-applicable: the server does not ship this surface",
+        "save-project": "not-applicable: the server does not ship this surface",
+        "save-package": "not-applicable: the server does not ship this surface",
+        "reopen": "not-applicable: the server does not ship this surface",
+        "anonymous": "not-applicable: the server does not ship this surface",
+        "token": "not-applicable: the server does not ship this surface",
+        "api-key": "not-applicable: the server does not ship this surface",
+        "portal-sign-in": "not-applicable: the server does not ship this surface",
+        "pki": "not-applicable: the server does not ship this surface"
+      }
+    },
+    {
+      "surface": "ogcapi-features-read",
+      "capability_key": "serve.ogc-api-features",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogcapi-features-transactions",
+      "capability_key": "serve.ogc-api-features",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogcapi-tiles",
+      "capability_key": "serve.ogc-api-tiles",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogcapi-maps",
+      "capability_key": "serve.ogc-api-maps",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogcapi-coverages",
+      "capability_key": "serve.ogc-api-coverages",
+      "not_applicable": {
+        "connect": "not-applicable: preview surface, outside the supported denominator",
+        "add-layer": "not-applicable: preview surface, outside the supported denominator",
+        "render": "not-applicable: preview surface, outside the supported denominator",
+        "identify": "not-applicable: preview surface, outside the supported denominator",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: preview surface, outside the supported denominator",
+        "save-layer": "not-applicable: preview surface, outside the supported denominator",
+        "save-project": "not-applicable: preview surface, outside the supported denominator",
+        "save-package": "not-applicable: preview surface, outside the supported denominator",
+        "reopen": "not-applicable: preview surface, outside the supported denominator",
+        "anonymous": "not-applicable: preview surface, outside the supported denominator",
+        "token": "not-applicable: preview surface, outside the supported denominator",
+        "api-key": "not-applicable: preview surface, outside the supported denominator",
+        "portal-sign-in": "not-applicable: preview surface, outside the supported denominator",
+        "pki": "not-applicable: preview surface, outside the supported denominator"
+      }
+    },
+    {
+      "surface": "ogcapi-processes",
+      "capability_key": "process.ogc-api-processes",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no OGC API Processes client",
+        "add-layer": "not-applicable: PyQGIS has no OGC API Processes client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no OGC API Processes client",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no OGC API Processes client",
+        "anonymous": "not-applicable: PyQGIS has no OGC API Processes client",
+        "token": "not-applicable: PyQGIS has no OGC API Processes client",
+        "api-key": "not-applicable: PyQGIS has no OGC API Processes client",
+        "portal-sign-in": "not-applicable: PyQGIS has no OGC API Processes client",
+        "pki": "not-applicable: PyQGIS has no OGC API Processes client"
+      }
+    },
+    {
+      "surface": "ogcapi-records",
+      "capability_key": "serve.ogc-api-records",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ogcapi-styles",
+      "capability_key": "styling.ogc-api-styles",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no OGC API Styles client",
+        "add-layer": "not-applicable: PyQGIS has no OGC API Styles client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: PyQGIS has no OGC API Styles client",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen",
+        "anonymous": "not-applicable: PyQGIS has no OGC API Styles client",
+        "token": "not-applicable: PyQGIS has no OGC API Styles client",
+        "api-key": "not-applicable: PyQGIS has no OGC API Styles client",
+        "portal-sign-in": "not-applicable: PyQGIS has no OGC API Styles client",
+        "pki": "not-applicable: PyQGIS has no OGC API Styles client"
+      }
+    },
+    {
+      "surface": "ogcapi-edr",
+      "capability_key": "serve.ogc-api-edr",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no OGC API EDR client",
+        "add-layer": "not-applicable: PyQGIS has no OGC API EDR client",
+        "render": "not-applicable: PyQGIS has no OGC API EDR client",
+        "identify": "not-applicable: PyQGIS has no OGC API EDR client",
+        "query": "not-applicable: PyQGIS has no OGC API EDR client",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: PyQGIS has no OGC API EDR client",
+        "save-project": "not-applicable: PyQGIS has no OGC API EDR client",
+        "save-package": "not-applicable: PyQGIS has no OGC API EDR client",
+        "reopen": "not-applicable: PyQGIS has no OGC API EDR client",
+        "anonymous": "not-applicable: PyQGIS has no OGC API EDR client",
+        "token": "not-applicable: PyQGIS has no OGC API EDR client",
+        "api-key": "not-applicable: PyQGIS has no OGC API EDR client",
+        "portal-sign-in": "not-applicable: PyQGIS has no OGC API EDR client",
+        "pki": "not-applicable: PyQGIS has no OGC API EDR client"
+      }
+    },
+    {
+      "surface": "stac-api",
+      "capability_key": "serve.stac",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "xyz-mvt",
+      "capability_key": "serve.vector-tiles",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "cog-range",
+      "capability_key": "raster.cloud-cog-serving",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "terrain-rgb",
+      "capability_key": "raster.terrain-rgb",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "sensorthings",
+      "capability_key": "serve.sensorthings",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "odata-v4",
+      "capability_key": "serve.odata",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no OData client",
+        "add-layer": "not-applicable: PyQGIS has no OData client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: PyQGIS has no OData client",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen",
+        "anonymous": "not-applicable: PyQGIS has no OData client",
+        "token": "not-applicable: PyQGIS has no OData client",
+        "api-key": "not-applicable: PyQGIS has no OData client",
+        "portal-sign-in": "not-applicable: PyQGIS has no OData client",
+        "pki": "not-applicable: PyQGIS has no OData client"
+      }
+    },
+    {
+      "surface": "gs-rest-catalog",
+      "capability_key": "serve.geoservices-root",
+      "not_applicable": {
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen"
+      }
+    },
+    {
+      "surface": "gs-soap-catalog",
+      "capability_key": "serve.geoservices-root",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "add-layer": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen",
+        "anonymous": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "token": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "api-key": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "portal-sign-in": "not-applicable: PyQGIS discovers services over the REST directory only",
+        "pki": "not-applicable: PyQGIS discovers services over the REST directory only"
+      }
+    },
+    {
+      "surface": "fs-metadata",
+      "capability_key": "serve.geoservices-featureserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "fs-query",
+      "capability_key": "serve.geoservices-featureserver",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "fs-edit",
+      "capability_key": "serve.geoservices-featureserver",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "fs-attachments",
+      "capability_key": "serve.geoservices-featureserver",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "fs-replica-sync",
+      "capability_key": "serve.geoservices-featureserver",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no feature-replica client",
+        "add-layer": "not-applicable: PyQGIS has no feature-replica client",
+        "render": "not-applicable: PyQGIS has no feature-replica client",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: PyQGIS has no feature-replica client",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: PyQGIS has no feature-replica client",
+        "save-project": "not-applicable: PyQGIS has no feature-replica client",
+        "save-package": "not-applicable: PyQGIS has no feature-replica client",
+        "reopen": "not-applicable: PyQGIS has no feature-replica client",
+        "anonymous": "not-applicable: PyQGIS has no feature-replica client",
+        "token": "not-applicable: PyQGIS has no feature-replica client",
+        "api-key": "not-applicable: PyQGIS has no feature-replica client",
+        "portal-sign-in": "not-applicable: PyQGIS has no feature-replica client",
+        "pki": "not-applicable: PyQGIS has no feature-replica client"
+      }
+    },
+    {
+      "surface": "vms-versioning",
+      "capability_key": "editing.branch-versioning",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no branch-versioning client",
+        "add-layer": "not-applicable: PyQGIS has no branch-versioning client",
+        "render": "not-applicable: PyQGIS has no branch-versioning client",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: PyQGIS has no branch-versioning client",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: PyQGIS has no branch-versioning client",
+        "save-project": "not-applicable: PyQGIS has no branch-versioning client",
+        "save-package": "not-applicable: PyQGIS has no branch-versioning client",
+        "reopen": "not-applicable: PyQGIS has no branch-versioning client",
+        "anonymous": "not-applicable: PyQGIS has no branch-versioning client",
+        "token": "not-applicable: PyQGIS has no branch-versioning client",
+        "api-key": "not-applicable: PyQGIS has no branch-versioning client",
+        "portal-sign-in": "not-applicable: PyQGIS has no branch-versioning client",
+        "pki": "not-applicable: PyQGIS has no branch-versioning client"
+      }
+    },
+    {
+      "surface": "ms-metadata",
+      "capability_key": "serve.geoservices-mapserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ms-export",
+      "capability_key": "serve.geoservices-mapserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ms-identify-find-query",
+      "capability_key": "serve.geoservices-mapserver",
+      "not_applicable": {
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ms-legend",
+      "capability_key": "serve.geoservices-mapserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "ms-tiles",
+      "capability_key": "serve.geoservices-mapserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "is-metadata",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "is-exportimage",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "is-identify-samples",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "is-statistics",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "is-query-catalog",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "is-tiles",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "is-multidim",
+      "capability_key": "serve.geoservices-imageserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces"
+      }
+    },
+    {
+      "surface": "gp-rest",
+      "capability_key": "process.geoprocessing",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "add-layer": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "anonymous": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "token": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "api-key": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "portal-sign-in": "not-applicable: PyQGIS has no client for remote geoprocessing services",
+        "pki": "not-applicable: PyQGIS has no client for remote geoprocessing services"
+      }
+    },
+    {
+      "surface": "gp-soap",
+      "capability_key": "process.geoprocessing",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no SOAP client",
+        "add-layer": "not-applicable: PyQGIS has no SOAP client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no SOAP client",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no SOAP client",
+        "anonymous": "not-applicable: PyQGIS has no SOAP client",
+        "token": "not-applicable: PyQGIS has no SOAP client",
+        "api-key": "not-applicable: PyQGIS has no SOAP client",
+        "portal-sign-in": "not-applicable: PyQGIS has no SOAP client",
+        "pki": "not-applicable: PyQGIS has no SOAP client"
+      }
+    },
+    {
+      "surface": "gp-printing",
+      "capability_key": "printing.pdf-output",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no client for printing services",
+        "add-layer": "not-applicable: PyQGIS has no client for printing services",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no client for printing services",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no client for printing services",
+        "anonymous": "not-applicable: PyQGIS has no client for printing services",
+        "token": "not-applicable: PyQGIS has no client for printing services",
+        "api-key": "not-applicable: PyQGIS has no client for printing services",
+        "portal-sign-in": "not-applicable: PyQGIS has no client for printing services",
+        "pki": "not-applicable: PyQGIS has no client for printing services"
+      }
+    },
+    {
+      "surface": "na-solve",
+      "capability_key": "routing.solve",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no client for network-analysis services",
+        "add-layer": "not-applicable: PyQGIS has no client for network-analysis services",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: PyQGIS has no client for network-analysis services",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: PyQGIS has no client for network-analysis services",
+        "anonymous": "not-applicable: PyQGIS has no client for network-analysis services",
+        "token": "not-applicable: PyQGIS has no client for network-analysis services",
+        "api-key": "not-applicable: PyQGIS has no client for network-analysis services",
+        "portal-sign-in": "not-applicable: PyQGIS has no client for network-analysis services",
+        "pki": "not-applicable: PyQGIS has no client for network-analysis services"
+      }
+    },
+    {
+      "surface": "geocode-server",
+      "capability_key": "serve.geoservices-geocodeserver",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no geocoding client",
+        "add-layer": "not-applicable: PyQGIS has no geocoding client",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen",
+        "anonymous": "not-applicable: PyQGIS has no geocoding client",
+        "token": "not-applicable: PyQGIS has no geocoding client",
+        "api-key": "not-applicable: PyQGIS has no geocoding client",
+        "portal-sign-in": "not-applicable: PyQGIS has no geocoding client",
+        "pki": "not-applicable: PyQGIS has no geocoding client"
+      }
+    },
+    {
+      "surface": "geometry-service",
+      "capability_key": "serve.geoservices-geometry-service",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no geometry-service client",
+        "add-layer": "not-applicable: this surface yields no layer to add",
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen",
+        "anonymous": "not-applicable: PyQGIS has no geometry-service client",
+        "token": "not-applicable: PyQGIS has no geometry-service client",
+        "api-key": "not-applicable: PyQGIS has no geometry-service client",
+        "portal-sign-in": "not-applicable: PyQGIS has no geometry-service client",
+        "pki": "not-applicable: PyQGIS has no geometry-service client"
+      }
+    },
+    {
+      "surface": "vector-tile-server",
+      "capability_key": "serve.geoservices-vectortileserver",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "scene-i3s",
+      "capability_key": "serve.i3s-scene",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "add-layer": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "render": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "identify": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "save-project": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "save-package": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "reopen": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "anonymous": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "token": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "api-key": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "portal-sign-in": "not-applicable: PyQGIS has no scene-layer client for this surface",
+        "pki": "not-applicable: PyQGIS has no scene-layer client for this surface"
+      }
+    },
+    {
+      "surface": "scene-3dtiles",
+      "capability_key": "serve.3d-tiles-scene",
+      "not_applicable": {
+        "query": "not-applicable: no query or filter operation targets this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values"
+      }
+    },
+    {
+      "surface": "portal-self",
+      "capability_key": "identity.portal-sharing",
+      "not_applicable": {
+        "render": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "identify": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "query": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "edit": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "raster-read": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-project": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-package": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "reopen": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "pki": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint"
+      }
+    },
+    {
+      "surface": "portal-content",
+      "capability_key": "identity.portal-sharing",
+      "not_applicable": {
+        "render": "not-applicable: this surface produces no drawable layer",
+        "identify": "not-applicable: no identify operation is defined for this surface",
+        "edit": "not-applicable: read-only surface; edits are graded on the edit surfaces",
+        "raster-read": "not-applicable: this surface serves no raster pixel values",
+        "save-layer": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-project": "not-applicable: this surface produces no layer or project to save and reopen",
+        "save-package": "not-applicable: this surface produces no layer or project to save and reopen",
+        "reopen": "not-applicable: this surface produces no layer or project to save and reopen"
+      }
+    },
+    {
+      "surface": "auth-token",
+      "capability_key": "identity.portal-token",
+      "not_applicable": {
+        "add-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "render": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "identify": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "query": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "edit": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "raster-read": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-project": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-package": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "reopen": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "anonymous": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "api-key": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "portal-sign-in": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "pki": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint"
+      }
+    },
+    {
+      "surface": "auth-oauth2",
+      "capability_key": "identity.oidc",
+      "not_applicable": {
+        "add-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "render": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "identify": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "query": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "edit": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "raster-read": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-project": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-package": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "reopen": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "anonymous": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "token": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "api-key": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "pki": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint"
+      }
+    },
+    {
+      "surface": "auth-api-key",
+      "capability_key": "identity.api-key",
+      "not_applicable": {
+        "add-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "render": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "identify": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "query": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "edit": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "raster-read": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-project": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-package": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "reopen": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "anonymous": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "token": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "portal-sign-in": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "pki": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint"
+      }
+    },
+    {
+      "surface": "auth-mtls",
+      "capability_key": "identity.mtls-client-certificate",
+      "not_applicable": {
+        "connect": "not-applicable: experimental surface, outside the supported denominator",
+        "add-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "render": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "identify": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "query": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "edit": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "raster-read": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-layer": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-project": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "save-package": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "reopen": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "anonymous": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "token": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "api-key": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "portal-sign-in": "not-applicable: this function is graded on the data surfaces, not on the authentication endpoint",
+        "pki": "not-applicable: experimental surface, outside the supported denominator"
+      }
+    },
+    {
+      "surface": "admin-discovery",
+      "capability_key": "admin.control-plane",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no client for the admin control plane",
+        "add-layer": "not-applicable: PyQGIS has no client for the admin control plane",
+        "render": "not-applicable: PyQGIS has no client for the admin control plane",
+        "identify": "not-applicable: PyQGIS has no client for the admin control plane",
+        "query": "not-applicable: PyQGIS has no client for the admin control plane",
+        "edit": "not-applicable: PyQGIS has no client for the admin control plane",
+        "raster-read": "not-applicable: PyQGIS has no client for the admin control plane",
+        "save-layer": "not-applicable: PyQGIS has no client for the admin control plane",
+        "save-project": "not-applicable: PyQGIS has no client for the admin control plane",
+        "save-package": "not-applicable: PyQGIS has no client for the admin control plane",
+        "reopen": "not-applicable: PyQGIS has no client for the admin control plane",
+        "anonymous": "not-applicable: PyQGIS has no client for the admin control plane",
+        "token": "not-applicable: PyQGIS has no client for the admin control plane",
+        "api-key": "not-applicable: PyQGIS has no client for the admin control plane",
+        "portal-sign-in": "not-applicable: PyQGIS has no client for the admin control plane",
+        "pki": "not-applicable: PyQGIS has no client for the admin control plane"
+      }
+    },
+    {
+      "surface": "honua-native-other",
+      "capability_key": "honua.native-surfaces",
+      "not_applicable": {
+        "connect": "not-applicable: PyQGIS has no client for these application surfaces",
+        "add-layer": "not-applicable: PyQGIS has no client for these application surfaces",
+        "render": "not-applicable: PyQGIS has no client for these application surfaces",
+        "identify": "not-applicable: PyQGIS has no client for these application surfaces",
+        "query": "not-applicable: PyQGIS has no client for these application surfaces",
+        "edit": "not-applicable: PyQGIS has no client for these application surfaces",
+        "raster-read": "not-applicable: PyQGIS has no client for these application surfaces",
+        "save-layer": "not-applicable: PyQGIS has no client for these application surfaces",
+        "save-project": "not-applicable: PyQGIS has no client for these application surfaces",
+        "save-package": "not-applicable: PyQGIS has no client for these application surfaces",
+        "reopen": "not-applicable: PyQGIS has no client for these application surfaces",
+        "anonymous": "not-applicable: PyQGIS has no client for these application surfaces",
+        "token": "not-applicable: PyQGIS has no client for these application surfaces",
+        "api-key": "not-applicable: PyQGIS has no client for these application surfaces",
+        "portal-sign-in": "not-applicable: PyQGIS has no client for these application surfaces",
+        "pki": "not-applicable: PyQGIS has no client for these application surfaces"
+      }
+    }
+  ]
+}
