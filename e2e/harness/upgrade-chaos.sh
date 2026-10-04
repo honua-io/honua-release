@@ -5,6 +5,7 @@
 # prior/candidate server images against the real PostGIS service from compose.candidate.yml and
 # exits non-zero whenever it cannot prove convergence, rollback compatibility, lock serialization,
 # transactional partial-failure behavior, fail-closed divergence handling, or idempotency.
+# partial-migration-failure always records blocked (non-zero) until it drives the candidate runner.
 #
 # Required inputs:
 #   HONUA_PRIOR_SERVER_IMAGE       image that owns the seeded starting schema
@@ -355,38 +356,11 @@ wait_for_journal() {
 }
 
 run_partial_failure() {
-  local pid_file="$OUT/partial-backend.pid" i remaining converged
-  restore_baseline
-  db_exec 'DROP TABLE IF EXISTS public.chaos_partial_second; DROP TABLE IF EXISTS public.chaos_partial_first;' >/dev/null
-  (db_exec "SET application_name = 'honua_upgrade_chaos_partial'; BEGIN; CREATE TABLE public.chaos_partial_first (id integer PRIMARY KEY); INSERT INTO public.chaos_partial_first VALUES (1); SELECT pg_backend_pid(); SELECT pg_sleep(90); CREATE TABLE public.chaos_partial_second (id integer PRIMARY KEY); COMMIT;" > "$pid_file" 2>&1) &
-  PARTIAL_JOB_PID=$!
-  # Compose exec can take several seconds to attach while the real server stack is recycling.
-  # Keep the transaction open for 90 seconds, but allow up to 75 seconds to observe it before
-  # declaring the probe unobservable; the explicit application name makes this independent of
-  # psql's stdout buffering.
-  for i in $(seq 1 75); do
-    PARTIAL_BACKEND_PID="$(db_exec "SELECT pid FROM pg_stat_activity WHERE application_name = 'honua_upgrade_chaos_partial' AND state = 'active' LIMIT 1" || true)"
-    if [[ "$PARTIAL_BACKEND_PID" =~ ^[0-9]+$ ]]; then break; fi
-    sleep 1
-  done
-  if ! [[ "$PARTIAL_BACKEND_PID" =~ ^[0-9]+$ ]]; then
-    record partial-migration-failure fail "could not identify the in-flight migration backend"
-    return 1
-  fi
-  db_exec "SELECT pg_terminate_backend($PARTIAL_BACKEND_PID);" >/dev/null || true
-  wait "$PARTIAL_JOB_PID" >/dev/null 2>&1 || true
-  PARTIAL_JOB_PID=""
-  PARTIAL_BACKEND_PID=""
-  remaining="$(db_exec "SELECT count(*) FROM pg_class WHERE relname IN ('chaos_partial_first','chaos_partial_second');" | tr -d '[:space:]')"
-  if [ "$remaining" = 0 ]; then
-    db_exec 'BEGIN; CREATE TABLE public.chaos_partial_first (id integer PRIMARY KEY); INSERT INTO public.chaos_partial_first VALUES (1); CREATE TABLE public.chaos_partial_second (id integer PRIMARY KEY); COMMIT;' >/dev/null
-    converged="$(db_exec "SELECT CASE WHEN to_regclass('public.chaos_partial_first') IS NOT NULL AND to_regclass('public.chaos_partial_second') IS NOT NULL AND (SELECT count(*) FROM public.chaos_partial_first) = 1 AND (SELECT count(*) FROM public.chaos_partial_second) = 1 THEN 1 ELSE 0 END" | tr -d '[:space:]')"
-    if [ "$converged" = 1 ]; then
-      record partial-migration-failure pass "backend termination rolled back all statements; a clean re-run converged"
-      return 0
-    fi
-  fi
-  record partial-migration-failure fail "partial multi-statement migration was not rolled back atomically (remaining=$remaining converged=${converged:-unset})"
+  # Not evidence until honua-io/honua-release#440 lands. The former probe sent hand-written SQL
+  # straight to PostgreSQL and never ran the candidate's migration runner, so it could only prove
+  # that PostgreSQL rolls back an aborted transaction, not that application migrations are atomic
+  # or that the runner refuses to journal a failed script. No PostgreSQL-only path may record pass.
+  record partial-migration-failure blocked "not evidence: no probe interrupts a real migration inside the candidate runner (honua-io/honua-release#440)"
   return 1
 }
 

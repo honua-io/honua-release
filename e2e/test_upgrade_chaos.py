@@ -41,11 +41,17 @@ def test_driver_fails_closed_on_missing_inputs_and_unproved_divergence():
     assert "[ \"$failures\" = 0 ]" in text
 
 
-def test_partial_failure_is_a_real_backend_termination_probe():
+def test_partial_failure_can_never_record_pass_without_the_candidate_runner():
+    # A hand-written psql transaction only proves PostgreSQL rollback, not application migration
+    # atomicity (honua-io/honua-release#440). Until a probe interrupts a real migration inside the
+    # candidate runner, no line of the driver may record this scenario as pass.
     text = DRIVER.read_text(encoding="utf-8")
-    assert "pg_terminate_backend" in text
-    assert "chaos_partial_first" in text and "chaos_partial_second" in text
-    assert "backend termination rolled back all statements" in text
+    body = text.split("run_partial_failure() {", 1)[1].split("\n}\n", 1)[0]
+    assert " pass " not in body
+    assert "record partial-migration-failure blocked" in body
+    assert "honua-io/honua-release#440" in body
+    for line in text.splitlines():
+        assert not ("partial-migration-failure" in line and "record" in line and " pass " in line), line
 
 
 def test_scenario_failures_propagate_to_the_matrix_exit_code():
@@ -57,6 +63,7 @@ def test_scenario_failures_propagate_to_the_matrix_exit_code():
 
 # Execute the real Bash functions with controlled external boundaries. These are driver
 # regressions, not substitutes for the separately dispatched real-image chaos matrix.
+import json
 import os
 import subprocess
 
@@ -207,3 +214,22 @@ capture_schema "$OUT/schema.sql"
 ''')
     assert result.returncode == 0
     assert (tmp_path / "schema.sql").read_text() == "CREATE TABLE t (id integer);\n"
+
+
+def test_partial_failure_reports_blocked_and_fails_the_matrix_even_when_postgres_rolls_back(tmp_path):
+    # Every database and compose call succeeds, as it would when PostgreSQL rollback works.
+    result = run_driver(tmp_path, r'''
+restore_baseline() { :; }
+db_exec() { echo 0; }
+compose() { :; }
+sleep() { :; }
+run_partial_failure
+''')
+    assert result.returncode != 0
+    scenarios = json.loads((tmp_path / "scenario-matrix.json").read_text())["scenarios"]
+    assert scenarios == [{
+        "scenario": "partial-migration-failure",
+        "status": "blocked",
+        "why": "not evidence: no probe interrupts a real migration inside the candidate runner "
+               "(honua-io/honua-release#440)",
+    }]
