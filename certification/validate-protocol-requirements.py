@@ -688,6 +688,14 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
             continue
         if row["client_version"] != pro["version"]:
             raise ValueError(f"Desktop requirement {row['surface']}/{row['operation']} must certify {pro['version']!r}.")
+        if not row["licensed"] or row["entitlement_policy_revision"] != pro["entitlement_policy_revision"] \
+                or row["deployment_target"] != pro["deployment_target"] \
+                or row["auth_policy_revision"] != pro["auth_policy_revision"]:
+            raise ValueError(
+                f"Desktop requirement {row['surface']}/{row['operation']} must be licensed under "
+                f"{pro['entitlement_policy_revision']!r} on {pro['deployment_target']!r} with "
+                f"{pro['auth_policy_revision']!r}."
+            )
         if row["contract_revision"] == contract:
             if row.get("release_bucket") != pro["ogc_release_bucket"] or client != pro["name"] \
                     or row["client_lane"] != pro["lane"] or row["deployment_target"] != pro["deployment_target"] \

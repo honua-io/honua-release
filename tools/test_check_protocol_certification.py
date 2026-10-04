@@ -166,6 +166,7 @@ def _requirements(*cells, complete=True):
             "sdk-dotnet": {"commit": SHA},
             "geospatial-grpc": {"commit": SHA},
             "geospatial-mcp": {"commit": SHA},
+            "esri-compat": {"commit": SHA},
         },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
@@ -270,6 +271,34 @@ def test_producer_source_sha_must_match_owned_client_revision():
     )
     assert report["overall_status"] == "fail"
     assert any("owned sdk-js revision" in finding["why"] for finding in report["findings"])
+
+
+def test_licensed_desktop_target_binds_the_esri_producer_revision():
+    esri_sha = "e" * 40
+    cell = _licensed_cell(
+        policy="esri-arcgis-pro-arcpy-v1",
+        deployment_target="windows-licensed",
+        auth_policy_revision="anonymous-and-protected-v1",
+        client_lane="desktop-pro",
+        producer_source_sha=esri_sha,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["esri-compat"] = {"commit": esri_sha}
+    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert not [finding for finding in report["findings"] if "owned" in finding["why"] and "revision" in finding["why"]]
+
+    cell = _licensed_cell(
+        policy="esri-arcgis-pro-arcpy-v1",
+        deployment_target="windows-licensed",
+        auth_policy_revision="anonymous-and-protected-v1",
+        client_lane="desktop-pro",
+        producer_source_sha=SHA,
+    )
+    requirements = _requirements(cell)
+    requirements["source_revisions"]["esri-compat"] = {"commit": esri_sha}
+    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("owned esri-compat revision" in finding["why"] for finding in report["findings"])
 
 
 def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
@@ -1408,3 +1437,17 @@ def test_owned_denominator_proves_desktop_ogc_surfaces_against_the_candidate():
     assert len(ogc) + len(geoservices) == len(rows)
     assert geoservices and not {row["capability_key"] for row in geoservices} & {row["capability_key"] for row in ogc}
     assert not {row["surface"] for row in geoservices} & {row["surface"] for row in ogc}
+
+
+def test_owned_denominator_runs_every_desktop_row_licensed_on_its_governed_target():
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    desktop = _desktop_source()["clients"]["pro"]
+    rows = [
+        row for row in requirements["requirements"]
+        if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
+    ]
+    assert {row["client_lane"] for row in rows} >= {"desktop-pro", "desktop-arcgis"}
+    assert {
+        (row["licensed"], row["entitlement_policy_revision"], row["deployment_target"], row["auth_policy_revision"])
+        for row in rows
+    } == {(True, "esri-arcgis-pro-arcpy-v1", "windows-licensed", "anonymous-and-protected-v1")}

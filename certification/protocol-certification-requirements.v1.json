@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-04-complete.17",
+  "revision": "2026-10-04-complete.18",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -46,8 +46,8 @@
   "production": {
     "revision": "2026-10-03.1",
     "cells": {
-      "produced": 1512,
-      "unproduced": 412,
+      "produced": 1514,
+      "unproduced": 410,
       "not_addressable": 5
     },
     "producers": [
@@ -212,7 +212,7 @@
         "deployment_targets": [
           "windows-licensed"
         ],
-        "cells": 1029
+        "cells": 1031
       }
     ],
     "unproduced": [
@@ -264,7 +264,6 @@
           "js",
           "cli",
           "arcgis-stub",
-          "desktop-arcgis",
           "bi-excel",
           "bi-powerbi",
           "ci-bi"
@@ -272,7 +271,7 @@
         "owner": "honua-io/honua-server",
         "issue": "https://github.com/honua-io/honua-server/issues/3481",
         "missing_producer": "client-interop-nightly.yml builds its own server image and accepts only a lanes input; it needs candidate_image, candidate_source_sha and candidate_cut_at inputs so its .cert.json receipts name the resolved candidate image digest.",
-        "cells": 74
+        "cells": 72
       },
       {
         "client_lanes": [
@@ -40081,10 +40080,10 @@
       "canonical_client": "ArcGIS Pro",
       "client_lane": "desktop-arcgis",
       "client_version": "3.7.x",
-      "deployment_target": "local-docker",
+      "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -40093,7 +40092,7 @@
         "media-schema"
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
       "release_bucket": "must-fix"
@@ -41128,10 +41127,10 @@
       "canonical_client": "ArcGIS Pro",
       "client_lane": "desktop-arcgis",
       "client_version": "3.7.x",
-      "deployment_target": "local-docker",
+      "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -41140,7 +41139,7 @@
         "media-schema"
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
       "release_bucket": "must-fix"
@@ -41512,8 +41511,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -41521,7 +41520,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -43529,8 +43528,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -43540,7 +43539,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -44072,8 +44071,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -44082,7 +44081,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -44730,8 +44729,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -44740,7 +44739,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -45605,8 +45604,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -45614,7 +45613,7 @@
         "auth",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -45723,8 +45722,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -45734,7 +45733,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -46047,8 +46046,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46058,7 +46057,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -46468,8 +46467,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46478,7 +46477,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -46811,8 +46810,8 @@
       "client_version": "3.7.x",
       "deployment_target": "windows-licensed",
       "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
+      "licensed": true,
+      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": true,
       "addressability_reason": null,
       "scenario_facets": [
@@ -46821,7 +46820,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "desktop-client-certification@2026-10-04.1",
+      "contract_revision": "desktop-client-certification@2026-10-04.2",
       "auth_policy_revision": "anonymous-and-protected-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,

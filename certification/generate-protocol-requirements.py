@@ -20,6 +20,15 @@ IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version",
 DESKTOP = json.loads((SOURCES / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
 QGIS_VERSION = DESKTOP["clients"]["qgis"]["version"]
 PRO = DESKTOP["clients"]["pro"]
+
+
+def licensed_desktop(release_bucket: str) -> dict[str, Any]:
+    """Every row of the licensed desktop client runs on its governed licensed target under its
+    entitlement policy, so the gate applies licensed-evidence entitlement and freshness rules."""
+    return {
+        "target": PRO["deployment_target"], "auth_policy": PRO["auth_policy_revision"], "licensed": True,
+        "entitlement_policy": PRO["entitlement_policy_revision"], "release_bucket": release_bucket,
+    }
 PR_SDK_SMOKE_OPERATIONS = {
     "sdk-js": {
         ("featureserver", "metadata"),
@@ -488,8 +497,8 @@ def main() -> None:
                 capability=capability["key"], surface=interop["protocol"], operation=capability["key"],
                 client=client, lane=lane, version=version,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
-                auth_policy="anonymous-public-v1",
-                release_bucket=PRO["geoservices_release_bucket"] if client == PRO["name"] else None,
+                **(licensed_desktop(PRO["geoservices_release_bucket"]) if client == PRO["name"]
+                   else {"auth_policy": "anonymous-public-v1"}),
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
@@ -627,7 +636,7 @@ def main() -> None:
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
         ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", PRO["geoservices_release_bucket"]),
+        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, PRO["entitlement_policy_revision"], PRO["geoservices_release_bucket"]),
     ]
     for service in esri_index["services"]:
         matrix = load(SOURCES / "esri-compat" / "matrix" / service["manifest"])
@@ -682,8 +691,7 @@ def main() -> None:
             operation=assignment["capability_key"], client=PRO["name"], lane=PRO["lane"],
             version=PRO["version"],
             contract=f"desktop-client-certification@{DESKTOP['revision']}",
-            auth_policy=PRO["auth_policy_revision"], target=PRO["deployment_target"],
-            facets=assignment["scenario_facets"], release_bucket=PRO["ogc_release_bucket"],
+            facets=assignment["scenario_facets"], **licensed_desktop(PRO["ogc_release_bucket"]),
         )
 
     unbound_cells = sorted((set(bounded_cells) | set(not_addressable_cells)) - bound_cells)
@@ -695,7 +703,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-04-complete.17",
+        "revision": "2026-10-04-complete.18",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,

@@ -80,6 +80,10 @@ REQUIREMENT_FIELDS = {
 
 
 def _owned_source_name(cell: dict) -> str:
+    # The production map assigns the governed licensed desktop target to the Esri producer by
+    # deployment target, keeping desktop-client lanes unnamed (R30).
+    if cell.get("deployment_target") == "windows-licensed":
+        return "esri-compat"
     lane = str(cell.get("client_lane", ""))
     if lane == "server-protocol-harness":
         return "server-certification"
