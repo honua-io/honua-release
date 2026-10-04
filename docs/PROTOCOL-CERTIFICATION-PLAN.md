@@ -105,11 +105,20 @@ An external OGC client selection must record package/repository, maintained rele
 The 59 QGIS, GDAL/OGR, GDAL, MapLibre GL JS, OWSLib, and PySTAC-Client cells that honua-server#3434 certifies are governed by `certification/sources/bounded-client-roster.v1.json` (honua-release#346). The generator and validator fail closed unless every one of those rows carries exactly the lane and single test ID that file names.
 
 - **Test IDs.** Each cell names one ID, `client-cert/<client>/<surface>/<operation>`. The `client-interop-cert-v1` normalizer resolves every receipt result to exactly one requirement for its lane, version, and surface, and a passing result must exercise every scenario facet of that requirement. Producers therefore report one result per cell under that ID. Per-scenario sub-cases (`CERT-*`, `NB-*`) remain producer evidence, not bindable IDs.
-- **QGIS version ruling.** The denominator pins QGIS 3.44 at the exact string the digest-pinned honua-server `desktop-qgis` lane records, `3.44.13-Solothurn`. honua-server is not re-pinned to 3.40. A change to that image digest must re-pin this value in the same change.
+- **QGIS version ruling.** QGIS is certified against the 3.44 long-term release line, `client_version` `3.44.x` (R38, honua-release#376, superseding the `3.44.13-Solothurn` pin). A receipt from any 3.44 patch satisfies it. Non-LTR releases are out of scope.
 - **Lane identity ruling.** A lane names the runner that executes one canonical client; the surface is a separate join key.
   - Where honua-server already runs the client in a single-client lane, the denominator adopts it: QGIS → `desktop-qgis` (replacing `qgis-*` and the curl-driven `ci-desktop` smoke lane), OWSLib → `py-owslib`, PySTAC-Client → `py-pystac`. Existing observations bind without relabeling, and no second producer may be created for those clients.
   - Where the existing lane does not identify one client, honua-server is directed to emit a distinct lane: MapLibre GL JS → `js-maplibre` (today inside the multi-client `js` lane), GDAL/OGR and GDAL → `gdal` (today `cli`, which this denominator assigns to the Honua CLI).
   - Lanes a registered producer already emits are retained: `gdal-cog`, `gdal-flatgeobuf`, and `gdal-geoparquet` from the CNG producer.
+
+### Desktop client release lines and buckets (R38)
+
+`certification/sources/desktop-client-certification.v1.json` holds the desktop client rulings of honua-release#376 R38. The public requirements name only each client and its version.
+
+- **Release lines.** A `client_version` of the form `<major>.<minor>.x` names a release line. QGIS is `3.44.x`. The licensed desktop client is `3.7.x`, the version installed for certification. The requirement and the ledger cell keep the line. The receipt records the exact version it observed as `client_version_observed`, bound into its identity. The gate fails a passing cell on a line that records no observed version, or one off the line. Every other version still joins exactly.
+- **Release buckets.** The licensed desktop client's rows carry `release_bucket`. Its OGC surfaces are `prove-against-candidate`: WMS, WMTS, WFS, WCS, OGC API Features, Tiles and Maps, vector tiles, and I3S scenes. Its GeoServices REST rows stay `must-fix`. No other client's rows carry a bucket.
+- **Licensed desktop evidence.** Every row of the licensed desktop client, OGC and GeoServices alike, is `licensed` under a governed entitlement policy (`licensed-desktop-client-v1` for its own rows) on the `windows-licensed` target with the `anonymous-and-protected-v1` auth policy. The gate therefore applies the entitlement check and the 72-hour licensed freshness rule to it, and binds its receipts to the source revision of the producer that owns that target in the production map.
+- **Labels.** The source file and the generated requirements carry the third-party trademark notice as `trademarkNotice`, so a product name as a client label is nominative (R37).
 
 ## Scenario depth and cloud-native budgets
 

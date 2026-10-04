@@ -1,12 +1,12 @@
 {
   "schema": "honua.canonical-client-assignments/v1",
-  "revision": "2026-08-21.1",
+  "revision": "2026-10-04.1",
   "tracking_issue": "https://github.com/honua-io/honua-server/issues/3386",
   "clients": {
     "ogc-cite": {"name": "OGC CITE", "lane": "cite", "version": "ets-selection@{server_sha}"},
     "gdal-ogr": {"name": "GDAL/OGR", "lane": "gdal", "version": "3.8.4"},
     "gdal": {"name": "GDAL", "lane": "gdal", "version": "3.8.4"},
-    "qgis": {"name": "QGIS", "lane": "qgis", "version": "3.44.13-Solothurn"},
+    "qgis": {"name": "QGIS", "lane": "qgis", "version": "3.44.x"},
     "maplibre": {"name": "MapLibre GL JS", "lane": "maplibre", "version": "5.7"},
     "owslib": {"name": "OWSLib", "lane": "owslib", "version": "0.36.0"},
     "pystac-client": {"name": "PySTAC-Client", "lane": "pystac-client", "version": "pystac=1.15.2;pystac-client=0.9.0"},
