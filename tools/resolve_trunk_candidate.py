@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
+from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER
 import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
@@ -603,6 +604,33 @@ def content_digest_declaration(github, candidate, name):
             'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}
 
 
+def release_carried_platform_identity(components):
+    """Drop a platform version, and a chart identity, that belong to another source.
+
+    An image is re-resolved onto the selected sha, so its digest and artifactSourceRevision are
+    tonight's. A chart is not: select_component copies yesterday's digest, artifactSourceRevision
+    and artifactSha256 and only the sha moves. Those bytes must not receive tonight's platform
+    version. Identity that is already bound to the selected sha is kept for the stamp. An imaged
+    row's plain version is pre-release (the stamp lives on artifactVersion), so a carried one is
+    reset rather than left for the generator or the release notes to read.
+    """
+    if not isinstance(components, dict):
+        return
+    for name in IMAGED_COMPONENTS:
+        selected = components.get(name)
+        if not isinstance(selected, dict):
+            continue
+        selected.pop('artifactVersion', None)
+        if selected.get('version') not in (None, PRERELEASE):
+            selected['version'] = PRERELEASE
+        if name == PUBLISHER:
+            selected.pop('releaseVersion', None)
+        chart = str(selected.get('artifact') or '').startswith('oci-chart:') and not selected.get('image')
+        if chart and str(selected.get('artifactSourceRevision') or '') != str(selected.get('sha') or ''):
+            for key in ('digest', 'artifactSourceRevision', 'artifactSha256'):
+                selected.pop(key, None)
+
+
 def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require'):
     """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
@@ -639,6 +667,9 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             failures.append(detail)
             continue
         declare(name, selected)
+    # R22: mint stamps tonight's platform version beside the identity selected here. A version, or
+    # a chart digest, carried forward from another night never survives selection.
+    release_carried_platform_identity(candidate['components'])
     # Experimental rows are not selected from trunk; they declare at the sha the manifest pins.
     for name, selected in (candidate.get('experimental') or {}).items():
         declare(name, selected)

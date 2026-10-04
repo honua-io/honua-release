@@ -24,3 +24,7 @@ e2e/live-canary-evidence.json
 # Local DR drill keeps the signed receipt but never commits the database copy or private key.
 artifacts/dr-drill-local-docker/backup.dump
 artifacts/dr-drill-local-docker/receipt-key.pem
+
+# Run-scoped cloud journey receipts and private client workspaces
+e2e/cloud-evidence/
+e2e/.cloud-evidence-selftest/
