@@ -494,6 +494,33 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(judge.oracle_revocation_observed(unhealthy, FIXTURE)[0])
         self.assertEqual(mcp.MCP_TIMEOUT_SECONDS, 120)
 
+    def test_sdk_revocation_wait_is_one_observation_period_per_call(self):
+        """observationSeconds + 120 let a 401 at 60–149s come back and be graded."""
+        revocation = self.orchestrator.PLAN["identity"]["revocation"]
+        bound = revocation["observationSeconds"]
+        seen = []
+
+        class Fake:
+            def send(self, op, **kwargs):
+                return 7
+
+            def receive(self, request_id, timeout=None):
+                seen.append(timeout)
+                return {"observed": {
+                    "refused": True, "status": 401, "succeededAfterRevocation": 0,
+                    "refusedAfterSeconds": 0.4, "confirmations": [403, 401],
+                    "observationSeconds": bound,
+                }}
+
+        interop = self.orchestrator.Interop.__new__(self.orchestrator.Interop)
+        interop.python = interop.js = interop.dotnet = Fake()
+        state = {"revokedAt": 1.0, "python-use": True, "js-use": True, "dotnet-use": True}
+        with mock.patch.object(self.orchestrator, "emit"):
+            interop._observe_revocation("interop-api-key-revocation", None, state)
+        expect = bound * (1 + revocation["confirmations"])
+        self.assertEqual(seen, [expect, expect, expect])
+        self.assertLess(seen[0], bound + 120)
+
     def test_sdk_runners_receive_only_their_own_credentials(self):
         script = "import json, os\nprint(json.dumps(dict(os.environ)), flush=True)\n"
         parent = {

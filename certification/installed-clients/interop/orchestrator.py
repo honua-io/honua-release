@@ -308,6 +308,16 @@ def mcp_tool(session: probes.McpProxySession, name: str, arguments: dict[str, An
     return content
 
 
+def revocation_wait_seconds(revocation: dict[str, Any]) -> float:
+    """How long to wait for one client's revocation reply.
+
+    The first call must be refused within ``observationSeconds``. Each confirmation is one
+    more call on that same instance, so the wait is one period per call. It is not
+    ``observationSeconds + 120``: that grace let a refusal at 60–149s come back.
+    """
+    return float(revocation["observationSeconds"]) * (1 + int(revocation["confirmations"]))
+
+
 # ── scenarios ────────────────────────────────────────────────────────────────────────────────
 
 
@@ -617,9 +627,10 @@ class Interop:
         if session is not None and "revokedAt" in state and "mcp-use" in state:
             thread = threading.Thread(target=lambda: mcp_result.update(self._mcp_revoked(session, probe)), daemon=True)
             thread.start()
+        wait = revocation_wait_seconds(revocation)
         for name, (runner, request_id) in pending.items():
             try:
-                emit(scenario, name, observed=outcome(runner.receive(request_id, revocation["observationSeconds"] + 120)))
+                emit(scenario, name, observed=outcome(runner.receive(request_id, wait)))
             except StepError as exc:
                 emit(scenario, name, error=exc.error)
             except Exception as exc:  # noqa: BLE001
