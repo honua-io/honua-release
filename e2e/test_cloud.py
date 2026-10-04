@@ -1668,7 +1668,7 @@ def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch)
 
 
 
-def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False):
+def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False, ready=True):
     """Exercise the real shell report assembler with controlled subprocess verdicts."""
     def seed(endpoint, key, target, out):
         assert endpoint == 'https://cell.example.invalid' and key == target.admin_api_key
@@ -1701,7 +1701,7 @@ def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=F
     target = _ServingStub()
     target.admin_api_key = 'test-app-key'
     results = cloud_driver.run_extended('https://cell.example.invalid', target=target,
-                                        out=directory, require_real=True)
+                                        out=directory, ready=ready, require_real=True)
     assert invoked == ['mcp', 'studio', 'gp', 'demos']
     report = json.loads((Path(directory) / 'gate-report.json').read_text())
     assert 'test-app-key' not in json.dumps(report)
@@ -1730,6 +1730,13 @@ def test_cloud_driver_genuine_block_remains_visible_but_strict_report_fails(monk
         results, report = _driver_contract_fixture(monkeypatch, directory, blocked=True)
         assert results[-1].status == 'blocked'
         assert report['status'] == 'fail' and report['summary']['blocked'] == 6
+
+
+def test_cloud_driver_report_preserves_failed_cell_readiness(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        _results, report = _driver_contract_fixture(monkeypatch, directory, ready=False)
+        assert report['server']['booted'] is False
+        assert report['boot']['failed'] is True and report['status'] == 'fail'
 
 
 def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypatch):
