@@ -457,30 +457,14 @@ components:
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
     lifecycleStatus: GA
-    version: "1.6.2"                   # release tag dotnet-sdk-v1.6.2 (reachable from the sha below)
-    # 2026-09-12 CANDIDATE RE-PIN (release#332 follow-up): 8e4dd3d9 -> 6ba49ec3. The old pin predates
-    # honua-sdk-dotnet#344 (Microsoft.SourceLink.GitHub bump past CVE-2026-62900), so every post-#344
-    # head's `API Compatibility` job restored the historical baseline source with the now-flagged
-    # Microsoft.Build.Tasks.Git 8.0.0 and failed NU1902 (TreatWarningsAsErrors) -- this held the pin
-    # and reddened the release-train e2e seam through every re-pin attempt in #332. #350 fixed the
-    # baseline restore itself (`/p:NuGetAudit=false` on the baseline pack only, current-SDK audit
-    # unchanged). Trunk HEAD 62b3acbf (dotnet-sdk-v1.6.3, chore(release) #358) is NOT taken: its
-    # `Publish Packages` check-run sits `waiting` on the `production` NuGet-publish environment's
-    # manual-approval gate and never completes headlessly. 6ba49ec3 is the newest trunk sha with a
-    # complete, all-green core check-run set (31/31) and includes #350:
-    #   $ gh api repos/honua-io/honua-sdk-dotnet/commits/6ba49ec.../check-runs
-    #   -> 31 success/skipped, 0 failure, 0 in-progress
-    # `version` stays the newest reachable release tag (dotnet-sdk-v1.6.2, tag commit 9a9ed85a, an
-    # ancestor of this sha). nuget.org lists Honua.Sdk 1.6.4–1.10.0; it does not serve this 1.6.2
-    # tag or clientArtifacts 1.6.0 (honua-release#57). Those later versions are not this pin.
-    sha: "6ba49ec32ea846c64bc2094807761d4884dbc4bf"   # trunk, newest green; release tag dotnet-sdk-v1.6.2 is 9a9ed85a
+    # R25 manual advance 2026-10-04: Honua.Sdk 1.10.2 is listed on nuget.org (catalog
+    # 2026.10.04.17.57.39); its catalog repository.commit, nuspec <repository commit> and the
+    # dotnet-sdk-v1.10.2 tag are all ed05745c, which carries release/component-versions.json.
+    version: "1.10.2"
+    sha: "ed05745cbd0783970c218eb9857ea130a1e2354a"
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
-    # clientArtifacts pins Honua.Sdk 1.6.0 on GitHub Packages. nuget.org does not serve that
-    # version (honua-release#57). gate-artifact-consume's consume-nuget resolves the pin from the
-    # staging feed and otherwise `dotnet pack`s this exact sha. Later nuget.org versions are a
-    # different publication and are not substituted here.
 
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
@@ -605,8 +589,8 @@ components:
 #                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.13-py3-none-any.whl       MATCHES
 #   honua-admin-python-wheel a9cd320a = same certificate extension for
 #                        honua_admin-0.1.10-py3-none-any.whl                                 MATCHES
-#   honua-sdk-dotnet     8a0a06c8 = nuget.org catalog repository.commit and nuspec
-#                        <repository commit> for Honua.Sdk 1.10.1 (anonymous nuget.org)    MATCHES
+#   honua-sdk-dotnet     ed05745c = nuget.org catalog repository.commit and nuspec
+#                        <repository commit> for Honua.Sdk 1.10.2 (anonymous nuget.org)    MATCHES
 # tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog
 # SHA-512, listing, and catalog + nuspec repository commit against `sourceSha`.
 # Superseded selection (verified 2026-09-01/09-08): JS 0.1.9-beta.0 c99e7119, MCP 0.1.4-beta.0
@@ -661,14 +645,14 @@ clientArtifacts:
   honua-sdk-dotnet:
     ecosystem: nuget
     package: "Honua.Sdk"
-    version: "1.10.1"
-    digest: "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd"
+    version: "1.10.2"
+    digest: "sha256:f699463e9dc1119024b216478654a7d91a5683cc6addcf494fc8263d2ee6f88c"
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "8a0a06c815baefd49e7398d38a9f22642a8c80c5"
+    sourceSha: "ed05745cbd0783970c218eb9857ea130a1e2354a"
     publicationState: published
     registry: nuget.org
     targets: [net10.0]
-    filename: honua.sdk.1.10.1.nupkg
+    filename: honua.sdk.1.10.2.nupkg
 
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.

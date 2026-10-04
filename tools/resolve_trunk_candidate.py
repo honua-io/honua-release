@@ -43,7 +43,24 @@ DELAYS = (0, 10, 30, 60, 120, 60)
 
 
 class ResolutionError(ValueError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        # The HTTP status the API answered, when the refusal is an API answer; never parsed from prose.
+        self.status = status
+
+
+def api_status(exc):
+    """The HTTP status of a failed `gh api` call: the error body's status, else gh's exit report."""
+    body = exc.stdout.decode('utf-8', errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
+    try:
+        status = json.loads(body).get('status')
+        if str(status).isdigit():
+            return int(status)
+    except (ValueError, AttributeError):
+        pass
+    stderr = exc.stderr.decode('utf-8', errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr or ''
+    match = re.search(r'\(HTTP (\d{3})\)\s*$', stderr.strip().splitlines()[-1] if stderr.strip() else '')
+    return int(match.group(1)) if match else None
 
 
 def retry(operation):
@@ -82,7 +99,7 @@ class GitHub:
                 ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join(str(exc.stderr or exc).split())
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -168,7 +185,7 @@ class GitHub:
                 capture_output=True, check=True))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         return result.stdout
 
 
@@ -513,7 +530,7 @@ def component_versions(github, name, component):
         # errors must retain their refusal rather than masquerade as an empty declaration.
         # GitHub also answers 404 for a repository or revision this token cannot see, so the
         # exemption needs the pinned commit itself to be readable first.
-        if preview and 'HTTP 404' in str(exc):
+        if preview and getattr(exc, 'status', None) == 404:
             _require_visible_revision(github, where, repository, sha)
             return empty
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc

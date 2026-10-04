@@ -929,7 +929,7 @@ class Declarations:
         self.reads.append(path)
         repository, _, sha = path.removeprefix('repos/').rpartition('/commits/')
         if repository in self.hidden:
-            raise resolver.ResolutionError(f'gh api {path} failed: gh: Not Found (HTTP 404)')
+            raise resolver.ResolutionError(f'gh api {path} failed: gh: Not Found (HTTP 404)', status=404)
         return {'sha': sha}
 
     def file(self, repository, revision, path):
@@ -938,7 +938,7 @@ class Declarations:
             return self.files[(repository, revision, path)]
         except KeyError:
             raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={revision} '
-                                           'failed: gh: Not Found (HTTP 404)') from None
+                                           'failed: gh: Not Found (HTTP 404)', status=404) from None
 
 
 def declared(name, raw, **component):
@@ -1060,11 +1060,14 @@ def test_preview_404_needs_the_commit_probe_to_answer_the_pinned_sha():
             'sourcePinnedOnly': True})
 
 
-@pytest.mark.parametrize('detail', ['HTTP 403', 'HTTP 500', 'connection reset by peer'])
-def test_preview_declaration_read_errors_are_not_empty_sets(detail):
+@pytest.mark.parametrize('detail,status', [
+    ('HTTP 403', 403), ('HTTP 500', 500), ('connection reset by peer', None),
+    # A message that merely mentions a 404 is not an API 404.
+    ('blob HTTP 404 in the body text', None)])
+def test_preview_declaration_read_errors_are_not_empty_sets(detail, status):
     class Unreadable:
         def file(self, *args):
-            raise resolver.ResolutionError(detail)
+            raise resolver.ResolutionError(detail, status=status)
     with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
         resolver.component_versions(Unreadable(), 'honua-mobile', {
             'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
@@ -1643,3 +1646,13 @@ def test_the_nightly_uploads_the_skip_report_even_when_resolution_refuses():
     assert upload['with']['path'] == 'resolved-candidate/skips.json'
     resolve = next(step for step in steps if step.get('name') == 'Resolve the newest qualifying trunk candidate')
     assert '--out-dir resolved-candidate' in resolve['run']
+
+
+@pytest.mark.parametrize('stdout,stderr,status', [
+    ('{"message": "Not Found", "status": "404"}', 'gh: Not Found (HTTP 404)', 404),
+    ('', 'gh: Not Found (HTTP 404)', 404),
+    (b'{"message": "Server Error", "status": "502"}', b'', 502),
+    ('', 'error connecting to api.github.com', None)])
+def test_gh_failures_carry_the_api_status(stdout, stderr, status):
+    exc = subprocess.CalledProcessError(1, ['gh', 'api'], output=stdout, stderr=stderr)
+    assert resolver.api_status(exc) == status
