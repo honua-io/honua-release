@@ -898,3 +898,14 @@ def test_executors_distinguish_command_failure_from_docker_failure(tmp_path, mon
               session._exec("test-container", ["false"], 10))
     assert result.status == "fail"
     assert result.command_failed is command_ran
+
+
+def test_csharp_scaffolding_failure_is_not_a_block_command_failure(tmp_path, monkeypatch):
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    monkeypatch.setattr(session, "_exec", lambda *args: run.Outcome("fail", "setup failed", exit_code=1,
+                                                                 command_failed=True))
+    result = session.run_csharp("Console.WriteLine(1);", [], 10)
+    assert result.status == "fail"
+    assert not result.command_failed

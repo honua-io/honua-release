@@ -475,6 +475,7 @@ class Session:
                 setup.append(f"dotnet add {shlex.quote(str(project_dir))} package {shlex.quote(package)}{pinned}")
             prep = self._exec(name, ["bash", "-c", " && ".join(setup)], timeout)
             if prep.status != "pass":
+                prep.command_failed = False  # runner scaffolding is not the documented C# command
                 prep.detail = "could not create a console project with the doc's packages: " + prep.detail
                 return prep
         self.put("dotnet", project_dir / "Program.cs", code)
@@ -805,7 +806,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 continue
             outcome = execute(block, code)
             lang = block.language
-            if block.expect_failure and outcome.exit_code not in (None, 0, 124):
+            if block.expect_failure and outcome.command_failed and outcome.exit_code not in (None, 0, 124):
                 outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
             elif block.expect_failure and outcome.status == "pass":
                 outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
@@ -908,7 +909,7 @@ def markdown_summary(report: dict[str, Any]) -> str:
                      f"{c.get('blocked', 0)} | {c.get('not-run', 0)} |")
     failing = [(d, b) for d in report["documents"] for b in d.get("blocks", []) if b["status"] in {"fail", "needs-input", "blocked"}]
     if failing:
-        lines += ["", "### Blocks that do not run", ""]
+        lines += ["", "### Blocks requiring attention", ""]
         for doc, block in failing:
             lines.append(f"- `{doc['repo'].split('/')[-1]}:{doc['path']}` block {block['index']} (line {block['line']}, "
                          f"{block['language']}): **{block['status']}** — {block['detail'][:300]}")
