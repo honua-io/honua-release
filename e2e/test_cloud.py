@@ -27,6 +27,7 @@ sys.path.insert(0, str(E2E_DIR))
 import canonical_checks as cc  # noqa: E402
 import parity as par  # noqa: E402
 import run_cloud  # noqa: E402
+from runner import cloud as cloud_driver  # noqa: E402
 import demo_canary  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -328,14 +329,6 @@ def test_capability_manifest_availability_gated_ids_still_assert_supported():
 def test_run_canonical_includes_capability_manifest():
     names = {r.name for r in cc.run_canonical("http://x", _fetcher([]))}
     assert "capability-manifest" in names
-
-
-def test_extended_scenarios_blocked_pending_harness_image():
-    # MCP/Studio/GP-execute/top-demo against a raw cloud endpoint are BLOCKED until honua-release#35.
-    ext = cc.run_extended("http://x")
-    names = {r.name for r in ext}
-    assert names == {"mcp-handshake", "studio-authoring", "gp-execute", "top-demo"}
-    assert all(r.status == "blocked" and "honua-release#35" in r.why for r in ext)
 
 
 # ---- parity comparator ----------------------------------------------------------------------------
@@ -1037,7 +1030,7 @@ def _isolated_journey():
             yield
 
 
-def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False):
+def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False, extended=None):
     """Drive run_cloud.run() against a stub that provisions, with canned probe verdicts."""
     stub = _ServingStub()
     registry = run_cloud.REGISTRY
@@ -1051,6 +1044,8 @@ def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=Fals
                             lambda **kwargs: (lambda _url: cc.HttpResponse(ready_status, "")))
         monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: checks)
         monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: canary)
+        monkeypatch.setattr(run_cloud, "run_extended", lambda *a, **k: extended if extended is not None else
+                            [cc.CheckResult(name, "pass", "driver passed") for name in cloud_driver.DRIVERS])
         with _isolated_journey():
             report = run_cloud.run("stub", require_real, reference_endpoint=None, redis_enabled=True)
     finally:
@@ -1097,31 +1092,25 @@ def test_run_cloud_still_passes_when_the_only_blocks_are_missing_inputs(monkeypa
               cc.CheckResult("security-headers", "pass", "all baseline security headers present")]
     _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=canary)
     assert report["status"] == "pass", report["why"]
-    # The journey does not certify MCP, Studio, GP or the demo. Those rows stay
-    # visible and BLOCKED until the harness image (honua-release#35) exists.
-    assert {row["name"]: row["status"] for row in report["scenarioCoverage"]} == {
-        "mcp-handshake": "blocked",
-        "studio-authoring": "blocked",
-        "gp-execute": "blocked",
-        "top-demo": "blocked",
-    }
-    assert all("honua-release#35" in row["why"] for row in report["scenarioCoverage"])
+    assert all(row["status"] == "pass" for row in report["scenarioCoverage"])
 
 
-def test_require_real_keeps_extended_scenarios_visible_as_blocked(monkeypatch):
-    checks = [cc.CheckResult("health", "pass", "ok")]
-    canary = [cc.CheckResult("security-headers", "pass", "ok")]
-    _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=canary,
-                                 require_real=True)
-    assert {row["name"]: row["status"] for row in report["scenarioCoverage"]} == {
-        "mcp-handshake": "blocked",
-        "studio-authoring": "blocked",
-        "gp-execute": "blocked",
-        "top-demo": "blocked",
-    }
+def test_require_real_promotes_genuine_extended_precondition_blocks(monkeypatch):
+    extended = [cc.CheckResult(name, "blocked" if name == "top-demo" else "pass",
+                              "pinned site CSP excludes AWS origin" if name == "top-demo" else "ok")
+                for name in cloud_driver.DRIVERS]
+    _stub, report = _run_serving(monkeypatch, ready_status=200,
+        checks=[cc.CheckResult("health", "pass")], canary=[], require_real=True, extended=extended)
     assert report["status"] == "fail"
-    assert "honua-release#35" in report["why"]
-    assert "mcp-handshake" in report["why"]
+    assert "top-demo" in report["why"]
+    assert report["scenarioCoverage"][-1]["status"] == "blocked"
+
+
+def test_extended_regression_always_fails_bootstrap(monkeypatch):
+    _stub, report = _run_serving(monkeypatch, ready_status=200,
+        checks=[cc.CheckResult("health", "pass")], canary=[],
+        extended=[cc.CheckResult("gp-execute", "fail", "job failed")])
+    assert report["status"] == "fail" and "gp-execute" in report["why"]
 
 
 def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
@@ -1370,6 +1359,11 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
     assert adapter.__file__ == str(cj.HERE / "live_driver.py")
     events = []
     stub = _ServingStub()
+    def extended(endpoint, **kwargs):
+        events.append("extended")
+        assert endpoint == stub.endpoint and kwargs["target"] is stub
+        return [cc.CheckResult(name, "pass") for name in cloud_driver.DRIVERS]
+    monkeypatch.setattr(run_cloud, "run_extended", extended)
     monkeypatch.setattr(stub, "provision", lambda **kwargs: (events.append("provision") or stub.endpoint))
     monkeypatch.setattr(stub, "teardown", lambda **kwargs: events.append("teardown"))
     monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-ecs": lambda **kwargs: stub})
@@ -1390,7 +1384,7 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
         return {"status": "pass"}
     monkeypatch.setattr(cj, "check_cost", cost)
     report = run_cloud.run("aws-ecs", True, None)
-    assert events == ["provision", "journey", "journey", "cost", "teardown"]
+    assert events == ["provision", "extended", "journey", "journey", "cost", "teardown"]
     assert report["status"] == "fail" and len(report["journeyAttempts"]) == 2
     for record in report["journeyAttempts"]:
         receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
@@ -1401,6 +1395,7 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
 
 
 def test_run_cost_ceiling_is_read_before_teardown_even_when_exceeded(monkeypatch):
+    monkeypatch.setattr(run_cloud, "run_extended", lambda *a, **k: [])
     cj = run_cloud.cloud_journey
     events = []
     stub = _StubTarget(provision_error="apply failed")
@@ -1462,6 +1457,30 @@ def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
     assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
     assert "python e2e/cloud_journey.py --reports reports" in assembly
     assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
+
+
+def test_cloud_driver_clients_install_without_scripts_root_or_oidc_token():
+    import yaml
+    workflow = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
+    steps = workflow["jobs"]["parity"]["steps"]
+    names = [step.get("name") for step in steps]
+    install = names.index("Install pinned extended driver clients")
+    assert install < names.index("Configure AWS credentials (OIDC)")
+    script = steps[install]["run"]
+    # This job holds id-token: write: npm code never runs lifecycle scripts, as root, or with the
+    # OIDC request token; root installs only the reviewed distro package list.
+    assert "--with-deps" not in script and "install-deps" not in script
+    assert all("sudo" not in line for line in script.splitlines() if "npm" in line or "node" in line)
+    assert '"${no_oidc[@]}" npm install' in script and "--ignore-scripts" in script
+    assert '"${no_oidc[@]}" node' in script
+    assert "env -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL" in script
+
+
+def test_demo_csp_block_cites_the_cell_hostname_issue_not_format_samples():
+    driver = (E2E_DIR / "drivers/demos/run.sh").read_text()
+    csp_block = next(line for line in driver.splitlines() if "CSP does not allow" in line)
+    assert "honua-release#450" in csp_block and "#35" not in csp_block
+    assert "--ignore-scripts" in driver
 
 
 def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
@@ -1672,31 +1691,210 @@ def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch)
     assert "receipt evidence unavailable" in report["why"]
 
 
+
+def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False, ready=True):
+    """Exercise the real shell report assembler with controlled subprocess verdicts."""
+    def seed(endpoint, key, target, out):
+        assert endpoint == 'https://cell.example.invalid' and key == target.admin_api_key
+        (out / 'seed-manifest.json').write_text('{}')
+    monkeypatch.setattr(cloud_driver, 'seed', seed)
+    real_run = subprocess.run
+    invoked = []
+    monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'cloud-secret-must-not-reach-drivers')
+    monkeypatch.setenv('GH_TOKEN', 'dispatch-token-must-not-reach-drivers')
+    def process(command, **kwargs):
+        if command[1] == '-c':
+            return real_run(command, **kwargs)
+        env = kwargs['env']
+        assert not any(k.startswith('AWS_') or k in ('GH_TOKEN', 'GITHUB_TOKEN') for k in env)
+        assert env['E2E_BASE'] == 'https://cell.example.invalid'
+        assert env['E2E_API_KEY'] == 'test-app-key'
+        assert env['E2E_REDIS'] == 'on'
+        driver = Path(command[1]).parent.name
+        invoked.append(driver)
+        rows = next(expected for name, (d, expected) in cloud_driver.DRIVERS.items() if d == driver)
+        with (Path(directory) / 'scenarios.jsonl').open('a') as output:
+            for scenario in rows:
+                if missing and scenario == 'S2-mcp-tool-catalog':
+                    continue
+                json.dump({'scenario': scenario, 'status': 'blocked' if blocked and driver == 'demos' else 'pass',
+                    'why': 'CSP excludes AWS origin' if blocked and driver == 'demos' else 'assertions passed',
+                    'evidence': {'credentialEcho': env['E2E_API_KEY']}}, output)
+                output.write('\n')
+        return subprocess.CompletedProcess(command, 1 if crash and driver == 'gp' else 0)
+    monkeypatch.setattr(cloud_driver.subprocess, 'run', process)
+    target = _ServingStub()
+    target.admin_api_key = 'test-app-key'
+    results = cloud_driver.run_extended('https://cell.example.invalid', target=target,
+                                        out=directory, ready=ready, require_real=True)
+    assert invoked == ['mcp', 'studio', 'gp', 'demos']
+    report = json.loads((Path(directory) / 'gate-report.json').read_text())
+    assert 'test-app-key' not in json.dumps(report)
+    return results, report
+
+
+def test_cloud_driver_rows_and_strict_local_report_are_preserved(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        results, report = _driver_contract_fixture(monkeypatch, directory)
+        assert all(result.status == 'pass' for result in results)
+        assert report['status'] == 'pass' and report['require_real'] is True
+        assert len(report['scenarios']) == 10
+
+
+def test_cloud_driver_missing_row_and_crash_cannot_disappear(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        results, report = _driver_contract_fixture(monkeypatch, directory, missing=True, crash=True)
+        assert results[0].status == results[2].status == 'fail'
+        assert report['status'] == 'fail'
+        assert any(row['scenario'] == 'S2-mcp-tool-catalog' and row['status'] == 'fail'
+                   for row in report['scenarios'])
+
+
+def test_cloud_driver_genuine_block_remains_visible_but_strict_report_fails(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        results, report = _driver_contract_fixture(monkeypatch, directory, blocked=True)
+        assert results[-1].status == 'blocked'
+        assert report['status'] == 'fail' and report['summary']['blocked'] == 6
+
+
+def test_cloud_driver_report_preserves_failed_cell_readiness(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        _results, report = _driver_contract_fixture(monkeypatch, directory, ready=False)
+        assert report['server']['booted'] is False
+        assert report['boot']['failed'] is True and report['status'] == 'fail'
+
+
+def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypatch):
+    target = ecs(run_id='seed-test')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    monkeypatch.setattr(target, '_tf', lambda *args: subprocess.CompletedProcess(args, 0, json.dumps(state)))
+    def psql(command, **kwargs):
+        assert command == ['psql', '-v', 'ON_ERROR_STOP=1']
+        assert kwargs['env']['PGPASSWORD'] == 'private-password'
+        assert kwargs['env']['PGSSLMODE'] == 'require'
+        assert kwargs['input'] == 'SELECT 1'
+        assert not any(k.startswith('AWS_') for k in kwargs['env'])
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(subprocess, 'run', psql)
+    result = target.seed_database('SELECT 1')
+    assert result['host'] == 'cell-db' and result['password'] == 'private-password'
+
 if __name__ == "__main__":
     import traceback
 
     class _MP:
+        def __init__(self):
+            self.restores = []
+
         def delenv(self, k, raising=True):
-            import os
+            previous = os.environ.get(k)
+            self.restores.append(lambda: os.environ.pop(k, None) if previous is None
+                                 else os.environ.__setitem__(k, previous))
             os.environ.pop(k, None)
 
         def setenv(self, k, v):
-            import os
+            previous = os.environ.get(k)
+            self.restores.append(lambda: os.environ.pop(k, None) if previous is None
+                                 else os.environ.__setitem__(k, previous))
             os.environ[k] = v
 
         def setattr(self, obj, name, value):
+            previous = getattr(obj, name)
+            self.restores.append(lambda: setattr(obj, name, previous))
             setattr(obj, name, value)
+
+        def undo(self):
+            for restore in reversed(self.restores):
+                restore()
 
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
+            patches = _MP()
             try:
-                fn(_MP()) if "monkeypatch" in fn.__code__.co_varnames else fn()
+                fn(patches) if "monkeypatch" in fn.__code__.co_varnames else fn()
                 print(f"PASS {name}")
             except Exception:  # noqa: BLE001
                 failures += 1
                 print(f"FAIL {name}")
                 traceback.print_exc()
+            finally:
+                patches.undo()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
 
+
+def test_run_passes_the_cell_redis_mode_to_the_extended_runner(monkeypatch):
+    seen = {}
+    stub = _ServingStub()
+    def extended(endpoint, **kwargs):
+        seen["redis_enabled"] = kwargs["redis_enabled"]
+        return []
+    monkeypatch.setattr(run_cloud, "run_extended", extended)
+    monkeypatch.setattr(stub, "provision", lambda **kwargs: stub.endpoint)
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None)
+    monkeypatch.setattr(run_cloud, "REGISTRY", {"aws-ecs": lambda **kwargs: stub})
+    monkeypatch.setattr(run_cloud, "make_fetch", lambda **kwargs: lambda url: cc.HttpResponse(200, ""))
+    monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.cloud_journey, "attempt", lambda *a, **k: {"receipt": "x"})
+    monkeypatch.setattr(run_cloud.cloud_journey, "check_cost", lambda *a, **k: {"status": "pass"})
+    monkeypatch.setattr(run_cloud.cloud_journey, "cleanup", lambda cell: None)
+    run_cloud.run("aws-ecs", False, None, redis_enabled=False)
+    assert seen["redis_enabled"] is False
+
+
+def _run_gp_driver_against(status, body):
+    """Run the real S5 driver in Redis-off mode against a one-shot HTTP stub."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _reply(self, code, payload):
+            data = payload.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/problem+json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._reply(200 if self.path == "/healthz/ready" else 404, "{}")
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            assert self.path == "/ogc/processes/processes/geometry.area/execution"
+            self._reply(status, body)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            env = {**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_address[1]}",
+                   "E2E_API_KEY": "k", "E2E_OUT": out, "E2E_REDIS": "off"}
+            subprocess.run(["bash", str(E2E_DIR / "drivers/gp/run.sh")], env=env, check=True,
+                           capture_output=True, timeout=60)
+            rows = [json.loads(line) for line in Path(out, "scenarios.jsonl").read_text().splitlines()]
+    finally:
+        server.shutdown()
+    assert [row["scenario"] for row in rows] == ["S5-geoprocessing"]
+    return rows[0]
+
+
+def test_gp_driver_redis_off_passes_on_the_typed_capability_unavailable_refusal():
+    row = _run_gp_driver_against(503, json.dumps({
+        "type": "https://honua.io/problems/capability-unavailable", "status": 503,
+        "code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis"}))
+    assert row["status"] == "pass" and row["evidence"]["missingDependency"] == "redis"
+
+
+def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untyped():
+    assert _run_gp_driver_against(201, json.dumps({"jobID": "j1", "status": "accepted"}))["status"] == "fail"
+    assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
