@@ -1029,7 +1029,7 @@ def _isolated_journey():
             yield
 
 
-def _run_serving(monkeypatch, *, ready_status, checks, canary):
+def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False):
     """Drive run_cloud.run() against a stub that provisions, with canned probe verdicts."""
     stub = _ServingStub()
     registry = run_cloud.REGISTRY
@@ -1044,7 +1044,7 @@ def _run_serving(monkeypatch, *, ready_status, checks, canary):
         monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: checks)
         monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: canary)
         with _isolated_journey():
-            report = run_cloud.run("stub", require_real=False, reference_endpoint=None, redis_enabled=True)
+            report = run_cloud.run("stub", require_real, reference_endpoint=None, redis_enabled=True)
     finally:
         run_cloud.REGISTRY = registry
         run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS = attempts, delay
@@ -1089,6 +1089,31 @@ def test_run_cloud_still_passes_when_the_only_blocks_are_missing_inputs(monkeypa
               cc.CheckResult("security-headers", "pass", "all baseline security headers present")]
     _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=canary)
     assert report["status"] == "pass", report["why"]
+    # The journey does not certify MCP, Studio, GP or the demo. Those rows stay
+    # visible and BLOCKED until the harness image (honua-release#35) exists.
+    assert {row["name"]: row["status"] for row in report["scenarioCoverage"]} == {
+        "mcp-handshake": "blocked",
+        "studio-authoring": "blocked",
+        "gp-execute": "blocked",
+        "top-demo": "blocked",
+    }
+    assert all("honua-release#35" in row["why"] for row in report["scenarioCoverage"])
+
+
+def test_require_real_keeps_extended_scenarios_visible_as_blocked(monkeypatch):
+    checks = [cc.CheckResult("health", "pass", "ok")]
+    canary = [cc.CheckResult("security-headers", "pass", "ok")]
+    _stub, report = _run_serving(monkeypatch, ready_status=200, checks=checks, canary=canary,
+                                 require_real=True)
+    assert {row["name"]: row["status"] for row in report["scenarioCoverage"]} == {
+        "mcp-handshake": "blocked",
+        "studio-authoring": "blocked",
+        "gp-execute": "blocked",
+        "top-demo": "blocked",
+    }
+    assert report["status"] == "fail"
+    assert "honua-release#35" in report["why"]
+    assert "mcp-handshake" in report["why"]
 
 
 def test_run_cloud_never_claims_a_blocked_canonical_set_passed(monkeypatch):
@@ -1160,7 +1185,8 @@ def _ecs_receipt(cell="aws-ecs/redis-off"):
     driver, _ = cj.drivers()
     receipt = driver.build_receipt(manifest=cj.manifest(),
         journey=driver.load(cj.HERE / "journey.v1.json"), roster={"status": "pass"},
-        evidence_uri="urn:test:cloud", mode="live", target={"id": cell, "kind": "aws-ecs"},
+        evidence_uri="urn:test:cloud#honua-run=offline-run/2", mode="live",
+        target={"id": cell, "kind": "aws-ecs"},
         target_path=None, target_base_url="https://cell.invalid",
         workspace=driver.pins.ClientWorkspace(status="blocked", root=None, reason="fixture"),
         stage_results=None, notices=[])
@@ -1272,6 +1298,54 @@ def test_cloud_every_attempt_is_validated_and_two_attempts_can_pass():
         assert _aggregate_fixture([report], root)["status"] == "fail"
         report["journeyAttempts"] = [_artifact(root, success), _artifact(root, success, number=2)]
         assert "after a passing" in _aggregate_fixture([report], root)["why"]
+
+
+def test_attempt_strips_cloud_credentials_and_binds_the_run(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    monkeypatch.setenv("GITHUB_RUN_ID", "cloudscrub4242")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "7")
+    monkeypatch.delenv("HONUA_RUN_URL", raising=False)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "aws-session")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "oidc-token")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://oidc.example/token")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_example")
+    monkeypatch.setenv("GH_TOKEN", "gh_example")
+    monkeypatch.setenv("HONUA_AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/release")
+    seen = {}
+
+    def live(*_args, **_kwargs):
+        seen["env"] = dict(os.environ)
+        raise RuntimeError("stop after capturing the candidate environment")
+
+    monkeypatch.setattr(driver, "run_live", live)
+    record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.example", "admin-secret")
+    try:
+        env = seen["env"]
+        for key in env:
+            assert not key.startswith(("AWS_", "ACTIONS_ID_TOKEN_REQUEST_", "HONUA_AWS_"))
+            assert key not in {"GITHUB_TOKEN", "GH_TOKEN"}
+        assert "aws-secret" not in env.values()
+        assert env["HONUA_CLOUD_JOURNEY_ADMIN"] == "admin-secret"
+        assert "PATH" in env
+        assert os.environ["AWS_SECRET_ACCESS_KEY"] == "aws-secret"
+        assert "HONUA_CLOUD_JOURNEY_ADMIN" not in os.environ
+        receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
+        assert record["runId"] == "cloudscrub4242" and record["runAttempt"] == "7"
+        assert {stage["evidence"]["uri"] for stage in receipt["stages"]} == {
+            "urn:honua:cloud:aws-ecs/redis-off#honua-run=cloudscrub4242/7"
+        }
+        assert cj.validate_attempt(record, receipt, "aws-ecs/redis-off",
+                                   run_id="cloudscrub4242", run_attempt="7") is False
+        receipt["stages"][0]["evidence"]["uri"] = "urn:honua:cloud:aws-ecs/redis-off#honua-run=999/7"
+        import pytest
+        with pytest.raises(ValueError, match="wrong run"):
+            cj.validate_attempt(record, receipt, "aws-ecs/redis-off",
+                                run_id="cloudscrub4242", run_attempt="7")
+    finally:
+        import shutil
+        shutil.rmtree(cj.EVIDENCE / "cloudscrub4242", ignore_errors=True)
 
 
 def test_imported_journey_runs_inside_provision_teardown_and_records_each_attempt(monkeypatch):
@@ -1414,6 +1488,9 @@ def test_cloud_invalid_schema_wrong_cell_and_tampered_receipt_fail():
         receipt = _ecs_receipt()
         receipt["roster"]["status"] = "blocked"
         assert "roster evidence" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
+        receipt = _ecs_receipt()
+        receipt["stages"][3]["evidence"]["uri"] = "urn:test:cloud#honua-run=other-run/2"
+        assert "wrong run" in _aggregate_fixture([_cell_report(root, receipt)], root)["why"]
 
 
 def test_cost_meter_rejects_stale_wrong_run_and_nonfinite_amount():

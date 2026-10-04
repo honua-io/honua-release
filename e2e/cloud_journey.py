@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 from contextlib import contextmanager
@@ -72,8 +73,26 @@ def admin_credential(value):
             os.environ["HONUA_CLOUD_JOURNEY_ADMIN"] = previous
 
 
+_RUN_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def run_binding(run_id, run_attempt):
+    """Identity suffix stored in every stage evidence URI. The owned receipt schema has no run field."""
+    if not _RUN_TOKEN.fullmatch(run_id or "") or not _RUN_TOKEN.fullmatch(run_attempt or ""):
+        raise ValueError("invalid run identity")
+    return f"#honua-run={run_id}/{run_attempt}"
+
+
+def bound_evidence_uri(cell, run_id, run_attempt):
+    base = os.environ.get("HONUA_RUN_URL") or f"urn:honua:cloud:{cell}"
+    return base.split("#", 1)[0] + run_binding(run_id, run_attempt)
+
+
 def attempt(cell, number, endpoint, admin_key):
     driver, adapter = drivers()
+    run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    evidence_uri = bound_evidence_uri(cell, run_id, run_attempt)
     directory = cell_dir(cell)
     directory.mkdir(parents=True, exist_ok=True)
     workdir = directory / f"work-{number}"
@@ -93,9 +112,13 @@ def attempt(cell, number, endpoint, admin_key):
     attribution = None
     try:
         if endpoint is not None:
+            # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
+            # That drops AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN
+            # and GH_TOKEN before npm install and the candidate CLIs start.
             with admin_credential(admin_key):
-                workspace, results, observed_notices, _ = driver.run_live(
-                    target, pinned, contract, workdir, endpoint, True)
+                with driver.pins.candidate_sandbox():
+                    workspace, results, observed_notices, _ = driver.run_live(
+                        target, pinned, contract, workdir, endpoint, True)
             notices.extend(observed_notices)
     except Exception as error:
         # Driver exceptions must still produce an attempt receipt, without retaining credentials
@@ -113,7 +136,7 @@ def attempt(cell, number, endpoint, admin_key):
         manifest=pinned, journey=contract, roster=driver.roster_verdict(policy,
             driver.load(Path(os.environ["HONUA_CLOUD_REST_ROSTER"])) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
             driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None),
-        evidence_uri=os.environ.get("HONUA_RUN_URL") or "urn:honua:cloud:" + cell,
+        evidence_uri=evidence_uri,
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,
         stage_results=None if build_only else results, notices=notices)
@@ -126,8 +149,7 @@ def attempt(cell, number, endpoint, admin_key):
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     path = directory / f"receipt-{number}.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n")
-    return {"number": number, "runId": os.environ.get("GITHUB_RUN_ID", "local"),
-            "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"), "cell": cell,
+    return {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
             "candidateDigest": candidate_digest(), "receipt": str(path.relative_to(ROOT / "e2e")),
             "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "failureAttribution": attribution or ("infrastructure" if receipt["status"] != "pass" else None)}
@@ -152,6 +174,10 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
             or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)
             or receipt["server"] != {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
+    suffix = run_binding(run_id, run_attempt)
+    uris = [stage["evidence"]["uri"] for stage in receipt["stages"]]
+    if len(set(uris)) != 1 or uris[0].count("#") != 1 or not uris[0].endswith(suffix):
+        raise ValueError("cell receipt is bound to the wrong run")
     generated = datetime.fromisoformat(receipt["generatedAt"].replace("Z", "+00:00"))
     age = ((at or datetime.now(timezone.utc)) - generated).total_seconds()
     if not 0 <= age <= 86400:

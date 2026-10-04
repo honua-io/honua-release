@@ -18,7 +18,8 @@ E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
 import canary_probes  # noqa: E402
-from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical)  # noqa: E402
+from canonical_checks import (is_endpoint_unreachable, make_fetch, run_canonical,  # noqa: E402
+                              run_extended)
 from parity import TargetRun, compare  # noqa: E402
 from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
@@ -212,12 +213,20 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     report["status"] = "fail"
                     report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
 
+    # MCP / Studio / GP-execute / top-demo stay visible as BLOCKED rows until the
+    # cloud harness image (honua-release#35) drives them. The imported journey does
+    # not stand in for those scenarios. require_real still promotes the gap to FAIL.
+    extended = run_extended(endpoint) if endpoint is not None else []
+    if endpoint is not None:
+        report["scenarioCoverage"] = _check_dicts(extended)
+
     if report.get("status") == "fail":
         return report
 
     failed = [c.name for c in checks if c.status == "fail"]
     canary_failed = [c.name for c in canary_results if c.status == "fail"]
     blocked = [c.name for c in checks if c.status == "blocked"]
+    ext_blocked = [c.name for c in extended if c.status in ("blocked", "fail")]
 
     # honua-release#128: a cell whose terraform applied but whose endpoint never served is a FAILED
     # cell, and it is reported as that one fact rather than as a wall of derived probe failures. The
@@ -247,10 +256,10 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         report["status"] = "fail"
         report["why"] = f"canonical checks failed on {cell}: {failed}; canary probes failed: {canary_failed}"
         return report
-    if require_real and blocked:
+    if require_real and (blocked or ext_blocked):
         report["status"] = "fail"
         report["why"] = (f"require_real on {cell}: canonical blocked={blocked or '[]'}, "
-                         "journey evidence is recorded separately")
+                         f"scenarios not-certified={ext_blocked} (needs honua-release#35 harness image)")
         return report
 
     # Parity vs the reference target, when one was provided.

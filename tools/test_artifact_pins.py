@@ -114,3 +114,71 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     assert "full-scope cloud reports did not all pass" in aggregator
     assert '-f honua_server_ref="$SERVER_REF"' in workflow
     assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow
+
+
+def _load_pins():
+    import importlib.util
+
+    import sys
+
+    path = ROOT / "certification" / "terminal-journey" / "pins.py"
+    name = "terminal_journey_pins_under_test"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_STRIPPED_ENV = {
+    "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE",
+    "AWS_SECRET_ACCESS_KEY": "aws-secret",
+    "AWS_SESSION_TOKEN": "aws-session",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-token",
+    "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token",
+    "GITHUB_TOKEN": "ghs_example",
+    "GH_TOKEN": "gh_example",
+    "HONUA_AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/release",
+}
+
+
+def test_npm_install_ignores_scripts_and_receives_no_cloud_credentials(monkeypatch, tmp_path):
+    """Pinned tarballs are integrity-checked bytes. Their install must not run lifecycle scripts, and the environment handed to npm must not carry the cloud role."""
+    import subprocess
+
+    pins = _load_pins()
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(pins.subprocess, "run", fake_run)
+    for key, value in _STRIPPED_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setattr(
+        pins,
+        "CANDIDATE_ENV_ALLOWLIST",
+        pins.CANDIDATE_ENV_ALLOWLIST + (
+            "AWS_SECRET_ACCESS_KEY",
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+            "HONUA_AWS_ROLE_ARN",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        ),
+    )
+
+    result = pins._npm_install(tmp_path, ["/verified/sdk.tgz"], ["--legacy-peer-deps"])
+
+    assert result.returncode == 0
+    assert "--ignore-scripts" in captured["argv"]
+    assert captured["argv"].index("--ignore-scripts") > captured["argv"].index("--legacy-peer-deps")
+    handed = captured["env"]
+    assert handed["PATH"] == "/usr/bin"
+    for key in handed:
+        assert not key.startswith(("AWS_", "ACTIONS_ID_TOKEN_REQUEST_", "HONUA_AWS_"))
+        assert key not in {"GITHUB_TOKEN", "GH_TOKEN"}
+    for value in _STRIPPED_ENV.values():
+        assert value not in handed.values()
