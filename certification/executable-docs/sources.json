@@ -46,8 +46,8 @@
     {"repo": "honua-io/honua-samples", "path": "samples/stac-search-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/stac-search-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:9 — \"Bash, `curl`, `jq`, and `od`\""}},
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 — \"Python 3 (...), and Node.js 20 or later with `npm` (the capability check)\""}},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 — \"The CLI check in Confirm it serves also needs Node.js 20 or later with `npm`\""}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
     {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "revision": {"defaultBranch": true}, "runtime": "node"}
   ],

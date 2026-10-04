@@ -16,7 +16,7 @@ from inventory import Resolver, build, drift  # noqa: E402
 from registry_guard import (filter_npm_packument, filter_nuget_registration, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
                             digest_matches, nuget_family_pins, pins_from_manifest, Guard)
 from run import (assert_output, combine_csharp, combine_js, continuation_error, scrub,  # noqa: E402
-                 split_csharp, substitute, SERVE)
+                 shell_runtime, split_csharp, substitute, SERVE)
 
 
 def by_index(text: str, fmt: str = "markdown"):
@@ -160,6 +160,19 @@ def test_csharp_continuation_hoists_usings_and_types():
 def test_js_continuation_hoists_imports():
     combined = combine_js(["import { A } from 'a';\nconst a = new A();\n", "import { A } from 'a';\na.run();\n"])
     assert combined.count("import { A } from 'a';") == 1 and combined.index("a.run") > combined.index("new A")
+
+
+def test_install_steps_run_in_the_runtime_of_the_language_they_install_for():
+    page = {"runtime": "node"}
+    assert shell_runtime("npm install @honua/sdk-js@0.1.12", page) == "node"
+    assert shell_runtime("python3 -m pip install honua-sdk==0.1.12", page) == "python"
+    assert shell_runtime("pip install honua-sdk==0.1.12", page) == "python"
+    assert shell_runtime("dotnet new console -o app && cd app\ndotnet add package Honua.Sdk --version 1.10.1", page) == "dotnet"
+    assert shell_runtime("export HONUA_BASE_URL=http://localhost:8080", page) == "node"
+    assert shell_runtime("echo 'pip install x'", page) == "node"
+    # A stack the document starts, or a repository it reads from, keeps one machine.
+    assert shell_runtime("pip install honua-sdk==0.1.12", {"runtime": "node", "docker": True}) == "node"
+    assert shell_runtime("dotnet build", {"runtime": "python", "checkout": {"cwd": ""}}) == "python"
 
 
 def test_serve_detection_and_substitution_and_scrub():

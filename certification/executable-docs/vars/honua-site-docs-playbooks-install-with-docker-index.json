@@ -1,0 +1,10 @@
+{
+  "document": "honua-site-docs-playbooks-install-with-docker-index",
+  "env": {},
+  "substitute": {
+    "<RELEASE_SERVER_IMAGE>": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs/playbooks/install-with-docker/index.md:24 — \"For 2026.1 the image is the `image` value under `components.honua-server` in the release's platform lock\""
+    }
+  }
+}

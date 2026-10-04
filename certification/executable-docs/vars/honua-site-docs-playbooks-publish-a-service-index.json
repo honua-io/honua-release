@@ -1,6 +1,15 @@
 {
   "document": "honua-site-docs-playbooks-publish-a-service-index",
-  "env": {},
+  "env": {
+    "SERVICE_NAME": {
+      "value": "{fixture.featureService}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:104 — \"`SERVICE_NAME` and `LAYER_ID` are the `serviceName` and `layerId` from the publish response\""
+    },
+    "LAYER_ID": {
+      "value": "{fixture.featureLayerId}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:104 — \"`SERVICE_NAME` and `LAYER_ID` are the `serviceName` and `layerId` from the publish response\""
+    }
+  },
   "substitute": {
     "quickstart-admin-password": {
       "value": "{candidate.adminPassword}",

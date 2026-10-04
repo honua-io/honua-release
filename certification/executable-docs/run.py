@@ -542,6 +542,23 @@ def _read(path: Path, suffix: str) -> str:
 
 
 DOTNET_ADD = re.compile(r"dotnet\s+add\s+(?:\S+\s+)?package\s+([\w.]+)(?:\s+(?:--version|-v)\s+([\w.\-+*]+))?")
+# A page with a tab per language (a site slice: JS, Python and .NET side by side) gives each tab its own
+# install step. Its reader runs `pip install` where they run Python and `dotnet add package` where they
+# build C#, so such a step runs in that language's runtime, not the document's. No runtime image has
+# another language's package manager, so this only ever reaches a tool the document's runtime lacks.
+SHELL_TOOL_RUNTIME = ((re.compile(r"^\s*(?:pip3?|python3?\s+-m\s+pip)\s"), "python"),
+                      (re.compile(r"^\s*dotnet\s"), "dotnet"))
+
+
+def shell_runtime(code: str, doc: dict[str, Any]) -> str:
+    """The runtime a shell block runs in: the document's, unless it installs for another language."""
+    if doc.get("docker") or doc.get("checkout"):
+        return doc["runtime"]
+    for line in code.splitlines():
+        for pattern, runtime in SHELL_TOOL_RUNTIME:
+            if pattern.match(line):
+                return runtime
+    return doc["runtime"]
 
 
 def substitute(code: str, table: dict[str, str]) -> str:
@@ -714,10 +731,11 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             serve = bool(SERVE.search(code))
             readiness = {k: substitute(v, subst) for k, v in (block.marker or {}).items()
                          if k in {"ready-url", "ready-log"}}
+            runtime = shell_runtime(code, doc)
             if serve and readiness:
-                return session.run_shell(code, doc["runtime"], timeout, True,
+                return session.run_shell(code, runtime, timeout, True,
                                          {k.removeprefix("ready-"): v for k, v in readiness.items()})
-            return session.run_shell(code, doc["runtime"], timeout, serve)
+            return session.run_shell(code, runtime, timeout, serve)
         if lang == "python":
             return session.run_python(code, timeout)
         if lang in {"javascript", "typescript"}:
@@ -799,7 +817,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if doc.get("docker") and block.language == "shell":
                 observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
                                 servers_seen, candidate_digest)
-            outcome = audit(outcome, LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+            outcome = audit(outcome, shell_runtime(code, doc) if block.language == "shell"
+                            else LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
             record(block, outcome, outcome.status, outcome.detail)
         except Exception:
             outcome = exception_outcome()

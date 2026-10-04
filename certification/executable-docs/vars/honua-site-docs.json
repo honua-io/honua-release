@@ -1,0 +1,10 @@
+{
+  "document": "honua-site-docs",
+  "env": {},
+  "substitute": {
+    "<RELEASE_SERVER_IMAGE>": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs.html:96,103 — \"Pin what you evaluate: ... For 2026.1 that is the `image` value under `components.honua-server` in the release's platform lock; set it as HONUA_SERVER_IMAGE\""
+    }
+  }
+}

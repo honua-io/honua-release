@@ -1,0 +1,10 @@
+{
+  "document": "honua-site-docs-geoprocessing-index",
+  "env": {},
+  "substitute": {
+    "<your-api-key>": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/geoprocessing/index.md:49,71,95 — each SDK tab constructs its client with the reader's API key, `<your-api-key>`"
+    }
+  }
+}
