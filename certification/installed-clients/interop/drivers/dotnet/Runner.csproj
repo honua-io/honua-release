@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Consumer of the manifest-pinned Honua.Sdk from nuget.org only; run.py passes the exact
+       version and target framework and restores into an isolated package folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(SdkRegressionTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>InteropRunner</AssemblyName>
+    <RootNamespace>InteropRunner</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Honua.Sdk" Version="[$(SdkRegressionHonuaSdkVersion)]" />
+  </ItemGroup>
+</Project>

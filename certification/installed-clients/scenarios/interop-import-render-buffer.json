@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "id": "interop-import-render-buffer",
+  "title": "Terminal to agent to SDK: the honua CLI imports and publishes, the MCP proxy renders and buffers it, the Python SDK reads the job",
+  "promise": "Data an operator imports and publishes with the honua CLI is what an agent reads, renders and analyses through the installed MCP proxy, and the job the agent starts is readable with its result through the Python SDK.",
+  "steps": [
+    {
+      "id": "import",
+      "client": "honua-sdk-js",
+      "api": "honua admin import uploadImportFile --yes",
+      "oracle": "interop-imported",
+      "consumes": [],
+      "description": "Upload the fixture's GeoJSON polygon file through the typed admin CLI; the server imports exactly the fixture's features into a table."
+    },
+    {
+      "id": "publish",
+      "client": "honua-sdk-js",
+      "api": "honua admin publish publishLayer --yes",
+      "oracle": "interop-area-published",
+      "consumes": [
+        {
+          "step": "import",
+          "handoff": "table"
+        }
+      ],
+      "description": "Publish the table the import reported as a new service and polygon layer."
+    },
+    {
+      "id": "read",
+      "client": "honua-mcp-server",
+      "api": "honua-mcp-proxy tools/call honua_query_features",
+      "oracle": "interop-area-features",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        }
+      ],
+      "description": "Read the CLI-published layer through the proxy; its one polygon has exactly the fixture envelope's ring."
+    },
+    {
+      "id": "render",
+      "client": "honua-mcp-server",
+      "api": "honua-mcp-proxy tools/call honua_render_map",
+      "oracle": "interop-area-render",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        }
+      ],
+      "description": "Render the CLI-published layer; sample pixels inside the fixture polygon are painted and those outside are transparent."
+    },
+    {
+      "id": "buffer-submit",
+      "client": "honua-mcp-server",
+      "api": "honua-mcp-proxy tools/call honua_execute_plan (geometry.buffer)",
+      "oracle": "interop-mcp-job-accepted",
+      "consumes": [
+        {
+          "step": "read",
+          "handoff": "polygon"
+        }
+      ],
+      "description": "Buffer the polygon the proxy read by the fixture distance (a Geoprocess geometry.buffer step); the server accepts a job."
+    },
+    {
+      "id": "job-status",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.HonuaGeoprocessing.job",
+      "oracle": "interop-job-succeeded",
+      "consumes": [
+        {
+          "step": "buffer-submit",
+          "handoff": "job id"
+        }
+      ],
+      "description": "Read the agent's job by its id through the Python SDK until it is terminal; it succeeded."
+    },
+    {
+      "id": "job-result",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.HonuaGeoprocessing.results",
+      "oracle": "interop-area-buffer",
+      "consumes": [
+        {
+          "step": "buffer-submit",
+          "handoff": "job id"
+        }
+      ],
+      "description": "Read the job's result through the Python SDK; every ring vertex lies at the fixture distance from the fixture polygon."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ]
+}

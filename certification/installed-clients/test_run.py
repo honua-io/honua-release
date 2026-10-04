@@ -151,6 +151,16 @@ class MatrixExpectationTests(unittest.TestCase):
                 "npm-cli-workflow": ("active", None),
                 "pypi-cli-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/258"]),
                 "npm-mcp-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-js/issues/1875"]),
+                "interop-publish-query-edit": ("blocked", [
+                    "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
+                    "https://github.com/honua-io/honua-sdk-python/issues/236",
+                ]),
+                "interop-import-render-buffer": ("active", None),
+                "interop-proposal-approval": ("blocked", [
+                    "https://github.com/honua-io/honua-sdk-dotnet/issues/411",
+                    "https://github.com/honua-io/honua-server/issues/5433",
+                ]),
+                "interop-api-key-revocation": ("blocked", ["https://github.com/honua-io/honua-server/issues/5435"]),
             },
         )
 
