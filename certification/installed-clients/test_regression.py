@@ -639,7 +639,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
 
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
-        cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        # The committed cell is active: @honua/mcp-server 0.1.13 keeps the setup view (sdk-js#1875).
+        committed, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        status, detail, _ = evaluate_workflow(committed, passing_mcp_observations(), "honua-mcp-server", plan)
+        self.assertEqual(status, "pass", detail)
+        # A re-blocked cell still names only the dropped selector, and a fixed proxy flips it.
+        cell_ = {**committed, "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-js/issues/1875"],
+                 "blockedSteps": {"setup-tools-list": {
+                     "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875",
+                     "signature": r"returned view 'default' \(default\.v1\) with 12 tools"}}}
         default = passing_mcp_observations()[("mcp-workflow", "default-tools-list")]["observed"]
         status, detail, rows = evaluate_workflow(cell_, passing_mcp_observations(setup=default), "honua-mcp-server", plan)
         self.assertEqual(status, "blocked", detail)

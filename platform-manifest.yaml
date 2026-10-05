@@ -469,20 +469,17 @@ components:
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
     lifecycleStatus: GA
-    # Exact published release from honua-sdk-js#1537. The skipped 0.1.8-beta.0 coordinate was never
-    # published; 0.1.9-beta.0 is registry-installable and its release tag resolves to the sha below.
-    version: "0.1.9-beta.0"            # release tag js-sdk-v0.1.9-beta.0; published on npm
-    # 2026-09-11 CANDIDATE RE-PIN, c99e7119 -> d7cec2d5. The tag commit is no longer green (latest
-    # `Build site` and `Required live evidence health` check-runs red, dry-run train 34636531439).
-    # d7cec2d5 is the newest trunk sha whose check-runs are all green (33/33 core); trunk HEAD
-    # 66f91b6e carries 7 red scheduled lanes. c99e7119 is an ancestor (58 behind). `version` stays the
-    # newest reachable release tag; the published bytes are still c99e7119 (clientArtifacts below).
-    sha: "d7cec2d510e053fc86252b125bde21313a7e6e7c"   # trunk, newest green; release tag js-sdk-v0.1.9-beta.0 is c99e7119
+    # R25 manual advance 2026-10-04: @honua/sdk-js 0.1.13 is npm `latest`. Registry gitHead, the
+    # SLSA provenance gitCommit (publish run 37257266207) and the downloaded tarball's SRI all bind
+    # these bytes to 718f5391, which carries release/component-versions.json.
+    version: "0.1.13"
+    # Tag js-sdk-v0.1.13 is 33c0b702 (6 commits behind): its npm step never completed, so the guarded branch-recovery publish shipped trunk 718f5391.
+    sha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
-    # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
-    # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
+    # Companion @honua/mcp-server 0.1.13 is clientArtifacts.honua-mcp-server (tag mcp-server-v0.1.13,
+    # 18494f45); it is not a separate component.
 
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
@@ -582,9 +579,12 @@ components:
 # trunk, while this block's sourceSha moves only when the published bytes themselves are re-pinned.
 #
 # Each pin was re-verified against actual publish provenance on 2026-10-02 (honua-release#408);
-# Python SDK/admin advanced again on 2026-10-04 after declaration-bearing publications (R25):
-#   honua-sdk-js         1102d2d5 = npm registry gitHead for @honua/sdk-js 0.1.12           MATCHES
-#   honua-mcp-server     44289c02 = npm registry gitHead for @honua/mcp-server 0.1.12       MATCHES
+# Python SDK/admin advanced again on 2026-10-04 after declaration-bearing publications (R25), and
+# the npm pair after @honua/sdk-js 0.1.13 reached the registry the same day:
+#   honua-sdk-js         718f5391 = npm registry gitHead and SLSA provenance gitCommit for
+#                        @honua/sdk-js 0.1.13 (publish run 37257266207)                     MATCHES
+#   honua-mcp-server     18494f45 = npm registry gitHead and SLSA provenance gitCommit for
+#                        @honua/mcp-server 0.1.13 (tag mcp-server-v0.1.13)                  MATCHES
 #   honua-sdk-python-wheel a9cd320a = PyPI publication certificate GitHub SHA (OID
 #                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.13-py3-none-any.whl       MATCHES
 #   honua-admin-python-wheel a9cd320a = same certificate extension for
@@ -615,23 +615,23 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.1.12"
-    integrity: "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ=="
+    version: "0.1.13"
+    integrity: "sha512-uOWu3CCJDr8bagmTZvJB4EmqfKwupBisPVZRP2akpeS+5uyEbGZRHmFBlekINZiTqM5C3CqaCfXQ9vGX9EdGiA=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "1102d2d55916340edca13cb28411df8da8206f92"
+    sourceSha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     publicationState: published
     targets: [node, browser, honua-cli, honua-admin]
-    filename: sdk-js-0.1.12.tgz
+    filename: sdk-js-0.1.13.tgz
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
-    version: "0.1.12"
-    integrity: "sha512-BsRehciN9mT4XkrO6ActiuyenUBhSzZvX6TOjCOq9ZoJQVNCVe46IQxdwZvZYRust2W6w7BsSEhwuTzabvXEsg=="
+    version: "0.1.13"
+    integrity: "sha512-n+W+2of15Kmcy7yxHCCshYSPJazae8mBTAdaN1BLakLPNvEElhjNDXlTkb9kW5yxizMGACTBIReGLveNKpSW4w=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "44289c02568035d626728ab7d5c149b693f95956"
+    sourceSha: "18494f45bb8687df9925d665a4573581a3f64fff"
     publicationState: published
     targets: [node, honua-mcp-proxy]
-    filename: mcp-server-0.1.12.tgz
+    filename: mcp-server-0.1.13.tgz
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
@@ -723,7 +723,8 @@ evidenceSources:
     # workflow_dispatch]. It does not require a workflow RUN at the producer sha.
     # 2026-09-11: advanced to d7cec2d5 with components.honua-sdk-js.sha (same invariant);
     # live-conformance.yml exists at d7cec2d5 and compare/d7cec2d5...trunk is `ahead`.
-    producerSha: "d7cec2d510e053fc86252b125bde21313a7e6e7c"
+    # 2026-10-04: advanced to 718f5391 with components.honua-sdk-js.sha (R25 0.1.13; same invariant).
+    producerSha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

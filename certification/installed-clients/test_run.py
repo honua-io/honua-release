@@ -31,6 +31,14 @@ def legacy_inputs():
     return manifest, matrix
 
 
+def reblocked_setup_inputs():
+    """legacy_inputs with the setup-view cell blocked again, as it was before 0.1.13 fixed sdk-js#1875."""
+    manifest, matrix = legacy_inputs()
+    cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
+    cell.update(status="blocked", blockedBy=mod.SETUP_BLOCKER)
+    return manifest, matrix
+
+
 class InstalledCertificationTests(unittest.TestCase):
     def test_release_mode_rejects_each_omitted_artifact(self):
         manifest, matrix = inputs()
@@ -103,7 +111,7 @@ class InstalledCertificationTests(unittest.TestCase):
             },
         )
         setup = next(r for r in receipt["results"] if r["cell"] == "npm-mcp-setup-view-tools-list")
-        self.assertEqual(setup["blockedBy"], "https://github.com/honua-io/honua-sdk-js/issues/1875")
+        self.assertNotIn("blockedBy", setup)
         self.assertIn("needs a live candidate", setup["detail"])
         imported = next(r for r in receipt["results"] if r["cell"] == "nuget-service-layer-import-fidelity")
         self.assertIn("missing evidence is not a pass", imported["detail"])
@@ -124,9 +132,8 @@ class MatrixExpectationTests(unittest.TestCase):
             {
                 "npm-node-geoservices-error": ("active", None),
                 "npm-mcp-tools-list": ("active", None),
-                "npm-mcp-setup-view-tools-list": (
-                    "blocked", "https://github.com/honua-io/honua-sdk-js/issues/1875"
-                ),
+                # @honua/mcp-server 0.1.13 preserves the initialize-bound setup view (sdk-js#1875).
+                "npm-mcp-setup-view-tools-list": ("active", None),
                 "pypi-python-geoservices-error": ("active", None),
                 "pypi-admin-clean-install": ("active", None),
                 "nuget-net10-geoservices-error": ("active", None),
@@ -150,7 +157,7 @@ class MatrixExpectationTests(unittest.TestCase):
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
                 "npm-cli-workflow": ("active", None),
                 "pypi-cli-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/258"]),
-                "npm-mcp-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-js/issues/1875"]),
+                "npm-mcp-workflow": ("active", None),
                 "interop-publish-query-edit": ("blocked", [
                     "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
                     "https://github.com/honua-io/honua-sdk-python/issues/236",
@@ -174,8 +181,8 @@ class MatrixExpectationTests(unittest.TestCase):
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()
         cells = {c["id"]: c for c in matrix["cells"]}
-        # The pinned proxy drops the setup selector (sdk-js#1875); every other MCP step must pass.
-        self.assertEqual(set(cells["npm-mcp-workflow"]["blockedSteps"]), {"setup-tools-list"})
+        # The pinned 0.1.13 proxy keeps the setup selector (sdk-js#1875): every MCP step must pass.
+        self.assertNotIn("blockedSteps", cells["npm-mcp-workflow"])
         # The PyPI clients have a command for discovery only (sdk-python#258).
         self.assertNotIn("discover", cells["pypi-cli-workflow"]["blockedSteps"])
         self.assertEqual(len(cells["pypi-cli-workflow"]["blockedSteps"]), 13)
@@ -213,12 +220,12 @@ class MatrixExpectationTests(unittest.TestCase):
             mod, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             mod, "install_nuget", return_value=(True, "ok")
-        ), mock.patch.object(mod, "probe_setup_view", side_effect=mod.ExpectedBlocker("known selector loss")):
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(
             [r["status"] for r in receipt["results"]],
-            ["pass", "pass", "blocked", "pass", "pass", "pass", "blocked"],
+            ["pass", "pass", "pass", "pass", "pass", "pass", "blocked"],
         )
         self.assertEqual(mod.verify_receipt(matrix, receipt), [])
         self.assertEqual(self._main(receipt), 0)
@@ -229,7 +236,7 @@ class MatrixExpectationTests(unittest.TestCase):
             mod, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             mod, "install_nuget", return_value=(False, "restored NuGet package digest mismatch")
-        ), mock.patch.object(mod, "probe_setup_view", side_effect=mod.ExpectedBlocker("known selector loss")):
+        ), mock.patch.object(mod, "probe_setup_view", return_value=(True, "25 tools")):
             receipt = mod.execute(manifest, matrix, "https://example.invalid/evidence/1")
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(
@@ -239,7 +246,7 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertEqual(self._main(receipt), 1)
 
     def test_blocked_cell_that_passes_is_not_silent(self):
-        manifest, matrix = legacy_inputs()
+        manifest, matrix = reblocked_setup_inputs()
         with mock.patch.dict(os.environ, {"HONUA_SERVER_URL": "http://127.0.0.1:9"}, clear=True), mock.patch.object(
             mod, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(mod, "install_pypi", return_value=(True, "ok")), mock.patch.object(
@@ -298,7 +305,7 @@ class MatrixExpectationTests(unittest.TestCase):
             mod.verify_receipt(matrix, receipt),
         )
         wrong_blocker = copy.deepcopy(results)
-        wrong_blocker[2]["blockedBy"] = "https://github.com/honua-io/honua-release/issues/57"
+        wrong_blocker[-1]["blockedBy"] = "https://github.com/honua-io/honua-release/issues/57"
         self.assertEqual(len(mod.verify_receipt(matrix, {"status": "blocked", "results": wrong_blocker})), 1)
         self.assertEqual(
             mod.verify_receipt(matrix, {"status": "pass", "results": results}),

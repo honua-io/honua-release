@@ -48,14 +48,26 @@ def align_components_to_published(root: Path) -> None:
     assert yaml.safe_load(text)["protocolCertification"]["ledger"]["status"] == "pending"
 
 
+def diverge_sdk_js(root: Path) -> None:
+    """Move components.honua-sdk-js off its published sourceSha, as a trunk re-pin would.
+
+    The committed manifest now pins every SDK at its published source (R25), so a refusal test
+    has to create the divergence it refuses rather than rely on the live pins."""
+    path = root / MODULE.MANIFEST
+    text = path.read_text(encoding="utf-8")
+    current = yaml.safe_load(text)["components"]["honua-sdk-js"]["sha"]
+    path.write_text(MODULE.replace_scalar(text, "sha", current, "e" * 40), encoding="utf-8")
+
+
 def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
     root = fixture(tmp_path)
+    diverge_sdk_js(root)
     before = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
     with pytest.raises(MODULE.Finding) as exc:
         MODULE.prepare(root, StubGitHub(root), "keep")
     message = str(exc.value)
     assert "protocolCertification.ledger stays pending" in message
-    # Assert the actual committed divergences; a published SDK may now be aligned.
+    assert "sdk-js" in message and "e" * 40 in message
     manifest = yaml.safe_load(before)
     for source, component, artifact in MODULE.SDK_PRODUCERS:
         component_sha = manifest['components'][component]['sha']
@@ -75,7 +87,10 @@ def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
     }
 
 
-def test_cli_refuses_divergent_sdk_pins_without_writing_a_plan(tmp_path):
+def test_cli_refuses_divergent_sdk_pins_without_writing_a_plan(tmp_path, monkeypatch):
+    root = fixture(tmp_path)
+    diverge_sdk_js(root)
+    monkeypatch.setattr(MODULE, "ROOT", root)
     plan_path = tmp_path / "rebind-plan.json"
     assert MODULE.main(["--plan-output", str(plan_path)]) == 1
     assert not plan_path.exists()
@@ -137,6 +152,7 @@ def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path, ledger_st
 
 def test_finalize_does_not_bind_when_published_pins_differ(tmp_path):
     root = fixture(tmp_path)
+    diverge_sdk_js(root)
     before = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
     plan = {"sources": [], "bindings": {}, "receipt_schema_min": {"current": "v2", "proposed": "v2"}}
     with pytest.raises(MODULE.Finding) as exc:
