@@ -86,3 +86,14 @@ The same suite runs the command-line clients (`cli-workflow`, through the `honua
 `@honua/sdk-js` and the `honua` console script of the PyPI wheels) and the MCP proxy
 (`mcp-workflow`, over `honua-mcp-proxy` stdio only), with the same fixture, oracles and receipt
 allowlist.
+
+The cross-client interop scenarios (`scenarios/interop-*.json`, `interop/`) run in the same suite and the
+same nightly class. Each one hands one piece of work between clients on the same booted candidate, and
+every step names the client and API that performed it. The four hand-offs are:
+- .NET publishes, Python queries, JS edits, .NET reads the edit back;
+- the CLI imports and publishes, the MCP proxy renders and buffers, Python reads the job;
+- JS proposes, the admin CLI approves as a separate principal, .NET verifies;
+- one admin-CLI key is used and then revoked across all three SDKs and the proxy.
+
+A failing hand-off names its seam (the producing client and API, and the consuming client and API) in the
+receipt.

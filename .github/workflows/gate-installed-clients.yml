@@ -69,7 +69,7 @@ jobs:
       - name: Self-test the installed-client gate
         run: |
           python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py \
-            certification/installed-clients/test_regression.py -q
+            certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py -q
       - name: Run the SDK regression suite against the candidate
         id: run
         env:

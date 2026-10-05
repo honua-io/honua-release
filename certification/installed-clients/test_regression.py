@@ -30,6 +30,7 @@ SCENARIOS = regression.load_scenarios()
 MATRIX = json.loads((HERE / "matrix.json").read_text())
 CLI_DRIVER = (HERE / "drivers/cli/driver.py").read_text()
 MCP_DRIVER = (HERE / "drivers/mcp/driver.py").read_text()
+INTEROP_ORCHESTRATOR = (HERE / "interop/orchestrator.py").read_text()
 # (scenario family, client artifact) -> the driver program that runs it.
 DRIVER_SOURCES = {
     ("sdk", "honua-sdk-python-wheel"): (HERE / "drivers/python/driver.py").read_text(),
@@ -104,10 +105,19 @@ def observation(scenario, step, **payload):
 class ContractTests(unittest.TestCase):
     def test_every_scenario_names_one_api_per_step_for_every_client_of_its_family(self):
         self.assertEqual(set(SCENARIOS), {"sdk-auth", "sdk-admin-lifecycle", "sdk-geoservices", "sdk-ogc-features",
-                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac", "cli-workflow", "mcp-workflow"})
+                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac", "cli-workflow", "mcp-workflow",
+                                          "interop-publish-query-edit", "interop-import-render-buffer",
+                                          "interop-proposal-approval", "interop-api-key-revocation"})
         for scenario in SCENARIOS.values():
             steps = [step["id"] for step in scenario["steps"]]
             family = regression.scenario_family(scenario["id"])
+            if family == "interop":
+                # An interop step names its own client (one of the family's) and its API.
+                self.assertNotIn("clients", scenario)
+                for step in scenario["steps"]:
+                    self.assertIn(step["client"], regression.FAMILIES[family], (scenario["id"], step["id"]))
+                    self.assertTrue(step["api"], (scenario["id"], step["id"]))
+                continue
             self.assertEqual(set(scenario["clients"]), set(regression.FAMILIES[family]), scenario["id"])
             for client, apis in scenario["clients"].items():
                 self.assertEqual(list(apis), steps, (scenario["id"], client))
@@ -115,6 +125,10 @@ class ContractTests(unittest.TestCase):
     def test_drivers_report_exactly_the_contract_apis(self):
         # A driver that drifts from the contract would make a failure name the wrong SDK API.
         for scenario in SCENARIOS.values():
+            if regression.scenario_family(scenario["id"]) == "interop":
+                for step in scenario["steps"]:
+                    self.assertIn(json.dumps(step["api"])[1:-1], INTEROP_ORCHESTRATOR, (scenario["id"], step["id"]))
+                continue
             for client, apis in scenario["clients"].items():
                 source = DRIVER_SOURCES[(regression.scenario_family(scenario["id"]), client)]
                 for step, api in apis.items():
@@ -131,8 +145,8 @@ class ContractTests(unittest.TestCase):
     def test_scenario_validation_rejects_incomplete_contracts(self):
         base = copy.deepcopy(SCENARIOS["sdk-stac"])
         cases = [
-            (lambda s: s.update(id="stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
-            (lambda s: s.update(id="gui-stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
+            (lambda s: s.update(id="stac"), "sdk-\\*, cli-\\*, mcp-\\* or interop-\\* id"),
+            (lambda s: s.update(id="gui-stac"), "sdk-\\*, cli-\\*, mcp-\\* or interop-\\* id"),
             (lambda s: s.update(steps=[]), "no steps"),
             (lambda s: s["steps"][0].update(oracle="vibes"), "known oracle"),
             (lambda s: s.update(receiptFields=["client", "body"]), "allowlist"),
@@ -154,7 +168,11 @@ class ContractTests(unittest.TestCase):
             family_scenarios = {sid for sid in SCENARIOS if regression.scenario_family(sid) == family}
             cells = [cell for cell in SUITE_CELLS if cell["driver"] == driver]
             self.assertEqual(sorted(cell["scenario"] for cell in cells), sorted(family_scenarios), driver)
-            self.assertTrue(all(cell["artifact"] == artifact for cell in cells), driver)
+            if family == "interop":
+                # An interop cell's artifact is the client that starts its hand-off.
+                artifact = None
+                self.assertTrue(all(cell["artifact"] == SCENARIOS[cell["scenario"]]["steps"][0]["client"] for cell in cells))
+            self.assertTrue(all(artifact is None or cell["artifact"] == artifact for cell in cells), driver)
         for cell in SUITE_CELLS:
             regression.validate_suite_cell(cell, SCENARIOS, run.BLOCKER)
 
