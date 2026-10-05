@@ -1531,16 +1531,26 @@
       "blocks": [
         {
           "index": 0,
-          "line": 14,
+          "line": 16,
+          "language": "yaml",
+          "infoString": "yaml",
+          "intent": "file",
+          "intentSource": "marker",
+          "sha256": "59f1fff284c0663891b65184bb07c84d0c9ea5d3ba4e64626f929553a1bc8014",
+          "file": "compose.yaml"
+        },
+        {
+          "index": 1,
+          "line": 57,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "b3183d8d8634e65bd43ca8d100d21c0a2a56e2b55ca11adf2b390489a76cc74d"
+          "sha256": "9acdd1ecfbf74e89f690023e96ab44ce25d5eeb98048bcdc1dd38f8f0ff836df"
         },
         {
-          "index": 1,
-          "line": 21,
+          "index": 2,
+          "line": 66,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "illustrative",
@@ -1549,19 +1559,13 @@
           "reason": "yaml block is not executable by this gate"
         },
         {
-          "index": 2,
-          "line": 33,
+          "index": 3,
+          "line": 79,
           "language": "shell",
           "infoString": "sh",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "440a18048f373b65326e0e4e952555c158f63f2cee53be03a85e775f08183685",
-          "needs": {
-            "env": [
-              "HONUA_ADMIN_PASSWORD",
-              "HONUA_BASE_URL"
-            ]
-          }
+          "sha256": "18da6f781aad763bf1e7c709eb51cc6f5192e5e947fc0949ca609d9dd7a1b96e"
         }
       ]
     },
@@ -2713,12 +2717,12 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 216,
+    "blocks": 217,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
       "excluded": 4,
-      "file": 20,
+      "file": 21,
       "illustrative": 14,
       "output": 5,
       "run": 163,

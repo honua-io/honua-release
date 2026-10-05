@@ -7,12 +7,57 @@ authorization, resource safety limits and capability maturity still apply.
 Alerting and offline sync remain Preview. Multi-tenancy is internal (ruling R29):
 it runs only on Honua's own demo stack and is not offered for customer deployment.
 
-Use the signed platform lock for the server image and component identities. The
-release bundle includes `compose.licensing-disabled.yml`; apply it with the
-customer quickstart compose from that server revision (service `honua`):
+Use the signed platform lock for the server image and component identities. Save
+the following self-contained customer quickstart as `compose.yaml`. The default
+is the digest-pinned 2026.1 candidate; when certifying a newer signed platform
+lock, set `HONUA_SERVER_IMAGE` to its digest-pinned server image.
+
+<!-- doc-run: file=compose.yaml -->
+```yaml
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: honua
+      POSTGRES_PASSWORD: honua
+      POSTGRES_DB: honua
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  honua:
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:3ef3bd41a2f84d1f3a6194c11db496f741cc4d869b54bf57e9d7067dd9cf3d39}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=honua;Username=honua;Password=honua
+      HONUA_ADMIN_PASSWORD: ${HONUA_ADMIN_PASSWORD:-change-this-admin-key}
+      Security__ConnectionEncryption__MasterKey: ${HONUA_MASTER_KEY:-change-this-to-a-64-character-hexadecimal-secret-before-starting}
+      Licensing__Mode: Disabled
+      HostValidation__AllowedHosts: "*"
+      AllowedHosts: "*"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --header='X-API-Key: $${HONUA_ADMIN_PASSWORD}' http://localhost:8080/api/v1/admin/license | grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+```
+
+Set unique secrets, then start the database and server. `--wait` returns nonzero
+unless both services become healthy, including the authenticated disabled-mode
+check in the `honua` healthcheck.
 
 ```sh
-docker compose -f docker-compose.yml -f compose.licensing-disabled.yml up -d
+export HONUA_ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+export HONUA_MASTER_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+docker compose up -d --wait
 ```
 
 For another deployment template, put this setting in the **server container's**
@@ -28,11 +73,13 @@ variable alone does not configure a container. Do not set `Licensing__DevGrantEd
 the supported disabled mode works in Production and needs no development grant.
 Retain the template's required authentication, database and encryption secrets.
 
-After readiness, authenticate with the installer-provisioned admin key and verify:
+After readiness, authenticate with the installer-provisioned admin key and
+repeat the same assertion through the server container:
 
 ```sh
-curl --fail --silent --show-error -H "X-API-Key: $HONUA_ADMIN_PASSWORD" \
-  "$HONUA_BASE_URL/api/v1/admin/license" | jq -e '.data.mode == "disabled"'
+docker compose exec -T honua sh -c \
+  'wget -qO- --header="X-API-Key: $HONUA_ADMIN_PASSWORD" http://localhost:8080/api/v1/admin/license' \
+  | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"disabled"'
 ```
 
 Missing `mode`, an enabled mode or an HTTP failure is non-passing. A pre-ruling
