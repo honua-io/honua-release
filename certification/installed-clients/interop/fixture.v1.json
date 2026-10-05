@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "revision": "interop-fixture-v1",
+  "description": "Deterministic inputs for the cross-client interop scenarios. One client produces state from these rows and a different client consumes it; every oracle is computed from this file, never from a server response.",
+  "connection": {
+    "namePrefix": "sdkreg-interop-",
+    "database": {"host": "db", "port": 5432, "databaseName": "honua", "username": "honua", "provider": "PostGIS"}
+  },
+  "handoff": {
+    "tablePrefix": "sdkreg_interop_handoff_",
+    "servicePrefix": "sdkreg-interop-handoff-",
+    "layerName": "handoff",
+    "geometryType": "Point",
+    "fields": {"gid": "integer", "name": "text", "rank": "integer"},
+    "features": [
+      {"gid": 1, "name": "harbor", "rank": 10, "x": -123.1, "y": 49.3},
+      {"gid": 2, "name": "ridge", "rank": 20, "x": -122.9, "y": 49.1},
+      {"gid": 3, "name": "delta", "rank": 30, "x": -123.0, "y": 49.0}
+    ],
+    "edit": {"gid": 2, "attributes": {"name": "ridge-moved", "rank": 25}, "x": -122.75, "y": 49.25}
+  },
+  "area": {
+    "tableNamePrefix": "sdkreg_interop_area_",
+    "servicePrefix": "sdkreg-interop-area-",
+    "layerName": "area",
+    "geometryType": "Polygon",
+    "fileName": "sdkreg-interop-area.geojson",
+    "features": [
+      {"gid": 1, "name": "block", "envelope": [-90.0, 0.0, -45.0, 60.0]}
+    ],
+    "render": {
+      "bbox": [-100.0, -10.0, -35.0, 70.0],
+      "width": 260,
+      "height": 320,
+      "samples": [[130, 160], [60, 60], [200, 260], [10, 10], [250, 300], [130, 300], [30, 160], [130, 20]],
+      "edgeMarginPixels": 4
+    },
+    "buffer": {"processId": "geometry.buffer", "distance": 2.0, "tolerance": 1e-06, "pollTimeoutSeconds": 90}
+  },
+  "proposal": {
+    "packageKeyPrefix": "sdkreg-interop-map-",
+    "routePrefix": "/sdkreg-interop-map-",
+    "visibility": "public",
+    "envelope": {"family": "map", "schemaVersion": "1.0", "format": "honua_map_package.v1"},
+    "body": {
+      "mapPackageId": "sdkreg-interop-map",
+      "format": "honua_map_package.v1",
+      "sourceBindings": [{"sourceId": "sites", "protocol": "ogc_features", "locator": {"collectionId": "{sitesCollectionId}"}}],
+      "initialView": {"center": [-122.1, 37.85], "zoom": 8, "pitch": 0, "bearing": 0, "crs": "EPSG:4326"},
+      "mapSpec": {
+        "version": 8,
+        "sources": {"sites": {"type": "geojson", "data": "/ogc/features/collections/{sitesCollectionId}/items"}},
+        "layers": [{"id": "sites-circle", "source": "sites", "type": "circle", "paint": {"circle-radius": 6, "circle-color": "#2050ef"}}]
+      }
+    },
+    "proposalPollSeconds": 120,
+    "publicationPollSeconds": 60
+  },
+  "identity": {
+    "keyNamePrefix": "sdkreg-interop-identity-",
+    "permissions": ["admin:write"],
+    "revocation": {
+      "windowSeconds": 0,
+      "windowSource": "honua-server admin OpenAPI revokeAdminApiKey: \"Revokes a server-managed API key so it can no longer authenticate.\" Validation reads the shared key registry on every request, so the documented window is zero: the first call a client makes after the revoke command returns must be refused.",
+      "observationSeconds": 30,
+      "confirmations": 2
+    }
+  }
+}

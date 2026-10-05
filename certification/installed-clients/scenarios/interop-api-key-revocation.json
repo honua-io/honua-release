@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "id": "interop-api-key-revocation",
+  "title": "One credential across every client: an API key minted by the honua admin CLI works in all three SDKs and the MCP proxy, and its revocation reaches all of them",
+  "promise": "An API key an operator mints with the typed admin CLI authenticates the Python, JS and .NET SDKs and the MCP proxy alike, and once the operator revokes it every one of those clients is refused within the documented window, on the same client instance (and the same MCP session) that used it.",
+  "steps": [
+    {
+      "id": "mint",
+      "client": "honua-sdk-js",
+      "api": "honua admin secure createAdminApiKey --secret-output --yes",
+      "oracle": "interop-key-minted",
+      "consumes": [],
+      "description": "Mint a key with the fixture's permissions; the one-time secret goes to a private file, never to output."
+    },
+    {
+      "id": "python-use",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.HonuaClient(api_key).feature_server(...).query",
+      "oracle": "interop-key-count",
+      "consumes": [
+        {
+          "step": "mint",
+          "handoff": "API key"
+        }
+      ],
+      "description": "Query the sites layer with the minted key; the row count is the number of fixture rows."
+    },
+    {
+      "id": "js-use",
+      "client": "honua-sdk-js",
+      "api": "HonuaClient({apiKey}).featureLayer().queryFeatures",
+      "oracle": "interop-key-count",
+      "consumes": [
+        {
+          "step": "mint",
+          "handoff": "API key"
+        }
+      ],
+      "description": "Query the sites layer with the minted key; the row count is the number of fixture rows."
+    },
+    {
+      "id": "dotnet-use",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaFeatureServerClient.QueryAsync (HonuaSdkOptions.ApiKey)",
+      "oracle": "interop-key-count",
+      "consumes": [
+        {
+          "step": "mint",
+          "handoff": "API key"
+        }
+      ],
+      "description": "Query the sites layer with the minted key; the row count is the number of fixture rows."
+    },
+    {
+      "id": "mcp-use",
+      "client": "honua-mcp-server",
+      "api": "honua-mcp-proxy tools/call honua_query_features (HONUA_API_KEY)",
+      "oracle": "interop-key-count",
+      "consumes": [
+        {
+          "step": "mint",
+          "handoff": "API key"
+        }
+      ],
+      "description": "Open a proxy session with the minted key and read the sites layer; the feature count is the number of fixture rows."
+    },
+    {
+      "id": "revoke",
+      "client": "honua-sdk-js",
+      "api": "honua admin secure revokeAdminApiKey --yes",
+      "oracle": "interop-key-revoked",
+      "consumes": [
+        {
+          "step": "mint",
+          "handoff": "API key"
+        }
+      ],
+      "description": "Revoke the key with the typed admin CLI; the key is revoked."
+    },
+    {
+      "id": "python-revoked",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.HonuaClient(api_key).feature_server(...).query",
+      "oracle": "interop-revocation-observed",
+      "consumes": [
+        {
+          "step": "revoke",
+          "handoff": "revocation"
+        },
+        {
+          "step": "python-use",
+          "handoff": "client instance"
+        }
+      ],
+      "description": "On the same client instance, the first call after the revoke command returns is refused (401, 403 or 499) and stays refused."
+    },
+    {
+      "id": "js-revoked",
+      "client": "honua-sdk-js",
+      "api": "HonuaClient({apiKey}).featureLayer().queryFeatures",
+      "oracle": "interop-revocation-observed",
+      "consumes": [
+        {
+          "step": "revoke",
+          "handoff": "revocation"
+        },
+        {
+          "step": "js-use",
+          "handoff": "client instance"
+        }
+      ],
+      "description": "On the same client instance, the first call after the revoke command returns is refused (401, 403 or 499) and stays refused."
+    },
+    {
+      "id": "dotnet-revoked",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaFeatureServerClient.QueryAsync (HonuaSdkOptions.ApiKey)",
+      "oracle": "interop-revocation-observed",
+      "consumes": [
+        {
+          "step": "revoke",
+          "handoff": "revocation"
+        },
+        {
+          "step": "dotnet-use",
+          "handoff": "client instance"
+        }
+      ],
+      "description": "On the same client instance, the first call after the revoke command returns is refused (401, 403 or 499) and stays refused."
+    },
+    {
+      "id": "mcp-revoked",
+      "client": "honua-mcp-server",
+      "api": "honua-mcp-proxy tools/call honua_query_features (HONUA_API_KEY)",
+      "oracle": "interop-revocation-observed",
+      "consumes": [
+        {
+          "step": "revoke",
+          "handoff": "revocation"
+        },
+        {
+          "step": "mcp-use",
+          "handoff": "proxy session"
+        }
+      ],
+      "description": "In the same proxy session, the first call after the revoke command returns is refused and stays refused."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ]
+}

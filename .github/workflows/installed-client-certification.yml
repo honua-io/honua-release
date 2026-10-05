@@ -38,7 +38,7 @@ jobs:
         run: |
           python -m pip install pytest
           python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py \
-            certification/installed-clients/test_regression.py -q
+            certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py -q
       # The fast subset: exact-byte installs plus the probe cells. The SDK regression scenarios
       # run in gate-installed-clients.yml, which the release train calls for the nightly class.
       - name: Validate release inputs and install every published client
