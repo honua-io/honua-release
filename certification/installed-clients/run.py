@@ -591,10 +591,16 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
         honua = target / "bin" / "honua"
         if not honua.is_file():
             return False, "the pinned wheels installed no honua console script", [], {}
+        # The server has no REST call that submits a proposal: the proposal step goes through the
+        # byte-verified MCP proxy, as in the npm cell.
+        ok, npm_detail = install_npm(pins["honua-mcp-server"], work / "npm", companion_pin=pins["honua-sdk-js"], sdk_probe=False)
+        if not ok:
+            return False, f"MCP proxy: {npm_detail}", [], {}
         # The console script runs on this interpreter with the isolated target on its path.
         env = {**os.environ, "PYTHONPATH": str(target)}
-        return True, f"{detail}; honua console script installed", [
-            sys.executable, str(drivers / "cli" / "driver.py"), "--client", "pypi", "--honua", str(honua)], env
+        return True, f"{detail}; honua console script installed; {npm_detail}", [
+            sys.executable, str(drivers / "cli" / "driver.py"), "--client", "pypi", "--honua", str(honua),
+            "--proxy", str(work / "npm" / "node_modules" / ".bin" / "honua-mcp-proxy")], env
     if driver == "npm-cli":
         # The proposal step goes through the co-installed, byte-verified MCP proxy (journey stage 7).
         ok, detail = install_npm(pins["honua-sdk-js"], work, companion_pin=pins["honua-mcp-server"], sdk_probe=False)

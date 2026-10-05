@@ -156,7 +156,7 @@ class MatrixExpectationTests(unittest.TestCase):
                 "nuget-sdk-geoservices": ("blocked", ["https://github.com/honua-io/honua-server/issues/5407"]),
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
                 "npm-cli-workflow": ("active", None),
-                "pypi-cli-workflow": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/258"]),
+                "pypi-cli-workflow": ("active", None),
                 "npm-mcp-workflow": ("active", None),
                 "interop-publish-query-edit": ("blocked", [
                     "https://github.com/honua-io/honua-sdk-dotnet/issues/410",
@@ -183,9 +183,8 @@ class MatrixExpectationTests(unittest.TestCase):
         cells = {c["id"]: c for c in matrix["cells"]}
         # The pinned 0.1.13 proxy keeps the setup selector (sdk-js#1875): every MCP step must pass.
         self.assertNotIn("blockedSteps", cells["npm-mcp-workflow"])
-        # The PyPI clients have a command for discovery only (sdk-python#258).
-        self.assertNotIn("discover", cells["pypi-cli-workflow"]["blockedSteps"])
-        self.assertEqual(len(cells["pypi-cli-workflow"]["blockedSteps"]), 13)
+        # honua-sdk 0.1.13 + honua-admin 0.1.10 ship a command for every step (sdk-python#258).
+        self.assertNotIn("blockedSteps", cells["pypi-cli-workflow"])
 
     def test_mcp_executables_have_explicit_contracts(self):
         _, matrix = inputs()
