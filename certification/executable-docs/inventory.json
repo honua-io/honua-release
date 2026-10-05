@@ -420,7 +420,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "403a2d96b4bb4030b1b2e313ac464e19afb30f9af739595659bff03a068d06fc"
+          "sha256": "403a2d96b4bb4030b1b2e313ac464e19afb30f9af739595659bff03a068d06fc",
+          "blockedBy": "https://github.com/honua-io/honua-release/issues/423"
         },
         {
           "index": 1,
@@ -439,7 +440,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "4426eeea59608f00532d27e368ce40b073374696eee81c3af36d7e1890e74d23"
+          "sha256": "4426eeea59608f00532d27e368ce40b073374696eee81c3af36d7e1890e74d23",
+          "blockedBy": "https://github.com/honua-io/honua-release/issues/423"
         },
         {
           "index": 3,
@@ -448,7 +450,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "e21c61c815fee36c85b34cf8a290828f52dc31f8159ef048a3a41afadb37e2ec"
+          "sha256": "e21c61c815fee36c85b34cf8a290828f52dc31f8159ef048a3a41afadb37e2ec",
+          "blockedBy": "https://github.com/honua-io/honua-release/issues/423"
         }
       ]
     },
@@ -1341,7 +1344,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f"
+          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f",
+          "blockedBy": "https://github.com/honua-io/honua-sdk-dotnet/issues/408"
         },
         {
           "index": 15,
