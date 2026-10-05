@@ -184,7 +184,7 @@ The gate reports `pass` only when every cell passes. With matrix-declared blocke
 `blocked`. That is not a pass: the nightly receipt for `installed-clients` is then not `pass`, and no
 lock is minted.
 
-Current blockers (candidate `nightly-87966c3`, pins JS 0.1.12 / MCP 0.1.12 / Python 0.1.12 + admin 0.1.9 / .NET 1.10.1):
+Current blockers (candidate `nightly-87966c3`, pins JS 0.1.13 / MCP 0.1.13 / Python 0.1.13 + admin 0.1.10 / .NET 1.10.2):
 
 | Cell | Blocked steps | Blocker |
 |---|---|---|
@@ -193,7 +193,6 @@ Current blockers (candidate `nightly-87966c3`, pins JS 0.1.12 / MCP 0.1.12 / Pyt
 | `pypi-sdk-geoservices` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `pypi-sdk-ogc-tiles` | `raster-tile` | [honua-sdk-python#255](https://github.com/honua-io/honua-sdk-python/issues/255): `OgcTilesClient.tile` cannot request PNG |
 | `nuget-sdk-ogc-tiles` | all | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client |
-| `npm-mcp-workflow` | `setup-tools-list` | [honua-sdk-js#1875](https://github.com/honua-io/honua-sdk-js/issues/1875): the pinned proxy drops the initialize-bound `setup` selector and lists the 12-tool `default.v1` view; set active when 0.1.13 is pinned |
 | `pypi-cli-workflow` | every step except `discover` | [honua-sdk-python#258](https://github.com/honua-io/honua-sdk-python/issues/258): `honua-admin` ships no command and the `honua` console script has only `services`, `layers`, `style apply` and `doctor` |
 | `interop-publish-query-edit` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `interop-publish-query-edit` | `edit`, `read-back` | [honua-sdk-dotnet#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410): `PublishLayerRequest` cannot declare a storage mode or edit capabilities, so the JS SDK's edit of the layer the .NET SDK published is refused (400) and the .NET read-back sees the unedited row |

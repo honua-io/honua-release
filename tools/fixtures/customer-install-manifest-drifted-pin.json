@@ -63,10 +63,10 @@
     "honua-sdk-js": {
       "ecosystem": "npm",
       "package": "@honua/sdk-js",
-      "version": "0.1.12",
-      "integrity": "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ==",
+      "version": "0.1.13",
+      "integrity": "sha512-uOWu3CCJDr8bagmTZvJB4EmqfKwupBisPVZRP2akpeS+5uyEbGZRHmFBlekINZiTqM5C3CqaCfXQ9vGX9EdGiA==",
       "repository": "honua-io/honua-sdk-js",
-      "sourceSha": "1102d2d55916340edca13cb28411df8da8206f92",
+      "sourceSha": "718f539137b0b86fe1bc373a8b6f063a6ba32137",
       "publicationState": "published",
       "targets": [
         "node",
@@ -76,15 +76,15 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-sdk-js",
-      "filename": "sdk-js-0.1.12.tgz"
+      "filename": "sdk-js-0.1.13.tgz"
     },
     "honua-mcp-server": {
       "ecosystem": "npm",
       "package": "@honua/mcp-server",
-      "version": "0.1.12",
-      "integrity": "sha512-BsRehciN9mT4XkrO6ActiuyenUBhSzZvX6TOjCOq9ZoJQVNCVe46IQxdwZvZYRust2W6w7BsSEhwuTzabvXEsg==",
+      "version": "0.1.13",
+      "integrity": "sha512-n+W+2of15Kmcy7yxHCCshYSPJazae8mBTAdaN1BLakLPNvEElhjNDXlTkb9kW5yxizMGACTBIReGLveNKpSW4w==",
       "repository": "honua-io/honua-sdk-js",
-      "sourceSha": "44289c02568035d626728ab7d5c149b693f95956",
+      "sourceSha": "18494f45bb8687df9925d665a4573581a3f64fff",
       "publicationState": "published",
       "targets": [
         "node",
@@ -92,7 +92,7 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-mcp-server",
-      "filename": "mcp-server-0.1.12.tgz"
+      "filename": "mcp-server-0.1.13.tgz"
     },
     "honua-sdk-dotnet": {
       "ecosystem": "nuget",
