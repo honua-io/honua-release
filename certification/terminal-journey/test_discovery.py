@@ -256,6 +256,25 @@ class ProxyWireTests(unittest.TestCase):
             with self.assertRaisesRegex(probes.McpError, "duplicate JSON"):
                 session.request("tools/list")
 
+    def test_spawned_proxy_environment_carries_only_the_session_credential(self):
+        # The child answers tools/list with the names of its own environment variables.
+        program = ("import json, os, sys; request = json.loads(sys.stdin.buffer.readline()); "
+                   "sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': request['id'], "
+                   "'result': {'env': dict(os.environ)}}) + '\\n'); sys.stdout.flush()")
+        inherited = {"SDKREG_API_KEY": "root", "SDKREG_BEARER": "bearer", "SDKREG_PROPOSER_KEY": "proposer",
+                     "E2E_API_KEY": "admin", "HONUA_API_KEY": "operator", "HONUA_ADMIN_KEY": "admin",
+                     "HONUA_MCP_AUTH_TOKEN": "token", "HONUA_SERVER_URL": "http://localhost:8080", "GH_TOKEN": "gh"}
+        cases = {"anonymous": ({}, {}), "authenticated": ({"HONUA_API_KEY": "proposer-key", "HONUA_ADMIN_KEY": ""},
+                                                          {"HONUA_API_KEY": "proposer-key"})}
+        for name, (env, credentials) in cases.items():
+            with self.subTest(session=name), mock.patch.dict(probes.os.environ, inherited), \
+                 probes.McpProxySession([sys.executable, "-c", program], "http://127.0.0.1/mcp", env=env) as session:
+                seen = session.request("tools/list")["result"]["env"]
+            self.assertEqual({key: value for key, value in seen.items() if key.startswith(("SDKREG_", "E2E_", "HONUA_"))},
+                             {**credentials, "HONUA_MCP_REMOTE_URL": "http://127.0.0.1/mcp"})
+            self.assertNotIn("GH_TOKEN", seen)
+            self.assertNotIn("operator", seen.values())
+
     def test_buffered_notification_and_response_are_both_consumed(self):
         raw = b'{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}\n'
         program = f"import sys; sys.stdin.buffer.readline(); sys.stdout.buffer.write({raw!r}); sys.stdout.buffer.flush()"

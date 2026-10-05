@@ -293,7 +293,7 @@ class ImportFidelityGateTests(unittest.TestCase):
             installed, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(installed, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             installed, "install_nuget", return_value=(True, "ok")
-        ), mock.patch.object(installed, "probe_setup_view", side_effect=installed.ExpectedBlocker("known selector loss")):
+        ), mock.patch.object(installed, "probe_setup_view", return_value=(True, "25 tools")):
             result = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=receipt)
         row = next(item for item in result["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
         return result, row
@@ -342,7 +342,8 @@ class ImportFidelityGateTests(unittest.TestCase):
         rejected, rejected_row = self._execute(active, bad)
         self.assertEqual(accepted_row["status"], "pass")
         self.assertIn("142/142", accepted_row["detail"])
-        self.assertEqual(accepted["status"], "blocked")
+        # No other non-suite cell is blocked once the setup view passes, so the receipt is a pass.
+        self.assertEqual(accepted["status"], "pass")
         self.assertEqual(rejected_row["status"], "fail")
         self.assertIn("source-built", rejected_row["detail"])
         self.assertEqual(rejected["status"], "fail")

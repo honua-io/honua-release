@@ -53,6 +53,16 @@ honua-iac:
       its dedicated e2e-cloud-aws cloud-parity gate. Static Terraform Validate and Terraform Policy
       Gates remain authoritative core IaC checks and are NOT listed here.
 
+  - name: "Reap orphaned validation infrastructure"
+    why: >-
+      Scheduled maintenance job (Terraform Validation Infra Reaper) that assumes the OIDC cleanup
+      role; it skips when HONUA_AWS_VALIDATION_REAPER_ROLE_ARN is not configured. It tears down
+      leftovers of the live validation and certifies nothing about the IaC at the pinned sha.
+  - name: "Sweep orphaned validation IAM principals"
+    why: >-
+      Scheduled maintenance job (Terraform Validation IAM Sweeper) with the same role precondition
+      as the reaper; cleanup only, never a verdict on the pinned sha.
+
 honua-sdk-python:
   - name: "staging-smoke"
     why: >-

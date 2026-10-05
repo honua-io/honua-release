@@ -436,6 +436,47 @@ def test_bind_refuses_evidence_naming_a_component_outside_the_candidate(candidat
         bundle.bind(lock, *paths, "2026.1-rc.1")
 
 
+def test_bind_refuses_an_unstamped_artifact_version_a_lock_tries_to_supply(candidate):
+    """Generator version refusals are fatal: a hand lock cannot invent the released version."""
+    lock, paths, _ = candidate
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["components"]["sdk"]["version"] = "pre-release"
+    manifest["components"]["sdk"].pop("artifactVersion", None)
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match=r"artifacts\[0\]\.version: source snapshot/pre-release"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+def test_bind_refuses_a_version_the_frozen_inputs_do_not_release(candidate, monkeypatch):
+    lock, paths, _ = candidate
+    draft = bundle.generate(*paths)
+    draft.unresolved.clear()
+    draft.lock["components"]["sdk"]["artifacts"][0].pop("version")
+    monkeypatch.setattr(bundle, "generate", lambda *args, **kwargs: draft)
+    with pytest.raises(ValueError, match=r"sdk\.artifacts\[0\]\.version: lock adds a version"):
+        bundle.bind(lock, *paths, "2026.1-rc.1")
+
+
+@pytest.mark.parametrize("field", ["artifactVersion", "version"])
+def test_bind_refuses_an_rc_suffixed_imaged_version_in_a_ga_lock(candidate, field):
+    """A GA freeze names 2026.1.0; an RC stamp on artifactVersion or a plain version is fatal (R22)."""
+    lock, paths, _ = candidate
+    lock["platform"]["id"] = "honua-2026.1"
+    manifest = yaml.safe_load(paths[0].read_text())
+    manifest["platformRelease"] = "2026.1"
+    manifest["components"]["honua-helm"] = {
+        "repository": "https://github.com/honua-io/honua-helm", "sha": REVISION, "lifecycleStatus": "Preview",
+        "artifact": "oci-chart:honua", "digest": "sha256:" + "d" * 64, "artifactSourceRevision": REVISION,
+        "architectures": ["amd64", "arm64"], "artifactSha256": "sha256:" + "e" * 64,
+        "contractVersions": {"chart": "v1"}, "schemaVersions": {"values": "1.0.0"},
+        "version": "pre-release", "artifactVersion": "2026.1.0"}
+    manifest["components"]["honua-helm"][field] = "2026.1.0-rc.3"
+    _refreeze(lock, paths, manifest)
+    with pytest.raises(ValueError, match=rf"honua-helm\.{field} '2026\.1\.0-rc\.3' must (be pre-release or|be) "
+                                         r"the platform version '2026\.1\.0' of platformRelease '2026\.1'"):
+        bundle.bind(lock, *paths, "2026.1")
+
+
 def test_bind_refuses_sbom_the_frozen_inputs_never_declared(candidate):
     """A lock cannot supply its own SBOM: the frozen inputs are the only declaration."""
     lock, paths, _ = candidate

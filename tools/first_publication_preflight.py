@@ -68,6 +68,8 @@ COMPONENT_CHANNELS = {
     f"npm:{MOBILE_EMBED_PACKAGE}": "honua-mobile",
 }
 DEFERRED_EXPERIMENTAL = "deferred-experimental"
+# clientArtifacts rows published to npmjs. honua-sdk-js is required; a companion is probed when pinned.
+NPM_CLIENT_ROWS = ("honua-sdk-js", "honua-mcp-server")
 PYPI_RETIRED = "honua-esri-assess"
 PYPI_MIGRATE = "honua-migrate"
 
@@ -165,6 +167,10 @@ def _parse_json(body: bytes, url: str) -> dict:
     return value
 
 
+def _sha512_sri(data: bytes) -> str:
+    return "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode("ascii")
+
+
 def _status_only(status: int, url: str, *, allowed: set[int]) -> int:
     if status not in allowed:
         raise PreflightError(
@@ -251,9 +257,8 @@ def _manifest_view(manifest: dict) -> dict:
         "dotnet_registry": str(dotnet["registry"]),
         "dotnet_sha256": str(dotnet.get("digest", "")).removeprefix("sha256:"),
         "dotnet_component_version": str(dotnet_component["version"]),
-        "js_package": str(javascript["package"]),
         "js_version": str(javascript["version"]),
-        "js_integrity": str(javascript["integrity"]),
+        "npm": _npm_rows(artifacts),
         "python": (
             ("honua-sdk-python-wheel", python_sdk),
             ("honua-admin-python-wheel", python_admin),
@@ -261,6 +266,15 @@ def _manifest_view(manifest: dict) -> dict:
         "iac_url": archive.removeprefix("archive:"),
         "iac_sha256": digest.removeprefix("sha256:"),
     }
+
+
+def _npm_rows(artifacts: dict) -> tuple[tuple[str, dict], ...]:
+    """The primary SDK and its pinned companion npm packages. Every one is downloaded."""
+    return tuple(
+        (row, artifacts[row])
+        for row in NPM_CLIENT_ROWS
+        if row == "honua-sdk-js" or isinstance(artifacts.get(row), dict)
+    )
 
 
 def experimental_components(manifest: dict) -> dict[str, str]:
@@ -403,6 +417,56 @@ def _pypi_files(transport, package: str, version: str | None) -> tuple[str, list
         files.append(record)
     files.sort(key=lambda item: item["filename"])
     return selected, files
+
+
+def _npm_published(transport, row: str, artifact: dict) -> dict:
+    """Download a pinned npm tarball and bind it to the clientArtifacts integrity and sourceSha."""
+    package = str(artifact.get("package") or "")
+    version = str(artifact.get("version") or "")
+    integrity = str(artifact.get("integrity") or "")
+    source_sha = str(artifact.get("sourceSha") or "")
+    if not package or not version or not integrity.startswith("sha512-") or len(source_sha) != 40:
+        raise PreflightError(f"clientArtifacts.{row} needs package, version, sha512 integrity and sourceSha")
+    url = npm_version_url(package, version)
+    response = transport.get(url)
+    if response.status != 200:
+        raise PreflightError(f"pinned {package}@{version} returned HTTP {response.status}")
+    meta = _parse_json(response.body, response.url)
+    dist = meta.get("dist") or {}
+    if dist.get("integrity") != integrity:
+        raise PreflightError(f"npm integrity for the pinned {package} version does not match clientArtifacts")
+    # gitHead is the commit npm publish ran from; the published bytes are that source, not the tag.
+    if meta.get("gitHead") != source_sha:
+        raise PreflightError(
+            f"npm gitHead for {package}@{version} is {meta.get('gitHead')}, not clientArtifacts.{row}.sourceSha"
+        )
+    tarball_url = str(dist.get("tarball") or "")
+    _require_host(tarball_url)
+    tarball = transport.get(tarball_url)
+    if tarball.status != 200:
+        raise PreflightError(f"{package}@{version} tarball returned HTTP {tarball.status}")
+    if _sha512_sri(tarball.body) != integrity:
+        raise PreflightError(f"{package}@{version} tarball does not match the npm integrity")
+    try:
+        with tarfile.open(fileobj=io.BytesIO(tarball.body), mode="r:gz") as archive:
+            member = archive.extractfile("package/package.json")
+            document = json.load(member) if member is not None else {}
+    except (tarfile.TarError, KeyError, json.JSONDecodeError) as exc:
+        raise PreflightError(f"{package}@{version} tarball has no readable package/package.json") from exc
+    if document.get("name") != package or str(document.get("version")) != version:
+        raise PreflightError(f"{package}@{version} tarball package.json names another package or version")
+    filename = str(artifact.get("filename") or tarball_url.rstrip("/").split("/")[-1])
+    return _channel(
+        f"npm:{package}",
+        f"npm {package}@{version}",
+        "published",
+        evidence_class="downloaded-bytes",
+        files=[_file_record(filename, tarball.url, tarball.body, registry_integrity=integrity)],
+        http_status=200,
+        source_sha=source_sha,
+        urls=[url, tarball_url],
+        version=version,
+    )
 
 
 def _template_pins(body: bytes) -> list[dict]:
@@ -687,23 +751,8 @@ def build_receipt(
         urls=[pypi_json_url(PYPI_RETIRED)],
     ))
 
-    js_url = npm_version_url(view["js_package"], view["js_version"])
-    js_response = transport.get(js_url)
-    if js_response.status != 200:
-        raise PreflightError(f"pinned {view['js_package']}@{view['js_version']} returned HTTP {js_response.status}")
-    js_meta = _parse_json(js_response.body, js_response.url)
-    if (js_meta.get("dist") or {}).get("integrity") != view["js_integrity"]:
-        raise PreflightError("npm integrity for the pinned @honua/sdk-js version does not match clientArtifacts")
-    channels.append(_channel(
-        "npm:@honua/sdk-js",
-        f"npm {view['js_package']}@{view['js_version']}",
-        "listed",
-        evidence_class="registry-index",
-        http_status=200,
-        registry_integrity=view["js_integrity"],
-        urls=[js_url],
-        version=view["js_version"],
-    ))
+    for row, artifact in view["npm"]:
+        channels.append(_npm_published(transport, row, artifact))
 
     embed_url = npm_package_url(MOBILE_EMBED_PACKAGE)
     embed = transport.get(embed_url)
@@ -1019,6 +1068,20 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
                 )
         else:
             required.add(channel_id)
+    if manifest is not None:
+        for row, artifact in _npm_rows(manifest.get("clientArtifacts") or {}):
+            channel_id = f"npm:{artifact.get('package')}"
+            required.add(channel_id)
+            channel = by_id.get(channel_id) or {}
+            files = channel.get("files") or [{}]
+            if (
+                channel.get("version") != str(artifact.get("version"))
+                or channel.get("source_sha") != artifact.get("sourceSha")
+                or files[0].get("registry_integrity") != artifact.get("integrity")
+            ):
+                raise PreflightError(
+                    f"{channel_id} receipt does not record the clientArtifacts.{row} version, sourceSha and integrity"
+                )
     missing = required.difference(ids)
     if missing:
         raise PreflightError(f"preflight receipt omits {sorted(missing)}")

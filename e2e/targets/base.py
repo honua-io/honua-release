@@ -29,6 +29,10 @@ class DeployTarget:
 
     name: str = "base"
     supports_redis: bool = True       # whether the target can toggle Redis on/off
+    # How a second runner reaches the endpoint: "none" when it is public, otherwise the mechanism
+    # admit() uses. The cloud workflow drives the journey from a runner with no cloud credentials,
+    # which is never the runner that provisioned the cell (honua-release#381).
+    admission: str = "none"
 
     @property
     def admin_api_key(self) -> str:
@@ -45,3 +49,7 @@ class DeployTarget:
     def teardown(self, redis_enabled: bool | None = None) -> None:
         """Best-effort teardown. MUST be safe to call even if provision() partially ran."""
         raise NotImplementedError  # pragma: no cover - interface
+
+    def admit(self, endpoint: str, cidr: str, *, redis_enabled: bool = False) -> None:
+        """Open the provisioned endpoint to one more runner /32. Public endpoints need nothing."""
+        return None

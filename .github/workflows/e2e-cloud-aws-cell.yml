@@ -1,0 +1,510 @@
+# One AWS cloud cell, called once per matrix cell by e2e-cloud-aws.yml (honua-release#381).
+#
+# The manifest-pinned clients and the npm/browser seam drivers run in a job that holds no AWS
+# credential and no OIDC token. Scrubbing the environment cannot hide a parent process's startup
+# environment (/proc/$PPID/environ), so the credentials are kept off that runner entirely:
+#   provision (OIDC + AWS) -> journey (contents: read only) -> teardown (OIDC + AWS, always)
+# admit (OIDC + AWS) runs beside the journey: it seals the cell's application key to a key the journey
+# runner generated, and opens the cell's ingress to the journey runner's own /32, which is a different
+# address from the provisioning runner's.
+# The Terraform working directory reaches teardown sealed: the artifact holds ciphertext only (this
+# repository and its artifacts are public); the key and digest live in Secrets Manager.
+name: e2e-cloud-aws-cell
+
+on:
+  workflow_call:
+    inputs:
+      target: { required: true, type: string }
+      redis: { required: true, type: string }
+      preview: { required: true, type: boolean }
+      candidate_ref: { required: false, type: string, default: "" }
+      require_real: { required: false, type: boolean, default: false }
+      cost_ceiling_usd: { required: false, type: string, default: "20" }
+      iac_ref: { required: true, type: string }
+      helm_ref: { required: true, type: string }
+      server_image: { required: true, type: string }
+      ecs_architecture: { required: true, type: string }
+      lambda_image: { required: false, type: string, default: "" }
+      lambda_architecture: { required: true, type: string }
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: "us-east-1"
+  HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}
+  HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
+  HONUA_ECS_IMAGE: ${{ inputs.server_image }}
+  HONUA_ECS_ARCHITECTURE: ${{ inputs.ecs_architecture }}
+  HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
+  HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  CELL_DIR: e2e/cloud-evidence/${{ github.run_id }}/${{ github.run_attempt }}/${{ inputs.target }}/redis-${{ inputs.redis }}
+  CELL_ARTIFACT: ${{ inputs.target }}-redis-${{ inputs.redis }}-${{ github.run_attempt }}
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    permissions:
+      contents: read
+      id-token: write                 # OIDC -> AWS (no static creds)
+    # Identifiers only. Job outputs and step env are printed in the public job log, so the cell's
+    # application key goes to Secrets Manager and reaches the journey sealed to its own key.
+    outputs:
+      endpoint: ${{ steps.provision.outputs.endpoint }}
+      admission: ${{ steps.provision.outputs.admission }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Checkout honua-iac (terraform tree)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: ${{ inputs.iac_ref }}
+          path: _honua-iac
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        continue-on-error: true   # private/absent => HONUA_IAC_DIR stays unset => self-skip, not a crash
+
+      - name: Checkout honua-helm (chart for the EKS cell)
+        if: inputs.target == 'aws-eks'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-helm
+          ref: ${{ inputs.helm_ref }}
+          path: _honua-helm
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        continue-on-error: true
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Install cloud runner dependencies
+        # PyYAML (canary quarantine, the EKS cell's chart dependency resolution) is a declared runner
+        # dependency, so install the declared set rather than assuming the runner image carries it.
+        run: python -m pip install -r e2e/requirements.txt pytest
+
+      - name: Install the seed's database client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      # The gate's own verdict + parity logic must be trustworthy before we trust a run.
+      - name: Self-test the cloud parity logic
+        run: python -m pytest e2e/test_cloud.py -q
+
+      # OIDC into AWS — only when a role is configured; otherwise an optional cell self-skips and a
+      # require_real cell fails closed.
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Resolve the ephemeral runner's own /32
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        run: |
+          set -euo pipefail
+          export RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,os; ipaddress.IPv4Address(os.environ["RUNNER_IP"])'
+          # serverless/ECS: PostGIS bootstrap reaches RDS from here.
+          echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          # EKS: the runner drives kubectl/helm from outside the VPC, so the cluster's public API
+          # endpoint and the chart's load balancer are opened to THIS runner and nothing else.
+          # ECS: same address, same reason, for the ALB security group — the aws-ecs module defaults
+          # to VPC-only HTTP ingress, which silently made every probe on that cell unreachable
+          # (honua-release#128). The probes run from this runner, so this is the address that must
+          # get in; the admit job later adds the journey runner's address the same way.
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+
+      # Provision, readiness, canonical + canary probes and the database seed. No pinned client,
+      # npm package or browser runs in this job.
+      - name: "Provision ${{ inputs.target }} / redis-${{ inputs.redis }}"
+        id: provision
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+        run: |
+          set -euo pipefail
+          [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
+          [ -d "$HONUA_HELM_DIR" ] || unset HONUA_HELM_DIR
+          if [ "${{ inputs.require_real }}" = "true" ]; then
+            python e2e/run_cloud.py --phase provision --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" --require-real
+          else
+            python e2e/run_cloud.py --phase provision --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
+          fi
+
+      # Runs after a failed or cancelled provision too: anything apply created must reach teardown.
+      - name: Seal the Terraform state for teardown
+        if: always()
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+        run: |
+          set -euo pipefail
+          if [ -f "$HONUA_CLOUD_PROVISION_MARKER" ]; then
+            python e2e/run_cloud.py --phase seal-state --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+              --bundle "$RUNNER_TEMP/cell-state/state.enc"
+          else
+            echo "provisioning never started — nothing to seal"
+          fi
+
+      - name: Upload the sealed state
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-state-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/cell-state/state.enc
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload the provision handoff
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
+          # Identifiers and verdicts only; this repository's artifacts are public.
+          path: |
+            ${{ env.CELL_DIR }}/provision.json
+            ${{ env.CELL_DIR }}/extended/seed-manifest.json
+            ${{ env.CELL_DIR }}/receipt-*.json
+            ${{ env.CELL_DIR }}/target-*.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  # ── journey: NO id-token, NO AWS credentials. The pinned clients and seam drivers run here. ─────────
+  journey:
+    needs: provision
+    if: ${{ needs.provision.outputs.endpoint != '' }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # First, before any third-party code: this runner's address (the admit job opens the cell's
+      # ingress to exactly it) and a fresh RSA key the cell's application key is sealed to.
+      - name: Introduce this runner to the admit job
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python3 -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
+          mkdir -p "$RUNNER_TEMP/journey-hello" "$RUNNER_TEMP/journey-key"
+          echo "${RUNNER_IP}/32" > "$RUNNER_TEMP/journey-hello/cidr"
+          ( umask 077; openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+              -out "$RUNNER_TEMP/journey-key/private.pem" )
+          openssl pkey -in "$RUNNER_TEMP/journey-key/private.pem" -pubout -out "$RUNNER_TEMP/journey-hello/public.pem"
+      - name: Upload this runner's address and public key
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-hello/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install journey runner dependencies
+        run: python -m pip install -r e2e/requirements.txt
+
+      # The checkout below is static so the code driven on this host stays review-visible. The
+      # candidate declares its demo source in the (possibly overlaid) platform manifest, so that
+      # canonical pin, not only the compatibility copy, must equal the reviewed one: a candidate
+      # that moves evidenceSources.demos fails closed here instead of certifying other demos.
+      - name: Resolve the reviewed demo source
+        run: |
+          python - <<'PY'
+          import yaml
+          reviewed = "0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("demos") or {}
+          if source.get("repository") != "honua-io/honua-site" or source.get("producerSha") != reviewed:
+              raise SystemExit("candidate evidenceSources.demos differs from the reviewed workflow pin")
+          if yaml.safe_load(open("certification/conformance-evidence.yaml"))["demos"]["sourceRef"] != reviewed:
+              raise SystemExit("demo sourceRef differs from the reviewed workflow pin")
+          PY
+      - name: Checkout the pinned demo pages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-site
+          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          path: _site
+          persist-credentials: false
+      # Root installs only the distro packages named here: the list is Playwright 1.61.1's own
+      # ubuntu24.04 chromium + font set (--with-deps, less headed-only xvfb), so a runner image move
+      # fails this step loudly instead of letting Playwright pick packages. npm skips lifecycle
+      # scripts; the browser download runs as the runner user. This job holds no cloud credential.
+      - name: Install pinned extended driver clients
+        env:
+          E2E_PW_HOME: ${{ runner.temp }}/cloud-playwright
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          [ "$ID-$VERSION_ID" = ubuntu-24.04 ] || {
+            echo "::error ::chromium dependency list is for ubuntu-24.04, runner is $ID-$VERSION_ID"; exit 1; }
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl jq \
+            libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+            libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+            libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+            libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji fonts-unifont \
+            fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf \
+            xfonts-cyrillic xfonts-scalable
+          mkdir -p "$E2E_PW_HOME"
+          npm install --prefix "$E2E_PW_HOME" --ignore-scripts --no-audit --no-fund \
+            --save-exact playwright@1.61.1
+          node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium
+          echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
+          echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
+          echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"
+          echo "E2E_SITE_SHA=0db19d7e6e5826fd885fb8f9c21c1798077c9b71" >> "$GITHUB_ENV"
+
+      - name: Download the provision handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
+          path: ${{ env.CELL_DIR }}
+
+      # The admit job uploads the sealed key while this job installs its clients. This job holds no
+      # token for the Actions API, so it watches the public run's artifact list anonymously.
+      - name: Wait for the sealed application key
+        env:
+          NAME: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+        run: |
+          set -uo pipefail
+          for _ in $(seq 1 45); do
+            count="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
+              | jq -r '.total_count' 2>/dev/null || echo 0)"
+            [ "$count" = 1 ] && exit 0
+            sleep 20
+          done
+          echo "::error::the admit job never delivered the cell's sealed application key"
+          exit 1
+      - name: Download the sealed application key
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-key/sealed
+
+      # The seam drivers, then the imported journey (run_live installs the pinned clients with
+      # --ignore-scripts), against the endpoint the handoff names. The handoff's run, attempt and
+      # candidate digest must be this run's.
+      - name: "Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey"
+        run: |
+          python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
+
+      - name: Upload the journey receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-journey-${{ env.CELL_ARTIFACT }}
+          # Driver scratch output can hold the application key; only the redacted reports travel.
+          path: |
+            ${{ env.CELL_DIR }}/journey.json
+            ${{ env.CELL_DIR }}/receipt-*.json
+            ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/extended/gate-report.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  # ── admit: seal the application key to the journey runner, open the cell's ingress to its /32 ──────
+  admit:
+    needs: provision
+    if: ${{ needs.provision.outputs.endpoint != '' }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    permissions:
+      contents: read
+      actions: read                   # read the journey runner's introduction artifact while it runs
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Resolve the ephemeral runner's own /32
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+      - name: Download the provision handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
+          path: ${{ env.CELL_DIR }}
+      - name: Wait for the journey runner's introduction
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 120); do
+            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
+              --jq '.total_count' 2>/dev/null || echo 0)"
+            if [ "$found" = 1 ]; then
+              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::the journey runner never introduced itself"
+          exit 1
+      - name: Seal the application key to the journey runner
+        run: |
+          set -euo pipefail
+          python e2e/run_cloud.py --phase deliver-key --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --public-key "$RUNNER_TEMP/journey-hello/public.pem" --sealed-key "$RUNNER_TEMP/journey-key/app-key.sealed"
+      - name: Upload the sealed application key
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-key/app-key.sealed
+          if-no-files-found: error
+          retention-days: 1
+      - name: "Admit the journey runner to ${{ inputs.target }} / redis-${{ inputs.redis }}"
+        if: ${{ needs.provision.outputs.admission != 'none' }}
+        run: |
+          set -euo pipefail
+          python e2e/run_cloud.py --phase admit --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --cidr "$(head -c 64 "$RUNNER_TEMP/journey-hello/cidr")"
+
+  # ── teardown: always; destroys whatever provision created, then decides the cell's verdict ─────────
+  teardown:
+    needs: [provision, journey, admit]
+    if: always()
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.preview }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Receipts were bound to the candidate snapshot's manifest; validate against that same manifest.
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Checkout honua-iac (terraform tree)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: ${{ inputs.iac_ref }}
+          path: _honua-iac
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        continue-on-error: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      # Destroy reuses the apply's variable set; this runner's /32 satisfies its CIDR inputs and, on
+      # EKS, is granted cluster API access so the chart's load balancer is deleted before the VPC.
+      - name: Resolve the ephemeral runner's own /32
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          python -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$RUNNER_IP"
+          echo "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          echo "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+      - name: Download the provision handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-handoff-${{ env.CELL_ARTIFACT }}
+          path: ${{ env.CELL_DIR }}
+        continue-on-error: true       # absent => the teardown verdict says so and fails closed
+      # Kept apart from the provision handoff: teardown re-verifies every receipt against what
+      # provision observed and copies only verified files into the cell's evidence directory.
+      - name: Download the journey receipts
+        if: ${{ needs.journey.result != 'skipped' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-journey-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/journey-upload
+        continue-on-error: true
+      - name: Download the sealed state
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-cell-state-${{ env.CELL_ARTIFACT }}
+          path: ${{ runner.temp }}/cell-state
+        continue-on-error: true
+      - name: Restore the Terraform state
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/cell-state/state.enc" ]; then
+            python e2e/run_cloud.py --phase open-state --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+              --bundle "$RUNNER_TEMP/cell-state/state.enc"
+          else
+            echo "no sealed state — provisioning never started or its state was lost (teardown decides)"
+          fi
+      # FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step goes red
+      # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). The harness meter must
+      # refresh e2e/cloud-evidence/run-cost.json with cumulative run USD before infrastructure goes.
+      - name: "Tear down ${{ inputs.target }} / redis-${{ inputs.redis }} and decide the cell"
+        if: always()
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+        run: |
+          set -euo pipefail
+          [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
+          ARGS=(--phase teardown --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
+                --journey-dir "$RUNNER_TEMP/journey-upload")
+          if [ "${{ inputs.require_real }}" = "true" ]; then ARGS+=(--require-real); fi
+          python e2e/run_cloud.py "${ARGS[@]}"
+
+      - name: Upload cloud gate-report (per cell)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
+          path: |
+            e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/extended/gate-report.json
+            e2e/cloud-evidence/**/receipt-*.json
+            e2e/cloud-evidence/**/target-*.json
+          if-no-files-found: warn

@@ -30,6 +30,7 @@ import yaml
 from candidate_binding import REQUIRED_RELEASE_GATES, validate_live_report, _sha256
 from fixture_revisions import RECORD as FIXTURE_RECORD, declare as declare_fixtures, load as load_fixtures
 from generate_platform_lock import generate
+from platform_version import stamp_platform_version
 from release_notes_ref import snapshot
 from release_facts import SOURCE_REFERENCE
 from tag_signing import publication_tag
@@ -659,11 +660,15 @@ CHANNEL_TAG = re.compile(r':(?:latest|stable|nightly|2026\.1)(?:["\s,]|$)')
 
 
 def stamp_release_label(manifest_path: Path, label: str) -> None:
-    """Record the next candidate label on the manifest. This creates no publication tag."""
+    """Record the next candidate label on the manifest. This creates no publication tag.
+
+    Every bound imaged component takes the label's platform version (R22); SDKs keep their own.
+    """
     publication_tag(label)
     manifest = yaml.safe_load(manifest_path.read_text())
     manifest['platformRelease'] = label
     manifest['status'] = 'rc'
+    stamp_platform_version(manifest, label)
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 

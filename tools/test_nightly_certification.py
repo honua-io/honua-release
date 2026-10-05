@@ -116,10 +116,14 @@ def test_resolve_and_mint_run_only_on_trunk():
     for ref, expected in (('refs/heads/trunk', True), ('refs/heads/release-386-nightly-train', False),
                           ('refs/heads/main', False), ('refs/tags/2026.1-rc.3', False)):
         assert evaluate(jobs['resolve']['if'], {'github.ref': ref}) is expected, ref
+        assert evaluate(jobs['protocol_ledger']['if'], {'github.ref': ref}) is expected, ref
         assert evaluate(jobs['mint']['if'], {'github.ref': ref, 'needs.train.result': 'success'}) is expected, ref
-    # capacity, dr and train need resolve, so a branch dispatch reaches none of them.
-    for name in ('capacity', 'dr', 'train'):
-        assert 'resolve' in (jobs[name]['needs'] if isinstance(jobs[name]['needs'], list) else [jobs[name]['needs']])
+    # capacity needs the trunk-only resolve; dr and train need the bound candidate. A branch
+    # dispatch reaches none of them.
+    assert jobs['protocol_ledger']['needs'] == 'resolve'
+    assert jobs['capacity']['needs'] == 'resolve'
+    assert jobs['dr']['needs'] == 'protocol_ledger'
+    assert set(jobs['train']['needs']) >= {'protocol_ledger', 'capacity', 'dr'}
 
 
 def test_mint_needs_a_successful_train_and_a_live_night():
@@ -133,14 +137,16 @@ def test_mint_needs_a_successful_train_and_a_live_night():
 
 def test_train_judges_a_published_receipt_but_never_runs_for_a_cancelled_night():
     condition = workflow()['jobs']['train']['if']
-    ready = {'needs.resolve.result': 'success', 'needs.capacity.outputs.receipt_url': 'https://raw/x',
+    ready = {'needs.protocol_ledger.result': 'success', 'needs.capacity.outputs.receipt_url': 'https://raw/x',
              'needs.dr.outputs.receipt_url': 'https://raw/y'}
     assert evaluate(condition, ready)
     # A producer that failed after publishing its receipt is judged by the strict train.
     assert evaluate(condition, ready, needs_ok=False)
     # The previous `always()` ran the train for a cancelled night.
     assert not evaluate(condition, ready, cancelled=True)
-    assert not evaluate(condition, {**ready, 'needs.resolve.result': 'skipped'}, needs_ok=False)
+    assert not evaluate(condition, {**ready, 'needs.protocol_ledger.result': 'skipped'}, needs_ok=False)
+    # An unbound ledger never becomes a candidate: the train does not run without one.
+    assert not evaluate(condition, {**ready, 'needs.protocol_ledger.result': 'failure'}, needs_ok=False)
     assert not evaluate(condition, {**ready, 'needs.capacity.outputs.receipt_url': ''}, needs_ok=False)
     assert not evaluate(condition, {**ready, 'needs.dr.outputs.receipt_url': ''}, needs_ok=False)
 
@@ -161,7 +167,8 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     writes = {name: sorted(k for k, v in (job.get('permissions') or {}).items() if v == 'write')
               for name, job in jobs.items()}
     assert writes == {
-        'resolve': ['contents'],                 # refs/nightly-candidates/<sha>
+        'resolve': [],
+        'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
         'train': ['actions', 'attestations', 'id-token'],  # release-train's own declared scopes
@@ -359,7 +366,8 @@ if method == 'POST' and parts[-1] == 'dispatches':
     state['dispatches'].append({'repo': repo, 'workflow': workflow, **body})
     run = {'id': run_id, 'event': 'workflow_dispatch', 'path': f'.github/workflows/{workflow}',
            'head_sha': sha, 'head_branch': ref.split('/', 2)[2], 'status': 'completed',
-           'conclusion': state['conclusion'], 'run_attempt': 1}
+           'conclusion': state.get('conclusions', {}).get(f'{repo}/{workflow}', state['conclusion']),
+           'run_attempt': 1}
     state['runs'][str(run_id)] = run
     if workflow == 'capacity-soak-candidate.yml' and state.get('publish', True):
         candidate = body['inputs']['candidate_sha']
@@ -368,6 +376,8 @@ if method == 'POST' and parts[-1] == 'dispatches':
     save()
     print(json.dumps({'workflow_run_id': run_id} if body.get('return_run_details') else {}))
     sys.exit(0)
+if method == 'GET' and parts[3:5] == ['actions', 'runs'] and parts[6:] == ['jobs']:
+    save(); print(json.dumps(state['jobs'][parts[5]])); sys.exit(0)
 if method == 'GET' and parts[3:5] == ['actions', 'runs']:
     run = state['runs'].get(parts[5])
     if run is None:
@@ -377,6 +387,11 @@ if method == 'GET' and parts[3] == 'compare':
     base, head = parts[4].split('...')
     status = 'identical' if base == head else state['compare'].get(f'{base}...{head}', 'diverged')
     save(); print(json.dumps({'status': status})); sys.exit(0)
+if method == 'GET' and parts[3] == 'commits' and len(parts) == 5:
+    sha = state['refs'].get(repo, {}).get('refs/heads/' + parts[4])
+    if sha is None:
+        fail(404, 'Not Found')
+    save(); print(json.dumps({'sha': sha})); sys.exit(0)
 if method == 'GET' and parts[3] == 'commits':
     query = dict(item.split('=', 1) for item in path.split('?', 1)[1].split('&'))
     rows = [row for row in state['soak'] if row['path'] == query.get('path')] if query.get('sha') == 'soak-receipts' else []
@@ -416,7 +431,7 @@ def github(tmp_path):
             current.update(values)
             self.save(current)
 
-        def run_step(self, job, name, env):
+        def run_step(self, job, name, env, files=None):
             script = step(workflow()['jobs'][job], name)['run']
             output = tmp_path / f'{job}-output.txt'
             output.write_text('')
@@ -424,16 +439,20 @@ def github(tmp_path):
             work.mkdir(exist_ok=True)
             shutil.copytree(ROOT / 'tools', work / 'tools', dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns('__pycache__'))
+            for relative, text in (files or {}).items():
+                (work / relative).parent.mkdir(parents=True, exist_ok=True)
+                (work / relative).write_text(text)
             result = subprocess.run(['bash', '-c', script], cwd=work, capture_output=True, text=True, env={
                 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'FAKE_GH_STATE': str(self.path),
-                'GITHUB_OUTPUT': str(output), 'GITHUB_REPOSITORY': 'honua-io/honua-release', **env})
+                'GITHUB_OUTPUT': str(output), 'GITHUB_REPOSITORY': 'honua-io/honua-release',
+                'RUNNER_TEMP': str(work), **env})
             outputs = dict(line.split('=', 1) for line in output.read_text().splitlines() if '=' in line)
             return result, outputs
 
     return GitHub()
 
 
-CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'CANDIDATE_REF': SNAPSHOT, 'GH_TOKEN': 'x'}
+CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': REVIEWED, 'GH_TOKEN': 'x'}
 DR_ENV = {'CANDIDATE_REF': SNAPSHOT, 'REVIEWED_SHA': REVIEWED, 'GH_TOKEN': 'x'}
 
 
@@ -459,8 +478,9 @@ def test_capacity_producer_runs_on_a_tag_at_the_exact_server_commit(github):
     assert dispatched['repo'] == 'honua-io/honua-server'
     assert dispatched['workflow'] == 'capacity-soak-candidate.yml'
     assert dispatched['ref'] == f'refs/tags/nightly-candidate/{SERVER}'
+    # The envelope is read at this run's commit: a candidate snapshot never changes it.
     assert dispatched['inputs'] == {'candidate_sha': SERVER, 'candidate_image': IMAGE,
-                                    'lock_ref': SNAPSHOT, 'publish': 'true'}
+                                    'lock_ref': REVIEWED, 'publish': 'true'}
     assert state['refs']['honua-io/honua-server'][f'refs/tags/nightly-candidate/{SERVER}'] == SERVER
     run = state['runs'][str(state['next_run'])]
     assert run['head_sha'] == SERVER  # the producer's workflow source is the candidate commit
@@ -682,6 +702,9 @@ def test_mint_publishes_only_the_lock_bundle_as_a_lock_tag(tmp_path):
 
 # ── candidate-input: snapshot lineage when trunk has moved ──────────────────────────────────
 
+CATALOG = 'certification/protocol-certification-requirements.v1.json'
+REVISIONS = 'certification/sources/source-revisions.v1.json'
+
 @pytest.fixture
 def lineage(tmp_path):
     origin = tmp_path / 'origin.git'
@@ -692,6 +715,7 @@ def lineage(tmp_path):
 
     def commit(message, **files):
         for name, text in files.items():
+            (seed / name).parent.mkdir(parents=True, exist_ok=True)
             (seed / name).write_text(text)
         git(seed, 'add', '-A')
         git(seed, *ident, 'commit', '-qm', message)
@@ -699,7 +723,8 @@ def lineage(tmp_path):
 
     git(seed, 'checkout', '-q', '-b', 'trunk')
     reviewed = commit('reviewed', **{'platform-manifest.yaml': 'old\n', 'compatibility-matrix.yaml': 'old\n',
-                                     'tool.py': 'v1\n'})
+                                     'tool.py': 'v1\n', CATALOG: 'old\n', REVISIONS: 'old\n',
+                                     'certification/generate-protocol-requirements.py': 'v1\n'})
     git(seed, 'push', '-q', 'origin', 'trunk')
 
     def snapshot(parent, **files):
@@ -711,6 +736,10 @@ def lineage(tmp_path):
 
     good = snapshot(reviewed, **{'platform-manifest.yaml': 'candidate\n', 'compatibility-matrix.yaml': 'candidate\n'})
     sneaky = snapshot(reviewed, **{'platform-manifest.yaml': 'candidate\n', 'tool.py': 'stubbed\n'})
+    staged = snapshot(reviewed, **{'platform-manifest.yaml': 'bound\n', CATALOG: 'staged\n', REVISIONS: 'pins\n',
+                                   'certification/sources/server/capability-matrix.v1.json': 'vendored\n'})
+    generator = snapshot(reviewed, **{'platform-manifest.yaml': 'bound\n',
+                                      'certification/generate-protocol-requirements.py': 'stubbed\n'})
     git(seed, 'checkout', '-q', '-b', 'feature')
     branch_commit = commit('unreviewed', **{'tool.py': 'branch\n'})
     git(seed, 'push', '-q', 'origin', 'feature')
@@ -733,7 +762,8 @@ def lineage(tmp_path):
             'RUNNER_TEMP': str(temp)})
         return result, checkout
 
-    return {'reviewed': reviewed, 'moved': moved, 'good': good, 'sneaky': sneaky,
+    return {'reviewed': reviewed, 'moved': moved, 'good': good, 'sneaky': sneaky, 'staged': staged,
+            'generator': generator,
             'off_trunk': off_trunk, 'branch_commit': branch_commit, 'run': run}
 
 
@@ -764,3 +794,200 @@ def test_candidate_input_refuses_a_snapshot_that_changes_code(lineage):
     result, checkout = lineage['run'](lineage['sneaky'], lineage['moved'])
     assert result.returncode != 0 and 'unexpected candidate change: tool.py' in result.stdout
     assert (checkout / 'platform-manifest.yaml').read_text() == 'old\n'
+
+
+# ── protocol ledger: producers, aggregation and binding for the resolved candidate (#386) ───
+
+NIGHT = json.loads((ROOT / 'tools/fixtures/protocol-ledger/night.json').read_text())
+CUT = NIGHT['candidate']['cut_at']
+LEDGER_IMAGE = NIGHT['candidate']['server_image']
+PYTHON_PIN = '6' * 40
+DISPATCH_ID = NIGHT['dispatch_id']
+LEDGER_ENV = {'GH_TOKEN': 'x', 'NIGHTLY_DISPATCH_ID': DISPATCH_ID}
+
+
+def ledger_files(catalog=None, server=SERVER):
+    manifest = {'components': {'honua-server': {'sha': server, 'image': LEDGER_IMAGE,
+                                                'digest': NIGHT['candidate']['image_digest']}},
+                'protocolCertification': {'candidateCutAt': CUT}}
+    return {'certification/protocol-certification-requirements.v1.json': json.dumps(catalog or NIGHT['catalog']),
+            'platform-manifest.yaml': yaml.safe_dump(manifest)}
+
+
+def test_the_night_produces_its_ledger_before_any_candidate_exists():
+    jobs = workflow()['jobs']
+    assert not any('git push' in s.get('run', '') for s in jobs['resolve']['steps'])
+    resolver = step(jobs['resolve'], 'Resolve the newest qualifying trunk candidate')['run']
+    assert '--protocol-ledger produce' in resolver
+    names = [s.get('name', '') for s in jobs['protocol_ledger']['steps']]
+    order = [next(i for i, name in enumerate(names) if name.startswith(prefix)) for prefix in (
+        'Stage the requirements catalog', 'Dispatch the protocol certification producers',
+        'Wait for every producer', "Aggregate tonight's producer runs", 'Bind the verified ledger')]
+    assert order == sorted(order)
+    bind = step(jobs['protocol_ledger'], 'Bind the verified ledger')['run']
+    # The candidate ref exists only after the ledger is bound and the full exact-candidate check passed.
+    assert bind.index('--nightly-bind') < bind.index('validate_platform.py --exact-candidate') < bind.index('refs/nightly-candidates/')
+    assert '-p "$GITHUB_SHA"' in bind
+    assert jobs['train']['with']['candidate_ref'] == '${{ needs.protocol_ledger.outputs.candidate_ref }}'
+    # One correlation id per nightly attempt goes to every producer and is required back at bind.
+    assert jobs['protocol_ledger']['env']['NIGHTLY_DISPATCH_ID'] == \
+        'nightly-certification-${{ github.run_id }}-${{ github.run_attempt }}'
+    dispatch = step(jobs['protocol_ledger'], 'Dispatch the protocol certification producers')['run']
+    assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in dispatch
+    assert '--dispatch-id "$NIGHTLY_DISPATCH_ID"' in bind
+
+
+def test_capacity_runs_in_parallel_with_the_ledger_and_only_the_train_joins_them():
+    jobs = workflow()['jobs']
+    capacity = step(jobs['capacity'], 'Dispatch the candidate capacity soak')
+    assert jobs['capacity']['needs'] == 'resolve'
+    assert 'protocol_ledger' not in json.dumps(jobs['capacity'])
+    assert capacity['env']['SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
+    assert capacity['env']['SERVER_IMAGE'] == '${{ needs.resolve.outputs.server_image }}'
+    assert capacity['env']['LOCK_REF'] == '${{ github.sha }}'
+    # DR's receipt hashes the bound manifest, so it stays behind the ledger.
+    assert jobs['dr']['needs'] == 'protocol_ledger'
+    assert set(jobs['train']['needs']) == {'resolve', 'protocol_ledger', 'capacity', 'dr'}
+    # The bind refuses a candidate whose server is not the one capacity soaked.
+    bind = step(jobs['protocol_ledger'], 'Bind the verified ledger')
+    assert bind['env']['RESOLVED_SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
+    assert bind['run'].index('is not the resolved') < bind['run'].index('refs/nightly-candidates/')
+
+
+def test_the_night_reads_and_writes_no_repository_variable():
+    text = (ROOT / '.github/workflows/nightly-certification.yml').read_text()
+    assert 'vars.' not in text
+    assert 'gh variable' not in text
+    assert 'PROTOCOL_CERTIFICATION_' not in text
+
+
+def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
+    state = github.load()
+    state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
+    github.save(state)
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files())
+    assert result.returncode == 0, result.stdout + result.stderr
+    candidate = {'candidate_source_sha': SERVER, 'candidate_image': LEDGER_IMAGE, 'candidate_cut_at': CUT,
+                 'nightly_dispatch_id': DISPATCH_ID}
+    dispatched = github.load()['dispatches']
+    assert dispatched == [
+        # honua-server trunk has moved past the candidate: the harness runs on a tag at the candidate.
+        {'repo': 'honua-io/honua-server', 'workflow': 'protocol-harness-certification.yml',
+         'ref': 'refs/tags/nightly-candidate/' + SERVER, 'inputs': candidate, 'return_run_details': True},
+        # The published SDK source is its trunk head, so the run is a trunk run at the pin.
+        {'repo': 'honua-io/honua-sdk-python', 'workflow': 'conformance.yml', 'ref': 'refs/heads/trunk',
+         'inputs': {'server_image': LEDGER_IMAGE, 'server_seed_ref': SERVER, 'candidate_cut_at': CUT,
+                    'certification_tier': 'release', 'nightly_dispatch_id': DISPATCH_ID}, 'return_run_details': True},
+    ]
+    runs = json.loads((github.path.parent / 'protocol_ledger-work' / 'protocol-runs.json').read_text())
+    assert [(row['producer'], row['head_sha'], row['run_id'], row['dispatch_id']) for row in runs] == [
+        ('server-protocol-harness', SERVER, 9001, DISPATCH_ID), ('honua-sdk-python', PYTHON_PIN, 9002, DISPATCH_ID)]
+    waited, _ = github.run_step('protocol_ledger', 'Wait for every producer', {'GH_TOKEN': 'x'})
+    assert waited.returncode == 0, waited.stdout + waited.stderr
+    assert '2 protocol producers succeeded' in waited.stdout
+    finished = json.loads((github.path.parent / 'protocol_ledger-work' / 'protocol-runs.json').read_text())
+    assert [(row['dispatch_id'], row['run_attempt']) for row in finished] == [(DISPATCH_ID, 1), (DISPATCH_ID, 1)]
+
+
+@pytest.mark.parametrize('dispatch_id', ['', 'nightly certification', '-leading-dash', 'x' * 129])
+def test_a_malformed_dispatch_id_refuses_before_any_dispatch(github, dispatch_id):
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                {**LEDGER_ENV, 'NIGHTLY_DISPATCH_ID': dispatch_id}, ledger_files())
+    assert result.returncode != 0
+    assert github.load()['dispatches'] == []
+
+
+def test_a_catalog_cannot_supply_the_dispatch_id(github):
+    catalog = json.loads(json.dumps(NIGHT['catalog']))
+    catalog['production']['producers'][1]['inputs']['nightly_dispatch_id'] = 'nightly-certification-1-1'
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files(catalog))
+    assert result.returncode != 0
+    assert 'may not set nightly_dispatch_id' in result.stderr
+    assert github.load()['dispatches'] == []
+
+
+@pytest.mark.parametrize('conclusion', ['failure', 'skipped', 'cancelled'])
+def test_a_producer_that_did_not_succeed_leaves_the_ledger_unbound(github, conclusion):
+    state = github.load()
+    state['refs']['honua-io/honua-sdk-python'] = {'refs/heads/trunk': PYTHON_PIN}
+    state['conclusions'] = {'honua-io/honua-sdk-python/conformance.yml': conclusion}
+    github.save(state)
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files())
+    assert result.returncode == 0, result.stdout + result.stderr
+    waited, _ = github.run_step('protocol_ledger', 'Wait for every producer', {'GH_TOKEN': 'x'})
+    assert waited.returncode != 0
+    assert 'the ledger stays unbound' in waited.stderr
+    assert f"honua-sdk-python honua-io/honua-sdk-python run 9002 concluded '{conclusion}'" in waited.stderr
+
+
+def test_an_unpinned_producer_refuses_before_any_dispatch(github):
+    catalog = json.loads(json.dumps(NIGHT['catalog']))
+    del catalog['source_revisions']['sdk-python']
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files(catalog))
+    assert result.returncode != 0
+    assert 'producer honua-sdk-python has no pinned revision' in result.stderr
+    assert github.load()['dispatches'] == []
+
+
+def test_a_server_producer_pinned_off_the_candidate_refuses_before_any_dispatch(github):
+    result, _ = github.run_step('protocol_ledger', 'Dispatch the protocol certification producers',
+                                LEDGER_ENV, ledger_files(server=NEWER))
+    assert result.returncode != 0
+    assert f'is pinned to {SERVER}, not the candidate server' in result.stderr
+    assert github.load()['dispatches'] == []
+
+
+@pytest.mark.parametrize('conclusion', ['success', 'failure'])
+def test_aggregation_waits_for_its_aggregate_job_not_the_pages_deploy(github, conclusion):
+    jobs = json.loads(json.dumps(NIGHT['aggregate_jobs']))
+    for job in jobs['jobs']:
+        job['run_id'] = 9001
+    jobs['jobs'][0]['conclusion'] = conclusion
+    state = github.load()
+    state['refs']['honua-io/honua-evidence'] = {'refs/heads/trunk': '4' * 40}
+    state['jobs'] = {'9001': jobs}
+    github.save(state)
+    requirements = NIGHT['requirements_revision']
+    result, outputs = github.run_step('protocol_ledger', "Aggregate tonight's producer runs",
+                                      {'GH_TOKEN': 'x', 'REQUIREMENTS_REVISION': requirements}, ledger_files())
+    assert github.load()['dispatches'] == [{
+        'repo': 'honua-io/honua-evidence', 'workflow': 'aggregate.yml', 'ref': 'refs/heads/trunk',
+        'inputs': {'requirements_revision': requirements, 'candidate_source_sha': SERVER,
+                   'candidate_image_digest': NIGHT['candidate']['image_digest'], 'candidate_cut_at': CUT},
+        'return_run_details': True}]
+    if conclusion == 'success':
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', outputs['since'])
+    else:
+        assert result.returncode != 0
+        assert "job aggregate concluded 'failure'" in result.stderr
+        assert 'since' not in outputs
+
+
+def test_wait_for_job_times_out_on_a_job_that_never_completes():
+    listing = {'jobs': [{'name': 'aggregate', 'run_id': 7, 'status': 'in_progress'}]}
+    clock = iter(range(0, 1000, 60))
+    with pytest.raises(TimeoutError):
+        receipts.wait_for_job(lambda *a: listing, 'honua-io/honua-evidence', 7, 'aggregate', timeout=120,
+                              sleep=lambda _s: None, clock=lambda: next(clock))
+
+
+def test_candidate_input_adopts_the_catalog_the_nightly_staged(lineage):
+    result, checkout = lineage['run'](lineage['staged'], lineage['moved'])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (checkout / 'platform-manifest.yaml').read_text() == 'bound\n'
+    assert (checkout / CATALOG).read_text() == 'staged\n'
+    assert (checkout / REVISIONS).read_text() == 'pins\n'
+    assert (checkout / 'certification/sources/server/capability-matrix.v1.json').read_text() == 'vendored\n'
+    assert (checkout / 'tool.py').read_text() == 'v2\n'
+
+
+def test_candidate_input_refuses_a_snapshot_that_changes_the_catalog_generator(lineage):
+    result, checkout = lineage['run'](lineage['generator'], lineage['reviewed'])
+    assert result.returncode != 0
+    assert 'unexpected candidate change: certification/generate-protocol-requirements.py' in result.stdout
+    assert (checkout / CATALOG).read_text() == 'old\n'

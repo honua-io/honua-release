@@ -50,6 +50,19 @@
       "issue": "honua-io/honua-release#425"
     },
     {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sources/protocol-certification-production.v1.json"
+      ],
+      "tokens": [
+        "esri",
+        "arcgis"
+      ],
+      "reason": "Names existing upstream identifiers the nightly dispatches and classifies: the honua-io/honua-esri-compat repository and its esri-sdk-certification.yml workflow (also the honua-evidence producer and source_revisions key), and client-lane names the generator derives from release-owned inputs. They change when those repositories and inputs are renamed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#425"
+    },
+    {
       "repo": "honua-server",
       "paths": [
         "src/Honua.Protocols.GeoServices/Catalog/GeoservicesCatalogEndpoints.cs",

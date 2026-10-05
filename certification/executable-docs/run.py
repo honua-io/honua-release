@@ -7,7 +7,8 @@ For each document in sources.json (read at its release revision, see inventory.p
 starts clean containers from digest-pinned node / python / dotnet images, points npm, pip and NuGet
 at the registry guard (only manifest-pinned Honua packages are installable), and executes the
 document's blocks in order against the candidate `image@digest` booted by e2e/harness/boot.sh with
-licensing disabled. Result per block: pass, fail (with the stdout/stderr tail) or needs-input. A
+licensing disabled. Result per block: pass, fail (with the stdout/stderr tail), needs-input, or
+blocked (a failing block the document marks `doc-run: blocked <issue>`). A
 document is red when any block fails; the run is red when any document is.
 """
 from __future__ import annotations
@@ -182,7 +183,10 @@ def docker(*args: str, timeout: int = 600, check: bool = False) -> subprocess.Co
     return proc
 
 
-APT_PREREQUISITES = {"jq"}
+# A documented prerequisite tool -> the Debian packages a reader would install for it. `sudo` stands for
+# "the reader can administer their machine" (for example `npx playwright install --with-deps`, which
+# installs Chromium's system libraries through sudo): the host-UID reader gets a passwordless sudo.
+APT_PREREQUISITES = {"jq": ["jq"], "python": ["python-is-python3"], "sudo": ["sudo"]}
 LANGUAGE_RUNTIME = {"python": "python", "javascript": "node", "typescript": "node", "csharp": "dotnet"}
 
 
@@ -195,6 +199,7 @@ class Outcome:
     exit_code: int | None = None
     duration: float = 0.0
     mode: str | None = None
+    command_failed: bool = False  # executor witnessed the block command fail, not Docker or the runner
 
 
 @dataclass
@@ -275,10 +280,18 @@ class Session:
         docker("rm", "-f", name)
         docker(*args, check=True, timeout=1800)
         self.containers[runtime] = name
-        packages = sorted(p for p in self.prerequisites if p in APT_PREREQUISITES)
+        packages = sorted({pkg for p in self.prerequisites for pkg in APT_PREREQUISITES.get(p, [])})
         if packages:   # a tool the document lists under its prerequisites, installed as the reader would
-            setup = docker("exec", "--user", "0", name, "bash", "-c", "apt-get update -qq && DEBIAN_FRONTEND=noninteractive "
-                           "apt-get install -y -qq " + " ".join(packages), timeout=900)
+            script = ("apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
+                      + " ".join(packages))
+            if "sudo" in self.prerequisites:
+                uid, gid = os.getuid(), os.getgid()
+                script += (f" && (getent group {gid} >/dev/null || groupadd -g {gid} reader)"
+                           f" && (getent passwd {uid} >/dev/null || useradd -o -u {uid} -g {gid} -M"
+                           f" -d {shlex.quote(str(self.home))} reader)"
+                           f" && echo '#{uid} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/reader"
+                           " && chmod 0440 /etc/sudoers.d/reader")
+            setup = docker("exec", "--user", "0", name, "bash", "-c", script, timeout=900)
             if setup.returncode:
                 raise RunError(f"could not install the documented prerequisites {packages}: {setup.stderr[-300:]}")
         base = docker("exec", name, "env", "-0").stdout
@@ -346,7 +359,7 @@ class Session:
         ready = False
         deadline = started + window + 60
         while proc.poll() is None and time.monotonic() < deadline:
-            if serve and readiness:
+            if serve and readiness and not ready:   # once observed, stays observed: the server stops at the window's end
                 if readiness.get("url"):
                     probe = docker("exec", name, "curl", "-fsS", "--max-time", "2", readiness["url"], timeout=10)
                     ready = probe.returncode == 0
@@ -378,11 +391,11 @@ class Session:
                           "documented readiness evidence was not observed" if readiness else
                           "long-running command needs a documented readiness URL or expected log line")
                 return Outcome(status, detail,
-                               stdout, stderr, code_, duration, "serve")
+                               stdout, stderr, code_, duration, "serve", command_failed=envfile.exists())
             return Outcome("fail", f"timed out after {window}s (waiting for input or a process that never ends)",
-                           stdout, stderr, code_, duration)
+                           stdout, stderr, code_, duration, command_failed=envfile.exists())
         if code_:
-            return Outcome("fail", f"exit code {code_}", stdout, stderr, code_, duration)
+            return Outcome("fail", f"exit code {code_}", stdout, stderr, code_, duration, command_failed=envfile.exists())
         if serve:
             return Outcome("fail", "long-running command exited before readiness could be established",
                            stdout, stderr, 0, duration, "serve")
@@ -426,7 +439,7 @@ class Session:
         if answer["ok"]:
             return Outcome("pass", "completed without an exception", stdout, stderr, 0, duration)
         last = [l for l in answer["error"].strip().splitlines() if l.strip()]
-        return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration)
+        return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration, command_failed=True)
 
     def run_js(self, code: str, language: str, timeout: int) -> Outcome:
         name = self.container("node")
@@ -462,6 +475,7 @@ class Session:
                 setup.append(f"dotnet add {shlex.quote(str(project_dir))} package {shlex.quote(package)}{pinned}")
             prep = self._exec(name, ["bash", "-c", " && ".join(setup)], timeout)
             if prep.status != "pass":
+                prep.command_failed = False  # runner scaffolding is not the documented C# command
                 prep.detail = "could not create a console project with the doc's packages: " + prep.detail
                 return prep
         self.put("dotnet", project_dir / "Program.cs", code)
@@ -523,16 +537,18 @@ class Session:
         started = time.monotonic()
         out, err = self.next_path(".out"), self.next_path(".err")
         runtime = next((key for key, value in self.containers.items() if value == name), None)
+        exitfile = out.with_suffix(".exit")
+        wrapper = f'"$@"; rc=$?; echo "$rc" > {shlex.quote(str(exitfile))}; exit "$rc"'
         proc = subprocess.run(["docker", "exec", "-w", self.cwd, *self.exec_env(runtime), name,
-                               "timeout", "-k", "5", str(timeout), *cmd],
+                               "bash", "-c", wrapper, "docrun", "timeout", "-k", "5", str(timeout), *cmd],
                               stdin=subprocess.DEVNULL, stdout=open(out, "w"), stderr=open(err, "w"),
                               timeout=timeout + 60, check=False)
         stdout, stderr = out.read_text(errors="replace"), err.read_text(errors="replace")
         duration = time.monotonic() - started
         if proc.returncode == 124:
-            return Outcome("fail", f"timed out after {timeout}s", stdout, stderr, 124, duration)
+            return Outcome("fail", f"timed out after {timeout}s", stdout, stderr, 124, duration, command_failed=exitfile.exists())
         if proc.returncode:
-            return Outcome("fail", f"exit code {proc.returncode}", stdout, stderr, proc.returncode, duration)
+            return Outcome("fail", f"exit code {proc.returncode}", stdout, stderr, proc.returncode, duration, command_failed=exitfile.exists())
         return Outcome("pass", "exit code 0", stdout, stderr, 0, duration)
 
 
@@ -631,7 +647,8 @@ def summarize(result: dict[str, Any]) -> None:
         checks.append({"check": "nothing-executed", "status": "fail", "detail": "zero blocks executed"})
     result["checks"] = checks
     statuses = [r["status"] for r in result["blocks"]] + [c["status"] for c in result.get("checks", [])]
-    result["status"] = "fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else ("needs-input" if "needs-input" in statuses else "pass")
+    result["status"] = ("fail" if any(s in {"fail", "not-evaluated"} for s in statuses) else
+                        "needs-input" if "needs-input" in statuses else "blocked" if "blocked" in statuses else "pass")
     result["counts"] = {s: statuses.count(s) for s in sorted(set(statuses))}
 
 
@@ -682,6 +699,17 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             row["reason"] = block.reason
         if block.marker_error:
             row["markerError"] = block.marker_error
+        if block.blocked_by:
+            # The document says this command is right and links the issue that tracks the misbehaviour:
+            # a failure is recorded against that issue (the gate stays blocked); a pass means the marker is stale.
+            row["blockedBy"] = block.blocked_by
+            if status == "fail" and outcome is not None and outcome.command_failed:
+                row["status"] = "blocked"
+                row["detail"] = scrub(f"blocked by {block.blocked_by}: {detail}", secrets)
+            elif status == "pass":
+                row["staleBlockedMarker"] = True
+                row["detail"] = scrub(f"{detail}; passes, so the doc-run: blocked marker ({block.blocked_by}) "
+                                      "no longer applies: remove it", secrets)
         if outcome is not None:
             row["durationSec"] = round(outcome.duration, 1)
             row["exitCode"] = outcome.exit_code
@@ -704,6 +732,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                        for name, version in installed.items() if allowed.get(name) not in {version, "*"})
         if wrong:
             outcome.status = "fail"
+            outcome.command_failed = False
             outcome.detail += "; installed a Honua package the release does not pin: " + "; ".join(wrong)
         return outcome
 
@@ -734,7 +763,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
         try:
-            if (block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run":
+            if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
+                    or (block.marker_error or "").startswith("doc-run: blocked on a language")):
                 record(block, None, "fail", block.marker_error)
                 continue
             if block.intent in {"illustrative", "alternative", "excluded", "output"}:
@@ -777,7 +807,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 continue
             outcome = execute(block, code)
             lang = block.language
-            if block.expect_failure and outcome.exit_code not in (None, 0, 124):
+            if block.expect_failure and outcome.command_failed and outcome.exit_code not in (None, 0, 124):
                 outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
             elif block.expect_failure and outcome.status == "pass":
                 outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
@@ -794,6 +824,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                     ok, why = assert_output(block.expected_output, outcome.stdout)
                     if not ok:
                         outcome.status, outcome.detail = "fail", f"{outcome.detail}; output assertion failed: {why}"
+                        outcome.command_failed = False
                     else:
                         outcome.detail = f"{outcome.detail}; {why}"
             if doc.get("docker") and block.language == "shell":
@@ -870,15 +901,16 @@ def candidate_from_manifest(manifest: dict[str, Any]) -> tuple[str, str]:
 def markdown_summary(report: dict[str, Any]) -> str:
     lines = [f"## Executable docs — {report['status']}", "",
              f"Candidate `{report['candidate']['image']}` · {report['summary']}", "",
-             "| document | revision | status | pass | fail | needs-input | not-run |", "|---|---|---|---|---|---|---|"]
+             "| document | revision | status | pass | fail | needs-input | blocked | not-run |",
+             "|---|---|---|---|---|---|---|---|"]
     for doc in report["documents"]:
         c = doc.get("counts", {})
         lines.append(f"| [{doc['repo'].split('/')[-1]}:{doc['path']}]({doc['url']}) | `{doc['revision'][:8]}` | "
                      f"**{doc['status']}** | {c.get('pass', 0)} | {c.get('fail', 0)} | {c.get('needs-input', 0)} | "
-                     f"{c.get('not-run', 0)} |")
-    failing = [(d, b) for d in report["documents"] for b in d.get("blocks", []) if b["status"] in {"fail", "needs-input"}]
+                     f"{c.get('blocked', 0)} | {c.get('not-run', 0)} |")
+    failing = [(d, b) for d in report["documents"] for b in d.get("blocks", []) if b["status"] in {"fail", "needs-input", "blocked"}]
     if failing:
-        lines += ["", "### Blocks that do not run", ""]
+        lines += ["", "### Blocks requiring attention", ""]
         for doc, block in failing:
             lines.append(f"- `{doc['repo'].split('/')[-1]}:{doc['path']}` block {block['index']} (line {block['line']}, "
                          f"{block['language']}): **{block['status']}** — {block['detail'][:300]}")
@@ -1144,7 +1176,8 @@ def main() -> int:
     order = {doc_id(d["repo"], d["path"]): i for i, d in enumerate(sources["documents"])}
     report_docs.sort(key=lambda d: order.get(d["id"], len(order)))
     statuses = [d["status"] for d in report_docs]
-    status = "fail" if drift_lines or "fail" in statuses or not report_docs else ("blocked" if "needs-input" in statuses else "pass")
+    status = ("fail" if drift_lines or "fail" in statuses or not report_docs else
+              "blocked" if {"needs-input", "blocked"} & set(statuses) else "pass")
     report = {
         "schemaVersion": 1,
         "gate": "executable-docs",

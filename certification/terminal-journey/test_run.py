@@ -738,5 +738,40 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNotNone(note)
 
 
+class NpmInstallEnvironmentTests(unittest.TestCase):
+    def test_pinned_install_ignores_scripts_and_drops_cloud_credentials(self):
+        import subprocess
+
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = list(argv)
+            captured["env"] = dict(kwargs["env"])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        stripped = {
+            "AWS_SECRET_ACCESS_KEY": "aws-secret",
+            "AWS_SESSION_TOKEN": "aws-session",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-token",
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/token",
+            "GITHUB_TOKEN": "ghs_example",
+            "GH_TOKEN": "gh_example",
+            "HONUA_AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/release",
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(pins.subprocess, "run", fake_run), mock.patch.dict(
+            os.environ, {**stripped, "PATH": "/usr/bin"}, clear=False
+        ):
+            result = pins._npm_install(Path(tmp), ["sdk.tgz"], [])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--ignore-scripts", captured["argv"])
+        self.assertEqual(pins.EXPLICIT_LIFECYCLE_SCRIPTS, ())
+        for key in captured["env"]:
+            self.assertFalse(key.startswith(("AWS_", "ACTIONS_ID_TOKEN_REQUEST_", "HONUA_AWS_")))
+            self.assertNotIn(key, {"GITHUB_TOKEN", "GH_TOKEN"})
+        self.assertEqual(captured["env"]["PATH"], "/usr/bin")
+        for value in stripped.values():
+            self.assertNotIn(value, captured["env"].values())
+
+
 if __name__ == "__main__":
     unittest.main()

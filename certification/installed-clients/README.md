@@ -29,10 +29,10 @@ shim exactly as a customer launches it. A binary without a contract fails the ce
 `npm-mcp-setup-view-tools-list` is the terminal journey's discovery contract. The installed proxy
 sends `initialize` with `_meta["honua.io/workflow-view"] = "setup"`, then a selector-free
 `tools/list`, and must return the complete server-authored `setup` view with the matrix's
-`toolCount` (25). Published `@honua/mcp-server` 0.1.12 drops the selector and returns the 12-tool
-`default` view, so the cell is blocked by
-[honua-sdk-js#1875](https://github.com/honua-io/honua-sdk-js/issues/1875) until a fixed proxy is
-pinned.
+`toolCount` (25). Published `@honua/mcp-server` 0.1.12 dropped the selector and returned the 12-tool
+`default` view ([honua-sdk-js#1875](https://github.com/honua-io/honua-sdk-js/issues/1875)). The pinned
+0.1.13 proxy keeps the `setup` view, so the cell is active. A proxy that drops the selector again
+reports the 12-tool `default` view and fails the cell.
 
 The NuGet cell restores the pinned `Honua.Sdk` from anonymous nuget.org into a clean consumer with
 an isolated package folder and a cleared source list. It checks that the restored `.nupkg` matches
@@ -81,3 +81,19 @@ through the SDK's own client classes against the booted candidate, with oracles 
 `--subset all` (the default) adds the scenarios, which `gate-installed-clients.yml` runs for the
 `installed-clients` nightly evidence class. See
 [docs/INSTALLED-CLIENT-REGRESSION.md](../../docs/INSTALLED-CLIENT-REGRESSION.md).
+
+The same suite runs the command-line clients (`cli-workflow`, through the `honua` CLI of
+`@honua/sdk-js` and the `honua` console script of the PyPI wheels) and the MCP proxy
+(`mcp-workflow`, over `honua-mcp-proxy` stdio only), with the same fixture, oracles and receipt
+allowlist.
+
+The cross-client interop scenarios (`scenarios/interop-*.json`, `interop/`) run in the same suite and the
+same nightly class. Each one hands one piece of work between clients on the same booted candidate, and
+every step names the client and API that performed it. The four hand-offs are:
+- .NET publishes, Python queries, JS edits, .NET reads the edit back;
+- the CLI imports and publishes, the MCP proxy renders and buffers, Python reads the job;
+- JS proposes, the admin CLI approves as a separate principal, .NET verifies;
+- one admin-CLI key is used and then revoked across all three SDKs and the proxy.
+
+A failing hand-off names its seam (the producing client and API, and the consuming client and API) in the
+receipt.

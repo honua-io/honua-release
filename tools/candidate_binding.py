@@ -28,7 +28,7 @@ _SHA_PATTERN = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 LIVE_REPORT_MAX_AGE_HOURS = 24
 REQUIRED_RELEASE_GATES = frozenset({
-    "manifest", "artifact-consume", "e2e", "cloud-parity", "build-test", "contract",
+    "manifest", "artifact-consume", "e2e", "cloud-parity", "build-test", "contract", "contract-live",
     "conformance", "security", "sbom", "observability", "docs", "upgrade", "evidence",
     "protocol-certification", "dr",
 })

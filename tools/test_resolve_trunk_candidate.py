@@ -82,6 +82,220 @@ def test_red_ci_never_reads_image_identity():
         resolver.select_component('server', component(), Red(), Tags(), 1)
 
 
+class Dated(GitHub):
+    """Trunk of `count` commits, one a day, newest first; only `qualifies` is published and green."""
+
+    def __init__(self, count, qualifies):
+        self.shas = [f'{index:040x}' for index in range(count, 0, -1)]
+        self.qualifies = qualifies
+
+    def commits(self, repository, limit):
+        return iter(self.shas[:limit])
+
+    def commit_date(self, sha):
+        return f'2026-09-{30 - self.shas.index(sha):02d}T12:00:00Z'
+
+    def green(self, name, repository, sha):
+        return sha == self.qualifies, 'full CI green' if sha == self.qualifies else 'required suite failed'
+
+
+class Published(Registry):
+    def __init__(self, published):
+        self.published = published
+
+    def candidate_tags(self, repository, sha):
+        return ['nightly-' + sha[:7]] if sha in self.published else []
+
+    def image(self, name, component, sha):
+        return {'image': 'ghcr.io/honua-io/server@sha256:' + 'c' * 64, 'digest': 'sha256:' + 'c' * 64,
+                'platformDigests': {'amd64': 'sha256:' + 'd' * 64}, 'artifactSourceRevision': sha}
+
+
+NOW = resolver.datetime(2026, 10, 4, 12, tzinfo=resolver.timezone.utc)
+
+
+def test_a_qualifying_sha_far_behind_head_still_reports_every_skip_and_staleness(capsys):
+    github = Dated(20, None)
+    selected_sha = github.shas[18]
+    github.qualifies = selected_sha
+    # Every newer commit is passed over: odd ones have no image, even ones are published but red.
+    registry = Published({sha for index, sha in enumerate(github.shas) if index % 2 == 0} | {selected_sha})
+    walk = {}
+    selected = resolver.select_component('server', component(), github, registry, 100, walk)
+    assert selected['sha'] == selected_sha
+
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert report['selected'] == selected_sha and report['trunkHead'] == github.shas[0]
+    assert report['commitsBehind'] == 18 and report['skippedTotal'] == 18
+    assert report['daysBehind'] == 18.0 and report['stale'] is True
+    assert report['selectedAgeDays'] == 22.0
+    assert [row['sha'] for row in report['skipped']] == github.shas[:10]
+    assert report['skipped'][0]['reason'] == 'CI required suite failed'
+    assert report['skipped'][1]['reason'] == 'no published SHA-bound image'
+
+    lines = resolver.skip_report_lines(report)
+    assert lines[0].startswith(f'SKIPS server: selected {selected_sha[:7]} (22.0 days old); 18 newer')
+    assert '  ... 8 older skipped commit(s) not listed' in lines
+    assert lines[-1] == f'STALE-CANDIDATE: server selected {selected_sha[:7]} (18 commits, 18.0 days behind)'
+
+
+def test_a_fresh_selection_is_reported_but_not_stale():
+    github = Dated(5, None)
+    github.qualifies = github.shas[2]
+    walk = {}
+    resolver.select_component('server', component(), github, Published(set(github.shas)), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW, stale_days=3)
+    assert (report['commitsBehind'], report['daysBehind'], report['stale']) == (2, 2.0, False)
+    assert not any(line.startswith('STALE-CANDIDATE') for line in resolver.skip_report_lines(report))
+
+
+def test_the_head_itself_qualifying_reports_zero_skips():
+    github = Dated(3, None)
+    github.qualifies = github.shas[0]
+    walk = {}
+    resolver.select_component('server', component(), github, Published(set(github.shas)), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert (report['commitsBehind'], report['skippedTotal'], report['stale']) == (0, 0, False)
+
+
+def test_an_image_read_error_is_a_named_skip_reason():
+    github = Dated(2, None)
+    github.qualifies = github.shas[0]
+
+    class Broken(Published):
+        def image(self, name, component, sha):
+            raise resolver.ResolutionError('config revision is not bound to ' + sha)
+
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='no qualifying'):
+        resolver.select_component('server', component(), github, Broken({github.shas[0]}), 100, walk)
+    report = resolver.skip_report('server', walk, github, now=NOW)
+    assert report['selected'] is None and report['stale'] is None and report['commitsBehind'] is None
+    assert report['skipped'][0] == {'sha': github.shas[0], 'reason': f'config revision is not bound to {github.shas[0]}'}
+    assert resolver.skip_report_lines(report)[0] == 'SKIPS server: no qualifying trunk commit; 2 commit(s) skipped'
+
+
+def test_unknown_commit_dates_never_claim_staleness():
+    walk = {}
+    resolver.select_component('server', component(), GitHub(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, GitHub(), now=NOW)
+    assert (report['commitsBehind'], report['daysBehind'], report['stale']) == (1, None, None)
+
+
+def test_a_lag_just_past_the_threshold_is_stale_though_it_displays_at_the_threshold():
+    class Hours(GitHub):
+        def commit_date(self, sha):
+            return '2026-09-04T01:00:00Z' if sha == NEW else '2026-09-01T00:00:00Z'
+
+    walk = {}
+    resolver.select_component('server', component(), Hours(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, Hours(), now=NOW, stale_days=3)
+    # 73 hours is 3.04 days: shown rounded, compared raw.
+    assert (report['daysBehind'], report['stale']) == (3.0, True)
+    assert resolver.skip_report_lines(report)[-1] == f'STALE-CANDIDATE: server selected {OLD[:7]} (1 commits, 3.0 days behind)'
+
+
+def test_a_spec_read_that_raises_reports_an_aborted_walk_not_an_exhausted_one():
+    class Missing(GitHub):
+        def file(self, repository, sha, path):
+            raise resolver.ResolutionError(f'{path} at {sha}: HTTP 404')
+
+    spec = {'repository': 'https://github.com/honua-io/geospatial-mcp',
+            'artifact': f'spec:https://github.com/honua-io/geospatial-mcp/blob/{OLD}/spec/schemas/index.json'}
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='HTTP 404'):
+        resolver.select_component('geospatial-mcp', spec, Missing(), None, 2, walk)
+    report = resolver.skip_report('geospatial-mcp', walk, Missing(), now=NOW)
+    assert report['selected'] is None and report['skippedTotal'] == 0
+    assert report['aborted'] == {'sha': NEW, 'reason': f'spec/schemas/index.json at {NEW}: HTTP 404'}
+    assert resolver.skip_report_lines(report) == [
+        f'SKIPS geospatial-mcp: walk aborted at {NEW[:7]} (spec/schemas/index.json at {NEW}: HTTP 404); '
+        '0 newer commit(s) skipped before it; older commits not examined']
+    assert (f'| geospatial-mcp | - | walk aborted at {NEW[:7]} | 0 | aborted: spec/schemas/index.json at {NEW}: '
+            'HTTP 404 |') in resolver.skip_report_markdown({'geospatial-mcp': report})
+
+
+def test_a_trunk_listing_that_fails_after_a_skip_names_the_listing_not_the_skipped_sha():
+    class Truncated(GitHub):
+        def commits(self, repository, limit):
+            yield NEW
+            raise OSError('gh api: connection reset')
+
+    walk = {}
+    with pytest.raises(OSError):
+        resolver.select_component('server', component(), Truncated(), Registry(), 2, walk)
+    report = resolver.skip_report('server', walk, Truncated(), now=NOW)
+    assert report['aborted'] == {'sha': None, 'reason': 'gh api: connection reset'}
+    assert resolver.skip_report_lines(report)[0] == (
+        'SKIPS server: walk aborted at trunk listing (gh api: connection reset); '
+        '1 newer commit(s) skipped before it; older commits not examined')
+
+
+def test_a_completed_walk_is_never_marked_aborted():
+    walk = {}
+    resolver.select_component('server', component(), GitHub(), Registry(), 2, walk)
+    assert resolver.skip_report('server', walk, GitHub(), now=NOW)['aborted'] is None
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='no qualifying'):
+        resolver.select_component('server', component(), GitHub(), Registry(), 1, walk)
+    assert resolver.skip_report('server', walk, GitHub(), now=NOW)['aborted'] is None
+
+
+def test_github_commits_records_committer_dates(monkeypatch):
+    row = {'sha': NEW, 'commit': {'committer': {'date': '2026-09-16T08:00:00Z'}}}
+
+    def run(cmd, **kwargs):
+        class Result:
+            stdout, stderr, returncode = json.dumps([row]), '', 0
+        return Result()
+
+    monkeypatch.setattr(resolver.subprocess, 'run', run)
+    github = resolver.GitHub()
+    assert list(github.commits('honua-io/server', 1)) == [NEW]
+    assert github.commit_date(NEW) == '2026-09-16T08:00:00Z'
+
+
+def test_resolve_prints_the_skip_report_for_a_selected_component_then_still_refuses(monkeypatch, capsys):
+    github = Dated(6, None)
+    github.qualifies = github.shas[5]
+
+    original = resolver.select_component
+    monkeypatch.setattr(resolver, 'select_component',
+                        lambda name, comp, gh, registry, limit, walk: original(
+                            name, comp, github, Published(set(github.shas)), limit, walk))
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver, 'component_versions', lambda *a: (_ for _ in ()).throw(
+        resolver.ResolutionError('honua-server: release/component-versions.json is missing')))
+    skips = {}
+    with pytest.raises(resolver.ResolutionError, match='component-versions'):
+        resolver.resolve({'components': {'honua-server': component()}}, {}, github, None, 100, 'produce', skips)
+    out = capsys.readouterr().out
+    assert f'STALE-CANDIDATE: honua-server selected {github.shas[5][:7]} (5 commits, 5.0 days behind)' in out
+    assert skips['honua-server']['stale'] is True
+
+
+def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_path):
+    report = {'component': 'honua-server', 'trunkHead': NEW, 'selected': OLD, 'selectedCommittedAt': None,
+              'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
+              'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}], 'aborted': None}
+
+    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
+        skips['honua-server'] = report
+        raise resolver.ResolutionError('honua-server: release/component-versions.json is missing')
+
+    monkeypatch.setattr(resolver, 'resolve', refuse)
+    monkeypatch.setattr(resolver, 'Registry', lambda github: None)
+    summary = tmp_path / 'summary.md'
+    monkeypatch.setenv('GITHUB_STEP_SUMMARY', str(summary))
+    (tmp_path / 'm.yaml').write_text('{}\n')
+    out = tmp_path / 'out'
+    assert resolver.main(['--manifest', str(tmp_path / 'm.yaml'), '--matrix', str(tmp_path / 'm.yaml'),
+                          '--out-dir', str(out)]) == 1
+    assert json.loads((out / 'skips.json').read_text()) == {'components': {'honua-server': report}}
+    text = summary.read_text()
+    assert '| honua-server | bbbbbbb | **STALE-CANDIDATE** 40 commits, 17.5 days | 40 | CI a \\| b |' in text
+
+
 def test_floating_channel_tags_are_not_candidate_images():
     registry = resolver.Registry(None)
     registry.tags = lambda repository: [
@@ -366,9 +580,9 @@ def test_migration_journal_refuses_instead_of_guessing(source, message):
         resolver.migration_journal(source, paths, 'honua-io/honua-server', NEW)
 
 
-def resolve_fixture(monkeypatch, source, stale_journal, extra=None):
+def resolve_fixture(monkeypatch, source, stale_journal, extra=None, **server_fields):
     server = {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1',
-              'migrationJournalSha256': stale_journal}
+              'migrationJournalSha256': stale_journal, **server_fields}
     manifest = {'components': {'honua-server': server},
                 'protocolCertification': {'ledger': {'status': 'bound'}}}
     manifest.update(extra or {})
@@ -387,6 +601,64 @@ def test_resolve_replaces_a_hand_journal_with_the_selected_tree(monkeypatch):
     assert server['migrationJournalSha256'] == FIXTURE_JOURNAL_SHA256
     assert server['dbSchema'] == '109'
     assert matrix['data']['honua-server']['requiresDbSchema'] == '109'
+
+
+def test_a_chart_identity_from_another_sha_cannot_take_tonights_version():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                       'artifactSourceRevision': OLD, 'artifactSha256': package,
+                       'artifactVersion': '2026.1.0-rc.2'},
+        'honua-server': {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'sha': NEW,
+                         'artifactSourceRevision': NEW, 'digest': 'sha256:' + 'e' * 64,
+                         'artifactVersion': '2026.1.0-rc.2', 'releaseVersion': '2026.1.0-rc.2'},
+    }
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert 'digest' not in helm and 'artifactSourceRevision' not in helm and 'artifactSha256' not in helm
+    assert 'artifactVersion' not in helm
+    assert components['honua-server']['digest'] == 'sha256:' + 'e' * 64
+    assert components['honua-server']['artifactSourceRevision'] == NEW
+    assert 'artifactVersion' not in components['honua-server']
+    assert 'releaseVersion' not in components['honua-server']
+
+
+@pytest.mark.parametrize('name', ['honua-helm', 'honua-server', 'honua-console'])
+def test_a_carried_plain_imaged_version_does_not_survive_selection(name):
+    """R22: an imaged row's version is pre-release; a version carried from another night is reset."""
+    row = {'sha': NEW, 'version': '2026.1.0-rc.2', 'artifactVersion': '2026.1.0-rc.2'}
+    if name == 'honua-helm':
+        row.update(artifact='oci-chart:honua', digest='sha256:' + 'c' * 64, artifactSourceRevision=OLD,
+                   artifactSha256='sha256:' + 'd' * 64)
+    else:
+        row.update(image=f'ghcr.io/honua-io/{name}@sha256:' + 'e' * 64, digest='sha256:' + 'e' * 64,
+                   artifactSourceRevision=NEW)
+    components = {name: row, 'honua-sdk-js': {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}
+    resolver.release_carried_platform_identity(components)
+    assert components[name]['version'] == 'pre-release'
+    assert 'artifactVersion' not in components[name]
+    assert components['honua-sdk-js'] == {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
+def test_a_chart_identity_bound_to_the_selected_sha_is_kept_for_the_stamp():
+    digest, package = 'sha256:' + 'c' * 64, 'sha256:' + 'd' * 64
+    components = {'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'digest': digest,
+                                 'artifactSourceRevision': NEW, 'artifactSha256': package,
+                                 'artifactVersion': '2026.1.0-rc.2'}}
+    resolver.release_carried_platform_identity(components)
+    helm = components['honua-helm']
+    assert (helm['digest'], helm['artifactSourceRevision'], helm['artifactSha256']) == (digest, NEW, package)
+    assert 'artifactVersion' not in helm
+
+
+def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(monkeypatch):
+    # R22 (#231 WI-2): mint stamps the platform version of tonight's label beside tonight's image.
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   version='pre-release', artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2')
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+    assert server['version'] == 'pre-release'
 
 
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
@@ -649,8 +921,16 @@ def declaration_bytes(component, **overrides):
 class Declarations:
     """`GitHub.file` for one declaration per (repository, sha); anything else is a 404."""
 
-    def __init__(self, files):
-        self.files, self.reads = files, []
+    def __init__(self, files, hidden=()):
+        self.files, self.reads, self.hidden = files, [], set(hidden)
+
+    def json(self, path):
+        # Pinned commits are readable unless the repository is hidden from the token.
+        self.reads.append(path)
+        repository, _, sha = path.removeprefix('repos/').rpartition('/commits/')
+        if repository in self.hidden:
+            raise resolver.ResolutionError(f'gh api {path} failed: gh: Not Found (HTTP 404)', status=404)
+        return {'sha': sha}
 
     def file(self, repository, revision, path):
         self.reads.append((repository, revision, path))
@@ -658,7 +938,7 @@ class Declarations:
             return self.files[(repository, revision, path)]
         except KeyError:
             raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={revision} '
-                                           'failed: gh: Not Found (HTTP 404)') from None
+                                           'failed: gh: Not Found (HTTP 404)', status=404) from None
 
 
 def declared(name, raw, **component):
@@ -739,10 +1019,64 @@ def test_server_may_leave_schema_versions_to_the_derived_database_floor():
         declared('honua-server', declaration_bytes('honua-server', contractVersions={}))
 
 
-def test_a_source_pinned_component_still_needs_the_file():
-    with pytest.raises(resolver.ResolutionError, match='honua-collect: .*missing or unreadable'):
-        resolver.component_versions(Declarations({}), 'honua-collect', {
-            'repository': 'https://github.com/honua-io/honua-collect', 'sha': NEW, 'sourcePinnedOnly': True})
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_source_pinned_previews_allow_missing_and_empty_declarations(name):
+    row = {'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+           'sourcePinnedOnly': True}
+    assert resolver.component_versions(Declarations({}), name, row) == {
+        'contractVersions': {}, 'schemaVersions': {}}
+    for raw in (b'', b' \n', declaration_bytes(name, contractVersions={}, schemaVersions={})):
+        assert declared(name, raw, sourcePinnedOnly=True)[0] == {
+            'contractVersions': {}, 'schemaVersions': {}}
+
+
+@pytest.mark.parametrize('name,source_pinned', [
+    ('honua-mobile', False), ('honua-collect', False), ('honua-helm', True),
+    ('honua-server', True), ('honua-sdk-js', True)])
+def test_missing_declaration_exemption_is_only_for_source_pinned_previews(name, source_pinned):
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Declarations({}), name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': source_pinned})
+
+
+@pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
+def test_preview_404_from_an_invisible_repository_is_not_an_empty_set(name):
+    source = Declarations({}, hidden={f'honua-io/{name}'})
+    with pytest.raises(resolver.ResolutionError, match='pinned revision is not readable'):
+        resolver.component_versions(source, name, {
+            'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
+            'sourcePinnedOnly': True})
+    assert source.reads[-1] == f'repos/honua-io/{name}/commits/{NEW}'
+
+
+def test_preview_404_needs_the_commit_probe_to_answer_the_pinned_sha():
+    class OtherCommit(Declarations):
+        def json(self, path):
+            return {'sha': OLD}
+    with pytest.raises(resolver.ResolutionError, match='did not answer that commit'):
+        resolver.component_versions(OtherCommit({}), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
+@pytest.mark.parametrize('detail,status', [
+    ('HTTP 403', 403), ('HTTP 500', 500), ('connection reset by peer', None),
+    # A message that merely mentions a 404 is not an API 404.
+    ('blob HTTP 404 in the body text', None)])
+def test_preview_declaration_read_errors_are_not_empty_sets(detail, status):
+    class Unreadable:
+        def file(self, *args):
+            raise resolver.ResolutionError(detail, status=status)
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable'):
+        resolver.component_versions(Unreadable(), 'honua-mobile', {
+            'repository': 'https://github.com/honua-io/honua-mobile', 'sha': NEW,
+            'sourcePinnedOnly': True})
+
+
+def test_preview_invalid_declaration_still_refuses():
+    with pytest.raises(resolver.ResolutionError, match='not a JSON document'):
+        declared('honua-mobile', b'{', sourcePinnedOnly=True)
 
 
 def test_a_declaration_is_never_read_at_a_moving_ref():
@@ -763,8 +1097,14 @@ class TreeAndDeclarations(MigrationSource):
             return super().file(repository, revision, path)
         return self.declarations.file(repository, revision, path)
 
+    def json(self, path):
+        if '/commits/' in path:
+            return self.declarations.json(path)
+        return super().json(path)
 
-def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
+
+@pytest.mark.parametrize("missing_preview", [False, True])
+def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch, missing_preview):
     path = resolver.COMPONENT_VERSIONS_PATH
     source = TreeAndDeclarations({
         ('honua-io/honua-console', NEW, path): declaration_bytes(
@@ -772,6 +1112,8 @@ def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch):
         ('honua-io/honua-mobile', OLD, path): declaration_bytes(
             'honua-mobile', contractVersions={}, schemaVersions={}),
     })
+    if missing_preview:
+        source.declarations.files.pop(('honua-io/honua-mobile', OLD, path))
     experimental = {'honua-mobile': {'repository': 'https://github.com/honua-io/honua-mobile', 'sha': OLD,
                                      'sourcePinnedOnly': True, 'contractVersions': {'hand': '1'}}}
     candidate, _ = resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64, extra={
@@ -807,10 +1149,10 @@ def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_m
         resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64,
                         extra={'components': components, 'experimental': experimental})
     lines = str(refused.value).splitlines()
-    for name in ('honua-console', 'honua-helm', 'honua-collect'):
+    for name in ('honua-console', 'honua-helm'):
         assert any(line.startswith(f'{name}: ') and 'release/component-versions.json is missing' in line
                    for line in lines), (name, lines)
-    assert not any(line.startswith('honua-server: ') for line in lines)
+    assert not any(line.startswith(('honua-server: ', 'honua-collect: ')) for line in lines)
 
 
 def test_the_documented_example_is_a_valid_declaration():
@@ -1294,3 +1636,23 @@ def test_the_documented_baseline_is_the_dotnet_fixture_and_resolves():
     assert json.loads(example) == json.loads(baseline_bytes('honua-sdk-dotnet'))
     compatibility, _ = read_baseline('honua-sdk-dotnet', example.encode())
     assert compatibility['minimumServerVersion'] == 'first-release'
+
+
+def test_the_nightly_uploads_the_skip_report_even_when_resolution_refuses():
+    workflow = yaml.safe_load((resolver.ROOT / '.github/workflows/nightly-certification.yml').read_text())
+    steps = workflow['jobs']['resolve']['steps']
+    upload = next(step for step in steps if step.get('with', {}).get('name') == 'resolved-candidate-skips')
+    assert upload['if'] == 'always()'
+    assert upload['with']['path'] == 'resolved-candidate/skips.json'
+    resolve = next(step for step in steps if step.get('name') == 'Resolve the newest qualifying trunk candidate')
+    assert '--out-dir resolved-candidate' in resolve['run']
+
+
+@pytest.mark.parametrize('stdout,stderr,status', [
+    ('{"message": "Not Found", "status": "404"}', 'gh: Not Found (HTTP 404)', 404),
+    ('', 'gh: Not Found (HTTP 404)', 404),
+    (b'{"message": "Server Error", "status": "502"}', b'', 502),
+    ('', 'error connecting to api.github.com', None)])
+def test_gh_failures_carry_the_api_status(stdout, stderr, status):
+    exc = subprocess.CalledProcessError(1, ['gh', 'api'], output=stdout, stderr=stderr)
+    assert resolver.api_status(exc) == status

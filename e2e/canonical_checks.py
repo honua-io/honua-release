@@ -25,11 +25,7 @@ data — they probe the wire surface honua-server exposes anywhere it runs:
                     evidence only, since availability legitimately depends on entitlement/policy this
                     check has no key to exercise.
 
-The EXTENDED scenario set (MCP handshake + tool-catalog, Studio authoring, Geoprocessing execute, and
-the top demo flow) is the same seam suite the Slice-1 local-docker harness drives. Running it against a
-*cloud* endpoint needs the driver toolchain packaged as a harness image (honua-release#35); until that
-lands, `run_extended` records those scenarios as BLOCKED (with the #35 reference), so a real per-RC
-cloud cert honestly shows cloud MCP/Studio/GP/demo are not-yet-certified rather than green-washing them.
+The extended seam drivers live in runner/cloud.py and run before cloud teardown.
 
 `fetch` is injectable so the result-normalisation is unit-testable without a live server.
 """
@@ -397,17 +393,6 @@ CANONICAL_CHECKS = [check_health, check_geoservices_error_surfacing, check_servi
                     check_admin_capabilities, check_geoprocessing]
 
 
-# The seam scenarios (MCP / Studio / GP-execute / top-demo) that need the driver toolchain packaged as
-# a cloud harness image (honua-release#35). Recorded as BLOCKED against a raw cloud endpoint until #35
-# lands, so a real per-RC cloud cert cannot green-wash uncertified cloud MCP/Studio/GP/demo behaviour.
-EXTENDED_SCENARIOS = [
-    ("mcp-handshake", "MCP initialize + tools/list vs the committed tool-catalog snapshot"),
-    ("studio-authoring", "Studio create->style->publish authoring lifecycle"),
-    ("gp-execute", "Geoprocessing submitJob->poll->result end-to-end"),
-    ("top-demo", "the flagship demo flow end-to-end"),
-]
-
-
 def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
                   authenticated_fetch: Fetcher | None = None,
                   expected_ga: dict | None = None,
@@ -445,12 +430,3 @@ def run_canonical(endpoint: str, fetch: Fetcher | None = None, *,
     except (ValueError, TypeError) as exc:
         results.append(CheckResult("licensing-disabled", "fail", str(exc)))
     return results
-
-
-def run_extended(endpoint: str, fetch: Fetcher | None = None) -> list[CheckResult]:
-    """The extended seam scenarios against a cloud endpoint. Until the harness image (honua-release#35)
-    runs the real drivers here, each is BLOCKED (honest) — the release train's require_real promotes a
-    blocked extended scenario to FAIL, so cloud MCP/Studio/GP/demo cert is gated, not assumed."""
-    return [CheckResult(name, "blocked",
-                        f"{desc}: needs the cloud harness image (honua-release#35) to drive against {endpoint.rstrip('/')}")
-            for name, desc in EXTENDED_SCENARIOS]
