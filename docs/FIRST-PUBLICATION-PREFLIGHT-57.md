@@ -1,10 +1,10 @@
 # First-publication wave: anonymous preflight for #57
 
-Observed 2026-10-05T07:01:30Z UTC (receipt
+Observed 2026-10-05T15:55:32Z UTC (receipt
 [preflight-2026-10-02.json](../certification/first-publication/preflight-2026-10-02.json),
 after the R25 advances of `clientArtifacts` to the newest published client identities: npm
 `@honua/sdk-js` 0.1.13 and `@honua/mcp-server` 0.1.13, PyPI `honua-sdk` 0.1.13 and `honua-admin`
-0.1.10, and nuget.org `Honua.Sdk` 1.10.2. The receipt was first written 2026-10-03T00:03:58Z
+0.1.10, and nuget.org `Honua.Sdk` 1.10.3. The receipt was first written 2026-10-03T00:03:58Z
 for the 0.1.12 / 1.10.1 set, which cleared the former `blocked-on-train-binding` row). The previous
 receipt, [preflight-2026-09-26.json](../certification/first-publication/preflight-2026-09-26.json),
 stays as historical evidence; it was observed 2026-09-26 UTC and last refreshed 2026-09-29T22:36Z UTC (operator ruling 2026-09-29: mobile is Experimental and its public publication is deferred out of 2026.1, so the mobile channels are now `deferred-experimental`; the probe also observed nuget.org `Geospatial.Grpc` 1.0.3; earlier refresh 2026-09-29T19:34Z, when the probe observed `@honua/sdk-js@0.1.11-beta.0` published and nuget.org `Geospatial.Grpc` 1.0.2; earlier refresh 2026-09-29T10:54Z, when the manifest re-pinned
@@ -31,7 +31,7 @@ channel whose component `platform-manifest.yaml` lists under `experimental:` (st
 |---|---|
 | nuget.org `Geospatial.Grpc` 1.0.0 | Downloaded nupkg sha256 `69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f` (matches the retained receipt). The index now also lists 1.0.2 and 1.0.3; the manifest pin is unchanged. |
 | `buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754` | Downloaded archive sha256 `7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef`. |
-| nuget.org `Honua.Sdk` **1.10.2** train (`train:honua-sdk-dotnet`, `published`) | `clientArtifacts.honua-sdk-dotnet` pins `1.10.2` on `nuget.org`. Every one of the 16 `Honua.Sdk*` indexes lists 1.10.2 (the umbrella pins exact same-version dependencies on the set). `Honua.Sdk` and `Honua.Sdk.Studio` nupkgs were downloaded and bound to their NuGet catalog SHA-512 and nuspec id/version: `honua.sdk.1.10.2.nupkg` sha256 `f699463e9dc1119024b216478654a7d91a5683cc6addcf494fc8263d2ee6f88c` (matches the manifest digest) and `honua.sdk.studio.1.10.2.nupkg` sha256 `7b3c7bf94e4e0c8c23bc3acfa35e6d269dd6f407620c6bf9058ec2ae5a1807a5`. |
+| nuget.org `Honua.Sdk` **1.10.3** train (`train:honua-sdk-dotnet`, `published`) | `clientArtifacts.honua-sdk-dotnet` pins `1.10.3` on `nuget.org`. Every one of the 16 `Honua.Sdk*` indexes lists 1.10.3 (the umbrella pins exact same-version dependencies on the set). `Honua.Sdk` and `Honua.Sdk.Studio` nupkgs were downloaded and bound to their NuGet catalog SHA-512 and nuspec id/version: `honua.sdk.1.10.3.nupkg` sha256 `4a30166fe69c397065bd5109f3ed4e7068d6912b1ea5c51b8f11e7e951e6ba26` (matches the manifest digest) and `honua.sdk.studio.1.10.3.nupkg` sha256 `0a2d79bf7b55346ed1db703a439eb0c46ca5053f705228adcc5b8168f4771f7e`. |
 | PyPI `honua-sdk` 0.1.13 and `honua-admin` 0.1.10 | Downloaded wheel and sdist sha256 match `clientArtifacts`. |
 | PyPI `honua-migrate` 0.8.0 | Downloaded `honua_migrate-0.8.0-py3-none-any.whl` sha256 `6d4b6b8ba0168dd6a875c830353ee9f671a7850f37100fb9d28ec1e2547b77a9` and sdist sha256 `9c5b7f4acf0311f805149f9b9ee18b221a456130f9e488643063d58bc0417a44`. Not a `clientArtifacts` pin. |
 | npm `@honua/sdk-js` 0.1.13 | Downloaded `sdk-js-0.1.13.tgz` sha256 `b9289058f6e035604d491edb94eef0018171bb15f05fe7af8ce0a8dee8325553`; its SRI matches `clientArtifacts` integrity, registry `gitHead` is the pinned `sourceSha` `718f5391` (the branch-recovery publish source, not tag `js-sdk-v0.1.13` `33c0b702`), and `package/package.json` names `@honua/sdk-js` 0.1.13. |
@@ -40,8 +40,8 @@ channel whose component `platform-manifest.yaml` lists under `experimental:` (st
 | PyPI `honua-esri-assess` | Still HTTP 404. The retired name is not the migrate coordinate. GitHub still has the old `honua-esri-assess-*` releases; `honua-migrate-v0.7.1` also exists. |
 
 nuget.org lists all 16 `Honua.Sdk*` IDs, including `Honua.Sdk.Studio`, at `1.6.4`, `1.7.0`,
-`1.8.0`, `1.9.0`, `1.10.0`, `1.10.1`, and `1.10.2`. The newest `Honua.Sdk` is the manifest pin; its
-symbol package hashed `47aaaa30994e9ec7f93b9063a066f5c59a1e8737c8362e8c4017aaf6990248ef`
+`1.8.0`, `1.9.0`, `1.10.0`, `1.10.1`, `1.10.2`, and `1.10.3`. The newest `Honua.Sdk` is the manifest pin; its
+symbol package hashed `d935fcc3dbaa5340b8f97aed1640be59e0ab0fe050e8e4335833f816c60e04b7`
 from `globalcdn.nuget.org` (the flat-container `.snupkg` URL returned 404).
 
 ## Still blocked
