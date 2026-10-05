@@ -11,6 +11,8 @@ The suite has three parts.
 * This module seeds ``fixture.v1.json`` into the candidate's database and publishes the harness
   layers. It writes each driver's plan, runs the driver, and judges every observation with
   ``oracles.py``.
+* ``interop-*`` scenarios hand one piece of work between clients. Each step names its own client;
+  ``interop/`` holds their orchestrator, SDK runners, fixture and judge.
 
 Harness setup (seeding tables, publishing the shared read-only layers and the managed edit layer,
 minting the proposer and approver principals) uses the admin REST API directly. It is fixture
@@ -42,18 +44,22 @@ TOOL_ROSTER = HERE.parents[1] / "e2e" / "drivers" / "mcp" / "expected-tools.json
 SCENARIOS = HERE / "scenarios"
 # Driver -> the slug that names its per-client fixture tables and services.
 SUITE_DRIVERS = {"pypi-sdk": "python", "npm-sdk": "js", "nuget-sdk": "dotnet",
-                 "npm-cli": "clijs", "pypi-cli": "clipy", "npm-mcp-workflow": "mcp"}
+                 "npm-cli": "clijs", "pypi-cli": "clipy", "npm-mcp-workflow": "mcp", "interop": "interop"}
 # Scenario family (the scenario id's prefix) -> the client artifacts that each name one API per step.
 FAMILIES = {
     "sdk": ("honua-sdk-python-wheel", "honua-sdk-js", "honua-sdk-dotnet"),
     "cli": ("honua-sdk-js", "honua-sdk-python-wheel"),
     "mcp": ("honua-mcp-server",),
+    # Cross-client hand-offs: each step names its own client (interop/judge.py validates them).
+    "interop": ("honua-sdk-python-wheel", "honua-sdk-js", "honua-sdk-dotnet", "honua-mcp-server"),
 }
-# Driver -> (family, artifact): which scenarios a driver runs and for which published client.
+# Driver -> (family, artifact): which scenarios a driver runs and for which published client. The
+# interop driver runs every client; its cell's artifact is the client that starts the hand-off.
 DRIVER_CLIENTS = {
     "pypi-sdk": ("sdk", "honua-sdk-python-wheel"), "npm-sdk": ("sdk", "honua-sdk-js"), "nuget-sdk": ("sdk", "honua-sdk-dotnet"),
     "npm-cli": ("cli", "honua-sdk-js"), "pypi-cli": ("cli", "honua-sdk-python-wheel"),
     "npm-mcp-workflow": ("mcp", "honua-mcp-server"),
+    "interop": ("interop", None),
 }
 # The workflow principals the harness mints for the proposal steps: the proposer may publish, the
 # approver may only approve. Their keys travel in the driver's environment, never in the plan.
@@ -109,10 +115,25 @@ def scenario_family(scenario_id: str) -> str | None:
     return family if family in FAMILIES and re.fullmatch(r"[a-z]+-[a-z0-9-]+", str(scenario_id)) else None
 
 
+def interop_judge():
+    """The interop scenarios' contracts, oracles and evaluation (interop/judge.py)."""
+    if str(HERE / "interop") not in sys.path:
+        sys.path.insert(0, str(HERE / "interop"))
+    import judge
+    return judge
+
+
 def validate_scenario(scenario: dict[str, Any], name: str) -> None:
     family = scenario_family(scenario.get("id", ""))
     if scenario.get("schemaVersion") != 1 or family is None:
-        raise RegressionError(f"{name}: scenario needs schemaVersion 1 and an sdk-*, cli-* or mcp-* id")
+        raise RegressionError(f"{name}: scenario needs schemaVersion 1 and an sdk-*, cli-*, mcp-* or interop-* id")
+    if family == "interop":
+        judge = interop_judge()
+        try:
+            judge.validate_scenario(scenario, name)
+        except judge.InteropError as exc:
+            raise RegressionError(str(exc)) from None
+        return
     steps = scenario.get("steps")
     if not isinstance(steps, list) or not steps:
         raise RegressionError(f"{name}: scenario has no steps")
@@ -135,7 +156,11 @@ def validate_suite_cell(cell: dict[str, Any], scenarios: dict[str, dict[str, Any
     scenario = scenarios.get(cell.get("scenario"))
     if scenario is None:
         raise RegressionError(f"{cell_id}: unknown scenario {cell.get('scenario')!r}")
-    if DRIVER_CLIENTS.get(cell.get("driver")) != (scenario_family(scenario["id"]), cell.get("artifact")):
+    family, artifact = DRIVER_CLIENTS.get(cell.get("driver"), (None, None))
+    if family == "interop" and scenario_family(scenario["id"]) == "interop":
+        # The interop cell's artifact is the client that starts the hand-off.
+        artifact = interop_judge().first_client(scenario)
+    if (family, artifact) != (scenario_family(scenario["id"]), cell.get("artifact")):
         raise RegressionError(f"{cell_id}: driver {cell.get('driver')!r} does not drive artifact {cell.get('artifact')!r} "
                               f"through {scenario['id']}")
     blocked = cell.get("blockedSteps")
