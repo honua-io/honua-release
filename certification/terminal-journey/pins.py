@@ -223,9 +223,10 @@ def _fetch_npm(verifier, name: str, pin: dict[str, Any], dest: Path) -> Resolved
     )
 
 
-# What a candidate client may inherit. The cloud parity job holds an AWS role and
-# an Actions OIDC token request; neither the pinned install nor the journey CLIs
-# need them. Documented allowlist:
+# What a candidate client may inherit. The cloud journey job holds no AWS role and
+# no Actions OIDC token request (honua-release#381); this allowlist still keeps any
+# credential a local caller holds away from the pinned install and the journey CLIs.
+# Documented allowlist:
 #   PATH, HOME, USER, LOGNAME          locate node, npm and a writable home
 #   LANG, LC_ALL, LC_CTYPE             stable CLI text
 #   TMPDIR, TMP, TEMP                  npm and node temporary files
