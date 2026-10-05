@@ -76,12 +76,32 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      # Static refs mirror the manifest and prevent mutable checkout injection.
+      - name: Install runner deps
+        run: python -m pip install -r e2e/requirements.txt pytest
+
+      # The checkout refs come from components.*.sha in this commit's manifest, so they cannot drift
+      # from it. Only a full 40-hex sha and a plain version are accepted: no branch or tag injection.
+      - name: Read the SDK seam pins from the manifest
+        id: pins
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import yaml
+          components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
+          for key, name in (("js", "honua-sdk-js"), ("python", "honua-sdk-python"), ("dotnet", "honua-sdk-dotnet")):
+              sha, version = str(components[name].get("sha") or ""), str(components[name].get("version") or "")
+              if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"[0-9A-Za-z.+-]+", version):
+                  raise SystemExit(f"{name}: manifest pin {sha!r} / {version!r} is not an immutable sha and version")
+              print(f"{key}_sha={sha}")
+              print(f"{key}_version={version}")
+          PY
+
       - name: Check out the pinned Python SDK
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-python
-          ref: 40ecf7318573214fb6c702b12ebd56b3ad47ba60   # 2026-09-12 re-pin; mirrors components.honua-sdk-python.sha
+          ref: ${{ steps.pins.outputs.python_sha }}
           path: _e2e-sdk-python
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -89,7 +109,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-sdk-dotnet
-          ref: 6ba49ec32ea846c64bc2094807761d4884dbc4bf   # 2026-09-12 re-pin; mirrors components.honua-sdk-dotnet.sha
+          ref: ${{ steps.pins.outputs.dotnet_sha }}
           path: _e2e-sdk-dotnet
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
 
@@ -117,30 +137,14 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      - name: Install runner deps
-        run: python -m pip install -r e2e/requirements.txt pytest
-
       - name: Install the frozen SDK artifacts for the seam probes
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          JS_VERSION: ${{ steps.pins.outputs.js_version }}
+          DOTNET_VERSION: ${{ steps.pins.outputs.dotnet_version }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import yaml
-          components = yaml.safe_load(open("platform-manifest.yaml"))["components"]
-          # These literals mirror the immutable manifest pins so the seam probes consume the same
-          # published client candidate. The .NET/Python package coordinates remain unchanged.
-          expected = {
-              "honua-sdk-js": ("d7cec2d510e053fc86252b125bde21313a7e6e7c", "0.1.9-beta.0"),
-              "honua-sdk-python": ("40ecf7318573214fb6c702b12ebd56b3ad47ba60", "0.1.11"),
-              "honua-sdk-dotnet": ("6ba49ec32ea846c64bc2094807761d4884dbc4bf", "1.6.2"),
-          }
-          for name, (sha, version) in expected.items():
-              actual = components[name]
-              if (actual.get("sha"), str(actual.get("version"))) != (sha, version):
-                  raise SystemExit(f"{name} seam pin drift")
-          PY
-          npm install --prefix e2e --no-save --registry https://registry.npmjs.org @honua/sdk-js@0.1.9-beta.0
+          npm install --prefix e2e --no-save --registry https://registry.npmjs.org "@honua/sdk-js@$JS_VERSION"
           python -m pip install ./_e2e-sdk-python/packages/honua-sdk
           WORK="$RUNNER_TEMP/e2e-dotnet-sdk"
           mkdir -p "$WORK/feed"
@@ -148,7 +152,7 @@ jobs:
             --store-password-in-clear-text --configfile _e2e-sdk-dotnet/NuGet.config
           dotnet pack _e2e-sdk-dotnet -c Release -o "$WORK/feed"
           dotnet add e2e/scenarios/geoservices_error_surfacing/probes/dotnet/Probe.csproj \
-            package Honua.Sdk.GeoServices --version 1.6.2 --source "$WORK/feed"
+            package Honua.Sdk.GeoServices --version "$DOTNET_VERSION" --source "$WORK/feed"
 
       # Static gates â€” always run, can FAIL with no images (broken compose / scenario syntax).
       - name: Static checks (compose + scenario compile)

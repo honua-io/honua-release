@@ -22,6 +22,23 @@ print(base64.b64encode(b).decode())
 PY
 )"
 
+# Redis-off topology (E2E_REDIS=off): the durable job substrate is not composed, so the server must
+# refuse the async submission up front with the typed capability-unavailable receipt
+# (honua-release#202) rather than queue a job that never runs. Anything else is a failure.
+if [ "${E2E_REDIS:-on}" = "off" ]; then
+  api_json POST "/ogc/processes/processes/geometry.area/execution" \
+    "$(jq -nc --arg w "$WKB" '{inputs:{wkb:$w,srid:4326}}')" -H "Prefer: respond-async"
+  evidence="$(jq -nc --arg c "$HTTP_CODE" --arg t "$(jget '.type')" --arg d "$(jget '.missingDependency')" \
+    --arg k "$(jget '.capability')" '{httpStatus:$c,type:$t,missingDependency:$d,capability:$k}')"
+  if [ "$HTTP_CODE" = "503" ] && [ "$(jget '.type')" = "https://honua.io/problems/capability-unavailable" ] \
+     && [ "$(jget '.missingDependency')" = "redis" ]; then
+    emit_scenario "S5-geoprocessing" pass "redis-off: async job submission refused with the typed capability-unavailable receipt (missingDependency=redis)" "$evidence"
+  else
+    emit_scenario "S5-geoprocessing" fail "redis-off: expected 503 capability-unavailable (missingDependency=redis), got HTTP $HTTP_CODE" "$evidence"
+  fi
+  exit 0
+fi
+
 ST=""; RESULTS=""
 run_process() { # process-id inputs-json  -> sets globals ST and RESULTS (NOT via subshell)
   local pid="$1" inputs="$2"

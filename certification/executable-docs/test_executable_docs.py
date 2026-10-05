@@ -38,6 +38,89 @@ def test_skip_marker_requires_a_reason():
     assert blocks[1].intent == "run" and "without a reason" in blocks[1].marker_error
 
 
+def test_blocked_marker_requires_a_linked_issue():
+    text = ("<!-- doc-run: blocked https://github.com/honua-io/honua-samples/issues/57 -->\n```sh\nnode a.mjs\n```\n\n"
+            "<!-- doc-run: blocked honua-io/honua-server#5386 -->\n```sh\nnode b.mjs\n```\n\n"
+            "<!-- doc-run: blocked -->\n```sh\nnode c.mjs\n```\n")
+    blocks = by_index(text)
+    assert blocks[0].intent == "run" and blocks[0].blocked_by == "https://github.com/honua-io/honua-samples/issues/57"
+    assert blocks[0].record()["blockedBy"] == blocks[0].blocked_by
+    assert blocks[1].intent == "run" and blocks[1].blocked_by == "honua-io/honua-server#5386"
+    assert blocks[2].intent == "run" and blocks[2].blocked_by is None and "linked issue" in blocks[2].marker_error
+
+
+@pytest.mark.parametrize("exit_code,block_status,doc_status", [(1, "blocked", "blocked"), (0, "pass", "pass")])
+def test_blocked_block_still_runs_and_records_the_issue(tmp_path, exit_code, block_status, doc_status):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    ran = []
+
+    def run_shell(code, *args):
+        ran.append(code)
+        return Outcome("pass" if exit_code == 0 else "fail", f"exit code {exit_code}", exit_code=exit_code,
+                       command_failed=exit_code != 0)
+
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    text = "<!-- doc-run: blocked https://github.com/o/r/issues/1 -->\n```sh\nnode build.mjs\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}, "_closure": lambda: {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    row = result["blocks"][0]
+    assert ran and row["status"] == block_status and row["blockedBy"] == "https://github.com/o/r/issues/1"
+    assert result["status"] == doc_status
+    assert row.get("staleBlockedMarker", False) is (exit_code == 0)
+
+
+@pytest.mark.parametrize("attribute,value", [("ready-url", "http://localhost:3000/"), ("ready-log", "ready now")])
+def test_blocked_marker_preserves_readiness(tmp_path, attribute, value):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    calls = []
+    def run_shell(code, runtime, timeout, serve, readiness):
+        calls.append((serve, readiness))
+        return Outcome("pass", "ready", exit_code=124)
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    text = f'<!-- doc-run: blocked o/r#1 {attribute}="{value}" -->\n```sh\nnpx serve src\n```\n'
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert calls == [(True, {attribute.removeprefix("ready-"): value})]
+    assert result["status"] == "pass"
+
+
+@pytest.mark.parametrize("failure", ["runner", "container", "audit", "audit-after-command-failure", "output"])
+def test_blocked_marker_does_not_hide_runner_or_audit_failures(tmp_path, failure):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    def run_shell(*args):
+        if failure == "runner":
+            raise RuntimeError("container setup broke")
+        if failure == "container":
+            return Outcome("fail", "container is not running", exit_code=1)
+        if failure == "audit-after-command-failure":
+            return Outcome("fail", "exit code 1", exit_code=1, command_failed=True)
+        return Outcome("pass", "exit code 0", exit_code=0)
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {"honua-sdk": "unexpected"} if failure.startswith("audit") else {})
+    text = "<!-- doc-run: blocked o/r#1 -->\n```sh\nnode build.mjs\n```\n"
+    if failure == "output":
+        text += "\nIt prints:\n\n```text\nexpected output\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][0]["status"] == "fail"
+    assert result["status"] == "fail"
+    assert not result["blocks"][0].get("staleBlockedMarker")
+
+
+def test_blocked_outranks_pass_but_not_fail_or_needs_input():
+    from run import summarize
+    for statuses, expected in [(["pass", "blocked"], "blocked"), (["blocked", "needs-input"], "needs-input"),
+                               (["blocked", "fail"], "fail")]:
+        result = {"blocks": [{"status": s, "durationSec": 1} for s in statuses], "checks": []}
+        summarize(result)
+        assert result["status"] == expected
+
+
 def test_existing_doc_test_fence_attributes_are_honoured():
     blocks = by_index('```ts doc-test=compile\nconst a: number = 1\n```\n\n'
                       '```ts doc-test=skip reason="partial excerpt"\nfoo()\n```\n\n'
@@ -560,6 +643,29 @@ def test_elapsed_serve_timer_never_proves_readiness(tmp_path, monkeypatch, readi
     assert result.exit_code == 124
 
 
+def test_ready_url_observed_once_survives_the_shutdown_at_the_window_end(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    class Process:
+        calls = 0
+        returncode = None
+        def poll(self):
+            self.calls += 1
+            if self.calls > 4:
+                self.returncode = 124
+            return self.returncode
+        def wait(self):
+            return self.returncode
+    probes = iter([1, 0, 1, 1])   # not yet listening, serving, then shutting down when the window ends
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: Process())
+    monkeypatch.setattr(run, "docker", lambda *args, **kwargs: subprocess.CompletedProcess(args, next(probes, 1)))
+    monkeypatch.setattr(run.time, "sleep", lambda seconds: None)
+    result = session.run_shell("npx serve src", "node", 600, True, {"url": "http://localhost:3000/"})
+    assert result.status == "pass", result.detail
+
+
 def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     import os
     import subprocess
@@ -763,3 +869,114 @@ def test_boot_keeps_health_licensing_and_seed_failures_fatal(monkeypatch, failur
         assert calls[1] == ["bash", str(run.ROOT / "e2e/harness/boot.sh"), "wait"]
     if len(calls) > 2:
         assert calls[2] == ["bash", str(run.ROOT / "e2e/harness/seed/seed.sh")]
+
+
+@pytest.mark.parametrize("executor", ["shell", "exec"])
+@pytest.mark.parametrize("command_ran", [False, True])
+def test_executors_distinguish_command_failure_from_docker_failure(tmp_path, monkeypatch, executor, command_ran):
+    import subprocess
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    class Process:
+        returncode = 1
+        def poll(self):
+            return 1
+        def wait(self):
+            return 1
+    def popen(args, **kwargs):
+        if command_ran:
+            next(session.state.glob("*.sh")).with_suffix(".env").write_text("PWD=/tmp\0")
+        return Process()
+    def execute(args, **kwargs):
+        if command_ran:
+            next(session.state.glob("*.out")).with_suffix(".exit").write_text("1\n")
+        return subprocess.CompletedProcess(args, 1)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(subprocess, "run", execute)
+    result = (session.run_shell("false", "node", 10, False) if executor == "shell" else
+              session._exec("test-container", ["false"], 10))
+    assert result.status == "fail"
+    assert result.command_failed is command_ran
+
+
+def test_csharp_scaffolding_failure_is_not_a_block_command_failure(tmp_path, monkeypatch):
+    import run
+    session = run.Session("test", tmp_path, {}, "http://guard", tmp_path, False, "host", "test", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "test-container")
+    monkeypatch.setattr(session, "_exec", lambda *args: run.Outcome("fail", "setup failed", exit_code=1,
+                                                                 command_failed=True))
+    result = session.run_csharp("Console.WriteLine(1);", [], 10)
+    assert result.status == "fail"
+    assert not result.command_failed
+
+
+@pytest.mark.parametrize("language", ["powershell", "json", "yaml"])
+def test_blocked_marker_on_unsupported_language_keeps_document_red(tmp_path, language):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = f'```sh\ntrue\n```\n\n<!-- doc-run: blocked o/r#1 -->\n```{language}\nunsupported\n```\n'
+    classified = by_index(text)
+    assert classified[1].blocked_by is None
+    assert "cannot execute" in (classified[1].marker_error or "")
+    assert classified[1].intent in {"alternative", "illustrative"}
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][1]["status"] == "fail"
+    assert "cannot execute" in result["blocks"][1]["markerError"]
+    assert result["status"] == "fail"
+
+
+def test_blocked_marker_on_unlabelled_command_still_runs(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    ran = []
+
+    def run_shell(code, *args):
+        ran.append(code)
+        return Outcome("fail", "exit code 1", exit_code=1, command_failed=True)
+
+    text = "<!-- doc-run: blocked o/r#1 -->\n```\nnpm test\n```\n"
+    classified = by_index(text)
+    assert classified[0].language == "shell" and classified[0].intent == "run"
+    assert classified[0].blocked_by == "o/r#1" and classified[0].marker_error is None
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert ran == ["npm test\n"]
+    assert result["blocks"][0]["status"] == "blocked"
+    assert result["blocks"][0]["blockedBy"] == "o/r#1"
+    assert result["status"] == "blocked"
+
+
+def test_blocked_marker_on_unlabelled_non_command_fails(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = "```sh\ntrue\n```\n\n<!-- doc-run: blocked o/r#1 -->\n```\nnot a command\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][1]["status"] == "fail"
+    assert "cannot execute (unlabelled)" in result["blocks"][1]["markerError"]
+    assert result["status"] == "fail"
+
+
+def test_blocked_marker_on_file_cued_unsupported_fence_keeps_document_red(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, run_shell=lambda *args: Outcome("pass", "ok"),
+                              installed_honua=lambda runtime: {})
+    text = ("Save this as `compose.yaml`:\n\n<!-- doc-run: blocked o/r#1 -->\n```yaml\nservices: {}\n```\n\n"
+            "```sh\ntrue\n```\n")
+    classified = by_index(text)
+    assert classified[0].intent == "file" and classified[0].file == "compose.yaml"
+    result, _ = run_document({"runtime": "node"}, text, session, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["blocks"][0]["status"] == "fail"
+    assert "cannot execute" in result["blocks"][0]["markerError"]
+    assert result["blocks"][1]["status"] == "pass"
+    assert result["status"] == "fail"

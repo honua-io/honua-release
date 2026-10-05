@@ -238,7 +238,7 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
                      "geometryType": proposal["geometryType"], "srid": 4326, "primaryKey": "gid"}
         # Scrubbed proxy environment: the proposer's key is the only credential it can read. As in the
         # terminal journey, the agent discovers the publish tool in the setup view before calling it; the
-        # default view does not list it. (The pinned proxy drops the initialize selector, sdk-js#1875, so
+        # default view does not list it. (The 0.1.12 proxy dropped the initialize selector, sdk-js#1875, so
         # the view is also named on tools/list.)
         with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer}) as session:
             session.initialize(workflow_view="setup")

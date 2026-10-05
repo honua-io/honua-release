@@ -13,6 +13,12 @@ Intent of a block:
   excluded     the author marked it `<!-- doc-run: skip reason="..." -->` or `doc-test=skip reason=...`
   teardown     stops what the reader started (`docker compose down`); run when the reader is done with
                the session, after any document that continues this one
+
+A run block may also carry `<!-- doc-run: blocked <issue> -->`: the command is right and the product
+(or another repository) misbehaves, tracked in the linked issue. The block still runs; a failure is
+recorded as `blocked` with that issue instead of `fail`, and the gate stays blocked, not green.
+A linked marker on a language this gate cannot execute fails the block instead of `not-run`.
+An unlabelled fence that the heuristic can run as shell still runs.
 """
 from __future__ import annotations
 
@@ -48,6 +54,7 @@ COMMAND_START = re.compile(
 TEARDOWN_LINE = re.compile(r"^\s*(?:#.*|docker\s+compose\s+(?:-f\s+\S+\s+)*(?:down|stop|rm)\b.*|docker\s+(?:stop|rm)\b.*|)$")
 EXPECT_FAILURE = re.compile(r"\bdeliberately (?:broken|invalid|bad|wrong)\b|\bto see it (?:catch|fail|reject|refuse)", re.I)
 DOC_RUN = re.compile(r"<!--\s*doc-run:\s*(.*?)\s*-->", re.S)
+ISSUE_REF = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|\b[\w.-]+/[\w.-]+#\d+")
 ATTR = re.compile(r'([\w-]+)(?:=(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?')
 
 
@@ -66,6 +73,7 @@ class Block:
     expected_output: str | None = None
     marker_error: str | None = None
     expect_failure: bool = False
+    blocked_by: str | None = None   # the issue a `doc-run: blocked` marker links
     preceding_text: str = field(default="", repr=False)
     info_attrs: dict[str, str] = field(default_factory=dict, repr=False)
     marker: dict[str, str] | None = field(default=None, repr=False)
@@ -83,7 +91,7 @@ class Block:
         if self.expect_failure:
             row["expectFailure"] = True
         for key, value in (("reason", self.reason), ("file", self.file), ("outputOf", self.output_of),
-                           ("markerError", self.marker_error)):
+                           ("markerError", self.marker_error), ("blockedBy", self.blocked_by)):
             if value not in (None, ""):
                 row[key] = value
         return row
@@ -185,7 +193,13 @@ def _markers(prose: str) -> dict[str, str] | None:
     for match in DOC_RUN.finditer(tail):
         if tail[match.end():].strip() == "":
             found = match
-    return _attrs(found.group(1)) if found else None
+    if not found:
+        return None
+    attrs = _attrs(found.group(1))
+    if re.match(r"blocked\b", found.group(1)):
+        issue = ISSUE_REF.search(found.group(1))
+        attrs["blocked"] = issue.group(0) if issue else ""
+    return attrs
 
 
 def _last_paragraph(prose: str) -> str:
@@ -217,7 +231,19 @@ def classify(blocks: list[Block]) -> list[Block]:
         # 1. explicit author declarations win
         if marker is not None:
             block.intent_source = "marker"
-            if "skip" in marker:
+            if "blocked" in marker:
+                if marker["blocked"] and block.language in set(RUN_LANGUAGES.values()):
+                    block.intent, block.blocked_by = "run", marker["blocked"]
+                    previous_run = block
+                    continue
+                # A linked marker on a not-yet-runnable fence is settled after heuristics: an
+                # unlabelled command is promoted to shell and must still run. Setting the
+                # cannot-execute error here would fail that fence before promotion.
+                if not marker["blocked"]:
+                    block.marker_error = ("doc-run: blocked needs a linked issue (https://github.com/<owner>/<repo>/issues/<n>); "
+                                          "the block runs as usual")
+                block.intent_source = "heuristic"
+            elif "skip" in marker:
                 if marker.get("reason", "").strip():
                     block.intent, block.reason = "excluded", marker["reason"].strip()
                     continue
@@ -311,7 +337,35 @@ def classify(blocks: list[Block]) -> list[Block]:
                 continue
         block.intent = "illustrative"
         block.reason = f"{lang or 'unlabelled'} block is not executable by this gate"
+    for block in blocks:
+        _settle_blocked(block)
     return blocks
+
+
+def _settle_blocked(block: Block) -> None:
+    """Apply a linked blocked marker once the fence's language has settled.
+
+    The marker is read before an unlabelled command fence is promoted to shell, so a
+    cannot-execute error decided at that moment would skip a command this gate can run.
+    After classification, a fence that is shell (or another runnable language) with intent
+    `run` still runs and records a witnessed command failure as `blocked`. A fence that is
+    still PowerShell, JSON, YAML, or any other non-run language fails closed.
+    """
+    marker = block.marker or {}
+    issue = marker.get("blocked", "")
+    if "blocked" not in marker or not issue:
+        return
+    runnable = set(RUN_LANGUAGES.values())
+    if block.language in runnable and block.intent == "run":
+        block.blocked_by = issue
+        block.intent_source = "marker"
+        if (block.marker_error or "").startswith("doc-run: blocked on a language"):
+            block.marker_error = None
+        return
+    if block.language not in runnable:
+        shown = block.language or "unlabelled"
+        block.marker_error = f"doc-run: blocked on a language this gate cannot execute ({shown})"
+        block.blocked_by = None
 
 
 def extract(text: str, fmt: str) -> list[Block]:

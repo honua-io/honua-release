@@ -457,70 +457,42 @@ components:
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
     lifecycleStatus: GA
-    version: "1.6.2"                   # release tag dotnet-sdk-v1.6.2 (reachable from the sha below)
-    # 2026-09-12 CANDIDATE RE-PIN (release#332 follow-up): 8e4dd3d9 -> 6ba49ec3. The old pin predates
-    # honua-sdk-dotnet#344 (Microsoft.SourceLink.GitHub bump past CVE-2026-62900), so every post-#344
-    # head's `API Compatibility` job restored the historical baseline source with the now-flagged
-    # Microsoft.Build.Tasks.Git 8.0.0 and failed NU1902 (TreatWarningsAsErrors) -- this held the pin
-    # and reddened the release-train e2e seam through every re-pin attempt in #332. #350 fixed the
-    # baseline restore itself (`/p:NuGetAudit=false` on the baseline pack only, current-SDK audit
-    # unchanged). Trunk HEAD 62b3acbf (dotnet-sdk-v1.6.3, chore(release) #358) is NOT taken: its
-    # `Publish Packages` check-run sits `waiting` on the `production` NuGet-publish environment's
-    # manual-approval gate and never completes headlessly. 6ba49ec3 is the newest trunk sha with a
-    # complete, all-green core check-run set (31/31) and includes #350:
-    #   $ gh api repos/honua-io/honua-sdk-dotnet/commits/6ba49ec.../check-runs
-    #   -> 31 success/skipped, 0 failure, 0 in-progress
-    # `version` stays the newest reachable release tag (dotnet-sdk-v1.6.2, tag commit 9a9ed85a, an
-    # ancestor of this sha). nuget.org lists Honua.Sdk 1.6.4–1.10.0; it does not serve this 1.6.2
-    # tag or clientArtifacts 1.6.0 (honua-release#57). Those later versions are not this pin.
-    sha: "6ba49ec32ea846c64bc2094807761d4884dbc4bf"   # trunk, newest green; release tag dotnet-sdk-v1.6.2 is 9a9ed85a
+    # R25 manual advance 2026-10-05: Honua.Sdk 1.10.3 is listed on nuget.org (catalog
+    # 2026.10.05.15.20.55); its catalog repository.commit, nuspec <repository commit> and the
+    # dotnet-sdk-v1.10.3 tag are all d9d9fd1f, which carries release/component-versions.json.
+    # 1.10.2 (ed05745c) was refused by the resolver on one red scheduled check-run; d9d9fd1f is
+    # 35 success / 1 skipped and carries honua-sdk-dotnet#412, #416 and #417.
+    version: "1.10.3"
+    sha: "d9d9fd1fcbe99570594160a6a3cc61b70594257b"
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
-    # clientArtifacts pins Honua.Sdk 1.6.0 on GitHub Packages. nuget.org does not serve that
-    # version (honua-release#57). gate-artifact-consume's consume-nuget resolves the pin from the
-    # staging feed and otherwise `dotnet pack`s this exact sha. Later nuget.org versions are a
-    # different publication and are not substituted here.
 
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
     lifecycleStatus: GA
-    # Exact published release from honua-sdk-js#1537. The skipped 0.1.8-beta.0 coordinate was never
-    # published; 0.1.9-beta.0 is registry-installable and its release tag resolves to the sha below.
-    version: "0.1.9-beta.0"            # release tag js-sdk-v0.1.9-beta.0; published on npm
-    # 2026-09-11 CANDIDATE RE-PIN, c99e7119 -> d7cec2d5. The tag commit is no longer green (latest
-    # `Build site` and `Required live evidence health` check-runs red, dry-run train 34636531439).
-    # d7cec2d5 is the newest trunk sha whose check-runs are all green (33/33 core); trunk HEAD
-    # 66f91b6e carries 7 red scheduled lanes. c99e7119 is an ancestor (58 behind). `version` stays the
-    # newest reachable release tag; the published bytes are still c99e7119 (clientArtifacts below).
-    sha: "d7cec2d510e053fc86252b125bde21313a7e6e7c"   # trunk, newest green; release tag js-sdk-v0.1.9-beta.0 is c99e7119
+    # R25 manual advance 2026-10-04: @honua/sdk-js 0.1.13 is npm `latest`. Registry gitHead, the
+    # SLSA provenance gitCommit (publish run 37257266207) and the downloaded tarball's SRI all bind
+    # these bytes to 718f5391, which carries release/component-versions.json.
+    version: "0.1.13"
+    # Tag js-sdk-v0.1.13 is 33c0b702 (6 commits behind): its npm step never completed, so the guarded branch-recovery publish shipped trunk 718f5391.
+    sha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
-    # companion package @honua/mcp-server is published at 0.1.4-beta.0 (the previously noted
-    # @honua-io/mcp-server coordinate 404s on npm — that scope does not exist).
+    # Companion @honua/mcp-server 0.1.13 is clientArtifacts.honua-mcp-server (tag mcp-server-v0.1.13,
+    # 18494f45); it is not a separate component.
 
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # PyPI 0.1.11 was published on 2026-08-21. The wheel and immutable release tag both bind this
-    # artifact identity to f7930b6e; a later unreleased trunk head must not overwrite that fact (see
-    # clientArtifacts.honua-sdk-python-wheel below, which stays on f7930b6e unchanged by this re-pin).
-    # 2026-09-12 CANDIDATE RE-PIN (release#332 follow-up): f7930b6e -> 40ecf731. The old pin's core
-    # check-runs were 10/26 cancelled (runner starvation, 2026-08-13) -- re-runnable but stale.
-    # 40ecf731 (honua-sdk-python#234 merge commit, IS trunk HEAD) is fully green except
-    # `staging-smoke`, which is env-gated (certification/env-gated-checks.yaml: read-only smoke
-    # against an external staging deployment the build/test fan-out does not provision):
-    #   $ gh api repos/honua-io/honua-sdk-python/commits/40ecf73.../check-runs
-    #   -> 33 success/skipped, 1 failure (staging-smoke, env-gated), 0 cancelled
-    # No python-sdk release tag newer than v0.1.11 exists yet, so `version` is unchanged.
-    version: "0.1.11"
-    sha: "40ecf7318573214fb6c702b12ebd56b3ad47ba60"   # trunk HEAD, newest green; release tag python-sdk-v0.1.11 is f7930b6e
+    # R25 manual advance: PyPI wheel bytes and publish attestations verified 2026-10-04.
+    # SDK 0.1.13 and admin 0.1.10 share this published source, which carries the declaration.
+    version: "0.1.13"
+    sha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
-    # Companion honua-admin 0.1.8: tag python-admin-v0.1.8 at f7930b6e;
-    # PyPI wheel digest and full release source revision are in clientArtifacts below.
 
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"
@@ -608,16 +580,19 @@ components:
 # manifest being honest. The file already models the split — components.honua-sdk-js.sha moves with
 # trunk, while this block's sourceSha moves only when the published bytes themselves are re-pinned.
 #
-# Each pin was re-verified against the actual publish provenance on 2026-10-02, when every pin
-# advanced to its newest published registry identity (honua-release#408):
-#   honua-sdk-js         1102d2d5 = npm registry gitHead for @honua/sdk-js 0.1.12           MATCHES
-#   honua-mcp-server     44289c02 = npm registry gitHead for @honua/mcp-server 0.1.12       MATCHES
-#   honua-sdk-python-wheel 12670676 = PyPI publication certificate GitHub SHA (OID
-#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.12-py3-none-any.whl       MATCHES
-#   honua-admin-python-wheel 12670676 = same certificate extension for
-#                        honua_admin-0.1.9-py3-none-any.whl                                 MATCHES
-#   honua-sdk-dotnet     8a0a06c8 = nuget.org catalog repository.commit and nuspec
-#                        <repository commit> for Honua.Sdk 1.10.1 (anonymous nuget.org)    MATCHES
+# Each pin was re-verified against actual publish provenance on 2026-10-02 (honua-release#408);
+# Python SDK/admin advanced again on 2026-10-04 after declaration-bearing publications (R25), and
+# the npm pair after @honua/sdk-js 0.1.13 reached the registry the same day:
+#   honua-sdk-js         718f5391 = npm registry gitHead and SLSA provenance gitCommit for
+#                        @honua/sdk-js 0.1.13 (publish run 37257266207)                     MATCHES
+#   honua-mcp-server     18494f45 = npm registry gitHead and SLSA provenance gitCommit for
+#                        @honua/mcp-server 0.1.13 (tag mcp-server-v0.1.13)                  MATCHES
+#   honua-sdk-python-wheel a9cd320a = PyPI publication certificate GitHub SHA (OID
+#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.13-py3-none-any.whl       MATCHES
+#   honua-admin-python-wheel a9cd320a = same certificate extension for
+#                        honua_admin-0.1.10-py3-none-any.whl                                 MATCHES
+#   honua-sdk-dotnet     d9d9fd1f = nuget.org catalog repository.commit and nuspec
+#                        <repository commit> for Honua.Sdk 1.10.3 (anonymous nuget.org)    MATCHES
 # tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog
 # SHA-512, listing, and catalog + nuspec repository commit against `sourceSha`.
 # Superseded selection (verified 2026-09-01/09-08): JS 0.1.9-beta.0 c99e7119, MCP 0.1.4-beta.0
@@ -632,54 +607,54 @@ clientArtifacts:
   honua-admin-python-wheel:
     ecosystem: pypi
     package: "honua-admin"
-    version: "0.1.9"
-    filename: honua_admin-0.1.9-py3-none-any.whl
-    digest: "sha256:3bcdc8eaadfafbb4bc45dd96b1c785c666843f34b950d678d958c9198a6f68b8"
+    version: "0.1.10"
+    filename: "honua_admin-0.1.10-py3-none-any.whl"
+    digest: "sha256:74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a"
     repository: honua-io/honua-sdk-python
-    sourceSha: "12670676a1e8acb835e911c358adbf46a731120a"
+    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     publicationState: published
     targets: [python3]
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.1.12"
-    integrity: "sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ=="
+    version: "0.1.13"
+    integrity: "sha512-uOWu3CCJDr8bagmTZvJB4EmqfKwupBisPVZRP2akpeS+5uyEbGZRHmFBlekINZiTqM5C3CqaCfXQ9vGX9EdGiA=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "1102d2d55916340edca13cb28411df8da8206f92"
+    sourceSha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     publicationState: published
     targets: [node, browser, honua-cli, honua-admin]
-    filename: sdk-js-0.1.12.tgz
+    filename: sdk-js-0.1.13.tgz
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
-    version: "0.1.12"
-    integrity: "sha512-BsRehciN9mT4XkrO6ActiuyenUBhSzZvX6TOjCOq9ZoJQVNCVe46IQxdwZvZYRust2W6w7BsSEhwuTzabvXEsg=="
+    version: "0.1.13"
+    integrity: "sha512-n+W+2of15Kmcy7yxHCCshYSPJazae8mBTAdaN1BLakLPNvEElhjNDXlTkb9kW5yxizMGACTBIReGLveNKpSW4w=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "44289c02568035d626728ab7d5c149b693f95956"
+    sourceSha: "18494f45bb8687df9925d665a4573581a3f64fff"
     publicationState: published
     targets: [node, honua-mcp-proxy]
-    filename: mcp-server-0.1.12.tgz
+    filename: mcp-server-0.1.13.tgz
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
-    version: "0.1.12"
-    filename: honua_sdk-0.1.12-py3-none-any.whl
-    digest: "sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2"
+    version: "0.1.13"
+    filename: "honua_sdk-0.1.13-py3-none-any.whl"
+    digest: "sha256:c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6"
     repository: honua-io/honua-sdk-python
-    sourceSha: "12670676a1e8acb835e911c358adbf46a731120a"
+    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:
     ecosystem: nuget
     package: "Honua.Sdk"
-    version: "1.10.1"
-    digest: "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd"
+    version: "1.10.3"
+    digest: "sha256:4a30166fe69c397065bd5109f3ed4e7068d6912b1ea5c51b8f11e7e951e6ba26"
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "8a0a06c815baefd49e7398d38a9f22642a8c80c5"
+    sourceSha: "d9d9fd1fcbe99570594160a6a3cc61b70594257b"
     publicationState: published
     registry: nuget.org
     targets: [net10.0]
-    filename: honua.sdk.1.10.1.nupkg
+    filename: honua.sdk.1.10.3.nupkg
 
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
@@ -750,7 +725,8 @@ evidenceSources:
     # workflow_dispatch]. It does not require a workflow RUN at the producer sha.
     # 2026-09-11: advanced to d7cec2d5 with components.honua-sdk-js.sha (same invariant);
     # live-conformance.yml exists at d7cec2d5 and compare/d7cec2d5...trunk is `ahead`.
-    producerSha: "d7cec2d510e053fc86252b125bde21313a7e6e7c"
+    # 2026-10-04: advanced to 718f5391 with components.honua-sdk-js.sha (R25 0.1.13; same invariant).
+    producerSha: "718f539137b0b86fe1bc373a8b6f063a6ba32137"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

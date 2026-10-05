@@ -43,7 +43,24 @@ DELAYS = (0, 10, 30, 60, 120, 60)
 
 
 class ResolutionError(ValueError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        # The HTTP status the API answered, when the refusal is an API answer; never parsed from prose.
+        self.status = status
+
+
+def api_status(exc):
+    """The HTTP status of a failed `gh api` call: the error body's status, else gh's exit report."""
+    body = exc.stdout.decode('utf-8', errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
+    try:
+        status = json.loads(body).get('status')
+        if str(status).isdigit():
+            return int(status)
+    except (ValueError, AttributeError):
+        pass
+    stderr = exc.stderr.decode('utf-8', errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr or ''
+    match = re.search(r'\(HTTP (\d{3})\)\s*$', stderr.strip().splitlines()[-1] if stderr.strip() else '')
+    return int(match.group(1)) if match else None
 
 
 def retry(operation):
@@ -67,6 +84,9 @@ def retry(operation):
 
 
 class GitHub:
+    def __init__(self):
+        self.commit_dates = {}
+
     def json(self, path):
         # gh colors JSON when its config asks for color, and json.loads then sees an empty token.
         env = os.environ.copy()
@@ -79,7 +99,7 @@ class GitHub:
                 ['gh', 'api', path], capture_output=True, text=True, check=True, env=env))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join(str(exc.stderr or exc).split())
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         try:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -117,7 +137,15 @@ class GitHub:
         for index, row in enumerate(self.pages(f'repos/{repository}/commits?sha=trunk')):
             if index >= limit:
                 break
-            yield str(row.get('sha') or '')
+            sha = str(row.get('sha') or '')
+            committed = ((row.get('commit') or {}).get('committer') or {}).get('date')
+            if committed:
+                self.commit_dates[sha] = committed
+            yield sha
+
+    def commit_date(self, sha):
+        # Committer dates seen while listing trunk; the skip report reads them, nothing selects on them.
+        return self.commit_dates.get(sha)
 
     def green(self, name, repository, sha):
         checks = list(self.pages(f'repos/{repository}/commits/{sha}/check-runs', 'check_runs'))
@@ -157,7 +185,7 @@ class GitHub:
                 capture_output=True, check=True))
         except subprocess.CalledProcessError as exc:
             detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
-            raise ResolutionError(f'gh api {path} failed: {detail}') from exc
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
         return result.stdout
 
 
@@ -279,36 +307,144 @@ class Registry:
         raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
 
 
-def select_component(name, component, github, registry, limit):
+def select_component(name, component, github, registry, limit, skips=None):
+    """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
+    a commit qualifies; a sha weeks behind its trunk head must never be selected silently."""
     repository = component['repository'].removeprefix('https://github.com/')
     reasons = []
-    for sha in github.commits(repository, limit):
-        if not SHA.fullmatch(sha):
-            raise ResolutionError(f'{name}: trunk returned a non-immutable revision')
-        if component.get('image'):
-            image_repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
-            if registry is None or not registry.candidate_tags(image_repository, sha):
-                reasons.append(f'{sha}: no published SHA-bound image')
+    skipped = []
+
+    def skip(sha, reason):
+        reasons.append(f'{sha}: {reason}')
+        skipped.append({'sha': sha, 'reason': reason})
+
+    sha = None
+    try:
+        for sha in github.commits(repository, limit):
+            if not SHA.fullmatch(sha):
+                raise ResolutionError(f'{name}: trunk returned a non-immutable revision')
+            if skips is not None and 'head' not in skips:
+                skips.update(head=sha, skipped=skipped, selected=None)
+            if component.get('image'):
+                image_repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
+                if registry is None or not registry.candidate_tags(image_repository, sha):
+                    skip(sha, 'no published SHA-bound image')
+                    continue
+            green, why = github.green(name, repository, sha)
+            if not green:
+                skip(sha, f'CI {why}')
                 continue
-        green, why = github.green(name, repository, sha)
-        if not green:
-            reasons.append(f'{sha}: CI {why}')
-            continue
-        selected = {**component, 'sha': sha}
-        if component.get('image'):
-            try:
-                selected.update(registry.image(name, component, sha))
-            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-                reasons.append(f'{sha}: {exc}')
-                continue
-        if str(component.get('artifact', '')).startswith('spec:'):
-            path = component['artifact'].split('/blob/', 1)[1].split('/', 1)[1]
-            data = github.file(repository, sha, path)
-            selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
-                artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
-                artifactVersion='1.0.0+' + sha[:8])
-        return selected
+            selected = {**component, 'sha': sha}
+            if component.get('image'):
+                try:
+                    selected.update(registry.image(name, component, sha))
+                except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                    skip(sha, str(exc))
+                    continue
+            if str(component.get('artifact', '')).startswith('spec:'):
+                path = component['artifact'].split('/blob/', 1)[1].split('/', 1)[1]
+                data = github.file(repository, sha, path)
+                selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
+                    artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
+                    artifactVersion='1.0.0+' + sha[:8])
+            if skips is not None:
+                skips['selected'] = sha
+            return selected
+    except Exception as exc:
+        # A read that raises mid-walk leaves older commits unexamined: the report names where and
+        # why it stopped, never 'no qualifying trunk commit'.
+        if skips is not None and 'head' in skips:
+            # A sha already skipped was fully examined; the failure was listing the next one.
+            at = None if skipped and skipped[-1]['sha'] == sha else sha
+            skips['aborted'] = {'sha': at, 'reason': str(exc) or type(exc).__name__}
+        raise
     raise ResolutionError(f'{name}: no qualifying trunk commit in newest {limit} commits; ' + '; '.join(reasons))
+
+
+SKIP_REPORT_LIMIT = 10
+STALE_DAYS = 3
+
+
+def _commit_time(github, sha):
+    value = sha and getattr(github, 'commit_date', lambda _: None)(sha)
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')) if value else None
+    except ValueError:
+        return None
+
+
+def skip_report(name, skips, github, *, keep=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS, now=None):
+    """One component's bounded skip report: the newest `keep` skipped shas with their reason, how
+    far the selected sha sits behind trunk head, and whether that is stale. Information only: R18
+    mints what is certified, so staleness never refuses the night."""
+    now = now or datetime.now(timezone.utc)
+    skipped, selected, head = skips.get('skipped') or [], skips.get('selected'), skips.get('head')
+    head_at, selected_at = _commit_time(github, head), _commit_time(github, selected)
+    days = lambda delta: round(delta.total_seconds() / 86400, 1)
+    # Staleness compares the unrounded lag: 73 hours is past a three-day threshold though it shows 3.0.
+    lag = (head_at - selected_at).total_seconds() / 86400 if head_at and selected_at else None
+    return {
+        'component': name,
+        'trunkHead': head,
+        'selected': selected,
+        'selectedCommittedAt': selected_at and selected_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'selectedAgeDays': days(now - selected_at) if selected_at else None,
+        'commitsBehind': len(skipped) if selected else None,
+        'daysBehind': None if lag is None else round(lag, 1),
+        'staleAfterDays': stale_days,
+        'stale': None if lag is None else lag > stale_days,
+        'skippedTotal': len(skipped),
+        'skipped': skipped[:keep],
+        'aborted': skips.get('aborted'),
+    }
+
+
+def skip_report_lines(report):
+    name, selected = report['component'], report['selected']
+    if selected:
+        age = report['selectedAgeDays']
+        lines = [f"SKIPS {name}: selected {selected[:7]} "
+                 f"({'age unknown' if age is None else f'{age} days old'}); "
+                 f"{report['skippedTotal']} newer trunk commit(s) skipped"]
+    elif report.get('aborted'):
+        aborted = report['aborted']
+        at = aborted['sha'][:7] if aborted['sha'] else 'trunk listing'
+        lines = [f"SKIPS {name}: walk aborted at {at} ({aborted['reason']}); "
+                 f"{report['skippedTotal']} newer commit(s) skipped before it; older commits not examined"]
+    else:
+        lines = [f"SKIPS {name}: no qualifying trunk commit; {report['skippedTotal']} commit(s) skipped"]
+    lines += [f"  skipped {row['sha'][:7]}: {row['reason']}" for row in report['skipped']]
+    if report['skippedTotal'] > len(report['skipped']):
+        lines.append(f"  ... {report['skippedTotal'] - len(report['skipped'])} older skipped commit(s) not listed")
+    if report['stale']:
+        lines.append(f"STALE-CANDIDATE: {name} selected {selected[:7]} "
+                     f"({report['commitsBehind']} commits, {report['daysBehind']} days behind)")
+    return lines
+
+
+def skip_report_markdown(reports):
+    rows = ['### Trunk candidate selection', '',
+            '| Component | Selected | Behind trunk head | Skipped | Newest skip reason |', '|---|---|---|---|---|']
+    for report in reports.values():
+        selected = report['selected']
+        aborted = report.get('aborted')
+        if aborted:
+            where = f"walk aborted at {aborted['sha'][:7] if aborted['sha'] else 'trunk listing'}"
+        elif not selected:
+            where = 'none qualifies'
+        elif report['daysBehind'] is None:
+            where = f"{report['commitsBehind']} commits"
+        else:
+            where = f"{report['commitsBehind']} commits, {report['daysBehind']} days"
+        if report['stale']:
+            where = f'**STALE-CANDIDATE** {where}'
+        reason = report['skipped'][0]['reason'] if report['skipped'] else ''
+        if aborted:
+            reason = f"aborted: {aborted['reason']}"
+        reason = ' '.join(reason.split()).replace('|', '\\|')[:200]
+        rows.append(f"| {report['component']} | {selected[:7] if selected else '-'} | {where} | "
+                    f"{report['skippedTotal']} | {reason} |")
+    return '\n'.join(rows) + '\n'
 
 
 SDK_COMPONENTS = {'honua-sdk-dotnet', 'honua-sdk-js', 'honua-sdk-python'}
@@ -360,11 +496,23 @@ def _unique_keys(pairs):
     return dict(pairs)
 
 
+def _require_visible_revision(github, where, repository, sha):
+    try:
+        commit = github.json(f'repos/{repository}/commits/{sha}')
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ResolutionError(f'{where} is missing, but the pinned revision is not readable '
+                              f'either, so the 404 proves nothing: {exc}') from exc
+    if not isinstance(commit, dict) or commit.get('sha') != sha:
+        raise ResolutionError(f'{where} is missing, but repos/{repository}/commits/{sha} '
+                              'did not answer that commit')
+
+
 def component_versions(github, name, component):
     """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
 
-    A missing, unreadable or invalid declaration refuses the component. An explicit empty map is a
-    declaration only where the manifest marks the component sourcePinnedOnly.
+    Missing declarations for the source-only mobile/collect previews are empty sets (R39).
+    Other missing, unreadable or invalid declarations refuse the component. Explicit empty maps
+    are declarations only where the manifest marks the component sourcePinnedOnly.
     """
     if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
         raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
@@ -373,10 +521,21 @@ def component_versions(github, name, component):
     if not SHA.fullmatch(sha):
         raise ResolutionError(f'{name}: no immutable revision to read {COMPONENT_VERSIONS_PATH} at')
     where = f'{name}: {repository}@{sha}:{COMPONENT_VERSIONS_PATH}'
+    preview = component.get('sourcePinnedOnly') is True and name in {'honua-mobile', 'honua-collect'}
+    empty = {'contractVersions': {}, 'schemaVersions': {}}
     try:
         raw = github.file(repository, sha, COMPONENT_VERSIONS_PATH)
     except (KeyError, TypeError, ValueError) as exc:
+        # Only an absent file is exempt. Authentication, network and malformed-response
+        # errors must retain their refusal rather than masquerade as an empty declaration.
+        # GitHub also answers 404 for a repository or revision this token cannot see, so the
+        # exemption needs the pinned commit itself to be readable first.
+        if preview and getattr(exc, 'status', None) == 404:
+            _require_visible_revision(github, where, repository, sha)
+            return empty
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+    if preview and not raw.strip():
+        return empty
     try:
         declaration = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
     except (UnicodeDecodeError, ValueError) as exc:
@@ -631,10 +790,12 @@ def release_carried_platform_identity(components):
                 selected.pop(key, None)
 
 
-def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require'):
+def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require', skips=None,
+            skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS):
     """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
-    exact-candidate check still refuses, and the bound candidate is re-checked in full."""
+    exact-candidate check still refuses, and the bound candidate is re-checked in full.
+    `skips`, when given, receives each trunk-selected component's skip report, also on refusal."""
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     failures = []
     # Verify once, before selecting SDK checkouts or reading declarations. A component
@@ -653,10 +814,11 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             failures.append(str(exc) if str(exc).startswith(f'{name}:') else f'{name}: {exc}')
 
     for name, component in manifest['components'].items():
+        walk = {}
         try:
             candidate['components'][name] = (
                 select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
-                if name in SDK_COMPONENTS else select_component(name, component, github, registry, limit))
+                if name in SDK_COMPONENTS else select_component(name, component, github, registry, limit, walk))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))
@@ -666,6 +828,12 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
                 detail = f'{name}: {detail}'
             failures.append(detail)
             continue
+        finally:
+            if walk.get('head'):
+                report = skip_report(name, walk, github, keep=skip_limit, stale_days=stale_days)
+                print('\n'.join(skip_report_lines(report)))
+                if skips is not None:
+                    skips[name] = report
         declare(name, selected)
     # R22: mint stamps tonight's platform version beside the identity selected here. A version, or
     # a chart digest, carried forward from another night never survives selection.
@@ -776,14 +944,21 @@ def main(argv=None):
     parser.add_argument('--dry-run', action='store_true', help='read live trunk/registries; publish nothing')
     parser.add_argument('--protocol-ledger', choices=('require', 'produce'), default='require',
                         help='produce: the nightly binds a ledger it produces for the selected server')
+    parser.add_argument('--skip-report-limit', type=int, default=SKIP_REPORT_LIMIT,
+                        help='newest skipped shas listed per component in the log and skips.json')
+    parser.add_argument('--stale-days', type=float, default=STALE_DAYS,
+                        help='print STALE-CANDIDATE when the selected sha is this far behind trunk head')
     args = parser.parse_args(argv)
+    skips = {}
     try:
         if args.max_commits < 1:
             raise ResolutionError('--max-commits must be positive')
+        if args.skip_report_limit < 0 or args.stale_days < 0:
+            raise ResolutionError('--skip-report-limit and --stale-days must not be negative')
         github = GitHub()
         manifest, matrix = resolve(yaml.safe_load(args.manifest.read_text()),
             yaml.safe_load(args.matrix.read_text()), github, Registry(github), args.max_commits,
-            args.protocol_ledger)
+            args.protocol_ledger, skips, args.skip_report_limit, args.stale_days)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for filename, value in [('platform-manifest.yaml', manifest), ('compatibility-matrix.yaml', matrix)]:
             (args.out_dir / filename).write_text(yaml.safe_dump(value, sort_keys=False))
@@ -792,6 +967,21 @@ def main(argv=None):
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'REFUSED: {exc}', file=sys.stderr)
         return 1
+    finally:
+        write_skip_report(args.out_dir, skips)
+
+
+def write_skip_report(out_dir, skips):
+    """skips.json and the job summary are written on refusal too: a night that resolves an old sha
+    and then refuses on it must still say what it passed over."""
+    if not skips:
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / 'skips.json').write_text(json.dumps({'components': skips}, indent=2) + '\n')
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a', encoding='utf-8') as handle:
+            handle.write(skip_report_markdown(skips))
 
 
 if __name__ == '__main__':

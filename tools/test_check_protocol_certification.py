@@ -166,6 +166,7 @@ def _requirements(*cells, complete=True):
             "sdk-dotnet": {"commit": SHA},
             "geospatial-grpc": {"commit": SHA},
             "geospatial-mcp": {"commit": SHA},
+            cert._owned_source_name({"deployment_target": "windows-licensed"}): {"commit": SHA},
         },
         "requirements": [
             {field: cell[field] for field in cert.REQUIREMENT_FIELDS if field in cell}
@@ -270,6 +271,52 @@ def test_producer_source_sha_must_match_owned_client_revision():
     )
     assert report["overall_status"] == "fail"
     assert any("owned sdk-js revision" in finding["why"] for finding in report["findings"])
+
+
+def _licensed_desktop_cell(**overrides):
+    return _licensed_cell(**{
+        "policy": "licensed-desktop-client-v1",
+        "deployment_target": "windows-licensed",
+        "auth_policy_revision": "anonymous-and-protected-v1",
+        "client_lane": "desktop-pro",
+        **overrides,
+    })
+
+
+def test_licensed_desktop_target_binds_its_production_map_producer_revision():
+    production = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
+    )
+    [owner] = [
+        producer["source_revision_key"] for producer in production["producers"]
+        if "windows-licensed" in producer.get("deployment_targets", [])
+    ]
+    producer_sha = "e" * 40
+    cell = _licensed_desktop_cell(producer_source_sha=producer_sha)
+    requirements = _requirements(cell)
+    requirements["source_revisions"][owner] = {"commit": producer_sha}
+    assert _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)["overall_status"] == "pass"
+
+    cell = _licensed_desktop_cell(producer_source_sha=SHA)
+    requirements = _requirements(cell)
+    requirements["source_revisions"][owner] = {"commit": producer_sha}
+    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any(f"owned {owner} revision" in finding["why"] for finding in report["findings"])
+
+
+def test_licensed_desktop_policy_is_governed_and_fresh():
+    wrong_target = _licensed_desktop_cell(deployment_target="windows")
+    report = _evaluate(_ledger(wrong_target), "nightly", now=NOW)
+    assert any("windows-licensed target" in finding["why"] for finding in report["findings"])
+
+    stale = _licensed_desktop_cell(
+        started_at="2026-08-16T10:00:00Z",
+        completed_at="2026-08-16T10:05:00Z",
+        checked_at="2026-08-16T10:02:00Z",
+    )
+    report = _evaluate(_ledger(stale), "nightly", now=NOW)
+    assert any("licensed evidence is older than 72 hours" in finding["why"] for finding in report["findings"])
 
 
 def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
@@ -1277,3 +1324,159 @@ def test_catalog_receipt_schema_min_rejects_unknown_values():
     report = _evaluate(_ledger(), "nightly", requirements=requirements, now=NOW)
     assert report["overall_status"] == "fail"
     assert any(finding["check"] == "requirements.receipt_schema_min" for finding in report["findings"])
+
+
+# ------------------------------------------------------------------ R38 desktop release lines and buckets
+
+
+def _rebind(cell):
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
+    return cell
+
+
+def _release_line_cell(observed="3.44.14-Solothurn", *, receipt_observed=None, **overrides):
+    """A desktop cell on the 3.44 line whose receipt records the exact patch it observed."""
+    cell = _cell(
+        capability_key="serve.wfs", surface="wfs", operation="serve.wfs", canonical_client="QGIS",
+        client_lane="desktop-qgis", client_version="3.44.x", **overrides,
+    )
+    if observed is not None:
+        cell["client_version_observed"] = observed
+        cell["evidence_receipt"]["identity"]["client_version_observed"] = (
+            observed if receipt_observed is None else receipt_observed
+        )
+    return _rebind(cell)
+
+
+def test_release_line_accepts_any_patch_of_its_line_only():
+    for observed in ("3.44.0", "3.44.14", "3.44.14-Solothurn", "3.44.15-rc.1"):
+        assert cert.client_version_satisfies("3.44.x", observed), observed
+    for observed in ("3.40.5", "3.45.0", "3.4.14", "3.440.1", "3.44", "3.44.x", "03.44.1", "", None):
+        assert not cert.client_version_satisfies("3.44.x", observed), observed
+    # an exact requirement still joins exactly
+    assert cert.client_version_satisfies("1.4.3", "1.4.3")
+    assert not cert.client_version_satisfies("1.4.3", "1.4.4")
+    assert cert.is_version_line("3.7.x") and not cert.is_version_line("3.7.1") and not cert.is_version_line("3.x")
+
+
+def test_release_line_pass_records_the_exact_observed_version():
+    cell = _release_line_cell()
+    schema = json.loads(
+        (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    assert not list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "pass"
+    # the requirement and the ledger keep the line; only the receipt names the patch
+    assert _requirements(cell)["requirements"][0]["client_version"] == "3.44.x"
+
+
+def test_release_line_rejects_missing_off_line_or_unbound_observed_version():
+    cases = {
+        "missing": _release_line_cell(observed=None),
+        "off-line": _release_line_cell(observed="3.40.5"),
+        "unbound": _release_line_cell(receipt_observed="3.44.13-Solothurn"),
+    }
+    for name, cell in cases.items():
+        report = _evaluate(_ledger(cell), "nightly", now=NOW)
+        assert report["overall_status"] == "fail", name
+    missing = _evaluate(_ledger(cases["missing"]), "nightly", now=NOW)
+    assert any("client_version_observed" in finding["why"] for finding in missing["findings"])
+    # an exact requirement takes no observed version: the join already names it
+    exact = _rebind(_cell())
+    exact["client_version_observed"] = "1.4.3"
+    exact["evidence_receipt"]["identity"]["client_version_observed"] = "1.4.3"
+    assert _evaluate(_ledger(_rebind(exact)), "nightly", now=NOW)["overall_status"] == "fail"
+
+
+def test_ledger_release_bucket_must_match_the_owned_requirement():
+    cell = _release_line_cell(release_bucket="prove-against-candidate")
+    requirements = _requirements(cell)
+    requirements["requirements"][0]["release_bucket"] = "prove-against-candidate"
+    assert _evaluate(_ledger(cell), "nightly", now=NOW, requirements=requirements)["overall_status"] == "pass"
+    requirements["requirements"][0]["release_bucket"] = "must-fix"
+    report = _evaluate(_ledger(cell), "nightly", now=NOW, requirements=requirements)
+    assert any("release_bucket" in finding["why"] for finding in report["findings"])
+
+
+def test_ledger_cell_must_carry_the_owned_requirement_release_bucket():
+    cell = _release_line_cell()
+    cell.pop("release_bucket", None)
+    requirements = _requirements(cell)
+    requirements["requirements"][0]["release_bucket"] = "prove-against-candidate"
+    report = _evaluate(_ledger(cell), "nightly", now=NOW, requirements=requirements)
+    assert report["overall_status"] == "fail"
+    assert any("release_bucket is required" in finding["why"] for finding in report["findings"])
+
+def _desktop_source():
+    return json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8")
+    )
+
+
+def test_owned_denominator_certifies_desktop_clients_on_release_lines():
+    requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    assert error is None
+    source = _desktop_source()
+    qgis, desktop = source["clients"]["qgis"], source["clients"]["pro"]
+    assert (qgis["version"], desktop["version"]) == ("3.44.x", "3.7.x")
+    assert requirements["trademarkNotice"] == source["trademarkNotice"]
+    rows = requirements["requirements"]
+    qgis_rows = [row for row in rows if row["canonical_client"] == "QGIS"]
+    assert qgis_rows and {row["client_version"] for row in qgis_rows} == {"3.44.x"}
+    desktop_rows = [
+        row for row in rows
+        if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
+    ]
+    assert desktop_rows and {row["client_version"] for row in desktop_rows} == {"3.7.x"}
+    assert not [row for row in rows if "release_bucket" in row and row not in desktop_rows]
+
+
+def test_owned_denominator_proves_desktop_ogc_surfaces_against_the_candidate():
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    desktop = _desktop_source()["clients"]["pro"]
+    rows = [
+        row for row in requirements["requirements"]
+        if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
+    ]
+    ogc = [row for row in rows if row["release_bucket"] == "prove-against-candidate"]
+    assert {(row["capability_key"], row["surface"]) for row in ogc} == {
+        ("serve.wms", "wms"), ("serve.wmts", "wmts"), ("serve.wfs", "wfs"), ("serve.wcs", "wcs"),
+        ("serve.ogc-api-features", "ogc-api-features"), ("serve.ogc-api-tiles", "ogc-api-tiles"),
+        ("serve.ogc-api-maps", "ogc-api-maps"), ("serve.vector-tiles", "vector-tiles"),
+        ("serve.i3s-scene", "i3s"),
+    }
+    assert all(row["canonical_client"] == desktop["name"] and row["maturity"] == "supported"
+               and row["addressable_by_client"] and "test_ids" not in row for row in ogc)
+    geoservices = [row for row in rows if row["release_bucket"] == "must-fix"]
+    assert len(ogc) + len(geoservices) == len(rows)
+    assert geoservices and not {row["capability_key"] for row in geoservices} & {row["capability_key"] for row in ogc}
+    assert not {row["surface"] for row in geoservices} & {row["surface"] for row in ogc}
+
+
+def test_owned_denominator_runs_every_desktop_row_licensed_on_its_governed_target():
+    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    desktop = _desktop_source()["clients"]["pro"]
+    rows = [
+        row for row in requirements["requirements"]
+        if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
+    ]
+    assert {
+        (row["licensed"], row["entitlement_policy_revision"], row["deployment_target"], row["auth_policy_revision"])
+        for row in rows
+    } >= {(True, desktop["entitlement_policy_revision"], "windows-licensed", "anonymous-and-protected-v1")}
+    own_rows = [row for row in rows if row["canonical_client"] == desktop["name"]]
+    # Both the server-matrix GeoServices rows and the OGC assignment rows.
+    assert {row["contract_revision"].split("@")[0] for row in own_rows} == {
+        "server-capability-matrix", "desktop-client-certification",
+    }
+    assert own_rows and all(
+        row["licensed"] and row["entitlement_policy_revision"] == desktop["entitlement_policy_revision"]
+        and row["deployment_target"] == desktop["deployment_target"]
+        and row["auth_policy_revision"] == desktop["auth_policy_revision"]
+        for row in own_rows
+    )
+    assert all(row["licensed"] and row["deployment_target"] == "windows-licensed" for row in rows)

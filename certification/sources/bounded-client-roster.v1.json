@@ -1,6 +1,6 @@
 {
   "schema": "honua.bounded-client-roster/v1",
-  "revision": "2026-09-16.1",
+  "revision": "2026-10-04.1",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/346",
   "bounded_roster_issue": "https://github.com/honua-io/honua-server/issues/3434",
   "consumer": {
@@ -12,9 +12,9 @@
   "rulings": [
     {
       "id": "qgis-client-version",
-      "decision": "The denominator pins QGIS 3.44 at the exact version string the pinned honua-server desktop-qgis producer records, 3.44.13-Solothurn. honua-server is not directed to re-pin to 3.40.",
-      "evidence": "honua-server docker/client-compat/pyqgis/Dockerfile builds FROM qgis/qgis:ltr@sha256:681853565ad03722a0cbcba23985fd211ca927bec2b3d389cb07e0e0412e4184, and its committed baselines tests/baselines/client-compat/pyqgis/desktop-qgis-{ogc-features,wfs}.cert.json record client_version 3.44.13-Solothurn: the LTR tag the lane tracks is the 3.44 line, not 3.40.",
-      "consequence": "client_version joins exactly, so a change to that image digest must re-pin this value in the same change; until then a drifted lane fails as producer-client-version-mismatch, never as a silent pass."
+      "decision": "The denominator certifies QGIS against the 3.44 long-term release line, client_version 3.44.x: a receipt from any 3.44 patch release satisfies it. Non-LTR QGIS releases are out of scope (R38, honua-release#376, superseding the 3.44.13-Solothurn pin of honua-release#346).",
+      "evidence": "Ruling R38 (operator, 2026-10-04) on honua-release#376.",
+      "consequence": "A receipt records the exact QGIS version it observed in client_version_observed, which must fall on the 3.44 line; a receipt from another line, or a passing receipt without the observed version, fails certification."
     },
     {
       "id": "lane-identity",
@@ -43,7 +43,7 @@
   "clients": {
     "QGIS": {
       "client_lane": "desktop-qgis",
-      "client_version": "3.44.13-Solothurn",
+      "client_version": "3.44.x",
       "lane_disposition": "adopt-existing-producer-lane",
       "replaced_lanes": [
         "ci-desktop",

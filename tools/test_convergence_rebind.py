@@ -48,22 +48,34 @@ def align_components_to_published(root: Path) -> None:
     assert yaml.safe_load(text)["protocolCertification"]["ledger"]["status"] == "pending"
 
 
+def diverge_sdk_js(root: Path) -> None:
+    """Move components.honua-sdk-js off its published sourceSha, as a trunk re-pin would.
+
+    The committed manifest now pins every SDK at its published source (R25), so a refusal test
+    has to create the divergence it refuses rather than rely on the live pins."""
+    path = root / MODULE.MANIFEST
+    text = path.read_text(encoding="utf-8")
+    current = yaml.safe_load(text)["components"]["honua-sdk-js"]["sha"]
+    path.write_text(MODULE.replace_scalar(text, "sha", current, "e" * 40), encoding="utf-8")
+
+
 def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
     root = fixture(tmp_path)
+    diverge_sdk_js(root)
     before = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
     with pytest.raises(MODULE.Finding) as exc:
         MODULE.prepare(root, StubGitHub(root), "keep")
     message = str(exc.value)
     assert "protocolCertification.ledger stays pending" in message
-    # Committed working pins versus the recorded published package commits.
-    for source, component_sha, published_sha in (
-        ("sdk-dotnet", "6ba49ec32ea846c64bc2094807761d4884dbc4bf", "8a0a06c815baefd49e7398d38a9f22642a8c80c5"),
-        ("sdk-python", "40ecf7318573214fb6c702b12ebd56b3ad47ba60", "12670676a1e8acb835e911c358adbf46a731120a"),
-        ("sdk-js", "d7cec2d510e053fc86252b125bde21313a7e6e7c", "1102d2d55916340edca13cb28411df8da8206f92"),
-    ):
-        assert source in message
-        assert component_sha in message
-        assert published_sha in message
+    assert "sdk-js" in message and "e" * 40 in message
+    manifest = yaml.safe_load(before)
+    for source, component, artifact in MODULE.SDK_PRODUCERS:
+        component_sha = manifest['components'][component]['sha']
+        published_sha = manifest['clientArtifacts'][artifact]['sourceSha']
+        if component_sha != published_sha:
+            assert source in message
+            assert component_sha in message
+            assert published_sha in message
     assert (root / MODULE.MANIFEST).read_text(encoding="utf-8") == before
     assert yaml.safe_load(before)["protocolCertification"]["ledger"] == {
         "status": "pending",
@@ -75,7 +87,10 @@ def test_plan_refuses_sdk_component_pins_that_are_not_published(tmp_path):
     }
 
 
-def test_cli_refuses_divergent_sdk_pins_without_writing_a_plan(tmp_path):
+def test_cli_refuses_divergent_sdk_pins_without_writing_a_plan(tmp_path, monkeypatch):
+    root = fixture(tmp_path)
+    diverge_sdk_js(root)
+    monkeypatch.setattr(MODULE, "ROOT", root)
     plan_path = tmp_path / "rebind-plan.json"
     assert MODULE.main(["--plan-output", str(plan_path)]) == 1
     assert not plan_path.exists()
@@ -137,6 +152,7 @@ def test_finalize_updates_manifest_pins_and_receipt_together(tmp_path, ledger_st
 
 def test_finalize_does_not_bind_when_published_pins_differ(tmp_path):
     root = fixture(tmp_path)
+    diverge_sdk_js(root)
     before = (root / MODULE.MANIFEST).read_text(encoding="utf-8")
     plan = {"sources": [], "bindings": {}, "receipt_schema_min": {"current": "v2", "proposed": "v2"}}
     with pytest.raises(MODULE.Finding) as exc:
@@ -446,8 +462,11 @@ def test_nightly_convergence_is_deterministic(tmp_path):
         staged.append((plan, payloads))
     assert staged[0][0] == staged[1][0]
     assert staged[0][1] == staged[1][1]
-    production = json.loads(staged[0][1][str(MODULE.CATALOG)])["production"]
-    assert production["cells"] == {"produced": 1503, "unproduced": 412, "not_addressable": 5}
+    catalog = json.loads(staged[0][1][str(MODULE.CATALOG)])
+    # the expectation is the checked-in generated catalog, so a requirement row change cannot strand a literal
+    generated = json.loads((ROOT / MODULE.CATALOG).read_text(encoding="utf-8"))
+    assert catalog["production"]["cells"] == generated["production"]["cells"]
+    assert sum(catalog["production"]["cells"].values()) == len(catalog["requirements"])
 
     recorded = night()
     bound = []
