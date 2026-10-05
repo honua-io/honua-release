@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "status": "pre-cut-rehearsal",
-  "verifiedAt": "2026-09-08",
+  "verifiedAt": "2026-10-05",
   "exactCandidateQualification": false,
   "cleanWindowsQualification": false,
   "sourceManifest": "platform-manifest.yaml",
   "server": {
-    "image": "ghcr.io/honua-io/honua-server@sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
-    "sourceSha": "5a657b9eaed7cdeac915d584ad58c028a52ca61e",
+    "image": "ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
     "platform": "linux/amd64",
-    "manifestUrl": "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
+    "manifestUrl": "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
     "credentialsRequired": false,
-    "selectionSource": "https://github.com/honua-io/honua-server/pull/4429",
-    "verification": "Anonymous GHCR OCI index bytes SHA-256 and amd64 configuration revision checked 2026-09-08"
+    "selectionSource": "https://github.com/honua-io/honua-release/issues/416",
+    "verification": "platform-manifest.yaml components.honua-server (nightly-87966c3); anonymous GHCR OCI index bytes SHA-256 and amd64 configuration revision checked 2026-10-05; licensing-disabled runtime assertion not yet run on this profile"
   },
   "clients": {
     "honua-admin": {
