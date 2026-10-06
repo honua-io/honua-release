@@ -204,17 +204,17 @@ The following work precedes expansion because a broken or misleading gate cannot
 
 | Surface | Required canonical clients | Completion requirement |
 |---|---|---|
-| FeatureServer | ArcGIS Pro/ArcPy, ArcGIS API for Python, ArcGIS Maps SDK for .NET or JS, Esri Leaflet | All supported client-addressable query, edit, attachment, sync, schema, and rendering operations pass |
-| MapServer | ArcGIS Pro, ArcGIS API for Python, ArcGIS Maps SDK, Esri Leaflet | Discovery, export, identify, query, legend, style, and refresh pass |
-| ImageServer | ArcGIS Pro/ArcPy, ArcGIS API for Python `ImageryLayer`, Rasterio for raster output | Discovery, export, identify, samples, multidimensional, and supported raster-function paths pass |
-| GeometryServer | ArcGIS API for Python and ArcPy | Projection, transformation, buffer, simplify, relation, and error behavior pass |
-| GPServer | ArcPy and ArcGIS API for Python | Synchronous, asynchronous, upload, polling, result, cancellation, and failure lifecycles pass |
-| GeocodeServer | ArcPy and ArcGIS API for Python | Forward, reverse, suggest, and batch operations execute rather than skip |
+| FeatureServer | Evidence `honua-esri-compat:feature-server` | Candidate-bound result recorded by identifier |
+| MapServer | Evidence `honua-esri-compat:map-server` | Candidate-bound result recorded by identifier |
+| ImageServer | Evidence `honua-esri-compat:image-server` | Candidate-bound result recorded by identifier |
+| GeometryServer | Evidence `honua-esri-compat:geometry-server` | Candidate-bound result recorded by identifier |
+| GPServer | Evidence `honua-esri-compat:gp-server` | Candidate-bound result recorded by identifier |
+| GeocodeServer | Evidence `honua-esri-compat:geocode-server` | Candidate-bound result recorded by identifier |
 | VectorTileServer | ArcGIS clients and MapLibre | Metadata, style, tile retrieval, and rendering pass |
-| SceneServer/I3S | ArcGIS Pro or Maps SDK | A real scene loads, traverses content, and renders |
-| VersionManagementServer | ArcGIS Pro | Create, start, read, reconcile, post, and delete lifecycle passes |
-| Portal/Sharing | ArcGIS API for Python and ArcGIS Pro | Anonymous and authenticated discovery, item resolution, tokens, and access projection pass |
-| NAServer | ArcPy network-analysis client | Implement real advertised routing behavior or mark the surface unsupported |
+| SceneServer/I3S | Evidence `honua-esri-compat:scene-server` | Candidate-bound result recorded by identifier |
+| VersionManagementServer | Evidence `honua-esri-compat:version-management-server` | Candidate-bound result recorded by identifier |
+| Portal/Sharing | Evidence `honua-esri-compat:portal-sharing` | Candidate-bound result recorded by identifier |
+| NAServer | Evidence `honua-esri-compat:network-analysis` | Candidate-bound result recorded by identifier |
 | Mobile/Field Maps | Licensed Field Maps run | Authentication, discovery, offline package, edits, and synchronization pass |
 
 The Esri matrix is complete when 100% of supported, client-addressable operation cells pass. `not-applicable`

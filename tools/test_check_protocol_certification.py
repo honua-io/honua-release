@@ -804,16 +804,16 @@ def test_licensed_evidence_older_than_72_hours_fails():
     assert any("licensed evidence is older than 72 hours" in finding["why"] for finding in report["findings"])
 
 
-def test_arcpy_licensed_target_and_auth_policy_are_governed():
+def test_licensed_policy_target_and_auth_are_governed():
     valid = _licensed_cell(
-        policy="esri-arcgis-pro-arcpy-v1",
+        policy="licensed-desktop-client-v1",
         deployment_target="windows-licensed",
         auth_policy_revision="anonymous-and-protected-v1",
     )
     assert _evaluate(_ledger(valid), "nightly", now=NOW)["overall_status"] == "pass"
 
     wrong_target = _licensed_cell(
-        policy="esri-arcgis-pro-arcpy-v1",
+        policy="licensed-desktop-client-v1",
         deployment_target="windows",
         auth_policy_revision="anonymous-and-protected-v1",
     )
@@ -822,13 +822,18 @@ def test_arcpy_licensed_target_and_auth_policy_are_governed():
     assert any("windows-licensed target" in finding["why"] for finding in target_report["findings"])
 
     wrong_auth = _licensed_cell(
-        policy="esri-arcgis-pro-arcpy-v1",
+        policy="licensed-desktop-client-v1",
         deployment_target="windows-licensed",
         auth_policy_revision="api-key-protected-v1",
     )
     auth_report = _evaluate(_ledger(wrong_auth), "nightly", now=NOW)
     assert auth_report["overall_status"] == "fail"
     assert any("anonymous-and-protected auth policy" in finding["why"] for finding in auth_report["findings"])
+
+    unknown = _licensed_cell(policy="unknown-policy-v1")
+    report = _evaluate(_ledger(unknown), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("governed entitlement policy" in finding["why"] for finding in report["findings"])
 
 
 def test_release_requires_exact_digest_and_post_cut_execution():

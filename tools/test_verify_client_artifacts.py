@@ -124,10 +124,43 @@ def test_public_nuget_rejects_archive_source_drift(monkeypatch):
 RECORDED = vca.REPO_ROOT / 'tools' / 'fixtures' / 'client-artifacts'
 
 
-def recorded_registry(monkeypatch):
-    """Replay unedited HTTP response bodies; an unexpected URL is a test failure."""
+def _pypi_metadata_url():
+    pin = json.loads((RECORDED / 'pins.json').read_text())['python']
+    return f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json"
+
+
+def recorded_responses():
+    """Unedited bodies from urls.json, plus the synthetic PyPI metadata document.
+
+    The synthetic document is not a captured response and is not registry evidence.
+    """
     urls = json.loads((RECORDED / 'urls.json').read_text())
     responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
+    metadata_url = _pypi_metadata_url()
+    assert metadata_url not in responses
+    assert 'pypi.json' not in urls
+    responses[metadata_url] = (RECORDED / 'pypi-metadata.synthetic.json').read_bytes()
+    return responses
+
+
+def test_pypi_metadata_fixture_is_synthetic_and_not_recorded_evidence():
+    urls = json.loads((RECORDED / 'urls.json').read_text())
+    assert 'pypi.json' not in urls
+    assert not any(name.startswith('pypi-metadata') for name in urls)
+    document = json.loads((RECORDED / 'pypi-metadata.synthetic.json').read_text())
+    assert document['synthetic'] is True
+    assert 'info' not in document and 'last_serial' not in document
+    [row] = document['urls']
+    assert set(row) == {'filename', 'digests', 'url'}
+    pin = json.loads((RECORDED / 'pins.json').read_text())['python']
+    assert row['filename'] == pin['filename']
+    assert row['digests'] == {'sha256': pin['digest'].removeprefix('sha256:')}
+    assert row['url'] == urls['pypi.whl']
+
+
+def recorded_registry(monkeypatch):
+    """Replay unedited HTTP response bodies; an unexpected URL is a test failure."""
+    responses = recorded_responses()
     reads = []
 
     def request(url, **kwargs):

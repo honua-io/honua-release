@@ -6,8 +6,8 @@ Companion to [`RELEASE-ENGINEERING-PLAN.md`](RELEASE-ENGINEERING-PLAN.md) and
 capability-manifest check + scheduled demo canary), after two decisions from the release owner
 changed the shape of the train:
 
-1. **honua-esri-compat's evidence is produced LOCALLY** (licensed ArcGIS Pro/arcpy) and must be
-   **consumed** by the certification gate with a freshness bound — never executed in-train
+1. **External compatibility evidence is produced out of band** and must be **consumed** by the
+   certification gate using its evidence identifier and freshness bound
    (honua-io/honua-release#61, comments).
 2. **The release train is HYBRID**: some lanes run hosted (GitHub-hosted runners, OIDC-federated
    cloud creds), some lanes run locally (an operator's licensed/credentialed environment), and the
@@ -21,7 +21,7 @@ instead of every new evidence source re-litigating "does this run in CI or not."
 ```mermaid
 flowchart LR
     subgraph Local["Local evidence pass (operator-run, out-of-band)"]
-        A["honua-esri-compat<br/>(licensed ArcGIS Pro/arcpy lanes)"] -->|".cert.json envelopes"| E
+        A["honua-esri-compat<br/>(private evidence producer)"] -->|".cert.json envelopes"| E
         B["Heavy local e2e<br/>(EKS/AKS control-plane, long-running drills)"] -->|"evidence artifacts"| E
         C["demo-canary<br/>(scheduled, against the always-on<br/>public demo.honua.io deployment)"] -->|"live-canary-evidence.json"| E
         E["honua-evidence<br/>(joins evidence onto capability-matrix.v1.json,<br/>carries freshness/lineage metadata)"]
@@ -39,7 +39,7 @@ flowchart LR
 ```
 
 **Local evidence pass.** Producers that need something the train's hosted runners genuinely cannot
-have — a licensed desktop toolchain (ArcGIS Pro), a persistent deployment the train doesn't own
+have — a private external-client evidence producer, a persistent deployment the train doesn't own
 (the public demo), or a cadence too expensive/slow for a release cut (EKS/AKS control-plane spin-up,
 DR drills) — run **out-of-band**, on their own schedule, in their own environment. They **push a
 versioned evidence envelope** (a `.cert.json`, a `capability-matrix.v1.json` producer entry, a
@@ -108,7 +108,7 @@ itself declares report-only (that is `check_geocoding_latency`).
 | Cloud-tier canary probes (`e2e/canary_probes.py`, generic mode) | **Hosted**, per cloud cell, live | Same — reachability-only probes run for real; probes needing seeded data honestly BLOCK on a bare cell (no seed-data story yet — a gap, not a lie). |
 | Terraform parity cells (aws-serverless/ecs/eks) | **Hosted**, OIDC into AWS | `e2e-cloud-aws.yml`; self-skips `cloud-creds-unset` until `HONUA_AWS_ROLE_ARN` is wired. |
 | MCP/Studio/GP-execute/top-demo extended scenarios | **Neither yet** — hardcoded `blocked` | Needs the driver toolchain packaged as a harness image (honua-release#35). Not a hybrid-lane decision; a genuine gap. |
-| honua-esri-compat (ArcGIS Pro/arcpy render/edit/3D lanes) | **Local**, operator's licensed Windows environment | ArcGIS Pro licensing cannot run on a GitHub-hosted runner. Consumed via `.cert.json` + freshness bound. |
+| `honua-esri-compat:desktop-client` | **External evidence** | Consumed by evidence identifier and freshness bound. |
 | honua-esri-compat (license-free: `arcgis` Python, .NET metadata, raw REST) | Could run **either** place | No license dependency, but currently ships as part of the same local evidence producer; a future PR could promote these specific lanes to hosted-live (see honua-io/honua-release#61 issue comment on `conformance-esri-geoservices`). |
 | demo-canary (`.github/workflows/demo-canary.yml`) | **Local-by-schedule** (hosted runner, but targets the persistent public demo, not a train-provisioned cell) | The demo is a standing deployment the train doesn't own or tear down; it is evidence *about* a live environment, not a certifying check *of* the candidate being cut. |
 | Terraform DR drills (honua-terraform) | **Local**, its own runbook cadence | DR drills are expensive/slow and target real backup infrastructure; captured via `dr-evidence-template.json` (honua-io/honua-evidence#8). |
