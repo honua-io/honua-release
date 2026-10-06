@@ -462,8 +462,9 @@ def verify_grpc_scope(root: Path, gh: Any, server_sha: str) -> dict[str, str] | 
 
 NIGHTLY_CANDIDATE_FILES = frozenset({str(MANIFEST), "compatibility-matrix.yaml", str(GRPC_OPERATIONS)})
 LEDGER_SCHEMA = "honua.protocol-certification/v1"
+# R40: a desktop cell's release bucket and client driver are part of the requirement it answers.
 LEDGER_IDENTITY = ("capability_key", "surface", "operation", "canonical_client", "client_lane",
-                   "client_version", "deployment_target")
+                   "client_version", "deployment_target", "release_bucket", "client_driver")
 EVIDENCE_URI = "https://evidence.honua.io/data/sha256/"
 DISPATCH_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
@@ -482,7 +483,10 @@ def nightly_stage(root: Path, gh: GitHub) -> dict[str, Any]:
 
 
 def selects(entry: dict[str, Any], row: dict[str, Any]) -> bool:
-    """The catalog's production rule: a disposition owns a cell by client lane (glob) or deployment target."""
+    """The catalog's production rule: a disposition owns a cell by client lane (glob) or deployment
+    target, less the lanes it hands to another disposition (except_client_lanes, glob)."""
+    if any(fnmatch.fnmatchcase(str(row.get("client_lane")), pattern) for pattern in entry.get("except_client_lanes", [])):
+        return False
     return any(fnmatch.fnmatchcase(str(row.get("client_lane")), pattern) for pattern in entry.get("client_lanes", [])) \
         or row.get("deployment_target") in entry.get("deployment_targets", [])
 
@@ -587,6 +591,9 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if not isinstance(identity, dict) or "producer_run" not in identity:
             problems.append(f"{label}: {result} carries no producer run identity")
             continue
+        if identity.get("client_driver") != cell.get("client_driver"):
+            problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
+                            f"{cell.get('client_driver')!r}")
         digest = receipt_digest(receipt)
         if cell.get("evidence_digest") != digest:
             problems.append(f"{label}: evidence_digest is not the digest of its receipt")
