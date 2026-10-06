@@ -54,7 +54,13 @@
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
         },
-        "release_bucket": { "enum": ["must-fix", "prove-against-candidate"] },
+        "release_bucket": { "enum": ["must-fix-before-cut", "prove-against-candidate"] },
+        "client_driver": {
+          "description": "The desktop driver that produced this cell (R40, honua-release#376). The receipt identity binds the same driver.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9-]{1,32}$"
+        },
         "deployment_target": { "type": "string", "minLength": 1 },
         "required_tier": { "enum": ["pr", "nightly", "release"] },
         "licensed": { "type": "boolean" },
@@ -105,6 +111,7 @@
                     "canonical_client": { "type": "string" },
                     "client_version": { "type": "string" },
                     "client_version_observed": { "type": "string" },
+                    "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
                     "deployment_target": { "type": "string" },
                     "maturity": { "enum": ["supported", "preview", "experimental", "roadmap", "deprecated", "internal"] },
                     "required_tier": { "enum": ["pr", "nightly", "release"] },
@@ -274,7 +281,7 @@
           "then": {
             "properties": {
               "entitlement_policy_revision": {
-                "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1"]
+                "enum": ["honua-pro-feature-subscriptions-v1", "esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"]
               },
               "evidence_receipt": {
                 "oneOf": [
@@ -328,7 +335,7 @@
         },
         {
           "if": {
-            "properties": { "entitlement_policy_revision": { "const": "esri-arcgis-pro-arcpy-v1" } },
+            "properties": { "entitlement_policy_revision": { "enum": ["esri-arcgis-pro-arcpy-v1", "licensed-desktop-client-v1"] } },
             "required": ["entitlement_policy_revision"]
           },
           "then": {

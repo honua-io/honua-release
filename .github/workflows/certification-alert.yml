@@ -1,0 +1,76 @@
+# Tracking issue for the scheduled cross-repo conformance gate (certification.yml).
+#
+# certification.yml is also a reusable gate called by the release train, whose top-level permissions
+# do not grant `issues: write` — a called workflow cannot request a scope its caller lacks. So the
+# alert lives here, reacting to the completed scheduled run: a failure opens ONE issue (or comments on
+# the open one), and a later scheduled run whose gate report says overallStatus=pass comments so the
+# owner can close it. A run that concludes success with overallStatus=blocked (tolerated under
+# bootstrap enforcement) produced no passing certification, so it is never announced as a recovery.
+
+name: certification-alert
+
+on:
+  workflow_run:
+    workflows: ["certification"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  track:
+    if: ${{ github.event.workflow_run.event == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE_TITLE: "certification: scheduled cross-repo conformance gate failed"
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Create or update the conformance tracking issue
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --state open --search "\"${ISSUE_TITLE}\" in:title" --json number,title \
+            --jq "map(select(.title == \"${ISSUE_TITLE}\")) | .[0].number // empty")"
+
+          if [[ "${CONCLUSION}" == "success" ]]; then
+            [[ -n "${existing}" ]] || exit 0
+            report_dir="${RUNNER_TEMP}/certification-gate-report"
+            overall="missing"
+            if gh run download "${RUN_ID}" --name certification-gate-report --dir "${report_dir}"; then
+              overall="$(jq -r '.overallStatus // "missing"' "${report_dir}/gate-report.json")"
+            fi
+            if [[ "${overall}" == "pass" ]]; then
+              gh issue comment "${existing}" --body "Scheduled certification run passed again: ${RUN_URL} (\`${HEAD_SHA}\`, overallStatus \`pass\`). Close this issue once the cause is understood."
+            else
+              gh issue comment "${existing}" --body "Scheduled certification run ${RUN_URL} (\`${HEAD_SHA}\`) concluded \`success\` but its gate report says overallStatus \`${overall}\`, not \`pass\`: no passing certification yet. Leave this issue open."
+            fi
+            exit 0
+          fi
+          if [[ "${CONCLUSION}" == "cancelled" || "${CONCLUSION}" == "skipped" ]]; then
+            exit 0
+          fi
+
+          body_file="${RUNNER_TEMP}/certification-alert.md"
+          {
+            echo "The scheduled \`certification\` run on trunk concluded **\`${CONCLUSION}\`**."
+            echo
+            echo "- Run: ${RUN_URL} (the \`certification-gate-report\` artifact and the job summary carry the per-gate \`why\`)"
+            echo "- Commit: \`${HEAD_SHA}\`"
+            echo
+            echo "A \`fail\` here is usually stale cross-repo evidence rather than a change in this repository: the GeoServices certification bundle certifying a different image than \`platform-manifest.yaml\` pins, or the CITE snapshot diverged from / older than the candidate. Refresh the evidence or re-pin, then confirm with workflow_dispatch."
+          } > "${body_file}"
+
+          if [[ -n "${existing}" ]]; then
+            gh issue comment "${existing}" --body-file "${body_file}"
+          else
+            gh issue create --title "${ISSUE_TITLE}" --body-file "${body_file}"
+          fi

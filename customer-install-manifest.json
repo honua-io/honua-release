@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "status": "pre-cut-rehearsal",
-  "verifiedAt": "2026-09-08",
+  "verifiedAt": "2026-10-05",
   "exactCandidateQualification": false,
   "cleanWindowsQualification": false,
   "sourceManifest": "platform-manifest.yaml",
   "server": {
-    "image": "ghcr.io/honua-io/honua-server@sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
-    "sourceSha": "5a657b9eaed7cdeac915d584ad58c028a52ca61e",
+    "image": "ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
     "platform": "linux/amd64",
-    "manifestUrl": "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
+    "manifestUrl": "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
     "credentialsRequired": false,
-    "selectionSource": "https://github.com/honua-io/honua-server/pull/4429",
-    "verification": "Anonymous GHCR OCI index bytes SHA-256 and amd64 configuration revision checked 2026-09-08"
+    "selectionSource": "https://github.com/honua-io/honua-release/issues/416",
+    "verification": "platform-manifest.yaml components.honua-server (nightly-87966c3); anonymous GHCR OCI index bytes SHA-256 and amd64 configuration revision checked 2026-10-05; licensing-disabled runtime assertion not yet run on this profile"
   },
   "clients": {
     "honua-admin": {
@@ -63,10 +63,10 @@
     "honua-sdk-js": {
       "ecosystem": "npm",
       "package": "@honua/sdk-js",
-      "version": "0.1.13",
-      "integrity": "sha512-uOWu3CCJDr8bagmTZvJB4EmqfKwupBisPVZRP2akpeS+5uyEbGZRHmFBlekINZiTqM5C3CqaCfXQ9vGX9EdGiA==",
+      "version": "0.1.14",
+      "integrity": "sha512-4AZPZ/505HVTnk7hdEK8820BevUf6qtAHPK2DFASmdsCrYjJxELUMIZgoy4KxkqOwh/440zf8tdirSoLsM9jfg==",
       "repository": "honua-io/honua-sdk-js",
-      "sourceSha": "718f539137b0b86fe1bc373a8b6f063a6ba32137",
+      "sourceSha": "984425f9d88b3c699cbd4766538ba311b48790aa",
       "publicationState": "published",
       "targets": [
         "node",
@@ -76,15 +76,15 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-sdk-js",
-      "filename": "sdk-js-0.1.13.tgz"
+      "filename": "sdk-js-0.1.14.tgz"
     },
     "honua-mcp-server": {
       "ecosystem": "npm",
       "package": "@honua/mcp-server",
-      "version": "0.1.13",
-      "integrity": "sha512-n+W+2of15Kmcy7yxHCCshYSPJazae8mBTAdaN1BLakLPNvEElhjNDXlTkb9kW5yxizMGACTBIReGLveNKpSW4w==",
+      "version": "0.1.14",
+      "integrity": "sha512-dxwoQoysTJkf3iyNDOlyrM31J4x6k8wTJZRXTAk7qy5sXnnOshqjVJqETFL1acKKvKF6owHwABPZoWZOAhHTTw==",
       "repository": "honua-io/honua-sdk-js",
-      "sourceSha": "18494f45bb8687df9925d665a4573581a3f64fff",
+      "sourceSha": "704eb9573eec7320cad19edc588486986c5a4046",
       "publicationState": "published",
       "targets": [
         "node",
@@ -92,7 +92,7 @@
       ],
       "credentialsRequired": false,
       "pinSource": "platform-manifest.yaml#clientArtifacts.honua-mcp-server",
-      "filename": "mcp-server-0.1.13.tgz"
+      "filename": "mcp-server-0.1.14.tgz"
     },
     "honua-sdk-dotnet": {
       "ecosystem": "nuget",
