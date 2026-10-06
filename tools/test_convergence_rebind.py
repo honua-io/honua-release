@@ -561,3 +561,31 @@ def test_nightly_grpc_ruling_refuses_a_changed_grpc_surface(tmp_path, change):
     with pytest.raises(MODULE.Finding, match="re-check which RPCs it implements"):
         MODULE.verify_grpc_scope(root, tree, NEXT_SERVER)
     assert (root / MODULE.GRPC_OPERATIONS).read_bytes() == before
+
+
+def test_nightly_refuses_a_desktop_cell_whose_driver_is_not_its_requirement_or_receipt():
+    # R40: client_driver and release_bucket are part of the staged requirement, and the receipt
+    # binds the driver that produced it, so a rewritten driver is refused before the ledger binds.
+    recorded = night()
+    observed = next(index for index, cell in enumerate(recorded["ledger"]["cells"]) if cell["result"] == "pass")
+    base = recorded["ledger"]["cells"][observed]
+    [row] = [row for row in recorded["catalog"]["requirements"]
+             if all(row.get(key) == base.get(key) for key in MODULE.LEDGER_IDENTITY[:7])]
+
+    def staged(cell_driver, receipt_driver, requirement_driver="pyqgis"):
+        catalog, ledger = night()["catalog"], night()["ledger"]
+        target = next(item for item in catalog["requirements"]
+                      if all(item.get(key) == row.get(key) for key in MODULE.LEDGER_IDENTITY[:7]))
+        target.update(client_driver=requirement_driver, release_bucket="must-fix-before-cut")
+        cell = ledger["cells"][observed]
+        cell.update(client_driver=cell_driver, release_bucket="must-fix-before-cut")
+        cell["evidence_receipt"]["identity"]["client_driver"] = receipt_driver
+        rehash(cell)
+        return ledger, catalog
+
+    ledger, catalog = staged("qgis-ui", "qgis-ui")
+    assert "cells do not match the staged catalog" in refusal(ledger=ledger, catalog=catalog)
+    ledger, catalog = staged("pyqgis", "qgis-ui")
+    message = refusal(ledger=ledger, catalog=catalog)
+    assert "receipt driver 'qgis-ui' is not the cell driver 'pyqgis'" in message
+    assert "cells do not match the staged catalog" not in message
