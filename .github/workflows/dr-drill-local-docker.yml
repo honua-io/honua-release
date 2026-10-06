@@ -253,6 +253,7 @@ jobs:
     needs: [full-platform, restore]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
@@ -280,6 +281,7 @@ jobs:
     needs: attest
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
