@@ -55,8 +55,7 @@ stac:
 esri:
   # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
   # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
-  # The licensed arcpy/ArcGIS Pro desktop lanes are explicitly out of scope for CI and are NOT
-  # federated here -- claiming them would be claiming a certification nobody ran.
+  # Desktop results are referenced only by their private producer evidence identifiers.
   #
   # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
   # honua-server image at evaluation time, so the bundle is bound to the exact build being released.

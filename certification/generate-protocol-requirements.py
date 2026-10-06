@@ -754,10 +754,10 @@ def main() -> None:
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
         ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        ("ArcGIS Pro/arcpy", PRO["version"], "desktop-arcpy", "windows-licensed", True, "esri-arcgis-pro-arcpy-v1", MUST_FIX),
+        ("desktop scripting client", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, "esri-arcgis-pro-arcpy-v1", MUST_FIX),
     ]
-    # The licensed scripting client is the tuple whose label carries a slash. Its public canonical
-    # name is the product label; the driver id is that label's suffix.
+    # The public catalog keeps only the governed lane and policy identifiers; its canonical
+    # client name remains the nominative product label.
     scripting_canonical = PRO["name"]
     scripting_driver = scripting_lane = scripting_entitlement = None
     for service in esri_index["services"]:
@@ -771,11 +771,11 @@ def main() -> None:
             if "query" in case["name"].lower():
                 facets += ["pagination", "limit", "crs-axis"]
             for client, version, lane, target, licensed, entitlement_policy, bucket in esri_clients:
-                scripting = "/" in client
+                scripting = lane == "desktop-arcpy"
                 if scripting and scripting_driver is None:
                     scripting_lane = lane
                     scripting_entitlement = entitlement_policy
-                    scripting_driver = client.rsplit("/", 1)[-1]
+                    scripting_driver = lane.removeprefix("desktop-")
                 add(
                     capability=f"esri.{service['service']}", surface=service["service"], operation=case["id"],
                     client=scripting_canonical if scripting else client,

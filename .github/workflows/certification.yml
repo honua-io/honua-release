@@ -14,7 +14,7 @@
 #     is not FULL, and — the anti-false-pass guard — on NO verdict at all (vacuous/no evidence). That
 #     parser is self-tested in-job before it is trusted.
 #   - the Esri GeoServices lanes and OGC/STAC CITE suites need a live candidate server (+ a licensed
-#     Esri toolchain for arcpy lanes), which CI does not have, so they report BLOCKED honestly until
+#     private evidence identifiers, so they report BLOCKED honestly until
 #     a candidate endpoint is provided — never a fake green.
 #
 # enforcement (same contract as gate-artifact-consume):
@@ -258,7 +258,7 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────────
   # esri-geoservices — BLOCKED: the honua-esri-compat lanes need a live candidate server AND a
-  # licensed Esri toolchain (arcpy / ArcGIS Maps SDK), which CI does not have. The false-pass that
+  # private producer evidence identifier. The false-pass that
   # mattered (honua-esri-compat#25) is fixed upstream; this job runs the lanes once a candidate
   # endpoint + toolchain are provided (HONUA_SERVER_URL), and reports BLOCKED until then.
   # ───────────────────────────────────────────────────────────────────────────

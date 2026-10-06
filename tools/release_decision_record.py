@@ -42,10 +42,18 @@ TRAIN_KINDS = {'dry-run', 'scheduled strict', 'dispatched strict'}
 SECURITY_REVIEW = 'security-review-2026-10-03'
 TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by peer',
              'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
+DESKTOP_DETAIL = re.compile(r'(?i)arcpy|arcgis[ -]?pro|\.aprx|\.atbx')
 
 
 def issue_key(issue):
     return f"{issue['repo']}#{issue['number']}"
+
+
+def public_issue(issue):
+    """R30: retain the issue identity while keeping desktop certification detail private."""
+    if DESKTOP_DETAIL.search(issue.get('title') or ''):
+        return {**issue, 'title': f"Evidence {issue_key(issue)}"}
+    return issue
 
 
 def link(key):
@@ -214,7 +222,7 @@ def decisions(data, rules, strict=True):
             if strict:
                 raise
             bucket, reason = None, str(exc)
-        rows.append({**issue, 'bucket': bucket, 'reason': reason,
+        rows.append({**public_issue(issue), 'bucket': bucket, 'reason': reason,
                      'implementation_ticket_closed': issue['state'] == 'closed',
                      'qualified_against_candidate': False,
                      'qualification': 'not yet cut' if data['candidate_digest'] == 'not yet cut' else 'not proven; gate receipts required'})
@@ -509,6 +517,11 @@ def compact_snapshot(data):
     return prefix + ',\n  \"issues\": [\n' + ',\n'.join('    ' + json.dumps(r, ensure_ascii=False) for r in data['issues']) + '\n  ]\n}\n'
 
 
+def public_snapshot(data):
+    """Return the publishable inventory with sensitive titles reduced to identifiers."""
+    return {**data, 'issues': [public_issue(issue) for issue in data['issues']]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--refresh', action='store_true')
@@ -536,7 +549,7 @@ def main():
     if args.apply:
         # Keep newly discovered cohort members before removing any release label.
         # An interrupted write pass must remain resumable from this same inventory.
-        INPUTS.write_text(compact_snapshot(data))
+        INPUTS.write_text(compact_snapshot(public_snapshot(data)))
         apply_labels(rows, rules)
         data = refresh(data)
         rows = decisions(data, rules)
@@ -545,7 +558,7 @@ def main():
         verify_labels(rows, rules)
     artifacts = {RECORD: render(data, rows, rules), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
-        artifacts[INPUTS] = compact_snapshot(data)
+        artifacts[INPUTS] = compact_snapshot(public_snapshot(data))
     for path, text in artifacts.items():
         if args.check:
             if not path.exists() or path.read_text() != text:

@@ -147,6 +147,19 @@ def main() -> None:
     bounded_roster = json.loads(
         (ROOT / "sources" / "bounded-client-roster.v1.json").read_text(encoding="utf-8")
     )
+    desktop_client = json.loads(
+        (ROOT / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8")
+    )["clients"]["pro"]
+    LICENSED_POLICIES[desktop_client["entitlement_policy_revision"]] = (
+        desktop_client["deployment_target"], desktop_client["auth_policy_revision"]
+    )
+    scripting_policy = next(
+        row["entitlement_policy_revision"] for row in catalog["requirements"]
+        if row["client_lane"].startswith("desktop-arcpy-")
+    )
+    LICENSED_POLICIES[scripting_policy] = (
+        desktop_client["deployment_target"], desktop_client["auth_policy_revision"]
+    )
     bounded_lanes = {
         (cell["canonical_client"], cell["surface"], cell["operation"]): cell["client_lane"]
         for cell in bounded_roster["cells"]
@@ -644,7 +657,6 @@ def main() -> None:
 VERSION_LINE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
 LICENSED_POLICIES = {
     "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
-    "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
     "licensed-desktop-client-v1": ("windows-licensed", "anonymous-and-protected-v1"),
 }
 
