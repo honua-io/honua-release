@@ -3,7 +3,9 @@
 # certification.yml is also a reusable gate called by the release train, whose top-level permissions
 # do not grant `issues: write` — a called workflow cannot request a scope its caller lacks. So the
 # alert lives here, reacting to the completed scheduled run: a failure opens ONE issue (or comments on
-# the open one), and a later green scheduled run comments so the owner can close it.
+# the open one), and a later scheduled run whose gate report says overallStatus=pass comments so the
+# owner can close it. A run that concludes success with overallStatus=blocked (tolerated under
+# bootstrap enforcement) produced no passing certification, so it is never announced as a recovery.
 
 name: certification-alert
 
@@ -22,6 +24,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
       issues: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -30,6 +33,7 @@ jobs:
       CONCLUSION: ${{ github.event.workflow_run.conclusion }}
       RUN_URL: ${{ github.event.workflow_run.html_url }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
       - name: Create or update the conformance tracking issue
         run: |
@@ -38,8 +42,16 @@ jobs:
             --jq "map(select(.title == \"${ISSUE_TITLE}\")) | .[0].number // empty")"
 
           if [[ "${CONCLUSION}" == "success" ]]; then
-            if [[ -n "${existing}" ]]; then
-              gh issue comment "${existing}" --body "Scheduled certification run passed again: ${RUN_URL} (\`${HEAD_SHA}\`). Close this issue once the cause is understood."
+            [[ -n "${existing}" ]] || exit 0
+            report_dir="${RUNNER_TEMP}/certification-gate-report"
+            overall="missing"
+            if gh run download "${RUN_ID}" --name certification-gate-report --dir "${report_dir}"; then
+              overall="$(jq -r '.overallStatus // "missing"' "${report_dir}/gate-report.json")"
+            fi
+            if [[ "${overall}" == "pass" ]]; then
+              gh issue comment "${existing}" --body "Scheduled certification run passed again: ${RUN_URL} (\`${HEAD_SHA}\`, overallStatus \`pass\`). Close this issue once the cause is understood."
+            else
+              gh issue comment "${existing}" --body "Scheduled certification run ${RUN_URL} (\`${HEAD_SHA}\`) concluded \`success\` but its gate report says overallStatus \`${overall}\`, not \`pass\`: no passing certification yet. Leave this issue open."
             fi
             exit 0
           fi

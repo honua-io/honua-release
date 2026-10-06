@@ -29,16 +29,19 @@
 name: certification
 run-name: "certification ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
 
-# Pull requests run only the in-repo parser self-test (parser-selftest). The cross-repo verdict
-# depends on external evidence (GeoServices certification bundle, CITE snapshot) and the manifest pin, not on the PR:
-# with that evidence stale it failed 131/135 PR runs in one week while every conformance job
-# itself succeeded. The full gate runs daily (a failure opens/updates one tracking issue), on
-# dispatch (use it on a re-pin branch), and through the release train's workflow_call.
+# Pull requests run only the in-repo parser self-test (parser-selftest) unless they change
+# platform-manifest.yaml. The cross-repo verdict depends on external evidence (GeoServices
+# certification bundle, CITE snapshot) and the manifest pin: with that evidence stale it failed
+# 131/135 PR runs in one week while every conformance job itself succeeded. A PR that re-pins the
+# manifest changes the verdict's input, so it still runs the full gate (see `scope`). The full gate
+# also runs daily (a failure opens/updates one tracking issue), on dispatch, and through the
+# release train's workflow_call.
 on:
   pull_request:
     paths:
       - "certification/parse_conformance.py"
       - "certification/test_conformance.py"
+      - "platform-manifest.yaml"
       - ".github/workflows/certification.yml"
   schedule:
     - cron: "40 6 * * *"
@@ -85,6 +88,36 @@ permissions:
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
+  # scope — full=true on every non-PR event, and on a PR that changes platform-manifest.yaml
+  # (a re-pin must clear the conformance verdict before it merges, not on the next daily run).
+  # ───────────────────────────────────────────────────────────────────────────
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.decide.outputs.full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          fetch-depth: 2
+      - name: Decide gate scope
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          full=true
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            # pull_request checks out the merge commit; its first parent is the base tip.
+            if git diff --name-only HEAD^1 HEAD | grep -qx 'platform-manifest.yaml'; then
+              echo "platform-manifest.yaml changed: running the full conformance gate"
+            else
+              full=false
+            fi
+          fi
+          echo "full=${full}" >> "$GITHUB_OUTPUT"
+
+  # ───────────────────────────────────────────────────────────────────────────
   # parser-selftest — the only part of this gate a pull request can change. The conformance-mcp
   # job runs the same self-test again before trusting the parser on a full run.
   # ───────────────────────────────────────────────────────────────────────────
@@ -105,7 +138,8 @@ jobs:
   # mcp — REAL: run geospatial-mcp's conformance checker against the pinned candidate.
   # ───────────────────────────────────────────────────────────────────────────
   conformance-mcp:
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: [scope]
+    if: ${{ needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1          # v7.0.1 - honua-release: gate-fragment action + parser + manifest
@@ -229,7 +263,8 @@ jobs:
   # endpoint + toolchain are provided (HONUA_SERVER_URL), and reports BLOCKED until then.
   # ───────────────────────────────────────────────────────────────────────────
   conformance-esri-geoservices:
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: [scope]
+    if: ${{ needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -354,7 +389,8 @@ jobs:
   # ogc-stac — BLOCKED: OGC API (CITE TEAM Engine) + STAC conformance need a live candidate server.
   # ───────────────────────────────────────────────────────────────────────────
   conformance-ogc-stac:
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: [scope]
+    if: ${{ needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -508,8 +544,8 @@ jobs:
   # (Identical decision logic to gate-artifact-consume so the train sees one report schema.)
   # ───────────────────────────────────────────────────────────────────────────
   report:
-    needs: [conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac]
-    if: ${{ always() && github.event_name != 'pull_request' }}
+    needs: [scope, conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac]
+    if: ${{ always() && needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
