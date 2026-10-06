@@ -28,3 +28,6 @@ artifacts/dr-drill-local-docker/receipt-key.pem
 # Run-scoped cloud journey receipts and private client workspaces
 e2e/cloud-evidence/
 e2e/.cloud-evidence-selftest/
+
+# Local driver runtime evidence
+/out/

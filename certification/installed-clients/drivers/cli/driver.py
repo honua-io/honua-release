@@ -7,9 +7,11 @@ customer types it. The proposal step goes through the co-installed ``honua-mcp-p
 terminal journey governed proposals come from the agent surface and a separate operator approves
 them with ``honua admin operate approveOperationProposal``.
 
-``--client pypi`` runs the ``honua`` console script that the pinned ``honua-sdk`` wheel installs
-(``honua-admin`` is installed with it and ships no command). Every step that script has no command
-for is reported unsupported, never skipped silently.
+``--client pypi`` runs the ``honua`` console script that the pinned ``honua-sdk`` wheel installs, with
+the operator commands (``honua datasource|layer|proposal``) that the co-installed ``honua-admin``
+wheel mounts on it. ``HONUA_PYTHON_CLI=1`` keeps the script in Python even if a JavaScript ``honua``
+is on ``PATH``. The server has no REST call that submits a proposal, so this cell also raises it
+through the manifest-pinned ``honua-mcp-proxy``, exactly as the npm cell does.
 
 The driver never makes an HTTP request itself. Credentials travel only in each child's
 environment, and command output stays in the job log. Prints one JSON observation per step.
@@ -60,19 +62,19 @@ API = {
     },
     "pypi": {
         "discover": "honua services --format json",
-        "create-datasource": "(no datasource command in the PyPI honua CLI)",
-        "test-datasource": "(no datasource command in the PyPI honua CLI)",
-        "publish": "(no publish command in the PyPI honua CLI)",
-        "list": "(no published-layer listing command in the PyPI honua CLI)",
-        "query": "(no query command in the PyPI honua CLI)",
-        "served": "(no query command in the PyPI honua CLI)",
-        "propose-publication": "(no proposal command in the PyPI honua CLI)",
-        "self-approval-refused": "(no approval command in the PyPI honua CLI)",
-        "approve": "(no approval command in the PyPI honua CLI)",
-        "proposal-resolved": "(no proposal command in the PyPI honua CLI)",
-        "approved-served": "(no query command in the PyPI honua CLI)",
-        "unpublish": "(no unpublish command in the PyPI honua CLI)",
-        "unpublished-refused": "(no query command in the PyPI honua CLI)",
+        "create-datasource": "honua datasource create --password-env",
+        "test-datasource": "honua datasource test",
+        "publish": "honua layer publish",
+        "list": "honua layer list --service-name",
+        "query": "honua query <service> <layer> --where",
+        "served": "honua query <service> <layer> --count --json",
+        "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
+        "self-approval-refused": "honua proposal approve (proposer key)",
+        "approve": "honua proposal approve (approver key)",
+        "proposal-resolved": "honua proposal read --wait (approver key)",
+        "approved-served": "honua query <service> <layer>",
+        "unpublish": "honua layer unpublish --service-name",
+        "unpublished-refused": "honua query <service> <layer>",
     },
 }
 
@@ -99,6 +101,8 @@ class Cli:
         # Startup variables only (PYTHONPATH carries the isolated PyPI wheels); no SDKREG_*, E2E_* or HONUA_* value.
         env = {key: os.environ[key] for key in (*probes.PROXY_INHERITED_ENV, "PYTHONPATH") if key in os.environ}
         env.update({"HONUA_BASE_URL": BASE, "HONUA_CONFIG_HOME": str(self.profiles), **credentials})
+        if self.client == "pypi":
+            env["HONUA_PYTHON_CLI"] = "1"
         print(f"[cli-driver] $ honua {' '.join(args)}", file=sys.stderr)
         proc = subprocess.run([self.honua, *args], env=env, cwd=self.workdir, text=True, capture_output=True,
                               timeout=COMMAND_TIMEOUT, check=False)
@@ -171,6 +175,36 @@ def geojson_rows(document: dict[str, Any]) -> dict[str, Any]:
     return {"features": features}
 
 
+def propose(cli: Cli, state: dict[str, Any], proposer: str, served_before_approval: Callable[[], bool]) -> dict[str, Any]:
+    """As the proposer, raise the publication through the installed MCP proxy (the agent surface)."""
+    if not cli.proxy or not proposer:
+        raise Unsupported("the installed honua-mcp-proxy or the proposer principal is unavailable")
+    proposal = PLAN["proposal"]
+    arguments = {"connectionId": state["connection"], "schema": proposal["schema"], "table": proposal["table"],
+                 "layerName": proposal["layerName"], "serviceName": proposal["service"], "geometryColumn": "geom",
+                 "geometryType": proposal["geometryType"], "srid": 4326, "primaryKey": "gid"}
+    # Scrubbed proxy environment: the proposer's key is the only credential it can read. As in the
+    # terminal journey, the agent discovers the publish tool in the setup view before calling it; the
+    # default view does not list it. (The 0.1.12 proxy dropped the initialize selector, sdk-js#1875, so
+    # the view is also named on tools/list.)
+    with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer}) as session:
+        session.initialize(workflow_view="setup")
+        listed = session.request("tools/list", {"view": "setup"})
+        names = {tool.get("name") for tool in (listed.get("result") or {}).get("tools") or []}
+        if "error" in listed or "honua_publish_service" not in names:
+            raise probes.McpError("honua_publish_service is not in the proposer's setup view")
+        response = session.request("tools/call", {"name": "honua_publish_service", "arguments": arguments})
+    if "error" in response:
+        raise probes.McpError(f"tools/call refused: {response['error'].get('code')}")
+    result = response.get("result") or {}
+    content = result.get("structuredContent") or {}
+    state["proposal"] = content.get("proposalId")
+    if not state["proposal"]:
+        state.pop("proposal")
+    return {**{key: content.get(key) for key in ("status", "requiresApproval", "proposalId")},
+            "servedBeforeApproval": served_before_approval()}
+
+
 def run_npm(cli: Cli, state: dict[str, Any]) -> None:
     # The operator's root key reads data (HONUA_API_KEY) and runs admin operations (HONUA_ADMIN_KEY).
     root = os.environ["SDKREG_API_KEY"]
@@ -230,33 +264,6 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         return {"count": counted.get("count")}
     step("npm", "served", served, state, ("layer",))
 
-    def propose() -> dict[str, Any]:
-        if not cli.proxy or not proposer:
-            raise Unsupported("the installed honua-mcp-proxy or the proposer principal is unavailable")
-        arguments = {"connectionId": state["connection"], "schema": proposal["schema"], "table": proposal["table"],
-                     "layerName": proposal["layerName"], "serviceName": proposal["service"], "geometryColumn": "geom",
-                     "geometryType": proposal["geometryType"], "srid": 4326, "primaryKey": "gid"}
-        # Scrubbed proxy environment: the proposer's key is the only credential it can read. As in the
-        # terminal journey, the agent discovers the publish tool in the setup view before calling it; the
-        # default view does not list it. (The pinned proxy drops the initialize selector, sdk-js#1875, so
-        # the view is also named on tools/list.)
-        with probes.McpProxySession([cli.proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": proposer}) as session:
-            session.initialize(workflow_view="setup")
-            listed = session.request("tools/list", {"view": "setup"})
-            names = {tool.get("name") for tool in (listed.get("result") or {}).get("tools") or []}
-            if "error" in listed or "honua_publish_service" not in names:
-                raise probes.McpError("honua_publish_service is not in the proposer's setup view")
-            response = session.request("tools/call", {"name": "honua_publish_service", "arguments": arguments})
-        if "error" in response:
-            raise probes.McpError(f"tools/call refused: {response['error'].get('code')}")
-        result = response.get("result") or {}
-        content = result.get("structuredContent") or {}
-        state["proposal"] = content.get("proposalId")
-        if not state["proposal"]:
-            state.pop("proposal")
-        return {**{key: content.get(key) for key in ("status", "requiresApproval", "proposalId")},
-                "servedBeforeApproval": served_before_approval()}
-
     def served_before_approval() -> bool:
         """The proposed service must not be served until the approver acts (unknown service: exit 1, 404)."""
         try:
@@ -265,7 +272,7 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
             if exc.status == 404:
                 return False
             raise
-    step("npm", "propose-publication", propose, state, ("connection",))
+    step("npm", "propose-publication", lambda: propose(cli, state, proposer, served_before_approval), state, ("connection",))
 
     def read_proposal(key: str, profile: str) -> dict[str, Any]:
         return cli.json(["admin", "operate", "getOperationProposal", "--path", f"id={state['proposal']}",
@@ -326,15 +333,121 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
 
 
 def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
+    # The same principals as the npm cell: the root key reads data (HONUA_API_KEY) and runs the operator
+    # commands (HONUA_ADMIN_KEY); the proposer and approver keys reach the proposal commands one at a time.
+    root = os.environ["SDKREG_API_KEY"]
+    proposer, approver = os.environ.get("SDKREG_PROPOSER_KEY", ""), os.environ.get("SDKREG_APPROVER_KEY", "")
+    sites, life, proposal = PLAN["sites"], PLAN["lifecycle"], PLAN["proposal"]
+    data = {"HONUA_API_KEY": root}
+    admin = {"HONUA_ADMIN_KEY": root}
+
     def discover() -> dict[str, Any]:
-        rows = cli.json(["services", "--format", "json", "--base-url", BASE], {"HONUA_API_KEY": os.environ["SDKREG_API_KEY"]})
+        rows = cli.json(["services", "--format", "json"], data)
         return {"services": sorted({row["name"] for row in rows})}
     step("pypi", "discover", discover, state)
-    # honua-admin 0.1.9 ships no command; the honua console script has services, layers, style apply
-    # and doctor only. Every other step of the workflow has no command to run.
-    for name in API["pypi"]:
-        if name != "discover":
-            emit("pypi", name, unsupported=f"honua-admin ships no command and the honua console script has none for {name}")
+
+    def create() -> dict[str, Any]:
+        # The password is never on the command line: --password-env names the child-only variable. The
+        # PyPI request has no provider field (a datasource is PostGIS).
+        database = life["database"]
+        created = cli.json(["datasource", "create", "--name", life["connectionName"], "--host", database["host"],
+                            "--port", str(database["port"]), "--database", database["databaseName"],
+                            "--username", database["username"], "--password-env", "HONUA_DB_PASSWORD",
+                            "--ssl-mode", "Disable", "--json"],
+                           {**admin, "HONUA_DB_PASSWORD": os.environ["SDKREG_DB_PASSWORD"]})
+        state["connection"] = created.get("connectionId")
+        return {"connectionId": state["connection"]}
+    step("pypi", "create-datasource", create, state)
+
+    def test() -> dict[str, Any]:
+        # Exit 1 when the connection is unhealthy; the error then reaches the oracle.
+        result = cli.json(["datasource", "test", state["connection"], "--json"], admin)
+        return {"success": result.get("isHealthy") is True}
+    step("pypi", "test-datasource", test, state, ("connection",))
+
+    def publish() -> dict[str, Any]:
+        published = cli.json(["layer", "publish", state["connection"], "--schema", "honua_data", "--table", life["table"],
+                              "--layer-name", life["layerName"], "--service-name", life["service"],
+                              "--geometry-column", "geom", "--geometry-type", life["geometryType"], "--srid", "4326",
+                              "--primary-key", "gid", "--json"], admin)
+        state["layer"] = published["layerId"]
+        return {key: published.get(key) for key in ("layerId", "layerName", "serviceName", "enabled")}
+    step("pypi", "publish", publish, state, ("connection",))
+
+    def listed() -> dict[str, Any]:
+        layers = cli.json(["layer", "list", state["connection"], "--service-name", life["service"], "--json"], admin)
+        return {"layers": [{"layerId": layer.get("layerId"), "enabled": layer.get("enabled")} for layer in layers]}
+    step("pypi", "list", listed, state, ("layer",))
+
+    step("pypi", "query", lambda: geojson_rows(cli.json(
+        ["query", sites["service"], str(sites["layerId"]), "--where", sites["where"]], data)), state)
+
+    def served() -> dict[str, Any]:
+        counted = cli.json(["query", life["service"], str(state["layer"]), "--count", "--json"], data)
+        return {"count": counted.get("count")}
+    step("pypi", "served", served, state, ("layer",))
+
+    def served_before_approval() -> bool:
+        """The proposed service must not be served until the approver acts (unknown service: exit 1, 404)."""
+        try:
+            return bool(cli.json(["layers", proposal["service"], "--format", "json"], data))
+        except CommandFailed as exc:
+            if exc.status == 404:
+                return False
+            raise
+    step("pypi", "propose-publication", lambda: propose(cli, state, proposer, served_before_approval), state, ("connection",))
+
+    def read_proposal(*extra: str) -> dict[str, Any]:
+        return cli.json(["proposal", "read", state["proposal"], *extra, "--json"], {"HONUA_ADMIN_KEY": approver})
+
+    def self_approval() -> None:
+        try:
+            cli.run(["proposal", "approve", state["proposal"], "--json"], {"HONUA_ADMIN_KEY": proposer})
+        except CommandFailed as exc:
+            emit("pypi", "self-approval-refused", error=error_of(exc), observed={"status": read_proposal().get("status")})
+            return
+        emit("pypi", "self-approval-refused", observed={"status": read_proposal().get("status")})
+    if "proposal" in state:
+        try:
+            self_approval()
+        except Exception as exc:  # noqa: BLE001 - the follow-up read failed
+            traceback.print_exc(file=sys.stderr)
+            emit("pypi", "self-approval-refused", observed={"status": None, "readError": error_of(exc)})
+    else:
+        emit("pypi", "self-approval-refused", skipped="depends on ['proposal'], which did not complete")
+
+    def approve() -> dict[str, Any]:
+        approved = cli.json(["proposal", "approve", state["proposal"], "--json"], {"HONUA_ADMIN_KEY": approver})
+        state["approved"] = True
+        return {"status": approved.get("status")}
+    step("pypi", "approve", approve, state, ("proposal",))
+
+    def resolved() -> dict[str, Any]:
+        # --wait polls to a terminal status (exit 1 at the deadline, which the oracle reports).
+        record = read_proposal("--wait", "--wait-timeout", str(PROPOSAL_POLL_SECONDS))
+        if record.get("status") == "Succeeded":
+            state["resolved"] = True
+        return {key: record.get(key) for key in ("status", "kind", "requestedBy", "resolvedBy")}
+    step("pypi", "proposal-resolved", resolved, state, ("approved",))
+
+    def approved_served() -> dict[str, Any]:
+        layers = cli.json(["layers", proposal["service"], "--format", "json"], data)
+        if len(layers) != 1:
+            raise RuntimeError(f"the approved service lists {len(layers)} layers")
+        return geojson_rows(cli.json(["query", proposal["service"], str(layers[0]["id"])], data))
+    step("pypi", "approved-served", approved_served, state, ("resolved",))
+
+    def unpublish() -> dict[str, Any]:
+        summary = cli.json(["layer", "unpublish", state["connection"], str(state["layer"]),
+                            "--service-name", life["service"], "--json"], admin)
+        state["unpublished"] = True
+        return {"layerId": summary.get("layerId"), "enabled": summary.get("enabled")}
+    step("pypi", "unpublish", unpublish, state, ("layer",))
+
+    def refused() -> dict[str, Any]:
+        document = cli.json(["query", life["service"], str(state["layer"])], data)
+        return {"features": len(document.get("features") or [])}
+    step("pypi", "unpublished-refused", refused, state, ("unpublished",))
 
 
 def main() -> int:

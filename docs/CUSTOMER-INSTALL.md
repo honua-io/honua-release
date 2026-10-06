@@ -1,24 +1,27 @@
 # Customer installation artifact profile
 
 `customer-install-manifest.json` records the published artifacts used by the
-Windows PowerShell and Linux customer guides. The public site publishes these
-same bytes at <https://honua.io/data/customer-install-manifest.json>, so a customer
-does not need access to this release-engineering repository.
+Windows PowerShell and Linux customer guides. The public site is required to copy
+these bytes to <https://honua.io/data/customer-install-manifest.json>. Until that
+URL publishes the file successfully, use the manifest in this repository; do not
+represent the site copy as available.
 
 This is an explicitly **pre-cut rehearsal** profile, not a signed release lock
 or a change to `components.honua-server` / the certification ledger. The server
-image comes from the successful Windows rehearsal in
-[server PR #4429](https://github.com/honua-io/honua-server/pull/4429); its anonymous
-OCI index digest and amd64 source label were rechecked on 2026-09-08. Both Honua
-Python clients are pinned in `platform-manifest.yaml`; their wheel identities
+image is the one `platform-manifest.yaml` pins as `components.honua-server`
+(`nightly-87966c3`, by digest), which contains the licensing-disabled mode
+([release issue #416](https://github.com/honua-io/honua-release/issues/416)). Its
+anonymous OCI index digest and amd64 source label were rechecked on 2026-10-05.
+The licensing-disabled runtime assertion has not been run against this profile,
+so it does not claim candidate or clean-Windows qualification. Both Honua Python clients are pinned in `platform-manifest.yaml`; their wheel identities
 and the MCP transport wheel come from the linked version-specific PyPI JSON.
 Both Python source revisions are the commit in the PyPI publication certificate of
 the pinned wheel. Alternative npm and NuGet pins are copied from the platform manifest;
 they are not required by the Python journey and are not new compatibility claims.
 
 Every artifact in this profile is public and requires no package-read credential:
-GHCR, npm, PyPI, and the optional .NET client `Honua.Sdk` 1.10.1, which installs
-anonymously from nuget.org (`dotnet add package Honua.Sdk --version 1.10.1`; no
+GHCR, npm, PyPI, and the optional .NET client `Honua.Sdk` 1.10.3, which installs
+anonymously from nuget.org (`dotnet add package Honua.Sdk --version 1.10.3`; no
 GitHub Packages feed, PAT, or `nuget.config` source is needed). Do not require
 GitHub login for any journey.
 

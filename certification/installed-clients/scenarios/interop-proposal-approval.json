@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "id": "interop-proposal-approval",
+  "title": "Governed publication across clients: the JS SDK proposes, the honua admin CLI approves as a separate principal, the .NET SDK verifies",
+  "promise": "A publication the JS SDK proposes is only published after a different principal approves it with the typed admin CLI (the proposer's own approval is refused with 403), and the .NET SDK then sees exactly the approved version and content at the final publication.",
+  "steps": [
+    {
+      "id": "create-draft",
+      "client": "honua-sdk-js",
+      "api": "HonuaStudioLifecycleClient.drafts.create",
+      "oracle": "interop-draft-valid",
+      "consumes": [],
+      "description": "As the proposer, create a map package draft bound to the fixture's sites layer; the server validates it."
+    },
+    {
+      "id": "save-version",
+      "client": "honua-sdk-js",
+      "api": "HonuaStudioLifecycleClient.drafts.createContentVersion",
+      "oracle": "interop-version-saved",
+      "consumes": [
+        {
+          "step": "create-draft",
+          "handoff": "draft"
+        }
+      ],
+      "description": "Save the draft as an immutable content version."
+    },
+    {
+      "id": "request-publication",
+      "client": "honua-sdk-js",
+      "api": "HonuaStudioLifecycleClient.publicationRequests.create",
+      "oracle": "interop-publication-proposed",
+      "consumes": [
+        {
+          "step": "save-version",
+          "handoff": "version"
+        }
+      ],
+      "description": "Request publication of the saved version at the fixture route; the server records a proposal awaiting approval."
+    },
+    {
+      "id": "self-approval-refused",
+      "client": "honua-sdk-js",
+      "api": "honua admin operate approveOperationProposal --profile proposer --yes",
+      "oracle": "self-approval-refused",
+      "consumes": [
+        {
+          "step": "request-publication",
+          "handoff": "proposal"
+        }
+      ],
+      "description": "The proposer tries to approve its own proposal with the typed admin CLI; the command fails with 403 and the proposal is still awaiting approval."
+    },
+    {
+      "id": "approve",
+      "client": "honua-sdk-js",
+      "api": "honua admin operate approveOperationProposal --profile approver --yes",
+      "oracle": "proposal-approved",
+      "consumes": [
+        {
+          "step": "request-publication",
+          "handoff": "proposal"
+        }
+      ],
+      "description": "The separate approver approves the proposal with the typed admin CLI."
+    },
+    {
+      "id": "proposal-resolved",
+      "client": "honua-sdk-js",
+      "api": "honua admin operate getOperationProposal --profile approver (until terminal)",
+      "oracle": "interop-proposal-resolved",
+      "consumes": [
+        {
+          "step": "request-publication",
+          "handoff": "proposal"
+        }
+      ],
+      "description": "Read the proposal until it is terminal (bounded): it succeeded, was requested by the proposer and resolved by the approver."
+    },
+    {
+      "id": "publication-url",
+      "client": "honua-sdk-js",
+      "api": "HonuaStudioLifecycleClient.publicationRequests.poll",
+      "oracle": "interop-publication-active",
+      "consumes": [
+        {
+          "step": "request-publication",
+          "handoff": "publication request"
+        }
+      ],
+      "description": "Poll the publication request the JS SDK created to Active; it carries the final publication URL at the fixture route."
+    },
+    {
+      "id": "published-pointer",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaStudioPackageClient.GetContentItemPointersAsync",
+      "oracle": "interop-published-pointer",
+      "consumes": [
+        {
+          "step": "save-version",
+          "handoff": "version"
+        },
+        {
+          "step": "approve",
+          "handoff": "approval"
+        }
+      ],
+      "description": "Read the content item's pointers through the .NET SDK; the published pointer is the version the JS SDK saved."
+    },
+    {
+      "id": "published-content",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaStudioPackageClient.GetVersionAsync",
+      "oracle": "interop-published-content",
+      "consumes": [
+        {
+          "step": "published-pointer",
+          "handoff": "published version"
+        }
+      ],
+      "description": "Read the published version through the .NET SDK; its map body and content hash equal what the JS SDK saved."
+    },
+    {
+      "id": "published-url",
+      "client": "honua-sdk-dotnet",
+      "api": "(no published Studio route reader in Honua.Sdk)",
+      "oracle": "interop-published-url",
+      "consumes": [
+        {
+          "step": "publication-url",
+          "handoff": "publication URL"
+        }
+      ],
+      "description": "Read the final publication URL through the .NET SDK; it serves the approved version's content."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ]
+}

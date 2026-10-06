@@ -30,6 +30,7 @@ SCENARIOS = regression.load_scenarios()
 MATRIX = json.loads((HERE / "matrix.json").read_text())
 CLI_DRIVER = (HERE / "drivers/cli/driver.py").read_text()
 MCP_DRIVER = (HERE / "drivers/mcp/driver.py").read_text()
+INTEROP_ORCHESTRATOR = (HERE / "interop/orchestrator.py").read_text()
 # (scenario family, client artifact) -> the driver program that runs it.
 DRIVER_SOURCES = {
     ("sdk", "honua-sdk-python-wheel"): (HERE / "drivers/python/driver.py").read_text(),
@@ -104,10 +105,19 @@ def observation(scenario, step, **payload):
 class ContractTests(unittest.TestCase):
     def test_every_scenario_names_one_api_per_step_for_every_client_of_its_family(self):
         self.assertEqual(set(SCENARIOS), {"sdk-auth", "sdk-admin-lifecycle", "sdk-geoservices", "sdk-ogc-features",
-                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac", "cli-workflow", "mcp-workflow"})
+                                          "sdk-ogc-tiles", "sdk-ogc-processes", "sdk-stac", "cli-workflow", "mcp-workflow",
+                                          "interop-publish-query-edit", "interop-import-render-buffer",
+                                          "interop-proposal-approval", "interop-api-key-revocation"})
         for scenario in SCENARIOS.values():
             steps = [step["id"] for step in scenario["steps"]]
             family = regression.scenario_family(scenario["id"])
+            if family == "interop":
+                # An interop step names its own client (one of the family's) and its API.
+                self.assertNotIn("clients", scenario)
+                for step in scenario["steps"]:
+                    self.assertIn(step["client"], regression.FAMILIES[family], (scenario["id"], step["id"]))
+                    self.assertTrue(step["api"], (scenario["id"], step["id"]))
+                continue
             self.assertEqual(set(scenario["clients"]), set(regression.FAMILIES[family]), scenario["id"])
             for client, apis in scenario["clients"].items():
                 self.assertEqual(list(apis), steps, (scenario["id"], client))
@@ -115,6 +125,10 @@ class ContractTests(unittest.TestCase):
     def test_drivers_report_exactly_the_contract_apis(self):
         # A driver that drifts from the contract would make a failure name the wrong SDK API.
         for scenario in SCENARIOS.values():
+            if regression.scenario_family(scenario["id"]) == "interop":
+                for step in scenario["steps"]:
+                    self.assertIn(json.dumps(step["api"])[1:-1], INTEROP_ORCHESTRATOR, (scenario["id"], step["id"]))
+                continue
             for client, apis in scenario["clients"].items():
                 source = DRIVER_SOURCES[(regression.scenario_family(scenario["id"]), client)]
                 for step, api in apis.items():
@@ -131,8 +145,8 @@ class ContractTests(unittest.TestCase):
     def test_scenario_validation_rejects_incomplete_contracts(self):
         base = copy.deepcopy(SCENARIOS["sdk-stac"])
         cases = [
-            (lambda s: s.update(id="stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
-            (lambda s: s.update(id="gui-stac"), "sdk-\\*, cli-\\* or mcp-\\* id"),
+            (lambda s: s.update(id="stac"), "sdk-\\*, cli-\\*, mcp-\\* or interop-\\* id"),
+            (lambda s: s.update(id="gui-stac"), "sdk-\\*, cli-\\*, mcp-\\* or interop-\\* id"),
             (lambda s: s.update(steps=[]), "no steps"),
             (lambda s: s["steps"][0].update(oracle="vibes"), "known oracle"),
             (lambda s: s.update(receiptFields=["client", "body"]), "allowlist"),
@@ -154,7 +168,11 @@ class ContractTests(unittest.TestCase):
             family_scenarios = {sid for sid in SCENARIOS if regression.scenario_family(sid) == family}
             cells = [cell for cell in SUITE_CELLS if cell["driver"] == driver]
             self.assertEqual(sorted(cell["scenario"] for cell in cells), sorted(family_scenarios), driver)
-            self.assertTrue(all(cell["artifact"] == artifact for cell in cells), driver)
+            if family == "interop":
+                # An interop cell's artifact is the client that starts its hand-off.
+                artifact = None
+                self.assertTrue(all(cell["artifact"] == SCENARIOS[cell["scenario"]]["steps"][0]["client"] for cell in cells))
+            self.assertTrue(all(artifact is None or cell["artifact"] == artifact for cell in cells), driver)
         for cell in SUITE_CELLS:
             regression.validate_suite_cell(cell, SCENARIOS, run.BLOCKER)
 
@@ -546,20 +564,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(ok({"error": {"status": 401}, "observed": {"status": "AwaitingApproval"}}))
         self.assertFalse(ok({"observed": {"status": "AwaitingApproval"}}))
 
-    def test_pypi_cli_steps_are_blocked_only_when_unsupported(self):
+    def test_pypi_cli_cell_is_judged_on_every_step(self):
+        # honua-sdk 0.1.13 + honua-admin 0.1.10 have a command for each step (sdk-python#258): nothing is blocked,
+        # and a step the Python CLI reports unsupported now fails the cell.
         cell_ = workflow_cell("pypi-cli-workflow")
-        observations = workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
-            step: {"unsupported": "no command"} for step in cell_["blockedSteps"]})
-        observations.update(workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
-            "discover": {"observed": {"services": [FIXTURE["sites"]["service"]]}}}))
-        self.assertEqual(evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())[0], "blocked")
-        # A command that starts working must flip the step, and discovery can never be blocked.
-        working = passing_cli_observations()
-        observations[("cli-workflow", "served")] = {**working[("cli-workflow", "served")],
-                                                    "api": SCENARIOS["cli-workflow"]["clients"]["honua-sdk-python-wheel"]["served"]}
+        self.assertEqual((cell_["status"], cell_.get("blockedSteps")), ("active", None))
+        apis = SCENARIOS["cli-workflow"]["clients"]["honua-sdk-python-wheel"]
+        observations = {key: {**value, "api": apis[key[1]]} for key, value in passing_cli_observations().items()}
         status, detail, _ = evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())
-        self.assertEqual(status, "fail")
-        self.assertIn("set it active", detail)
+        self.assertEqual(status, "pass", detail)
+        observations[("cli-workflow", "served")] = {"scenario": "cli-workflow", "step": "served", "api": apis["served"],
+                                                    "unsupported": "no command"}
+        self.assertEqual(evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())[0], "fail")
 
     def test_proposal_must_not_be_served_before_approval(self):
         pending = {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1"}
@@ -621,7 +637,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
 
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
-        cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        # The committed cell is active: @honua/mcp-server 0.1.13 keeps the setup view (sdk-js#1875).
+        committed, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        status, detail, _ = evaluate_workflow(committed, passing_mcp_observations(), "honua-mcp-server", plan)
+        self.assertEqual(status, "pass", detail)
+        # A re-blocked cell still names only the dropped selector, and a fixed proxy flips it.
+        cell_ = {**committed, "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-js/issues/1875"],
+                 "blockedSteps": {"setup-tools-list": {
+                     "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875",
+                     "signature": r"returned view 'default' \(default\.v1\) with 12 tools"}}}
         default = passing_mcp_observations()[("mcp-workflow", "default-tools-list")]["observed"]
         status, detail, rows = evaluate_workflow(cell_, passing_mcp_observations(setup=default), "honua-mcp-server", plan)
         self.assertEqual(status, "blocked", detail)

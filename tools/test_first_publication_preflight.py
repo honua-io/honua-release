@@ -21,6 +21,8 @@ SYMBOL = b"symbol-bytes"
 GRPC = b"grpc-bytes"
 BSR = b"bsr-bytes"
 TARBALL_DEPS = {"@honua/sdk-js": "0.1.10-beta.0", "maplibre-gl": "6.1.0"}
+SDK_SOURCE = "a" * 40
+MCP_SOURCE = "b" * 40
 
 
 def _sha(data: bytes) -> str:
@@ -43,6 +45,25 @@ def _tarball(dependencies: dict) -> bytes:
     return output.getvalue()
 
 
+def _npm_tarball(package: str, version: str) -> bytes:
+    output = io.BytesIO()
+    document = json.dumps({"name": package, "version": version}).encode()
+    with gzip.GzipFile(fileobj=output, mode="wb", mtime=0) as compressed, \
+            tarfile.open(fileobj=compressed, mode="w") as archive:
+        info = tarfile.TarInfo("package/package.json")
+        info.size = len(document)
+        archive.addfile(info, io.BytesIO(document))
+    return output.getvalue()
+
+
+def _sri(data: bytes) -> str:
+    return "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
+
+
+SDK_TARBALL = _npm_tarball("@honua/sdk-js", "0.1.9-beta.0")
+MCP_TARBALL = _npm_tarball("@honua/mcp-server", "0.1.4-beta.0")
+
+
 def _manifest() -> dict:
     return {
         "clientArtifacts": {
@@ -54,7 +75,8 @@ def _manifest() -> dict:
             "honua-sdk-js": {
                 "package": "@honua/sdk-js",
                 "version": "0.1.9-beta.0",
-                "integrity": "sha512-test",
+                "integrity": _sri(SDK_TARBALL),
+                "sourceSha": SDK_SOURCE,
             },
             "honua-sdk-python-wheel": {
                 "package": "honua-sdk",
@@ -80,8 +102,11 @@ def _manifest() -> dict:
 
 
 class World:
-    def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR, sdk_next_status=404):
+    def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR, sdk_next_status=404,
+                 sdk_git_head=SDK_SOURCE, sdk_tarball=SDK_TARBALL):
         self.sdk_next_status = sdk_next_status
+        self.sdk_git_head = sdk_git_head
+        self.sdk_tarball = sdk_tarball
         self.nuget_versions = nuget_versions or ["1.6.4", "1.10.0"]
         self.dependencies = dependencies or dict(TARBALL_DEPS)
         self.grpc_body = grpc_body
@@ -137,7 +162,19 @@ class World:
         if url.startswith("https://files.pythonhosted.org/"):
             return 200, WHEEL
         if url == preflight.npm_version_url("@honua/sdk-js", "0.1.9-beta.0"):
-            return 200, json.dumps({"dist": {"integrity": "sha512-test"}}).encode()
+            return 200, json.dumps({"gitHead": self.sdk_git_head, "dist": {
+                "integrity": _sri(SDK_TARBALL),
+                "tarball": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz",
+            }}).encode()
+        if url == "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz":
+            return 200, self.sdk_tarball
+        if url == preflight.npm_version_url("@honua/mcp-server", "0.1.4-beta.0"):
+            return 200, json.dumps({"gitHead": MCP_SOURCE, "dist": {
+                "integrity": _sri(MCP_TARBALL),
+                "tarball": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.1.4-beta.0.tgz",
+            }}).encode()
+        if url == "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.1.4-beta.0.tgz":
+            return 200, MCP_TARBALL
         if url == preflight.npm_version_url("@honua/sdk-js", "0.1.10-beta.0"):
             if self.sdk_next_status == 200:
                 return 200, json.dumps({"dist": {"integrity": "sha512-next"}}).encode()
@@ -346,6 +383,64 @@ def test_refuses_a_registry_host_outside_the_allowlist():
         preflight._require_host("https://evil.example/package.nupkg")
 
 
+def test_pinned_npm_sdk_is_downloaded_bytes_bound_to_its_source():
+    receipt = _receipt()
+    sdk = _channel(receipt, "npm:@honua/sdk-js")
+    assert sdk["disposition"] == "published"
+    assert sdk["evidence_class"] == "downloaded-bytes"
+    assert sdk["source_sha"] == SDK_SOURCE
+    assert sdk["files"] == [{
+        "filename": "sdk-js-0.1.9-beta.0.tgz",
+        "registry_integrity": _sri(SDK_TARBALL),
+        "sha256": _sha(SDK_TARBALL),
+        "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz",
+    }]
+    assert "npm:@honua/mcp-server" not in {channel["id"] for channel in receipt["channels"]}
+    preflight.audit(receipt, _manifest())
+
+
+def test_pinned_npm_companion_is_downloaded_too():
+    manifest = _manifest()
+    manifest["clientArtifacts"]["honua-mcp-server"] = {
+        "package": "@honua/mcp-server",
+        "version": "0.1.4-beta.0",
+        "integrity": _sri(MCP_TARBALL),
+        "sourceSha": MCP_SOURCE,
+        "filename": "mcp-server-0.1.4-beta.0.tgz",
+    }
+    world = World()
+    receipt = preflight.build_receipt(
+        world, manifest, observed_at="2026-10-04T00:00:00Z",
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+    )
+    mcp = _channel(receipt, "npm:@honua/mcp-server")
+    assert mcp["disposition"] == "published"
+    assert mcp["source_sha"] == MCP_SOURCE
+    assert mcp["files"][0]["sha256"] == _sha(MCP_TARBALL)
+    preflight.audit(receipt, manifest)
+    receipt["channels"] = [channel for channel in receipt["channels"] if channel["id"] != "npm:@honua/mcp-server"]
+    with pytest.raises(preflight.PreflightError, match="npm:@honua/mcp-server receipt does not record"):
+        preflight.audit(receipt, manifest)
+
+
+def test_npm_git_head_other_than_the_pinned_source_fails_closed():
+    with pytest.raises(preflight.PreflightError, match="gitHead .* not clientArtifacts.honua-sdk-js.sourceSha"):
+        _receipt(sdk_git_head="c" * 40)
+
+
+def test_npm_tarball_bytes_other_than_the_integrity_fail_closed():
+    with pytest.raises(preflight.PreflightError, match="tarball does not match the npm integrity"):
+        _receipt(sdk_tarball=_npm_tarball("@honua/sdk-js", "0.1.10-beta.0"))
+
+
+def test_receipt_for_another_npm_pin_fails_the_manifest_audit():
+    receipt = _receipt()
+    manifest = _manifest()
+    manifest["clientArtifacts"]["honua-sdk-js"]["sourceSha"] = "d" * 40
+    with pytest.raises(preflight.PreflightError, match="npm:@honua/sdk-js receipt does not record"):
+        preflight.audit(receipt, manifest)
+
+
 def test_committed_receipt_matches_the_manifest_pin_and_audits():
     manifest = yaml.safe_load((preflight.REPO_ROOT / "platform-manifest.yaml").read_text())
     receipt = preflight.load_receipt(preflight.RECEIPT_PATH)
@@ -367,6 +462,12 @@ def test_committed_receipt_matches_the_manifest_pin_and_audits():
     assert "sha256:" + match["sha256"] == pinned_python["digest"]
     grpc = _channel(receipt, "nuget:Geospatial.Grpc")
     assert grpc["files"][0]["sha256"] == preflight.GRPC_NUPKG_SHA256
+    for row in ("honua-sdk-js", "honua-mcp-server"):
+        pinned_npm = manifest["clientArtifacts"][row]
+        npm = _channel(receipt, f"npm:{pinned_npm['package']}")
+        assert npm["disposition"] == "published"
+        assert npm["source_sha"] == pinned_npm["sourceSha"]
+        assert npm["files"][0]["registry_integrity"] == pinned_npm["integrity"]
     assert not any(channel.get("files") for channel in receipt["channels"] if channel["id"].startswith("nuget:Honua.Mobile"))
     assert receipt["blockers"], "the committed receipt still names its real blockers"
     for channel_id in preflight.COMPONENT_CHANNELS:

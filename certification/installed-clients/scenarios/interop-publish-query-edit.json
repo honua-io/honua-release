@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "interop-publish-query-edit",
+  "title": "One layer across the SDKs: .NET publishes, Python reads, JS edits, .NET reads the edit back",
+  "promise": "A layer one SDK publishes is the same layer every other SDK reads and edits: the Python SDK sees the .NET SDK's publication with exact ids, count and ordinates, an edit the JS SDK makes through those ids lands, and the .NET SDK reads the edited state back.",
+  "steps": [
+    {
+      "id": "publish",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaAdminClient.PublishLayerAsync",
+      "oracle": "interop-layer-published",
+      "consumes": [],
+      "description": "Publish the fixture's handoff table as a new service and layer through the .NET admin client."
+    },
+    {
+      "id": "query",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.GeoServicesFeatureServerClient.query",
+      "oracle": "interop-handoff-features",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        }
+      ],
+      "description": "Query the layer the .NET SDK published; attributes and ordinates equal the fixture rows, and each row's object id is handed to the editor."
+    },
+    {
+      "id": "ids",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.GeoServicesFeatureServerClient.query(extra_params returnIdsOnly)",
+      "oracle": "interop-handoff-ids",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        }
+      ],
+      "description": "Query the published layer's object ids; they are the fixture gids."
+    },
+    {
+      "id": "count",
+      "client": "honua-sdk-python-wheel",
+      "api": "honua_sdk.HonuaClient.query(return_count_only=True)",
+      "oracle": "interop-handoff-count",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        }
+      ],
+      "description": "Count the published layer's features; the count is the number of fixture rows."
+    },
+    {
+      "id": "edit",
+      "client": "honua-sdk-js",
+      "api": "HonuaFeatureLayer.applyEdits(updates)",
+      "oracle": "interop-edit-success",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        },
+        {
+          "step": "query",
+          "handoff": "object ids"
+        }
+      ],
+      "description": "Update the fixture's edit target (attributes and geometry) through the object id the Python SDK read."
+    },
+    {
+      "id": "read-back",
+      "client": "honua-sdk-dotnet",
+      "api": "IHonuaFeatureServerClient.QueryAsync",
+      "oracle": "interop-edited-features",
+      "consumes": [
+        {
+          "step": "publish",
+          "handoff": "layer"
+        },
+        {
+          "step": "edit",
+          "handoff": "edit"
+        }
+      ],
+      "description": "Query the layer again; it holds exactly the fixture rows with the JS SDK's edit applied."
+    }
+  ],
+  "receiptFields": [
+    "client",
+    "version",
+    "integrity",
+    "scenario",
+    "step",
+    "api",
+    "status",
+    "oracle"
+  ]
+}
