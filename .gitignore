@@ -31,3 +31,6 @@ e2e/.cloud-evidence-selftest/
 
 # Local driver runtime evidence
 /out/
+
+# Release dashboard build output (published to GitHub Pages, never committed)
+/site/

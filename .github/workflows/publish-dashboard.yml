@@ -1,0 +1,84 @@
+# Release dashboard (honua-release#464): publishes site/index.html to GitHub Pages. The page tracks
+# every open ticket in the 2026.1 decision cohort by bucket and repository, with its in-flight
+# coverage and the burn-down series, from the committed decision-record inputs
+# (tools/release_dashboard.py; docs/2026.1-release-decision-maintenance.md).
+#
+# Cadence: the decision record is refreshed by committing new inputs to trunk, so a push that
+# changes them (or the burn-down series, or the renderer) republishes; workflow_dispatch republishes
+# on demand with fresh PR coverage. Pull requests build the page without deploying it.
+#
+# Coverage reads open PRs only (read-only GitHub API). RELEASE_GH_TOKEN, when set, also covers
+# private repositories; with the default token their tickets show "not observed", never "uncovered".
+# The page never links a private repository and never renders a PR title or body (R30).
+#
+# Operator step: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions" must be set
+# once on honua-io/honua-release, or configure-pages fails the build job.
+
+name: publish-dashboard
+
+on:
+  push:
+    branches: [trunk]
+    paths:
+      - "docs/2026.1-release-decision-inputs.json"
+      - "docs/2026.1-release-decision-overrides.json"
+      - "docs/2026.1-release-burndown.jsonl"
+      - "tools/release_dashboard.py"
+      - "tools/release_decision_record.py"
+      - ".github/workflows/publish-dashboard.yml"
+  pull_request:
+    paths:
+      - "docs/2026.1-release-burndown.jsonl"
+      - "tools/release_dashboard.py"
+      - "tools/test_release_dashboard.py"
+      - "tools/release_decision_record.py"
+      - ".github/workflows/publish-dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-dashboard-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - name: Self-test the dashboard renderer
+        run: python -m pytest tools/test_release_dashboard.py -q
+      - name: Render the dashboard with live in-flight coverage
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+        run: python tools/release_dashboard.py --live --out site/index.html
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
