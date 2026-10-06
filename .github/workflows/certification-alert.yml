@@ -54,7 +54,7 @@ jobs:
             echo "- Run: ${RUN_URL} (the \`certification-gate-report\` artifact and the job summary carry the per-gate \`why\`)"
             echo "- Commit: \`${HEAD_SHA}\`"
             echo
-            echo "A \`fail\` here is usually stale cross-repo evidence rather than a change in this repository: the Esri bundle certifying a different image than \`platform-manifest.yaml\` pins, or the CITE snapshot diverged from / older than the candidate. Refresh the evidence or re-pin, then confirm with workflow_dispatch."
+            echo "A \`fail\` here is usually stale cross-repo evidence rather than a change in this repository: the GeoServices certification bundle certifying a different image than \`platform-manifest.yaml\` pins, or the CITE snapshot diverged from / older than the candidate. Refresh the evidence or re-pin, then confirm with workflow_dispatch."
           } > "${body_file}"
 
           if [[ -n "${existing}" ]]; then

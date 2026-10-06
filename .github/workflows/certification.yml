@@ -30,7 +30,7 @@ name: certification
 run-name: "certification ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
 
 # Pull requests run only the in-repo parser self-test (parser-selftest). The cross-repo verdict
-# depends on external evidence (Esri bundle, CITE snapshot) and the manifest pin, not on the PR:
+# depends on external evidence (GeoServices certification bundle, CITE snapshot) and the manifest pin, not on the PR:
 # with that evidence stale it failed 131/135 PR runs in one week while every conformance job
 # itself succeeded. The full gate runs daily (a failure opens/updates one tracking issue), on
 # dispatch (use it on a re-pin branch), and through the release train's workflow_call.
