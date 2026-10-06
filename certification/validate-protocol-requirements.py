@@ -765,6 +765,11 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
         driver, bucket = row["client_driver"], row["release_bucket"]
         if driver not in by_driver or bucket not in (must_fix, prove):
             raise ValueError(f"Ungoverned desktop driver or bucket on {row['surface']}/{row['operation']}.")
+        if row["capability_key"] in preview and row["addressable_by_client"]:
+            raise ValueError(
+                f"{driver} row {row['surface']}/{row['operation']} carries a supported requirement on "
+                f"Preview capability {row['capability_key']!r} (preview-surfaces ruling)."
+            )
         by_driver[driver].append(row)
         version = pro["version"] if driver in (scripting_driver, "pro-ui") else qgis["version"]
         if row["client_version"] != version:
@@ -813,7 +818,7 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
     if set(ogc_cases) - scripting_operations or any(
         assignment["capability_key"] not in scripting_capabilities
         for assignment in source["ogc_assignments"]
-        if assignment["capability_key"] in implemented
+        if assignment["capability_key"] in implemented and assignment["capability_key"] not in preview
     ):
         raise ValueError("The licensed scripting driver must cover every supported OGC matrix case and implemented OGC surface.")
     pyqgis_rows = by_driver["pyqgis"]
@@ -841,6 +846,8 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
         unknown = (set(surface["pro_core"]) | set(surface["qgis_core"])) - set(functions)
         if unknown:
             raise ValueError(f"UI surface {surface['surface']} cores name unknown functions {sorted(unknown)}.")
+        if surface["capability_key"] in preview:
+            continue
         for function in functions:
             expected_ui["pro-ui"][(surface["surface"], function)] = (
                 must_fix if function in surface["pro_core"] else prove

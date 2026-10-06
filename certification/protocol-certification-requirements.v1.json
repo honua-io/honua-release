@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-04-complete.21",
+  "revision": "2026-10-06-complete.22",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -47,7 +47,7 @@
     "ruling": "R40",
     "drivers": {
       "arcpy": {
-        "must-fix-before-cut": 279,
+        "must-fix-before-cut": 278,
         "prove-against-candidate": 0
       },
       "pyqgis": {
@@ -56,19 +56,19 @@
       },
       "pro-ui": {
         "must-fix-before-cut": 15,
-        "prove-against-candidate": 50
+        "prove-against-candidate": 45
       },
       "qgis-ui": {
         "must-fix-before-cut": 31,
-        "prove-against-candidate": 34
+        "prove-against-candidate": 29
       }
     }
   },
   "production": {
     "revision": "2026-10-04.3",
     "cells": {
-      "produced": 1527,
-      "unproduced": 999,
+      "produced": 1526,
+      "unproduced": 989,
       "not_addressable": 495
     },
     "producers": [
@@ -236,7 +236,7 @@
         "except_client_lanes": [
           "desktop-pro-ui"
         ],
-        "cells": 1044
+        "cells": 1043
       }
     ],
     "unproduced": [
@@ -284,7 +284,7 @@
         "owner": "honua-io/honua-server",
         "issue": "https://github.com/honua-io/honua-server/issues/5259",
         "missing_producer": "No workflow drives the licensed desktop client UI against a candidate image; esri-sdk-certification.yml runs only the scripting and SDK lanes, so the pro-ui driver cells have no receipt producer.",
-        "cells": 65
+        "cells": 60
       },
       {
         "client_lanes": [
@@ -306,7 +306,7 @@
         "owner": "honua-io/honua-server",
         "issue": "https://github.com/honua-io/honua-server/issues/3481",
         "missing_producer": "client-interop-nightly.yml builds its own server image and accepts only a lanes input; it needs candidate_image, candidate_source_sha and candidate_cut_at inputs so its .cert.json receipts name the resolved candidate image digest.",
-        "cells": 596
+        "cells": 591
       },
       {
         "client_lanes": [
@@ -73217,60 +73217,6 @@
     {
       "capability_key": "serve.wmts",
       "surface": "wmts",
-      "operation": "add-layer",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-pro-ui",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "pro-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "add-layer",
-      "maturity": "supported",
-      "canonical_client": "QGIS/qgis-ui",
-      "client_lane": "desktop-qgis-ui",
-      "client_version": "3.44.x",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "qgis-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
       "operation": "capabilities",
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
@@ -73295,60 +73241,6 @@
     {
       "capability_key": "serve.wmts",
       "surface": "wmts",
-      "operation": "connect",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-pro-ui",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "pro-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "connect",
-      "maturity": "supported",
-      "canonical_client": "QGIS/qgis-ui",
-      "client_lane": "desktop-qgis-ui",
-      "client_version": "3.44.x",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "qgis-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
       "operation": "get-tile",
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
@@ -73368,195 +73260,6 @@
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "0.2.0-alpha.1",
       "budget_expectations": null
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "identify",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-pro-ui",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "pro-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "identify",
-      "maturity": "supported",
-      "canonical_client": "QGIS/qgis-ui",
-      "client_lane": "desktop-qgis-ui",
-      "client_version": "3.44.x",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "qgis-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "query",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-pro-ui",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "pro-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "query",
-      "maturity": "supported",
-      "canonical_client": "QGIS/qgis-ui",
-      "client_lane": "desktop-qgis-ui",
-      "client_version": "3.44.x",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "qgis-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "render",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-pro-ui",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "pro-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "render",
-      "maturity": "supported",
-      "canonical_client": "QGIS/qgis-ui",
-      "client_lane": "desktop-qgis-ui",
-      "client_version": "3.44.x",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "prove-against-candidate",
-      "client_driver": "qgis-ui"
-    },
-    {
-      "capability_key": "serve.wmts",
-      "surface": "wmts",
-      "operation": "serve.wmts",
-      "maturity": "supported",
-      "canonical_client": "ArcGIS Pro",
-      "client_lane": "desktop-arcpy-ogc",
-      "client_version": "3.7.x",
-      "deployment_target": "windows-licensed",
-      "required_tier": "nightly",
-      "licensed": true,
-      "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "auth",
-        "crs-axis",
-        "media-schema"
-      ],
-      "contract_revision": "desktop-client-certification@2026-10-04.3",
-      "auth_policy_revision": "anonymous-and-protected-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
-      "budget_expectations": null,
-      "release_bucket": "must-fix-before-cut",
-      "client_driver": "arcpy"
     },
     {
       "capability_key": "serve.wmts",

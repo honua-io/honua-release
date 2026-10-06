@@ -390,6 +390,11 @@ def main() -> None:
             test_ids: list[str] | None = None,
             release_bucket: str | None = None,
             client_driver: str | None = None) -> None:
+        # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
+        # the bounded roster: an addressable driver row on a Preview capability would be a
+        # supported requirement the release gate demands. PyQGIS keeps its not-applicable grid row.
+        if client_driver is not None and addressable and capability in preview_capabilities:
+            return
         key = (surface, operation, client, version, target)
         if key in seen:
             return
@@ -919,7 +924,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-04-complete.21",
+        "revision": "2026-10-06-complete.22",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
