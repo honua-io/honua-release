@@ -38,6 +38,17 @@ def _candidate(committed):
     return server["digest"], server["sha"]
 
 
+# An explicit rehearsal server distinct from the certified candidate (the 2026-09-08 rehearsal pin),
+# so the drift rules are exercised whether or not the committed profile matches the candidate.
+REHEARSAL_DIGEST = "sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9"
+REHEARSAL_SHA = "5a657b9eaed7cdeac915d584ad58c028a52ca61e"
+
+
+def _rehearsal(d):
+    d["server"].update(image=f"ghcr.io/honua-io/honua-server@{REHEARSAL_DIGEST}", sourceSha=REHEARSAL_SHA,
+                       manifestUrl=f"https://ghcr.io/v2/honua-io/honua-server/manifests/{REHEARSAL_DIGEST}")
+
+
 def test_committed_customer_manifest_passes(committed):
     assert _errors(committed) == []
 
@@ -95,7 +106,11 @@ def test_clean_windows_qualification_requires_exact_candidate(committed):
 
 
 def test_release_candidate_must_be_the_exact_certified_candidate(committed):
-    errors = _errors(committed, lambda d: d.update(status="release-candidate", exactCandidateQualification=True))
+    def rehearsal_as_release_candidate(d):
+        _rehearsal(d)
+        d.update(status="release-candidate", exactCandidateQualification=True)
+
+    errors = _errors(committed, rehearsal_as_release_candidate)
     assert any(error.startswith("$.exactCandidateQualification: true but the server is not the certified candidate") for error in errors)
 
 
@@ -117,13 +132,17 @@ def test_release_candidate_matching_the_candidate_must_be_in_the_ledger(committe
 def test_rehearsal_server_may_differ_from_the_candidate_but_never_half_match(committed):
     digest, sha = _candidate(committed)
 
+    assert _errors(committed, _rehearsal) == []
+
     def same_sha_other_digest(d):
+        _rehearsal(d)
         d["server"]["sourceSha"] = sha
 
     errors = _errors(committed, same_sha_other_digest)
     assert any(error.startswith("$.server: half-matches the certified candidate") for error in errors)
 
     def same_digest_other_sha(d):
+        _rehearsal(d)
         d["server"].update(image=f"ghcr.io/honua-io/honua-server@{digest}",
                            manifestUrl=f"https://ghcr.io/v2/honua-io/honua-server/manifests/{digest}")
 
@@ -132,12 +151,10 @@ def test_rehearsal_server_may_differ_from_the_candidate_but_never_half_match(com
 
 
 def test_server_candidate_drift_in_the_platform_manifest_is_detected(committed):
-    rehearsal = committed[0]["server"]
-
     def candidate_takes_rehearsal_digest(p):
-        p["components"]["honua-server"]["digest"] = rehearsal["image"].split("@", 1)[1]
+        p["components"]["honua-server"]["digest"] = REHEARSAL_DIGEST
 
-    errors = _errors(committed, platform_mutate=candidate_takes_rehearsal_digest)
+    errors = _errors(committed, _rehearsal, platform_mutate=candidate_takes_rehearsal_digest)
     assert any(error.startswith("$.server: half-matches the certified candidate") for error in errors)
 
 
