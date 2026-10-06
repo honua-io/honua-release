@@ -47,6 +47,7 @@ TERMS_DIR = ROOT / "tools" / "vendor-terms"
 VOCABULARY = TERMS_DIR / "geoservices-identifiers.v1.json"
 INTEROP = TERMS_DIR / "arcgis-rest-interop.v1.json"
 ALLOWLIST = TERMS_DIR / "allowlist.json"
+DASHBOARD_POLICY = ROOT / "tools" / "dashboard-content-policy.json"
 REPORT_SCHEMA = "honua.vendor-terms.report.v2"
 BASELINE_SCHEMA = "honua.vendor-terms.baseline.v1"
 ALLOWLIST_SCHEMA = "honua.vendor-terms.allowlist.v1"
@@ -66,7 +67,8 @@ IDENTIFIER_CHAR = re.compile(r"[A-Za-z0-9_]")
 # The R30 (honua-release#376) confidential terms are written so that this file's own source does not match
 # them (``"ArcGIS " "Pro"``, ``arc[p]y``): a confidential hit can be neither baselined nor allowlisted, so the
 # classifier cannot carry the literal terms either.
-DESKTOP_CLIENT_NAME = "ArcGIS " "Pro"
+_DASHBOARD_RESTRICTED_TERMS = tuple(json.loads(DASHBOARD_POLICY.read_text())["restricted_terms"])
+DESKTOP_CLIENT_NAME = _DASHBOARD_RESTRICTED_TERMS[0]
 # Esri product names, longest first so "ArcGIS Maps SDK for JavaScript" wins over "ArcGIS".
 PRODUCT_NAMES = (
     "ArcGIS Maps SDK for JavaScript", "ArcGIS API for JavaScript", "ArcGIS Maps SDK for .NET",
@@ -79,7 +81,8 @@ PRODUCT_NAMES = (
 PRODUCT = re.compile("|".join(re.escape(name).replace(r"\ ", r"\s+") for name in PRODUCT_NAMES),
                      re.IGNORECASE)
 # Esri marks that do not contain either substring.
-STANDALONE = re.compile(r"\b(?:Living\s+Atlas|ArcMap|ArcCatalog|Arc[P]y|ArcObjects|ArcSDE|ArcIMS)\b",
+STANDALONE = re.compile(r"\b(?:Living\s+Atlas|" + "|".join(
+    re.escape(term) for term in _DASHBOARD_RESTRICTED_TERMS[2:]) + r"|ArcObjects|ArcSDE|ArcIMS)\b",
                         re.IGNORECASE)
 BARE_MARKS = {"esri", "arcgis"}
 CANONICAL_PRODUCT = {name.lower(): name for name in PRODUCT_NAMES}

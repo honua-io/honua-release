@@ -27,6 +27,8 @@ on:
       - "docs/2026.1-release-burndown.jsonl"
       - "tools/release_dashboard.py"
       - "tools/release_decision_record.py"
+      - "tools/dashboard_content_gate.py"
+      - "tools/dashboard-content-policy.json"
       - ".github/workflows/publish-dashboard.yml"
   pull_request:
     paths:
@@ -34,6 +36,8 @@ on:
       - "tools/release_dashboard.py"
       - "tools/test_release_dashboard.py"
       - "tools/release_decision_record.py"
+      - "tools/dashboard_content_gate.py"
+      - "tools/dashboard-content-policy.json"
       - ".github/workflows/publish-dashboard.yml"
   workflow_dispatch:
 
@@ -60,6 +64,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && github.event_name != 'pull_request' && secrets.RELEASE_GH_TOKEN || github.token }}
         run: python tools/release_dashboard.py --live --out site/index.html
+      - name: Gate public dashboard content
+        run: python tools/dashboard_content_gate.py site/index.html
       - name: Configure Pages
         if: github.ref == 'refs/heads/trunk' && github.event_name != 'pull_request'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
