@@ -6,6 +6,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede stale pull-request heads only: a newer push to the same PR cancels the
+  # in-flight run for the old head. push/schedule/dispatch runs get a unique group
+  # (run_id), so trunk and manual runs are never cancelled or coalesced.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   commit-hygiene:
     uses: honua-io/.github/.github/workflows/commit-hygiene.yml@98f1eaa3f36528790f846ddae9ac40683738e852 # v1.0.0
