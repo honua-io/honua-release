@@ -27,6 +27,7 @@ INPUTS = ROOT / 'docs/2026.1-release-decision-inputs.json'
 OVERRIDES = ROOT / 'docs/2026.1-release-decision-overrides.json'
 RECORD = ROOT / 'docs/2026.1-release-decision-record.md'
 LEDGER = ROOT / 'docs/2026.1-release-decision-ledger.json'
+BURNDOWN = ROOT / 'docs/2026.1-release-burndown.jsonl'
 BUCKETS = {
     'must-fix-before-cut': 'MUST FIX BEFORE CANDIDATE CUT',
     'prove-against-candidate': 'MUST PROVE AGAINST THE CANDIDATE BEFORE GA',
@@ -92,13 +93,19 @@ def normalize(item, previous=None):
         'title': item['title'], 'state': item['state'],
         'labels': sorted(label['name'] for label in item['labels']),
         'body_sha256': hashlib.sha256((item.get('body') or '').encode()).hexdigest(),
-        'updated_at': item['updated_at'], 'family': (previous or {}).get('family'),
+        'created_at': item['created_at'], 'updated_at': item['updated_at'],
+        'family': (previous or {}).get('family'),
     }
+
+
+def org_repos():
+    """Every org repository the caller can read; the release dashboard scans the same list."""
+    return pages('orgs/honua-io/repos?per_page=100')
 
 
 def refresh(data):
     previous = {issue_key(i): i for i in data['issues']}
-    repos = pages('orgs/honua-io/repos?per_page=100')
+    repos = org_repos()
     def fetch(repo):
         return pages(f"repos/honua-io/{repo['name']}/issues?state=open&labels=release%2F2026.1&per_page=100")
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -191,7 +198,9 @@ def classify(issue, rules):
     raise ValueError(f'{key}: unclassified')
 
 
-def decisions(data, rules):
+def decisions(data, rules, strict=True):
+    """Classify every cohort issue. `strict=False` (the dashboard) keeps an issue the rules
+    cannot classify, with bucket None and the classifier's error as its reason."""
     seen = set()
     rows = []
     for issue in data['issues']:
@@ -199,7 +208,12 @@ def decisions(data, rules):
         if key in seen:
             raise ValueError(f'{key}: duplicate issue')
         seen.add(key)
-        bucket, reason = classify(issue, rules)
+        try:
+            bucket, reason = classify(issue, rules)
+        except ValueError as exc:
+            if strict:
+                raise
+            bucket, reason = None, str(exc)
         rows.append({**issue, 'bucket': bucket, 'reason': reason,
                      'implementation_ticket_closed': issue['state'] == 'closed',
                      'qualified_against_candidate': False,
@@ -467,6 +481,28 @@ def render(data, rows, rules):
     return '\n'.join(content)
 
 
+def burndown_point(data, rows):
+    """One burn-down observation: open cohort counts per bucket on the observed UTC day."""
+    counts = Counter(r['bucket'] for r in rows if r['state'] == 'open')
+    return {'date': data['observed_at'][:10], 'observed_at': data['observed_at'],
+            'open': {b: counts[b] for b in BUCKETS}}
+
+
+def read_burndown(path=None):
+    path = path or BURNDOWN
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def append_burndown(point, path=None):
+    """Idempotent per day: a later refresh on the same UTC day replaces that day's point."""
+    path = path or BURNDOWN
+    series = {p['date']: p for p in read_burndown(path)}
+    series[point['date']] = point
+    path.write_text(''.join(json.dumps(series[d], sort_keys=True) + '\n' for d in sorted(series)))
+
+
 def compact_snapshot(data):
     metadata = {k:v for k,v in data.items() if k != 'issues'}
     prefix = json.dumps(metadata, indent=2).rstrip()[:-1].rstrip()
@@ -516,6 +552,9 @@ def main():
                 raise ValueError(f'{path.name}: regeneration drift')
         else:
             path.write_text(text)
+    if args.refresh:
+        # The published dashboard draws this series; every refresh adds (or replaces) its day.
+        append_burndown(burndown_point(data, rows))
     if args.tables:
         args.tables.write_text(tables(rows) + '\n')
     print(json.dumps(dict(Counter(r['bucket'] for r in rows if r['state']=='open')), sort_keys=True))
