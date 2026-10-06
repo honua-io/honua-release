@@ -3,17 +3,21 @@
   "env": {
     "HONUA_API_KEY": {
       "value": "{candidate.apiKey}",
-      "documentedAt": "docs/quickstart.md:334 — \"Auth failed -- check HONUA_API_KEY\""
+      "documentedAt": "docs/quickstart.md:372-373 — \"Set `HONUA_API_KEY` to an API key that may edit\""
+    },
+    "HONUA_EDIT_SERVICE": {
+      "value": "maui-inspections",
+      "documentedAt": "docs/quickstart.md:373-375 — \"`HONUA_EDIT_SERVICE` to a FeatureServer service whose first layer accepts updates\"; maui-inspections is the editing scratch service e2e/harness/seed opens for writes"
     }
   },
   "substitute": {
     "https://your-honua-server.com": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "docs/quickstart.md:42 — \"a `your-honua-server.com` placeholder and need a server of your own\""
+      "documentedAt": "docs/quickstart.md:41-43 — \"the **editing** recipe below therefore keep a `your-honua-server.com` placeholder and need a server of your own\""
     },
     "your-honua-server.com:8081": {
       "value": "{candidate.grpcAddress}",
-      "documentedAt": "docs/quickstart.md:144 — \"this step uses a `your-honua-server.com` placeholder. Point it at a deployment\""
+      "documentedAt": "docs/quickstart.md:180-182 — \"This step uses a `your-honua-server.com:8081` placeholder. Point it at your server's gRPC address\""
     },
     "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",

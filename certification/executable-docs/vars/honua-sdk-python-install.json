@@ -1,10 +1,31 @@
 {
   "document": "honua-sdk-python-install",
-  "env": {},
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "INSTALL.md:144-147 — \"Admin needs a server of your own ... Set `HONUA_API_KEY` to an admin API key for your server\""
+    }
+  },
   "substitute": {
     "https://your-honua-server.com": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "INSTALL.md:68-121 — the `your-honua-server.com` placeholder for the reader's server in the verification snippets"
+      "documentedAt": "INSTALL.md:144 — \"Admin needs a server of your own\" (the `your-honua-server.com` placeholder in the admin snippet at INSTALL.md:154)"
+    },
+    "https://demo.honua.io": {
+      "value": "{candidate.baseUrl}",
+      "documentedAt": "INSTALL.md:68-71 — \"Check the install against the public, anonymous demo server at `https://demo.honua.io` ... To query your own server, change the base URL\""
+    },
+    "your-honua-server.com:8081": {
+      "value": "{candidate.grpcAddress}",
+      "documentedAt": "INSTALL.md:98-103 — \"The Honua Server quickstart serves plaintext gRPC (h2c) on port 8081. Replace `your-honua-server.com:8081` with that address\""
+    },
+    "grpc.your-honua-server.com:443": {
+      "value": "{candidate.grpcAddress}",
+      "documentedAt": "INSTALL.md:118-120 — \"terminate TLS in front of the gRPC listener ... Replace `grpc.your-honua-server.com:443` with the `host:port` of that TLS endpoint\". The candidate fixture has no TLS-terminated gRPC listener (honua-io/honua-release#423), so this points at its plaintext listener and the block is marked `doc-run: blocked` on #423"
+    },
+    "your-honua-server.com:443": {
+      "value": "{candidate.grpcAddress}",
+      "documentedAt": "INSTALL.md:118-120 — the placeholder the runner detects inside `grpc.your-honua-server.com:443`; the longer entry above replaces the whole host"
     }
   }
 }

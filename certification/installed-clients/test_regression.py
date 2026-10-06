@@ -564,20 +564,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(ok({"error": {"status": 401}, "observed": {"status": "AwaitingApproval"}}))
         self.assertFalse(ok({"observed": {"status": "AwaitingApproval"}}))
 
-    def test_pypi_cli_steps_are_blocked_only_when_unsupported(self):
+    def test_pypi_cli_cell_is_judged_on_every_step(self):
+        # honua-sdk 0.1.13 + honua-admin 0.1.10 have a command for each step (sdk-python#258): nothing is blocked,
+        # and a step the Python CLI reports unsupported now fails the cell.
         cell_ = workflow_cell("pypi-cli-workflow")
-        observations = workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
-            step: {"unsupported": "no command"} for step in cell_["blockedSteps"]})
-        observations.update(workflow_observations("cli-workflow", "honua-sdk-python-wheel", {
-            "discover": {"observed": {"services": [FIXTURE["sites"]["service"]]}}}))
-        self.assertEqual(evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())[0], "blocked")
-        # A command that starts working must flip the step, and discovery can never be blocked.
-        working = passing_cli_observations()
-        observations[("cli-workflow", "served")] = {**working[("cli-workflow", "served")],
-                                                    "api": SCENARIOS["cli-workflow"]["clients"]["honua-sdk-python-wheel"]["served"]}
+        self.assertEqual((cell_["status"], cell_.get("blockedSteps")), ("active", None))
+        apis = SCENARIOS["cli-workflow"]["clients"]["honua-sdk-python-wheel"]
+        observations = {key: {**value, "api": apis[key[1]]} for key, value in passing_cli_observations().items()}
         status, detail, _ = evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())
-        self.assertEqual(status, "fail")
-        self.assertIn("set it active", detail)
+        self.assertEqual(status, "pass", detail)
+        observations[("cli-workflow", "served")] = {"scenario": "cli-workflow", "step": "served", "api": apis["served"],
+                                                    "unsupported": "no command"}
+        self.assertEqual(evaluate_workflow(cell_, observations, "honua-sdk-python-wheel", cli_plan())[0], "fail")
 
     def test_proposal_must_not_be_served_before_approval(self):
         pending = {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1"}
