@@ -186,7 +186,7 @@ The gate reports `pass` only when every cell passes. With matrix-declared blocke
 `blocked`. That is not a pass: the nightly receipt for `installed-clients` is then not `pass`, and no
 lock is minted.
 
-Current blockers (candidate `nightly-87966c3`, pins JS 0.1.13 / MCP 0.1.13 / Python 0.1.13 + admin 0.1.10 / .NET 1.10.3):
+Current blockers (candidate `nightly-87966c3`, pins JS 0.1.14 / MCP 0.1.14 / Python 0.1.13 + admin 0.1.10 / .NET 1.10.3):
 
 | Cell | Blocked steps | Blocker |
 |---|---|---|
