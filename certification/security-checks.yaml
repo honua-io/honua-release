@@ -29,23 +29,6 @@
 #
 # Keyed by component name (must match platform-manifest.yaml components).
 
-honua-console:
-  - name: "Dependabot"
-    why: >-
-      Dependabot dependency-update check — it runs NO console build/unit/integration (Console's own
-      build/test lanes: Validate Console, Playwright smoke, and the pinned-image Live Integration
-      Testcontainers lane, are authoritative and remain in the core verdict). It is a dependency-
-      security signal owned by gate_security (where Trivy fs + Scorecard run), not build-test. On the
-      pinned SHA it went red on `private_source_authentication_failure` — the Dependabot updater could
-      not authenticate to the private GitHub Packages NuGet feed (nuget.pkg.github.com/honua-io) for
-      Honua.Sdk.Studio; that is a Dependabot feed-credential/config gap, NOT an open CVE/advisory on a
-      console dependency, so nothing is being buried here. Either way a dependency-update red is not a
-      build/test verdict and must not block the build-test gate.
-
-honua-sdk-dotnet:
-  - name: "Dependabot"
-    why: >-
-      Dependabot's dependency-update job runs no SDK compile, unit, contract, or integration tests.
-      The .NET SDK's build, API compatibility, contract conformance, and unit lanes remain in the core
-      verdict. Dependency-update and advisory findings belong to gate_security, so this signal is
-      surfaced there rather than misclassified as a build/test failure.
+# No check-run is excluded until gate-security consumes an equivalent signal for that component.
+# In particular, console and SDK dependency checks remain decisive build-test receipts.
+{}

@@ -149,6 +149,16 @@ def run(*, environment_path: Path, from_path: Path, to_path: Path, store: Path, 
         operation["transitions"].append({"state": "Resumed", "at": now()})
     else:
         operation = _new_operation(env, from_lock, to_lock, from_digest, to_digest)
+    incompatible_schema = next(
+        (child for child in operation["children"]
+         if child["kind"] == "schema" and child.get("compatibleWithTarget") is False), None)
+    if incompatible_schema:
+        operation["status"] = "ManualInterventionRequired"
+        operation["terminalAt"] = now()
+        operation["transitions"].append({"state": operation["status"], "at": now()})
+        atomic_write(state_path, operation)
+        atomic_write(receipt_path, _receipt(operation))
+        return operation
     operation["status"] = "Running"
     operation["transitions"].append({"state": "Running", "at": now()})
     processed = 0

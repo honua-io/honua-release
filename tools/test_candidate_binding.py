@@ -162,7 +162,8 @@ def test_non_default_branch_train_metadata_is_refused():
         "path": ".github/workflows/release-train.yml",
         "event": "workflow_dispatch",
         "status": "completed",
-        "conclusion": "success",
+            "conclusion": "success",
+            "updated_at": "2026-07-01T00:00:00Z",
     }
     ok, why, identity = cb.validate_train_run_metadata(
         run,
@@ -219,6 +220,7 @@ def test_scheduled_nightly_minting_run_is_accepted_only_when_promotion_allows_it
         "event": "schedule",
         "status": "completed",
         "conclusion": "success",
+        "updated_at": "2026-07-01T00:00:00Z",
     }
     minting = (".github/workflows/release-train.yml", ".github/workflows/nightly-certification.yml")
 
@@ -246,6 +248,7 @@ def test_validate_run_cli_accepts_repeated_paths_and_events(tmp_path):
         "head_repository": {"full_name": "honua-io/honua-release"},
         "head_branch": "trunk", "head_sha": "c" * 40, "path": ".github/workflows/nightly-certification.yml",
         "event": "schedule", "status": "completed", "conclusion": "success",
+        "updated_at": "2026-07-01T00:00:00Z",
     }
     for name, value in (("run", run), ("repo", repository), ("branch", {"name": "trunk", "protected": True})):
         (tmp_path / f"{name}.json").write_text(json.dumps(value))

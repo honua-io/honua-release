@@ -29,7 +29,7 @@ _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 LIVE_REPORT_MAX_AGE_HOURS = 24
 REQUIRED_RELEASE_GATES = frozenset({
     "manifest", "artifact-consume", "e2e", "cloud-parity", "build-test", "contract", "contract-live",
-    "conformance", "security", "sbom", "observability", "docs", "upgrade", "evidence",
+    "conformance", "security", "security-findings", "sbom", "observability", "docs", "upgrade", "evidence",
     "protocol-certification", "dr",
 })
 
@@ -202,6 +202,13 @@ def validate_train_run_metadata(
     expected_url = f"https://github.com/{expected_repository}/actions/runs/{run_id}"
     if run_url != expected_url:
         return False, "selected run URL does not match its repository and run id", None
+    updated_at = run.get("updated_at")
+    try:
+        completed_at = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+        if completed_at.tzinfo is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        return False, "selected run has no valid timezone-aware updated_at", None
 
     identity = {
         "run_id": str(run_id),
@@ -212,6 +219,7 @@ def validate_train_run_metadata(
         "source_branch": source_branch,
         "default_branch": default_branch,
         "workflow_path": run["path"],
+        "updated_at": updated_at,
     }
     return True, f"selected run is a successful release train from default branch {default_branch!r}", identity
 
@@ -380,6 +388,7 @@ def verify_candidate_binding(
     train_run_attempt: int,
     train_run_url: str,
     certification_mode: str,
+    certification_time: datetime | None = None,
 ) -> tuple[bool, str]:
     """Verify candidate bytes and report identity against trusted Actions run metadata."""
     try:
@@ -445,7 +454,7 @@ def verify_candidate_binding(
     if train.get("certificationMode") != report_mode:
         return False, "gate report dry_run does not match bound train certificationMode"
     if report_mode == "live":
-        ok, why = validate_live_report(report)
+        ok, why = validate_live_report(report, now=certification_time)
         if not ok:
             return False, why
 

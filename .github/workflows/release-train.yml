@@ -300,6 +300,10 @@ jobs:
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
     secrets: inherit
 
+  gate_security_findings:
+    needs: freeze
+    uses: ./.github/workflows/gate-security-findings.yml
+
   gate_contract:               # b) proto breaking-change via buf (REST/SDK-API diff blocked). Phase 2.
     needs: freeze
     uses: ./.github/workflows/gate-contract.yml
@@ -459,6 +463,7 @@ jobs:
       - gate_contract_live
       - gate_conformance
       - gate_security
+      - gate_security_findings
       - gate_sbom
       - gate_observability
       - gate_docs
@@ -520,6 +525,7 @@ jobs:
           S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
           S_CONFORMANCE: ${{ needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
+          S_SECURITY_FINDINGS: ${{ needs.gate_security_findings.outputs.overall_status || needs.gate_security_findings.result }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
           S_OBS: ${{ needs.gate_observability.outputs.overall_status || needs.gate_observability.result }}
           S_DOCS: ${{ needs.gate_docs.outputs.overall_status || needs.gate_docs.result }}
@@ -548,6 +554,7 @@ jobs:
           contract-live|$S_CONTRACT_LIVE
           conformance|$S_CONFORMANCE
           security|$S_SECURITY
+          security-findings|$S_SECURITY_FINDINGS
           sbom|$S_SBOM
           observability|$S_OBS
           docs|$S_DOCS

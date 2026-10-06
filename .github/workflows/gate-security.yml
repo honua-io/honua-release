@@ -65,6 +65,11 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   image-scan:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [honua-server, honua-console]
+        architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the immutable candidate inputs
@@ -77,13 +82,20 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0"
 
-      - name: Resolve pinned server image
+      - name: Resolve pinned component image
         id: img
         run: |
           set -euo pipefail
-          IMG="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml')).get('components',{}).get('honua-server',{}) or {}).get('image','') or '')")"
+          IMG="$(python - <<'PY'
+          import yaml
+          c = yaml.safe_load(open('platform-manifest.yaml'))['components']['${{ matrix.component }}']
+          image = c['image'].split('@', 1)[0]
+          if ':' in image.rsplit('/', 1)[-1]: image = image.rsplit(':', 1)[0]
+          print(f"{image}@{c['platformDigests']['${{ matrix.architecture }}']}")
+          PY
+          )"
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
-          echo "resolved server image: ${IMG:-<none>}"
+          echo "resolved ${{ matrix.component }} linux/${{ matrix.architecture }} image: ${IMG:-<none>}"
 
       - name: Pull image (blocked if unreachable)
         id: pull
@@ -117,7 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.pull.outputs.pulled }}" != "1" ]; then
-            S=blocked; W="server image not pullable (${{ steps.img.outputs.image }})"
+            S=blocked; W="${{ matrix.component }} linux/${{ matrix.architecture }} image not pullable (${{ steps.img.outputs.image }})"
           elif [ "${{ steps.trivy.outcome }}" = "success" ]; then
             S=pass; W="no ${SEVERITY} vulnerabilities in ${{ steps.img.outputs.image }}"
           else
@@ -129,7 +141,7 @@ jobs:
         if: always()
         uses: ./.github/actions/gate-fragment
         with:
-          gate: security-image
+          gate: security-image-${{ matrix.component }}-${{ matrix.architecture }}
           status: ${{ env.status || 'fail' }}
           source: ${{ env.source || 'image' }}
           why: ${{ env.why || 'job crashed before recording a result' }}
